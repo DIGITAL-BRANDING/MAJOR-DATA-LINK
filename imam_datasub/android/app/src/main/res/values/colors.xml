@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Notification icon accent color — matches brand primary -->
+    <color name="notification_color">#6C47FF</color>
+    <!-- Launch screen background -->
+    <color name="launch_background">#6C47FF</color>
+    <!-- Adaptive launcher icon background -->
+    <color name="launcher_background">#6C47FF</color>
+    <!-- Status bar color -->
+    <color name="status_bar">#00000000</color>
+</resources>

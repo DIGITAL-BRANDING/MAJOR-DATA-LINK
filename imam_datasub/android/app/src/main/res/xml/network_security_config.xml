@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Production default: HTTPS only. Debug builds get their own override
+         (see android/app/src/debug/res/xml/network_security_config.xml) that
+         permits cleartext to local dev hosts - that file is never packaged
+         into a release build, so this default applies as-is to what ships
+         to Play Store. -->
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+    <!-- This app's own backend API (Railway). This is the domain baseUrl in
+         app_config.dart actually talks to for auth, wallet, transactions, etc. -->
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">imamdatasubweb-production-4f62.up.railway.app</domain>
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+        <!-- Uncomment and add actual SHA-256 pins before Play Store release -->
+        <!--
+        <pin-set expiration="2026-01-01">
+            <pin digest="SHA-256">REPLACE_WITH_ACTUAL_BASE64_PIN=</pin>
+            <pin digest="SHA-256">REPLACE_WITH_BACKUP_BASE64_PIN=</pin>
+        </pin-set>
+        -->
+    </domain-config>
+
+    <!-- Alrahuz Data: a third-party VTU/data provider the BACKEND calls server-side
+         (see ALRAHUZ_BASE_URL in imam_datasub_backend/src/config/env.ts). The
+         Flutter app itself never talks to this domain directly - it's listed
+         here only in case any WebView/deep-link ever needs to reach it. -->
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">alrahuzdata.com.ng</domain>
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </domain-config>
+
+    <!-- Firebase domains -->
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">firebaseapp.com</domain>
+        <domain includeSubdomains="true">googleapis.com</domain>
+        <domain includeSubdomains="true">firebase.google.com</domain>
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </domain-config>
+</network-security-config>

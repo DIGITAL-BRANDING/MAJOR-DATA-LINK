@@ -1,0 +1,172 @@
+name: imam_datasub
+description: MAJOR DATA-LINK - Premium VTU & Fintech Platform
+publish_to: "none"
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.8.0 <4.0.0"
+  flutter: ">=3.32.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+
+  # ── State Management ──────────────────────────────────────
+  # NOTE: Riverpod 3.x is out but has real breaking changes (StateProvider
+  # moved to legacy.dart, AsyncValue.value semantics changed, etc).
+  # Staying on the latest 2.x line avoids a forced app-wide migration.
+  flutter_riverpod: ^2.6.1
+  riverpod_annotation: ^2.6.1
+  hooks_riverpod: ^2.6.1
+  flutter_hooks: ^0.21.2
+
+  # ── Navigation ────────────────────────────────────────────
+  # go_router 17.1.0+ bumps its Dart SDK floor to 3.9, which is above our
+  # Dart 3.8.1 target — 17.0.1 is the newest version still on the 3.7 floor.
+  go_router: ^17.0.1
+
+  # ── Networking ────────────────────────────────────────────
+  dio: ^5.9.0
+  pretty_dio_logger: ^1.4.0
+  connectivity_plus: ^6.1.5
+
+  # ── Firebase ──────────────────────────────────────────────
+  # These 8 packages are released together by the FlutterFire team and are
+  # only tested/guaranteed compatible against each other at matching release
+  # dates — mixing an old major with new ones is what usually causes pub
+  # resolution failures. Verified directly on pub.dev (all Min Dart SDK
+  # 3.2–3.6, well under our 3.8.1 target) as the current mutually-tested set.
+  firebase_core: ^4.11.0
+  cloud_firestore: ^6.6.0
+  firebase_messaging: ^16.4.0
+  firebase_crashlytics: ^5.2.4
+  firebase_analytics: ^12.4.3
+  firebase_remote_config: ^6.5.3
+  firebase_storage: ^13.4.2
+
+  # ── Local Storage ─────────────────────────────────────────
+  hive_flutter: ^1.1.0
+  flutter_secure_storage: ^9.2.4
+  shared_preferences: ^2.5.3
+  # Reads the Play Install Referrer string after an app install originating
+  # from a /ref/CODE link (see referral.routes.ts server-side, and
+  # main.dart's _capturePendingReferralCode). Android-only by design - iOS
+  # has no equivalent API, calls are guarded accordingly.
+  android_play_install_referrer: 0.4.0
+  path_provider: ^2.1.5
+
+  # ── UI / UX ───────────────────────────────────────────────
+  google_fonts: ^6.2.1
+  lottie: ^3.3.1
+  shimmer: ^3.0.0
+  flutter_animate: ^4.5.2
+  cached_network_image: ^3.4.1
+  smooth_page_indicator: ^1.2.1
+  carousel_slider: ^5.0.0
+  fl_chart: ^0.70.2
+  pin_code_fields: ^8.0.1
+  photo_view: ^0.15.0
+  flutter_svg: ^2.0.17
+  badges: ^3.1.2
+  shimmer_animation: ^2.2.1
+  skeletonizer: ^1.4.3
+
+  # ── Biometric & Security ──────────────────────────────────
+  local_auth: ^2.3.0
+  # flutter_jailbreak_detection removed: unmaintained since Jan 2023 (wraps
+  # an old Java Android implementation — same failure mode that broke
+  # file_picker), and grep confirmed it was never actually called anywhere
+  # in lib/. If root/jailbreak detection is needed later, use the
+  # maintained `root_jailbreak_sniffer` package instead (Gradle 8/Java 17
+  # support, near-identical API: Rjsniffer.amICompromised()).
+  device_info_plus: ^11.5.0
+  package_info_plus: ^8.3.1
+  encrypt: ^5.0.3
+  crypto: ^3.0.6
+  pointycastle: ^3.9.1
+
+  # ── Notifications ─────────────────────────────────────────
+  flutter_local_notifications: ^18.0.1
+
+  # ── Media & Files ─────────────────────────────────────────
+  # Bumped from 8.3.7: that version still used the old Java Android
+  # implementation, which broke compiling with our current Gradle
+  # 8.14.4 / AGP 8.11.1 toolchain ("package android.* does not exist").
+  # 10.1.1+ rewrote the Android side in Kotlin, fixing this; 11.0.1 also
+  # fixed AGP <9.0 backward-compat. NOTE breaking change: FilePicker
+  # methods are now static (FilePicker.pickFiles()) instead of instance
+  # based (FilePicker.platform.pickFiles()) — already updated in
+  # lib/features/bulk_sms/presentation/screens/bulk_sms_screen.dart.
+  file_picker: ^11.0.2
+
+  # ── Sharing / Export ─────────────────────────────────────
+  share_plus: ^10.1.4
+  pdf: ^3.11.3
+  printing: ^5.14.2
+  csv: ^6.0.0
+
+  # ── Utilities ─────────────────────────────────────────────
+  url_launcher: ^6.3.1
+  # contacts_service was removed: unmaintained since 2021, uses Flutter's
+  # old v1 embedding API (PluginRegistry.Registrar) which no longer exists,
+  # and it was not actually referenced anywhere in lib/. If contact-picking
+  # is needed later, use the maintained `flutter_contacts` package instead.
+  intl: ^0.20.2
+  dartz: ^0.10.1
+  equatable: ^2.0.7
+  freezed_annotation: ^2.4.4
+  json_annotation: ^4.9.0
+  uuid: ^4.5.1
+  logger: ^2.5.0
+  timeago: ^3.7.0
+  flutter_screenutil: ^5.9.3
+  visibility_detector: ^0.4.0+2
+  # NOTE: pull_to_refresh is unmaintained (last release 2022) and has known
+  # Impeller/Flutter-3.3x rendering glitches on some devices. No newer
+  # compatible release exists under the same API — `pull_to_refresh_flutter3`
+  # is a maintained drop-in fork worth switching to when convenient.
+  pull_to_refresh: ^2.0.0
+  infinite_scroll_pagination: ^4.1.0
+  flutter_staggered_animations: ^1.1.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  very_good_analysis: ^7.0.0
+  build_runner: ^2.4.15
+  riverpod_generator: ^2.6.3
+  # NOTE: hive_generator removed — it's dead weight right now (nothing in
+  # lib/ actually uses @HiveType/@HiveField/HiveObject; hive_storage.dart
+  # only calls Hive.box()/put()/get() directly). It's also permanently
+  # pinned to source_gen ^1.0.0, which hard-conflicts with freezed/
+  # json_serializable's source_gen ^2.0.0 — no version combo resolves that.
+  # If you add typed Hive models later, use `hive_ce_generator` instead
+  # (with `hive_ce`/`hive_ce_flutter` replacing `hive`/`hive_flutter`) — it's
+  # the actively maintained fork built to fix exactly this conflict, and is
+  # a near drop-in replacement (same API, `package:hive_ce_flutter/...`
+  # import instead of `package:hive_flutter/...`).
+  # NOTE: freezed 3.x requires rewriting model classes (new "abstract class"
+  # + mixed-mode syntax) — staying on the latest 2.x avoids that migration.
+  freezed: ^2.5.8
+  json_serializable: ^6.9.5
+  mocktail: ^1.0.4
+  flutter_gen_runner: ^5.8.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/animations/
+    - assets/icon/
+    - assets/images/
+    - assets/images/networks/
+    - assets/images/onboarding/
+
+  # NOTE: no local `fonts:` block — these TTF files never existed in the
+  # project (that's what was throwing the missing-asset-directory warnings).
+  # All actual text styling already goes through GoogleFonts.plusJakartaSans()
+  # in lib/core/theme/text_theme.dart, which fetches/caches the font at
+  # runtime, so nothing is lost by not bundling local font files.
+

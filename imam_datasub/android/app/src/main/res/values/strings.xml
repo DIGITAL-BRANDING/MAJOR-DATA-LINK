@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">MAJOR DATA-LINK</string>
+    <string name="notification_channel_name">MAJOR DATA-LINK</string>
+    <string name="notification_channel_description">Transaction alerts and app notifications</string>
+</resources>
+

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Data extraction rules for Android 12+.
+    Prevents ALL sensitive data from being extracted via backup or migration.
+    This is critical for a fintech app handling wallet balances and auth tokens.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <!-- Block everything from cloud backup -->
+        <exclude domain="root" path="." />
+        <exclude domain="file" path="." />
+        <exclude domain="database" path="." />
+        <exclude domain="sharedpref" path="." />
+        <exclude domain="cache" path="." />
+        <exclude domain="external" path="." />
+    </cloud-backup>
+    <device-transfer>
+        <!-- Block device-to-device transfers for security -->
+        <exclude domain="root" path="." />
+        <exclude domain="file" path="." />
+        <exclude domain="database" path="." />
+        <exclude domain="sharedpref" path="." />
+        <exclude domain="cache" path="." />
+        <exclude domain="external" path="." />
+    </device-transfer>
+</data-extraction-rules>

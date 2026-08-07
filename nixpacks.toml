@@ -1,0 +1,14 @@
+[phases.setup]
+nixpkgsArchive = "51ad838b03a05b1de6f9f2a0fffecee64a9788ee"
+nixPkgs = ["nodejs_22"]
+
+[phases.install]
+cmds = [
+  "cd imam_datasub_backend && NPM_CONFIG_PRODUCTION=false npm ci --cache /tmp/.npm --no-audit --no-fund"
+]
+
+[phases.build]
+cmds = [
+  "cd imam_datasub_backend && npm run prisma:generate",
+  "cd imam_datasub_backend && npm run build"
+]

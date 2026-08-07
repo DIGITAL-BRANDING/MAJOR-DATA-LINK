@@ -1,0 +1,113 @@
+import React from 'react';
+import { Box, H2, H4, Icon, Text } from '@adminjs/design-system';
+
+const ADMIN_ROOT_PATH = '/admin';
+
+type QuickLink = {
+  label: string;
+  description: string;
+  resourceId: string;
+  icon: string;
+};
+
+// One card per resource an admin actually works with day-to-day. Kept in the
+// same grouping order as the sidebar navigation (Customers, Ledger, Products,
+// Wallet, Communication, Access Control) so the dashboard reads as a map of
+// the sidebar rather than a separate, unrelated list.
+const quickLinks: QuickLink[] = [
+  { label: 'Customers', description: 'Users, KYC status & profiles', resourceId: 'User', icon: 'Users' },
+  { label: 'Ledger', description: 'Transactions, reversals & history', resourceId: 'Transaction', icon: 'List' },
+  {
+    label: 'Data Plan Pricing',
+    description: 'Set prices for data plans',
+    resourceId: 'DataPlanPricing',
+    icon: 'ShoppingCart'
+  },
+  { label: 'Coupons', description: 'Discount codes & promotions', resourceId: 'Coupon', icon: 'CreditCard' },
+  {
+    label: 'Provider Balance',
+    description: 'VTU provider wallet status',
+    resourceId: 'ProviderBalanceStatus',
+    icon: 'AlertTriangle'
+  },
+  {
+    label: 'Referral Settings',
+    description: 'Referral reward configuration',
+    resourceId: 'ReferralSettings',
+    icon: 'Percent'
+  },
+  {
+    label: 'Notifications',
+    description: 'Broadcast messages to users',
+    resourceId: 'NotificationBroadcast',
+    icon: 'Bell'
+  },
+  { label: 'Admin Users', description: 'Admin accounts & roles', resourceId: 'AdminUser', icon: 'Shield' },
+  { label: 'Audit Log', description: 'Admin activity history', resourceId: 'AdminAuditLog', icon: 'FileText' }
+];
+
+const Dashboard: React.FC = () => (
+  <Box>
+    <Box
+      position="relative"
+      overflow="hidden"
+      py="xxl"
+      px={['default', 'lg', 'xxl']}
+      style={{ background: 'linear-gradient(135deg, #6C47FF 0%, #3D5AFE 100%)' }}
+    >
+      <Box display="flex" alignItems="center" flexDirection={['column', 'row']}>
+        <Box mr={['0', 'xl']} mb={['lg', '0']}>
+          <img
+            src="/branding/logo.png"
+            alt="MAJOR DATA-LINK"
+            style={{ width: 96, height: 96, borderRadius: 20, display: 'block' }}
+          />
+        </Box>
+        <Box>
+          <H2 color="white" fontWeight="bold">
+            Welcome to MAJOR DATA-LINK Admin
+          </H2>
+          <Text color="white" style={{ opacity: 0.85 }}>
+            Manage customers, transactions, data plans and more from one place.
+          </Text>
+        </Box>
+      </Box>
+    </Box>
+
+    <Box px={['default', 'lg', 'xxl']} py="xl">
+      <H4 mb="lg">Quick links</H4>
+      <Box display="flex" flexWrap="wrap" style={{ gap: 20 }}>
+        {quickLinks.map((link) => (
+          <a
+            key={link.resourceId}
+            href={`${ADMIN_ROOT_PATH}/resources/${link.resourceId}`}
+            style={{ textDecoration: 'none', display: 'block', width: 280, flexGrow: 1, maxWidth: 340 }}
+          >
+            <Box variant="white" boxShadow="card" p="lg" style={{ cursor: 'pointer', height: '100%' }}>
+              <Box display="flex" alignItems="center" mb="default">
+                <Icon
+                  icon={link.icon}
+                  color="#6C47FF"
+                  bg="rgba(108, 71, 255, 0.1)"
+                  rounded
+                  size={22}
+                  p="default"
+                  mr="default"
+                />
+                <Text fontWeight="bold" color="grey100">
+                  {link.label}
+                </Text>
+              </Box>
+              <Text fontSize="sm" color="grey60">
+                {link.description}
+              </Text>
+            </Box>
+          </a>
+        ))}
+      </Box>
+    </Box>
+  </Box>
+);
+
+export default Dashboard;
+

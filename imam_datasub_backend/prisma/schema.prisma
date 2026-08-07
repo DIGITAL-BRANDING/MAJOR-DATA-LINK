@@ -1,0 +1,365 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  // Used for normal app queries at runtime - goes through Supabase's
+  // PgBouncer transaction pooler (port 6543), which scales much better
+  // under load from the running server.
+  url       = env("DATABASE_URL")
+  // Used ONLY by `prisma migrate deploy` / `prisma db push`. Migrations run
+  // DDL statements and take an advisory lock, neither of which PgBouncer's
+  // transaction-pooling mode supports - so migrations must go through a
+  // direct, non-pooled connection (Supabase port 5432) or they hang forever.
+  directUrl = env("DIRECT_URL")
+}
+
+enum AccountStatus {
+  ACTIVE
+  DEACTIVATED
+  DELETED
+}
+
+enum KycStatus {
+  UNVERIFIED
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum TransactionStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  REVERSED
+}
+
+enum TransactionType {
+  WALLET_FUNDING
+  WALLET_TRANSFER
+  DATA_PURCHASE
+  AIRTIME_PURCHASE
+  ELECTRICITY_PURCHASE
+  CABLE_PURCHASE
+  RESULT_PIN
+  SMS
+  WITHDRAWAL
+  REFERRAL_COMMISSION
+  MANUAL_ADJUSTMENT
+  COUPON_REDEMPTION
+}
+
+enum AdminRole {
+  SUPER_ADMIN
+  FINANCE
+  SUPPORT
+}
+
+enum NotificationType {
+  TRANSACTION
+  WALLET
+  KYC
+  PROMO
+  ADMIN_BROADCAST
+  SYSTEM
+}
+
+enum NotificationAudience {
+  ALL_USERS
+  SPECIFIC_USERS
+  KYC_VERIFIED_ONLY
+}
+
+model User {
+  id                   String         @id
+  fullName             String
+  email                String         @unique
+  phone                String         @unique
+  passwordHash         String?
+  photoUrl             String?
+  walletBalanceKobo    BigInt         @default(0)
+  referralCode         String         @unique
+  referredByCode       String?
+  referralEarningsKobo BigInt         @default(0) // current unwithdrawn ("pending") commission balance
+  referralWithdrawnKobo BigInt        @default(0) // lifetime total moved into the wallet via /referral/withdraw
+  kycStatus            KycStatus      @default(UNVERIFIED)
+  emailVerified        Boolean        @default(false)
+  phoneVerified        Boolean        @default(false)
+  pinHash              String?
+  pinFailures          Int            @default(0)
+  pinLockedUntil       DateTime?
+  loginPinHash         String?
+  loginPinFailures     Int            @default(0)
+  loginPinLockedUntil  DateTime?
+  passwordFailures     Int            @default(0)
+  passwordLockedUntil  DateTime?
+  virtualAccountNumber String?
+  virtualAccountBank   String?
+  paystackCustomerCode String?
+  bvnLast4             String?
+  bvnVerifiedAt        DateTime?
+  kycFailureReason     String?
+
+  // Account lifecycle - checked immediately in auth middleware so
+  // deactivation/deletion takes effect right away, rather than waiting for
+  // the current access token to naturally expire.
+  accountStatus        AccountStatus @default(ACTIVE)
+  deactivatedAt        DateTime?
+  deletionReason       String?
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+  transactions         Transaction[]
+  refreshTokens        RefreshToken[]
+  redeemedCoupons      Coupon[]
+  deviceTokens         DeviceToken[]
+  notifications        Notification[]
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+}
+
+model Transaction {
+  id                String            @id
+  userId            String
+  type              TransactionType
+  status            TransactionStatus @default(PENDING)
+  amountKobo        BigInt
+  balanceBeforeKobo BigInt
+  balanceAfterKobo  BigInt
+  provider          String?
+  providerRef       String?
+  reference         String            @unique
+  idempotencyKey    String?
+  description       String
+  metadata          Json?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  user              User              @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt])
+  @@unique([userId, idempotencyKey])
+}
+
+model DataPlanPricing {
+  id               String   @id @default(uuid())
+  provider         String   @default("alrahuz")
+  providerPlanId   String
+  network          String
+  networkId        Int
+  planType         String?
+  name             String
+  validity         String?
+  providerCostKobo BigInt
+  sellingPriceKobo BigInt?
+  isActive         Boolean  @default(true)
+  lastSeenAt       DateTime @default(now())
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([provider, providerPlanId])
+  @@index([network, isActive])
+  @@index([networkId, isActive])
+}
+
+/// Prepaid funding codes ("Fund with Coupon" in the app) â€” generated by an admin
+/// (see CouponResource in AdminJS), sold/shared out-of-band (e.g. via WhatsApp),
+/// and redeemed once by a user to credit their wallet.
+
+model ServicePricing {
+  id               String   @id @default(uuid())
+  service          String   @unique
+  provider         String   @default("alrahuz")
+  label            String
+  providerCostKobo BigInt
+  sellingPriceKobo BigInt?
+  isActive         Boolean  @default(true)
+  metadata         Json?
+  lastSyncedAt     DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([isActive])
+}
+enum TicketStatus {
+  OPEN
+  PENDING
+  CLOSED
+}
+
+enum TicketSender {
+  USER
+  ADMIN
+}
+
+model SupportTicket {
+  id        String              @id @default(uuid())
+  userId    String
+  subject   String
+  status    TicketStatus        @default(OPEN)
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+  messages  SupportTicketMessage[]
+
+  @@index([userId])
+  @@index([status])
+}
+
+model SupportTicketMessage {
+  id         String        @id @default(uuid())
+  ticketId   String
+  ticket     SupportTicket @relation(fields: [ticketId], references: [id])
+  senderType TicketSender
+  // senderId is the User.id or AdminUser.id depending on senderType - not a
+  // Prisma relation since it points at two different tables.
+  senderId   String
+  senderName String
+  message    String
+  createdAt  DateTime      @default(now())
+
+  @@index([ticketId])
+}
+// Singleton row (id is always "default") holding admin-editable referral
+// program settings. Read fresh by referral.service.ts on every relevant
+// call - traffic here is low enough (one read per purchase/withdrawal/stats
+// view) that caching isn't worth the staleness risk of an admin changing
+// the rate and it not taking effect immediately.
+model ReferralSettings {
+  id                String   @id @default("default")
+  isEnabled         Boolean  @default(true)
+  commissionRate    Float    @default(0.02) // 0.02 = 2%
+  minWithdrawalKobo BigInt   @default(50000) // 50000 kobo = NGN 500
+  updatedAt         DateTime @updatedAt
+}
+model Coupon {
+  id               String    @id @default(uuid())
+  code             String    @unique
+  valueKobo        BigInt
+  isRedeemed       Boolean   @default(false)
+  redeemedByUserId String?
+  redeemedAt       DateTime?
+  createdByAdminId String?
+  note             String?
+  expiresAt        DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  redeemedBy       User?     @relation(fields: [redeemedByUserId], references: [id])
+
+  @@index([isRedeemed])
+}
+
+/// Tracks the reseller's own balance AT Alrahuz (the upstream VTU provider) â€”
+/// a completely separate ledger from any customer's in-app wallet. Alrahuz
+/// requires this to be pre-funded before it will fulfill any purchase; if it
+/// runs dry, purchases fail regardless of the customer's own balance. Updated
+/// opportunistically from the `balance_after` field Alrahuz returns on every
+/// purchase response â€” this is a read-only mirror of Alrahuz's own number,
+/// not a balance this app manages.
+model ProviderBalanceStatus {
+  provider              String    @id
+  lastKnownBalance      Float
+  lastCheckedAt         DateTime  @updatedAt
+  lowBalanceAlertSentAt DateTime?
+}
+
+/// A single push-notification-capable device/browser registered to a user (FCM token).
+/// Scoping this to userId is what makes it possible to push a notification to ONE
+/// specific person instead of every device that has ever registered a token â€” the
+/// FCM `token` itself is only unique per install, so it (not the userId) is the
+/// unique key: if the same physical device later logs in as a different user (e.g.
+/// shared/demo device), the token is re-owned to that new user rather than kept
+/// duplicated under the old one.
+model DeviceToken {
+  id         String    @id @default(uuid())
+  userId     String
+  token      String    @unique
+  platform   String? // 'android' | 'ios' | 'web'
+  lastSeenAt DateTime  @default(now())
+  createdAt  DateTime  @default(now())
+  user       User      @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+}
+
+/// One row per (recipient, message). Personal alerts (funding, purchases, KYC
+/// updates, etc.) are created with a single row for the one affected userId.
+/// Admin broadcasts fan out into one row per targeted recipient at send time
+/// (see NotificationBroadcast) so every user has their own independent isRead
+/// state and no query ever has to join against "who else has read this" â€”
+/// this is what guarantees one user's notification feed and unread badge can
+/// never be affected by another user's activity.
+model Notification {
+  id          String            @id @default(uuid())
+  userId      String
+  type        NotificationType  @default(SYSTEM)
+  title       String
+  body        String
+  data        Json?
+  isRead      Boolean           @default(false)
+  readAt      DateTime?
+  broadcastId String?
+  createdAt   DateTime          @default(now())
+  user        User              @relation(fields: [userId], references: [id])
+  broadcast   NotificationBroadcast? @relation(fields: [broadcastId], references: [id])
+
+  @@index([userId, createdAt])
+  @@index([userId, isRead])
+}
+
+/// Audit record of one admin "send a message to users" action (e.g. a price-change
+/// announcement or maintenance notice). This is the send event itself â€” the actual
+/// per-user Notification rows it fans out to are linked back via broadcastId, so an
+/// admin can see exactly who a given broadcast reached and how many have read it,
+/// without that fan-out affecting any individual user's own notification query.
+model NotificationBroadcast {
+  id               String                @id @default(uuid())
+  createdByAdminId String
+  createdByAdmin   AdminUser             @relation(fields: [createdByAdminId], references: [id])
+  type             NotificationType      @default(ADMIN_BROADCAST)
+  title            String
+  body             String
+  audience         NotificationAudience  @default(ALL_USERS)
+  targetUserIds    Json?
+  recipientCount   Int                   @default(0)
+  createdAt        DateTime              @default(now())
+  notifications    Notification[]
+
+  @@index([createdByAdminId, createdAt])
+}
+
+model AdminUser {
+  id           String          @id @default(uuid())
+  email        String          @unique
+  passwordHash String
+  fullName     String
+  role         AdminRole       @default(SUPPORT)
+  isActive     Boolean         @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  auditLogs    AdminAuditLog[]
+  sentBroadcasts NotificationBroadcast[]
+}
+
+model AdminAuditLog {
+  id         String    @id @default(uuid())
+  adminId    String
+  admin      AdminUser @relation(fields: [adminId], references: [id])
+  action     String
+  targetType String
+  targetId   String?
+  metadata   Json?
+  createdAt  DateTime  @default(now())
+
+  @@index([adminId, createdAt])
+  @@index([targetType, targetId])
+}

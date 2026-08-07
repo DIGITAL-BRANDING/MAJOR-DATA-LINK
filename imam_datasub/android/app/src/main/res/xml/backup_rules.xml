@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Backup rules for Android 11 and below.
+    Excludes sensitive data from cloud backup.
+-->
+<full-backup-content>
+    <!-- Exclude all SharedPreferences (tokens, PIN hashes) -->
+    <exclude domain="sharedpref" path="." />
+    <!-- Exclude internal files (Hive encrypted boxes) -->
+    <exclude domain="file" path="." />
+    <!-- Exclude database -->
+    <exclude domain="database" path="." />
+    <!-- Exclude cache -->
+    <exclude domain="cache" path="." />
+    <!-- Exclude external storage -->
+    <exclude domain="externalCache" path="." />
+    <exclude domain="externalFile" path="." />
+</full-backup-content>

@@ -1,0 +1,21 @@
+include: package:very_good_analysis/analysis_options.yaml
+
+# very_good_analysis is built for published packages and is intentionally
+# very strict. Disabling the handful of rules below that generated the bulk
+# of the noise on this app's existing codebase — none of these are
+# correctness issues, just style preferences. Re-enable any of them
+# gradually whenever you want stricter enforcement.
+linter:
+  rules:
+    # Demands a doc comment on every public class/method/field. Standard for
+    # a published package's public API, but very noisy for app-internal code.
+    public_member_api_docs: false
+    # Purely cosmetic reordering of dependencies in pubspec.yaml — conflicts
+    # with the categorized/commented grouping already in this pubspec.yaml.
+    sort_pub_dependencies: false
+    # Flags passing a value that happens to equal a parameter's default.
+    # Harmless and often makes call sites more explicit/readable.
+    avoid_redundant_argument_values: false
+    # Requires required named params to be listed before optional ones.
+    # Pure style, no behavioral difference.
+    always_put_required_named_parameters_first: false

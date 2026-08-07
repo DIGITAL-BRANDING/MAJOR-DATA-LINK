@@ -1,0 +1,157 @@
+plugins {
+    id "com.android.application"
+    id "kotlin-android"
+    id "dev.flutter.flutter-gradle-plugin"
+    id "com.google.gms.google-services"
+    id "com.google.firebase.crashlytics"
+}
+
+def localProperties = new Properties()
+def localPropertiesFile = rootProject.file('local.properties')
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.withReader('UTF-8') { reader ->
+        localProperties.load(reader)
+    }
+}
+
+def flutterVersionCode = localProperties.getProperty('flutter.versionCode')
+if (flutterVersionCode == null) flutterVersionCode = '1'
+
+def flutterVersionName = localProperties.getProperty('flutter.versionName')
+if (flutterVersionName == null) flutterVersionName = '1.0'
+
+def keystoreProperties = new Properties()
+def keystorePropertiesFile = rootProject.file('key.properties')
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+
+android {
+    namespace "com.imamdatasub.app"
+    // Bumped from 35: androidx.browser 1.9.0, activity(-ktx) 1.12.4, and
+    // core(-ktx) 1.18.0 (pulled in transitively by share_plus/firebase
+    // plugins) require compiling against API 36 or later.
+    compileSdk 36
+    ndkVersion flutter.ndkVersion
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+        // Required by flutter_local_notifications 10+ (uses java.time APIs
+        // internally for scheduled notifications) - without this, the build
+        // fails with "Dependency ':flutter_local_notifications' requires
+        // core library desugaring to be enabled for :app".
+        coreLibraryDesugaringEnabled true
+    }
+
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+
+    sourceSets {
+        main.java.srcDirs += 'src/main/kotlin'
+    }
+
+    defaultConfig {
+        applicationId "com.imamdatasub.app"
+        minSdkVersion flutter.minSdkVersion
+        targetSdk 35
+        versionCode flutterVersionCode.toInteger()
+        versionName flutterVersionName
+        multiDexEnabled true
+
+        // Enable multidex for large apps
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    signingConfigs {
+        release {
+            keyAlias keystoreProperties['keyAlias']
+            keyPassword keystoreProperties['keyPassword']
+            storeFile keystoreProperties['storeFile'] ? file(keystoreProperties['storeFile']) : null
+            storePassword keystoreProperties['storePassword']
+        }
+    }
+
+    buildTypes {
+        debug {
+            // Keep the debug application id aligned with google-services.json.
+            // A separate ".debug" Firebase Android app can be added later if needed.
+            versionNameSuffix "-debug"
+            debuggable true
+            minifyEnabled false
+            shrinkResources false
+            signingConfig signingConfigs.debug
+        }
+
+        release {
+            signingConfig signingConfigs.release
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+
+            // Firebase Crashlytics mapping file upload
+            firebaseCrashlytics {
+                mappingFileUploadEnabled true
+            }
+        }
+    }
+
+    // NOTE: ABI splitting is intentionally NOT configured here.
+    // Recent versions of the Flutter Gradle plugin automatically set
+    // android.defaultConfig.ndk.abiFilters for non-debuggable builds, which
+    // conflicts with (and is mutually exclusive with) a manual `splits.abi`
+    // block - Gradle throws "Conflicting configuration" if both are present.
+    // To get per-ABI split APKs for release, use Flutter's own flag instead:
+    //   flutter build apk --split-per-abi
+    // This produces app-armeabi-v7a-release.apk, app-arm64-v8a-release.apk,
+    // and app-x86_64-release.apk without touching this file.
+
+    bundle {
+        language {
+            enableSplit = false
+        }
+    }
+
+    lint {
+        disable 'InvalidPackage'
+        checkReleaseBuilds false
+    }
+}
+
+flutter {
+    source '../..'
+}
+
+dependencies {
+    // The Kotlin Gradle plugin (applied above) already adds kotlin-stdlib automatically.
+    implementation 'androidx.multidex:multidex:2.0.1'
+
+    // Required alongside coreLibraryDesugaringEnabled above (flutter_local_notifications).
+    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'
+
+    // Precaution per flutter_local_notifications' own docs: enabling desugaring
+    // has been reported to cause crashes on Android 12L+ without these.
+    implementation 'androidx.window:window:1.0.0'
+    implementation 'androidx.window:window-java:1.0.0'
+
+    // Play Integrity API
+    implementation 'com.google.android.play:integrity:1.3.0'
+
+    // Biometric
+    implementation 'androidx.biometric:biometric:1.1.0'
+
+    // Core KTX
+    implementation 'androidx.core:core-ktx:1.13.1'
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+
+    // Security
+    implementation 'androidx.security:security-crypto:1.0.0'
+
+    // WorkManager (for background sync)
+    implementation 'androidx.work:work-runtime-ktx:2.9.1'
+
+    testImplementation 'junit:junit:4.13.2'
+    androidTestImplementation 'androidx.test.ext:junit:1.2.1'
+    androidTestImplementation 'androidx.test.espresso:espresso-core:3.6.1'
+}

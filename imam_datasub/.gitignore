@@ -1,0 +1,63 @@
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+build/
+*.iml
+*.ipr
+*.iws
+.idea/
+.vscode/
+*.log
+
+# Android
+android/local.properties
+android/key.properties
+android/.gradle
+android/captures/
+android/gradlew
+android/gradlew.bat
+android/gradle/wrapper/
+*.jks
+*.keystore
+
+# iOS
+ios/Flutter/flutter_export_environment.sh
+ios/.symlinks
+ios/Pods/
+ios/Runner/GoogleService-Info.plist
+
+# Firebase — NEVER commit these
+google-services.json
+GoogleService-Info.plist
+lib/core/config/firebase_options.dart
+
+# Environment files — contain API keys
+.env
+.env.development
+.env.staging
+.env.production
+
+# Generated files
+*.g.dart
+*.freezed.dart
+*.gr.dart
+
+# Coverage
+coverage/
+*.lcov
+
+# Build artifacts
+*.aab
+*.apk
+*.ipa
+symbols/
+
+# macOS
+.DS_Store
+
+# Debug info (Crashlytics)
+symbols/

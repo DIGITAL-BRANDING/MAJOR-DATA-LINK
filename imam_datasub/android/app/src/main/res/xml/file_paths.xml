@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Cache directory for temporary receipt PDFs -->
+    <cache-path name="cache" path="." />
+    <!-- External cache for sharing -->
+    <external-cache-path name="external_cache" path="." />
+    <!-- App documents directory for downloaded receipts -->
+    <files-path name="files" path="." />
+    <!-- External files -->
+    <external-files-path name="external_files" path="." />
+</paths>

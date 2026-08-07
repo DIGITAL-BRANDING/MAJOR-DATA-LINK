@@ -1,0 +1,85 @@
+// Several Prisma models (Transaction, Coupon, DataPlanPricing) use BigInt
+// columns for kobo-denominated amounts, since Postgres's `bigint` type maps
+// to JS BigInt in Prisma. Node's JSON.stringify has no built-in support for
+// BigInt and throws "Do not know how to serialize a BigInt" the moment any
+// response - including AdminJS's own list/show/edit responses - tries to
+// send one. Kobo amounts in this app are nowhere near Number.MAX_SAFE_INTEGER
+// (2^53), so converting to Number here is lossless for any realistic
+// transaction size. Must run before any other module that could trigger a
+// JSON.stringify of a BigInt value, hence it's the very first thing here.
+(BigInt.prototype as unknown as { toJSON: () => number }).toJSON = function toJSON(
+  this: bigint
+) {
+  return Number(this);
+};
+
+import { env } from './config/env.js';
+import { createApp } from './app.js';
+import { prisma } from './lib/prisma.js';
+
+process.on('uncaughtException', (error) => {
+  console.error('[server] uncaught exception', error);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[server] unhandled rejection', reason);
+  process.exit(1);
+});
+
+async function startServer() {
+  try {
+    // MOCK_PROVIDER defaults to true when unset (see env.ts) - safe for local
+    // dev, but if it's ever unset on a production deploy, data plans, purchases,
+    // and the provider wallet balance shown in the admin dashboard will all be
+    // fake/static instead of real Alrahuz data, with no visible error. Shout
+    // about it loudly here so a missing Railway env var doesn't go unnoticed.
+    if (env.NODE_ENV === 'production' && env.MOCK_PROVIDER) {
+      console.error(
+        '[server] WARNING: NODE_ENV=production but MOCK_PROVIDER is true (unset or not "false"). ' +
+          'Data plans, purchases, and the provider wallet balance are all running on MOCK data. ' +
+          'Set MOCK_PROVIDER=false in the Railway environment variables to use real Alrahuz data.'
+      );
+    }
+
+    console.log('[server] Creating Express app');
+    const app = createApp();
+
+    const server = app.listen(env.PORT, '0.0.0.0', () => {
+      console.log(`MAJOR DATA-LINK backend listening on port ${env.PORT}`);
+    });
+
+    server.on('error', (err: NodeJS.ErrnoException) => {
+      if (err.code === 'EADDRINUSE') {
+        console.error(`[server] Port ${env.PORT} is already in use`);
+      } else {
+        console.error('[server] listen error', err);
+      }
+      process.exit(1);
+    });
+
+    const shutdownSignals: NodeJS.Signals[] = ['SIGTERM', 'SIGINT'];
+    shutdownSignals.forEach((signal) => {
+      process.on(signal, () => {
+        console.log(`[server] Received ${signal}, shutting down gracefully`);
+        server.close(async () => {
+          await prisma.$disconnect();
+          console.log('[server] Server closed, database disconnected');
+          process.exit(0);
+        });
+
+        setTimeout(() => {
+          console.error('[server] Forced shutdown after 10s timeout');
+          process.exit(1);
+        }, 10_000);
+      });
+    });
+  } catch (error) {
+    console.error('[server] Failed to start server', error);
+    await prisma.$disconnect();
+    process.exit(1);
+  }
+}
+
+void startServer();
+

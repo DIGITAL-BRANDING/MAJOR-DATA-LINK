@@ -1,0 +1,203 @@
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+subprojects { subproject ->
+    subproject.buildscript.configurations.configureEach { configuration ->
+        configuration.resolutionStrategy.eachDependency { details ->
+            if (details.requested.group == "org.jetbrains.kotlin") {
+                details.useVersion("2.2.20")
+                details.because("Keep Flutter plugin buildscript classpaths aligned with the root Kotlin plugin and avoid stale Kotlin 1.8.22 downloads.")
+            }
+            if (details.requested.group == "com.android.tools.build" && details.requested.name == "gradle") {
+                details.useVersion("8.11.1")
+                details.because("Keep Flutter plugin buildscript classpaths aligned with the root Android Gradle Plugin.")
+            }
+        }
+    }
+}
+
+rootProject.buildDir = '../build'
+subprojects {
+    project.buildDir = "${rootProject.buildDir}/${project.name}"
+}
+subprojects {
+    project.evaluationDependsOn(':app')
+}
+
+tasks.register("clean", Delete) {
+    delete rootProject.buildDir
+}
+
+// --- Compatibility patch for old/unmaintained plugins ---
+// Some pub.dev packages (e.g. contacts_service, last updated ~2021) predate
+// AGP's requirement to declare a `namespace` in their android/build.gradle.
+// Newer AGP versions refuse to configure them ("Namespace not specified").
+// This reads the `package` attribute from each such plugin's own
+// AndroidManifest.xml and applies it as the namespace automatically, so we
+// don't have to hand-patch files inside the pub cache (which get wiped on
+// every `flutter pub get`).
+subprojects { subproject ->
+    def applyLegacyNamespaceFix = {
+        def androidExtension = subproject.extensions.findByName("android")
+        if (androidExtension != null && androidExtension.hasProperty("namespace") && androidExtension.namespace == null) {
+            def manifestFile = subproject.file("src/main/AndroidManifest.xml")
+            if (manifestFile.exists()) {
+                def manifestXml = new groovy.xml.XmlSlurper().parse(manifestFile)
+                def packageName = manifestXml.@package.text()
+                if (packageName) {
+                    androidExtension.namespace = packageName
+                    logger.lifecycle("Applied fallback namespace '${packageName}' to legacy plugin ':${subproject.name}'")
+                }
+            }
+        }
+    }
+
+    // Some subprojects (notably :app, due to evaluationDependsOn above) may
+    // already be evaluated by the time this block runs, and Gradle throws if
+    // you call afterEvaluate on an already-evaluated project. Guard for that.
+    if (subproject.state.executed) {
+        applyLegacyNamespaceFix()
+    } else {
+        subproject.afterEvaluate {
+            applyLegacyNamespaceFix()
+        }
+    }
+}
+
+// --- Compatibility patch: align Java/Kotlin JVM targets for old plugins ---
+// Some pub.dev packages (e.g. flutter_jailbreak_detection) hardcode Java 1.8
+// in their own android/build.gradle, while Kotlin compiles against whatever
+// JDK is installed on the machine (often 17 or 21). Gradle then fails with
+// "Inconsistent JVM-target compatibility detected for tasks
+// 'compileDebugJavaWithJavac' and 'compileDebugKotlin'".
+//
+// Two earlier approaches both failed:
+//  1. afterEvaluate — AGP registers its OWN afterEvaluate hook (which
+//     re-applies 1.8) at plugin application time, and since Gradle runs
+//     afterEvaluate callbacks in registration order, AGP's hook still ran
+//     after ours and silently reverted it.
+//  2. doFirst on the JavaCompile task — this runs too late in a different
+//     way: Kotlin's JVM-target compatibility check happens *inside*
+//     compileDebugKotlin's own execution, and since Kotlin sources compile
+//     before Java sources in a mixed module, compileDebugKotlin (and its
+//     internal check) runs and fails BEFORE compileDebugJavaWithJavac (and
+//     our doFirst on it) ever starts.
+//
+// gradle.projectsEvaluated fixes both problems at once: it only fires once
+// the ENTIRE multi-project build has finished its configuration phase for
+// EVERY project — guaranteed to be after all afterEvaluate hooks from every
+// source (ours, AGP's, Kotlin's) have already run, and still guaranteed to
+// happen before the execution phase (i.e. before any task, including
+// compileDebugKotlin, actually starts running).
+// --- Compatibility patch: force Kotlin plugin onto pure-Java plugin modules ---
+// ROOT CAUSE (confirmed across 4 separate old plugins: file_picker 8.3.7,
+// open_file_android 1.1.0, permission_handler_android 12.1.0, printing
+// 5.14.3): every one of them shipped a pure-Java android/build.gradle with
+// ZERO Kotlin present. Under our Gradle 8.14.4 / AGP 8.11.1 / JDK 21
+// toolchain, AGP has a known bug where pure-Java-only library modules can
+// fail to get android.jar wired onto their compileDebugJavaWithJavac
+// classpath at all -- producing "package android.* does not exist" for
+// every single import, even though the SDK platform is installed correctly.
+// Modules that apply the Kotlin Android plugin (even with zero .kt files)
+// never hit this bug -- confirmed empirically: every KGP-applying plugin in
+// this project (share_plus, firebase_analytics, etc, and file_picker after
+// its 11.x upgrade) compiles fine every time.
+//
+// This was NOT fixed by forcing compileSdk (see patch below) -- that theory
+// was tested and disproven when open_file_android/permission_handler_android/
+// printing kept failing identically even with compileSdk forced to 36.
+//
+// Fix: force-apply org.jetbrains.kotlin.android onto every android library
+// module that doesn't already have it. This is a standard, harmless
+// workaround -- the Kotlin compiler simply no-ops on modules with no .kt
+// files, but its presence fixes AGP's classpath wiring for that module.
+subprojects { subproject ->
+    subproject.plugins.withId("com.android.library") {
+        if (!subproject.plugins.hasPlugin("org.jetbrains.kotlin.android")) {
+            subproject.apply plugin: "org.jetbrains.kotlin.android"
+            logger.lifecycle("Applied Kotlin Android plugin to pure-Java legacy plugin ':${subproject.name}' to fix AGP boot-classpath wiring bug")
+        }
+    }
+}
+
+gradle.projectsEvaluated {
+    subprojects.each { subproject ->
+        subproject.plugins.withId("org.jetbrains.kotlin.android") {
+            subproject.tasks.withType(JavaCompile).configureEach {
+                sourceCompatibility = "17"
+                targetCompatibility = "17"
+            }
+            subproject.tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+                kotlinOptions {
+                    jvmTarget = "17"
+                }
+            }
+        }
+    }
+}
+
+// --- Compatibility patch: force a modern compileSdk on every plugin ---
+// Root cause discovered across THREE separate old/unmaintained plugins so
+// far (file_picker 8.3.7, open_file_android 1.1.0, permission_handler_android
+// 12.1.0): each ships an android/build.gradle that either omits compileSdk
+// entirely or hardcodes a stale value from years ago. When that happens
+// under our Gradle 8.14.4 / AGP 8.11.1 / JDK 21 toolchain, AGP silently fails
+// to put android.jar on that module's compileDebugJavaWithJavac classpath at
+// all — producing "package android.* does not exist" for every single
+// android.* import, even though the SDK platform is correctly installed.
+// This is NOT a per-plugin bug we can fix by upgrading one package at a
+// time; it's systemic. So instead of playing whack-a-mole, force every
+// android subproject (library or application) to compile against the same
+// modern SDK level :app already uses, unconditionally overriding whatever
+// (or nothing) the plugin's own script declared.
+//
+// Uses the exact same subprojects+afterEvaluate timing as the namespace fix
+// above, for the same reason: our afterEvaluate callback is registered
+// during root project configuration (before the subproject's own script
+// even runs), so it executes BEFORE AGP's own afterEvaluate hook that
+// creates build variants and wires up the boot classpath — meaning our
+// override is guaranteed to be the value AGP actually uses.
+def FORCED_COMPILE_SDK = 36
+subprojects { subproject ->
+    def applyCompileSdkFix = {
+        def androidExtension = subproject.extensions.findByName("android")
+        if (androidExtension != null && androidExtension.hasProperty("compileSdkVersion")) {
+            def current = androidExtension.compileSdkVersion
+            def currentLevel = current instanceof String ? (current.replaceAll(/[^0-9]/, "") ?: "0").toInteger() : (current ?: 0)
+            if (currentLevel < FORCED_COMPILE_SDK) {
+                androidExtension.compileSdkVersion(FORCED_COMPILE_SDK)
+                logger.lifecycle("Forced compileSdk ${FORCED_COMPILE_SDK} on legacy plugin ':${subproject.name}' (was '${current}')")
+            }
+        }
+    }
+
+    if (subproject.state.executed) {
+        applyCompileSdkFix()
+    } else {
+        subproject.afterEvaluate {
+            applyCompileSdkFix()
+        }
+    }
+}
+
+// --- Compatibility patch: ensure Android boot classpath for Java-only plugins ---
+// With the current Flutter/AGP toolchain some older Java-only Flutter plugins
+// can reach javac without android.jar on the compile classpath, causing errors
+// such as "package android.print does not exist". Use AGP's own bootClasspath
+// instead of constructing an SDK path by hand, so the fix follows the active
+// compileSdk/toolchain configuration for each Android subproject.
+gradle.projectsEvaluated {
+    subprojects.each { subproject ->
+        def androidExtension = subproject.extensions.findByName("android")
+        if (androidExtension != null && (subproject.plugins.hasPlugin("com.android.library") || subproject.plugins.hasPlugin("com.android.application"))) {
+            subproject.tasks.withType(JavaCompile).configureEach { task ->
+                task.options.bootstrapClasspath = subproject.files(androidExtension.bootClasspath)
+                task.classpath += subproject.files(androidExtension.bootClasspath)
+            }
+        }
+    }
+}

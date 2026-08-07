@@ -1,0 +1,25 @@
+allprojects {
+    afterEvaluate { project ->
+        if (project.plugins.hasPlugin('com.android.library') || project.plugins.hasPlugin('com.android.application')) {
+            def androidSdkDir = new File(
+                project.rootProject.findProperty('sdk.dir')
+                    ?: System.getenv('ANDROID_SDK_ROOT')
+                    ?: System.getenv('ANDROID_HOME')
+                    ?: 'C:/Users/DIGITL-BRANDING/AppData/Local/Android/sdk'
+            )
+            def androidJar = new File(androidSdkDir, 'platforms/android-36/android.jar')
+
+            if (androidJar.exists()) {
+                logger.lifecycle("Applying Android jar workaround for ${project.path}: ${androidJar}")
+                project.tasks.withType(JavaCompile).configureEach { task ->
+                    logger.lifecycle("Configuring JavaCompile task ${project.path}:${task.name} with ${androidJar}")
+                    task.options.bootstrapClasspath = files(androidJar)
+                    task.classpath += files(androidJar)
+                    task.options.compilerArgs += ['-Xlint:-options']
+                }
+            } else {
+                logger.lifecycle("Android jar workaround skipped for ${project.path}: ${androidJar} not found")
+            }
+        }
+    }
+}
