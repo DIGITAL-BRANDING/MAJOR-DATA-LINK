@@ -39,6 +39,11 @@ abstract class RouteNames {
   static const bulkSms = '/home/services/bulk-sms';
   static const rechargeCard = '/home/services/recharge-card';
   static const dataCard = '/home/services/data-card';
+  static const ninServices = '/home/services/nin';
+  static const bvnServices = '/home/services/bvn';
+  static const cacServices = '/home/services/cac';
+  static const scumlServices = '/home/services/scuml';
+  static const tinServices = '/home/services/tin';
 
   // ── Wallet ────────────────────────────────────────────────
   static const wallet = '/home/dashboard/wallet';

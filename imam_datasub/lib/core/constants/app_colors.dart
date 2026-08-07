@@ -1,35 +1,36 @@
 import 'package:flutter/material.dart';
 
 /// MAJOR DATA-LINK — Complete Color System
-/// Primary: Deep Purple → Indigo
+/// Primary: Gold
+/// Secondary: Antique / Bronze Gold
 /// Accent: Vivid Orange
 /// Semantic: Success Green, Warning Amber, Error Red
 abstract class AppColors {
   AppColors._();
 
-  // ── Brand Primary (Deep Purple) ───────────────────────────
-  static const Color primary50 = Color(0xFFF0EEFF);
-  static const Color primary100 = Color(0xFFDDD9FF);
-  static const Color primary200 = Color(0xFFBDB3FF);
-  static const Color primary300 = Color(0xFF9D8DFF);
-  static const Color primary400 = Color(0xFF7D67FF);
-  static const Color primary500 = Color(0xFF6C47FF); // ← Main brand
-  static const Color primary600 = Color(0xFF5835E8);
-  static const Color primary700 = Color(0xFF4426CC);
-  static const Color primary800 = Color(0xFF321AAA);
-  static const Color primary900 = Color(0xFF210F88);
+  // ── Brand Primary (Gold) ────────────────────────────────────
+  static const Color primary50 = Color(0xFFFFFBEB);
+  static const Color primary100 = Color(0xFFFFF3C4);
+  static const Color primary200 = Color(0xFFFCE588);
+  static const Color primary300 = Color(0xFFFADB5F);
+  static const Color primary400 = Color(0xFFF7C948);
+  static const Color primary500 = Color(0xFFD4AF37); // ← Main brand (gold)
+  static const Color primary600 = Color(0xFFB8941F);
+  static const Color primary700 = Color(0xFF9C7A17);
+  static const Color primary800 = Color(0xFF7D5F0F);
+  static const Color primary900 = Color(0xFF5C4509);
 
-  // ── Brand Secondary (Indigo) ───────────────────────────────
-  static const Color secondary50 = Color(0xFFEEF2FF);
-  static const Color secondary100 = Color(0xFFD4DEFF);
-  static const Color secondary200 = Color(0xFFAABBFF);
-  static const Color secondary300 = Color(0xFF7F97FF);
-  static const Color secondary400 = Color(0xFF5574FF);
-  static const Color secondary500 = Color(0xFF3D5AFE); // ← Main secondary
-  static const Color secondary600 = Color(0xFF2C48E5);
-  static const Color secondary700 = Color(0xFF1C37C9);
-  static const Color secondary800 = Color(0xFF0E28AA);
-  static const Color secondary900 = Color(0xFF071A8A);
+  // ── Brand Secondary (Antique / Bronze Gold) ─────────────────
+  static const Color secondary50 = Color(0xFFFFF8ED);
+  static const Color secondary100 = Color(0xFFFCE9C8);
+  static const Color secondary200 = Color(0xFFF7D28C);
+  static const Color secondary300 = Color(0xFFF0B354);
+  static const Color secondary400 = Color(0xFFE39A2E);
+  static const Color secondary500 = Color(0xFFC9A227); // ← Main secondary
+  static const Color secondary600 = Color(0xFFA67C1B);
+  static const Color secondary700 = Color(0xFF855F16);
+  static const Color secondary800 = Color(0xFF654510);
+  static const Color secondary900 = Color(0xFF452F0B);
 
   // ── Accent (Vivid Orange) ──────────────────────────────────
   static const Color accent50 = Color(0xFFFFF3ED);
@@ -86,27 +87,27 @@ abstract class AppColors {
   static const Color neutral800 = Color(0xFF3A3A3C);
   static const Color neutral850 = Color(0xFF2C2C2E);
   static const Color neutral900 = Color(0xFF1C1C1E);
-  static const Color neutral950 = Color(0xFF0D0B1E); // Dark bg
+  static const Color neutral950 = Color(0xFF120E06); // Dark bg
 
   // ── Light Mode Surfaces ───────────────────────────────────
-  static const Color lightBackground = Color(0xFFF5F5FA);
+  static const Color lightBackground = Color(0xFFFAF7EF);
   static const Color lightSurface = Color(0xFFFFFFFF);
-  static const Color lightSurfaceVariant = Color(0xFFF2F2F7);
+  static const Color lightSurfaceVariant = Color(0xFFF5F0E1);
   static const Color lightCardSurface = Color(0xFFFFFFFF);
-  static const Color lightDivider = Color(0xFFE5E5EA);
+  static const Color lightDivider = Color(0xFFE9E1C8);
 
   // ── Dark Mode Surfaces ────────────────────────────────────
-  static const Color darkBackground = Color(0xFF0D0B1E);
-  static const Color darkSurface = Color(0xFF1A1730);
-  static const Color darkSurfaceVariant = Color(0xFF252240);
-  static const Color darkCardSurface = Color(0xFF1E1B35);
-  static const Color darkDivider = Color(0xFF2D2A45);
-  static const Color darkNavBar = Color(0xFF130F27);
+  static const Color darkBackground = Color(0xFF1A1508);
+  static const Color darkSurface = Color(0xFF241D0D);
+  static const Color darkSurfaceVariant = Color(0xFF2E2610);
+  static const Color darkCardSurface = Color(0xFF261F0F);
+  static const Color darkDivider = Color(0xFF3A2F16);
+  static const Color darkNavBar = Color(0xFF15110A);
 
   // ── Wallet Card Gradient ───────────────────────────────────
-  static const Color walletGradientStart = Color(0xFF6C47FF);
-  static const Color walletGradientMid = Color(0xFF4A2FD4);
-  static const Color walletGradientEnd = Color(0xFF1A0A6B);
+  static const Color walletGradientStart = Color(0xFFD4AF37);
+  static const Color walletGradientMid = Color(0xFFB8941F);
+  static const Color walletGradientEnd = Color(0xFF5C4509);
 
   // ── Network Brand Colors ───────────────────────────────────
   static const Color mtnYellow = Color(0xFFFFCC00);
@@ -156,6 +157,6 @@ abstract class AppColors {
   static const LinearGradient darkCardGradient = LinearGradient(
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
-    colors: [Color(0xFF252240), Color(0xFF1A1730)],
+    colors: [Color(0xFF2E2610), Color(0xFF1A1508)],
   );
 }

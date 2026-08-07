@@ -7,13 +7,13 @@ class KDColorScheme {
   static const ColorScheme light = ColorScheme(
     brightness: Brightness.light,
 
-    // Primary — Purple
+    // Primary — Gold
     primary: AppColors.primary500,
     onPrimary: AppColors.neutral0,
     primaryContainer: AppColors.primary100,
     onPrimaryContainer: AppColors.primary900,
 
-    // Secondary — Indigo
+    // Secondary — Bronze Gold
     secondary: AppColors.secondary500,
     onSecondary: AppColors.neutral0,
     secondaryContainer: AppColors.secondary100,

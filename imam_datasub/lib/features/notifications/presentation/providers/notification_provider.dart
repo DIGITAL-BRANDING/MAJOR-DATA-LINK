@@ -158,7 +158,7 @@ class FcmService {
 
     // Create notification channel
     const channel = AndroidNotificationChannel(
-      'imam_datasub_notifications',
+      'major_datalink_notifications',
       'MAJOR DATA-LINK',
       description: 'Transaction alerts and app notifications',
       importance: Importance.high,
@@ -206,7 +206,7 @@ class FcmService {
       notification.body,
       const NotificationDetails(
         android: AndroidNotificationDetails(
-          'imam_datasub_notifications',
+          'major_datalink_notifications',
           'MAJOR DATA-LINK',
           channelDescription: 'Transaction alerts and app notifications',
           importance: Importance.high,

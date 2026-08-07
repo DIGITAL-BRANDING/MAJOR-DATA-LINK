@@ -53,7 +53,7 @@ const Dashboard: React.FC = () => (
       overflow="hidden"
       py="xxl"
       px={['default', 'lg', 'xxl']}
-      style={{ background: 'linear-gradient(135deg, #6C47FF 0%, #3D5AFE 100%)' }}
+      style={{ background: 'linear-gradient(135deg, #D4AF37 0%, #C9A227 100%)' }}
     >
       <Box display="flex" alignItems="center" flexDirection={['column', 'row']}>
         <Box mr={['0', 'xl']} mb={['lg', '0']}>
@@ -87,8 +87,8 @@ const Dashboard: React.FC = () => (
               <Box display="flex" alignItems="center" mb="default">
                 <Icon
                   icon={link.icon}
-                  color="#6C47FF"
-                  bg="rgba(108, 71, 255, 0.1)"
+                  color="#D4AF37"
+                  bg="rgba(212, 175, 55, 0.12)"
                   rounded
                   size={22}
                   p="default"

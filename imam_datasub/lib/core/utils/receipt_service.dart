@@ -31,8 +31,8 @@ class ReceiptData {
 class ReceiptService {
   ReceiptService._();
 
-  static const _brandPurple = PdfColor.fromInt(0xFF6C47FF);
-  static const _brandIndigo = PdfColor.fromInt(0xFF3D5AFE);
+  static const _brandGold = PdfColor.fromInt(0xFFD4AF37);
+  static const _brandBronze = PdfColor.fromInt(0xFFC9A227);
   static const _successGreen = PdfColor.fromInt(0xFF10B981);
   static const _neutral500 = PdfColor.fromInt(0xFF8E8E93);
   static const _neutral900 = PdfColor.fromInt(0xFF1C1C1E);
@@ -57,7 +57,7 @@ class ReceiptService {
                     style: pw.TextStyle(
                       fontSize: 18,
                       fontWeight: pw.FontWeight.bold,
-                      color: _brandPurple,
+                      color: _brandGold,
                     ),
                   ),
                   pw.Container(

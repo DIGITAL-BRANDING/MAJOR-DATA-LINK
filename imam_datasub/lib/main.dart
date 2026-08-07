@@ -124,7 +124,7 @@ void main() {
       runApp(
         UncontrolledProviderScope(
           container: container,
-          child: const ImamDatasubApp(),
+          child: const MajorDataLinkApp(),
         ),
       );
     },

@@ -77,12 +77,12 @@ export async function buildAdminRouter() {
       theme: {
         colors: {
           // Matches the app's brand palette (lib/core/constants/app_colors.dart):
-          // Deep Purple primary + Vivid Orange accent.
-          primary100: '#6C47FF',
-          primary80: '#7D67FF',
-          primary60: '#9D8DFF',
-          primary40: '#BDB3FF',
-          primary20: '#DDD9FF',
+          // Gold primary + Vivid Orange accent.
+          primary100: '#D4AF37',
+          primary80: '#F7C948',
+          primary60: '#FADB5F',
+          primary40: '#FCE588',
+          primary20: '#FFF3C4',
           accent: '#FF6B35',
           love: '#FF6B35'
         }

@@ -5,7 +5,7 @@ export const referralLinkRoutes = Router();
 
 // Android application ID - see imam_datasub/android/app/build.gradle's
 // applicationId. Update this alongside that if it ever changes.
-const PLAY_STORE_PACKAGE_ID = 'com.imamdatasub.app';
+const PLAY_STORE_PACKAGE_ID = 'com.majordatalink.app';
 
 /**
  * Entry point for referral share links (ReferralEntity.shareLink in the

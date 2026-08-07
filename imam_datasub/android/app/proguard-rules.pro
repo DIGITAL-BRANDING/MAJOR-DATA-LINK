@@ -37,7 +37,7 @@
 -keepattributes *Annotation*
 -keepattributes Signature
 -keepattributes Exceptions
--keep class com.imamdatasub.app.** { *; }
+-keep class com.majordatalink.app.** { *; }
 
 # ── Prevent stripping of native libs ─────────────────────────
 -keepclassmembers class * {

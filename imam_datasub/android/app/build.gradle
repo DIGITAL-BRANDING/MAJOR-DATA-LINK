@@ -27,7 +27,7 @@ if (keystorePropertiesFile.exists()) {
 }
 
 android {
-    namespace "com.imamdatasub.app"
+    namespace "com.majordatalink.app"
     // Bumped from 35: androidx.browser 1.9.0, activity(-ktx) 1.12.4, and
     // core(-ktx) 1.18.0 (pulled in transitively by share_plus/firebase
     // plugins) require compiling against API 36 or later.
@@ -53,7 +53,7 @@ android {
     }
 
     defaultConfig {
-        applicationId "com.imamdatasub.app"
+        applicationId "com.majordatalink.app"
         minSdkVersion flutter.minSdkVersion
         targetSdk 35
         versionCode flutterVersionCode.toInteger()

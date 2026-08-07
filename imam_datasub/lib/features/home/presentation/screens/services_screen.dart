@@ -94,6 +94,36 @@ const _services = [
     color: AppColors.warning600,
     route: RouteNames.dataCard,
   ),
+  _ServiceItem(
+    label: 'NIN Services',
+    icon: Icons.badge_outlined,
+    color: AppColors.primary600,
+    route: RouteNames.ninServices,
+  ),
+  _ServiceItem(
+    label: 'BVN Services',
+    icon: Icons.fingerprint_rounded,
+    color: AppColors.secondary600,
+    route: RouteNames.bvnServices,
+  ),
+  _ServiceItem(
+    label: 'CAC Registration',
+    icon: Icons.business_center_outlined,
+    color: AppColors.accent600,
+    route: RouteNames.cacServices,
+  ),
+  _ServiceItem(
+    label: 'SCUML Registration',
+    icon: Icons.verified_user_outlined,
+    color: AppColors.success600,
+    route: RouteNames.scumlServices,
+  ),
+  _ServiceItem(
+    label: 'TIN Registration',
+    icon: Icons.receipt_long_outlined,
+    color: AppColors.warning700,
+    route: RouteNames.tinServices,
+  ),
 ];
 
 class ServicesScreen extends StatefulWidget {

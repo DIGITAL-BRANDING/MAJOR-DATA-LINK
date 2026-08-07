@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'route_names.dart';
 import 'auth_status.dart';
+import '../constants/app_colors.dart';
 
 // ── Screen imports ─────────────────────────────────────────
 // Each will be created in their feature folder
@@ -28,6 +29,7 @@ import '../../features/jamb/presentation/screens/jamb_screen.dart';
 import '../../features/bulk_sms/presentation/screens/bulk_sms_screen.dart';
 import '../../features/recharge_card/presentation/screens/recharge_card_screen.dart';
 import '../../features/data_card/presentation/screens/data_card_screen.dart';
+import '../../shared/screens/coming_soon_screen.dart';
 import '../../features/wallet/presentation/screens/wallet_screen.dart';
 import '../../features/wallet/presentation/screens/fund_wallet_screen.dart';
 import '../../features/transactions/presentation/screens/transactions_screen.dart';
@@ -187,6 +189,61 @@ final routerProvider = Provider<GoRouter>((ref) {
                   GoRoute(
                     path: 'data-card',
                     builder: (_, __) => const DataCardScreen(),
+                  ),
+                  GoRoute(
+                    path: 'nin',
+                    builder: (_, __) => const ComingSoonScreen(
+                      title: 'NIN Services',
+                      icon: Icons.badge_outlined,
+                      color: AppColors.primary600,
+                      description:
+                          'NIN verification, slip printing and modification '
+                          'services are coming soon to MAJOR DATA-LINK.',
+                    ),
+                  ),
+                  GoRoute(
+                    path: 'bvn',
+                    builder: (_, __) => const ComingSoonScreen(
+                      title: 'BVN Services',
+                      icon: Icons.fingerprint_rounded,
+                      color: AppColors.secondary600,
+                      description:
+                          'BVN verification and modification services are '
+                          'coming soon to MAJOR DATA-LINK.',
+                    ),
+                  ),
+                  GoRoute(
+                    path: 'cac',
+                    builder: (_, __) => const ComingSoonScreen(
+                      title: 'CAC Registration',
+                      icon: Icons.business_center_outlined,
+                      color: AppColors.accent600,
+                      description:
+                          'Business name and company registration with CAC '
+                          'is coming soon to MAJOR DATA-LINK.',
+                    ),
+                  ),
+                  GoRoute(
+                    path: 'scuml',
+                    builder: (_, __) => const ComingSoonScreen(
+                      title: 'SCUML Registration',
+                      icon: Icons.verified_user_outlined,
+                      color: AppColors.success600,
+                      description:
+                          'SCUML registration services are coming soon to '
+                          'MAJOR DATA-LINK.',
+                    ),
+                  ),
+                  GoRoute(
+                    path: 'tin',
+                    builder: (_, __) => const ComingSoonScreen(
+                      title: 'TIN Registration',
+                      icon: Icons.receipt_long_outlined,
+                      color: AppColors.warning600,
+                      description:
+                          'Tax Identification Number (TIN) registration is '
+                          'coming soon to MAJOR DATA-LINK.',
+                    ),
                   ),
                 ],
               ),

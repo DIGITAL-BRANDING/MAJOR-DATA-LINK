@@ -51,7 +51,7 @@ export function createApp() {
   app.set('trust proxy', 1);
 
   app.get('/health', (_req, res) => {
-    res.json({ status: true, service: 'imam-datasub-backend' });
+    res.json({ status: true, service: 'major-data-link-backend' });
   });
 
   // Helmet's default Content-Security-Policy blocks inline <script>/<style> tags

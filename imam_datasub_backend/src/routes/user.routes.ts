@@ -213,7 +213,7 @@ userRoutes.delete('/account', async (req, res) => {
         accountStatus: 'DELETED',
         deletionReason: body.reason,
         fullName: 'Deleted User',
-        email: `${suffix}@deleted.imamdatasub.local`,
+        email: `${suffix}@deleted.majordatalink.local`,
         phone: suffix,
         passwordHash: null,
         photoUrl: null,

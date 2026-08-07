@@ -7,8 +7,8 @@ import 'core/theme/app_theme.dart';
 // ── Theme mode provider ────────────────────────────────────
 final themeModeProvider = StateProvider<ThemeMode>((_) => ThemeMode.system);
 
-class ImamDatasubApp extends ConsumerWidget {
-  const ImamDatasubApp({super.key});
+class MajorDataLinkApp extends ConsumerWidget {
+  const MajorDataLinkApp({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
