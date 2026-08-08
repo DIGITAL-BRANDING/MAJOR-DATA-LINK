@@ -27,6 +27,18 @@ const EnvSchema = z.object({
   // wallets are fine Ã¢â‚¬â€ see provider.service.ts's recordProviderBalance.
   ALRAHUZ_LOW_BALANCE_THRESHOLD: z.coerce.number().positive().default(2000),
   ALRAHUZ_LOW_BALANCE_ALERT_COOLDOWN_MINUTES: z.coerce.number().int().positive().default(60),
+
+  // Techhubltd — NIN / BVN identity verification provider. Fully independent
+  // of Alrahuz above: Alrahuz handles VTU (data/airtime/result pins), Techhub
+  // handles identity verification (NIN/BVN slips + the five async services).
+  // See src/services/techhub.service.ts.
+  TECHHUB_BASE_URL: z.string().url().default('https://techhubltd.co/api/verification'),
+  TECHHUB_API_KEY: z.string().optional(),
+  // Same string-boolean footgun as MOCK_PROVIDER above — see that comment.
+  MOCK_TECHHUB: z
+    .string()
+    .default('true')
+    .transform((value) => value.toLowerCase() !== 'false' && value !== '0'),
   DATA_PLAN_MARKUP_PERCENT: z.coerce.number().min(0).default(0),
   DATA_PLAN_MARKUP_NAIRA: z.coerce.number().min(0).default(0),
   AUTH_TOKEN_SECRET: z.string().min(32).default('dev-only-insecure-auth-token-secret-32'),

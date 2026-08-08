@@ -5,6 +5,7 @@ import { dataPlanPricingService } from '../services/data-plan-pricing.service.js
 import { providerService } from '../services/provider.service.js';
 import { sendAdminBroadcast } from '../services/notification.service.js';
 import { listServicePricesForAdmin, updateServicePrice } from '../services/result-pin.service.js';
+import { listVerificationPricesForAdmin } from '../services/verification.service.js';
 import { logAdminAction } from '../admin/audit.js';
 import { requireAppAdmin, requireFinanceAdmin } from '../middleware/admin-auth.js';
 
@@ -80,8 +81,16 @@ adminApiRoutes.patch('/data-prices/:id', requireFinanceAdmin, async (req, res) =
 
 
 adminApiRoutes.get('/service-prices', requireFinanceAdmin, async (_req, res) => {
-  const rows = await listServicePricesForAdmin();
-  res.json({ status: true, data: rows });
+  // Merges both providers' pricing rows into one list - Alrahuz's result-pin
+  // services and Techhub's NIN/BVN verification services - since they're
+  // all just rows in the same ServicePricing table, distinguished by the
+  // `provider` column. PATCH below is already generic (keyed by `service`
+  // string) so it works unchanged for either provider's rows.
+  const [resultPinRows, verificationRows] = await Promise.all([
+    listServicePricesForAdmin(),
+    listVerificationPricesForAdmin()
+  ]);
+  res.json({ status: true, data: [...resultPinRows, ...verificationRows] });
 });
 
 adminApiRoutes.patch('/service-prices/:service', requireFinanceAdmin, async (req, res) => {

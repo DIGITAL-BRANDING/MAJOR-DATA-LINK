@@ -4,11 +4,11 @@ nixPkgs = ["nodejs_22"]
 
 [phases.install]
 cmds = [
-  "cd imam_datasub_backend && NPM_CONFIG_PRODUCTION=false npm ci --cache /tmp/.npm --no-audit --no-fund"
+  "cd major_data_link_backend && NPM_CONFIG_PRODUCTION=false npm ci --cache /tmp/.npm --no-audit --no-fund"
 ]
 
 [phases.build]
 cmds = [
-  "cd imam_datasub_backend && npm run prisma:generate",
-  "cd imam_datasub_backend && npm run build"
+  "cd major_data_link_backend && npm run prisma:generate",
+  "cd major_data_link_backend && npm run build"
 ]

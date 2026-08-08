@@ -42,6 +42,16 @@ async function startServer() {
       );
     }
 
+    // Same shape of footgun as MOCK_PROVIDER above, for the independent
+    // Techhub identity-verification provider (NIN/BVN) - see techhub.service.ts.
+    if (env.NODE_ENV === 'production' && env.MOCK_TECHHUB) {
+      console.error(
+        '[server] WARNING: NODE_ENV=production but MOCK_TECHHUB is true (unset or not "false"). ' +
+          'NIN/BVN verification requests are all running on MOCK data instead of hitting Techhub. ' +
+          'Set MOCK_TECHHUB=false and TECHHUB_API_KEY in the Railway environment variables to use real Techhub data.'
+      );
+    }
+
     console.log('[server] Creating Express app');
     const app = createApp();
 

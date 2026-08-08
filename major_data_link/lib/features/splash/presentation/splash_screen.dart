@@ -57,6 +57,9 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
       case AuthStatus.pinSetupRequired:
         context.go(RouteNames.pinSetup);
         return;
+      case AuthStatus.transactionPinSetupRequired:
+        context.go(RouteNames.transactionPinSetup);
+        return;
       case AuthStatus.unauthenticated:
       case AuthStatus.loading:
         break;
