@@ -75,6 +75,29 @@ class AppEndpoints {
   // JAMB
   static String get jambProfile => '$_base/jamb/profile';
   static String get jambResult => '$_base/jamb/result';
+
+  // Verification (Techhubltd — NIN / BVN)
+  static String get verificationPrices => '$_base/verification/prices';
+  static String get ninByNin => '$_base/verification/nin/by-nin';
+  static String get ninByPhone => '$_base/verification/nin/by-phone';
+  static String get ninByDemographic =>
+      '$_base/verification/nin/by-demographic';
+  static String get bvnSlip => '$_base/verification/bvn/slip';
+  static String get ninDelinking => '$_base/verification/delinking';
+  static String ninDelinkingStatus(String ticketId) =>
+      '$_base/verification/delinking/$ticketId';
+  static String get ninValidation => '$_base/verification/nin-validation';
+  static String ninValidationStatus(String ticketId) =>
+      '$_base/verification/nin-validation/$ticketId';
+  static String get ninPersonalization => '$_base/verification/personalization';
+  static String ninPersonalizationStatus(String ticketId) =>
+      '$_base/verification/personalization/$ticketId';
+  static String get bvnRetrieval => '$_base/verification/bvn-retrieval';
+  static String bvnRetrievalStatus(String ticketId) =>
+      '$_base/verification/bvn-retrieval/$ticketId';
+  static String get ipeClearance => '$_base/verification/ipe-clearance';
+  static String ipeClearanceStatus(String ticketId) =>
+      '$_base/verification/ipe-clearance/$ticketId';
   static String get jambPin => '$_base/jamb/pin';
   static String get jambChange => '$_base/jamb/change-institution';
 

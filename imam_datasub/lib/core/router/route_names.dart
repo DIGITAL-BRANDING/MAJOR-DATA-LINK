@@ -40,7 +40,16 @@ abstract class RouteNames {
   static const rechargeCard = '/home/services/recharge-card';
   static const dataCard = '/home/services/data-card';
   static const ninServices = '/home/services/nin';
+  static const ninByNin = '/home/services/nin/by-nin';
+  static const ninByPhone = '/home/services/nin/by-phone';
+  static const ninByDemographic = '/home/services/nin/by-demographic';
+  static const ninDelinking = '/home/services/nin/delinking';
+  static const ninValidation = '/home/services/nin/validation';
+  static const ninPersonalization = '/home/services/nin/personalization';
+  static const ipeClearance = '/home/services/nin/ipe-clearance';
   static const bvnServices = '/home/services/bvn';
+  static const bvnSlip = '/home/services/bvn/slip';
+  static const bvnRetrieval = '/home/services/bvn/retrieval';
   static const cacServices = '/home/services/cac';
   static const scumlServices = '/home/services/scuml';
   static const tinServices = '/home/services/tin';

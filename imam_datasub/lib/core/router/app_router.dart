@@ -48,6 +48,16 @@ import '../../features/admin/presentation/screens/admin_service_pricing_screen.d
 import '../../features/admin/presentation/screens/admin_provider_balance_screen.dart';
 import '../../features/admin/presentation/screens/admin_broadcast_screen.dart';
 import '../../features/legal/presentation/screens/legal_document_screen.dart';
+import '../../features/verification/presentation/screens/verification_hub_screen.dart';
+import '../../features/verification/presentation/screens/nin_by_nin_screen.dart';
+import '../../features/verification/presentation/screens/nin_by_phone_screen.dart';
+import '../../features/verification/presentation/screens/nin_by_demographic_screen.dart';
+import '../../features/verification/presentation/screens/nin_delinking_screen.dart';
+import '../../features/verification/presentation/screens/nin_validation_screen.dart';
+import '../../features/verification/presentation/screens/nin_personalization_screen.dart';
+import '../../features/verification/presentation/screens/ipe_clearance_screen.dart';
+import '../../features/verification/presentation/screens/bvn_slip_screen.dart';
+import '../../features/verification/presentation/screens/bvn_retrieval_screen.dart';
 import '../di/injection.dart';
 
 // ── Auth state ────────────────────────────────────────────
@@ -192,25 +202,51 @@ final routerProvider = Provider<GoRouter>((ref) {
                   ),
                   GoRoute(
                     path: 'nin',
-                    builder: (_, __) => const ComingSoonScreen(
-                      title: 'NIN Services',
-                      icon: Icons.badge_outlined,
-                      color: AppColors.primary600,
-                      description:
-                          'NIN verification, slip printing and modification '
-                          'services are coming soon to MAJOR DATA-LINK.',
-                    ),
+                    builder: (_, __) => const NinServicesHubScreen(),
+                    routes: [
+                      GoRoute(
+                        path: 'by-nin',
+                        builder: (_, __) => const NinByNinScreen(),
+                      ),
+                      GoRoute(
+                        path: 'by-phone',
+                        builder: (_, __) => const NinByPhoneScreen(),
+                      ),
+                      GoRoute(
+                        path: 'by-demographic',
+                        builder: (_, __) => const NinByDemographicScreen(),
+                      ),
+                      GoRoute(
+                        path: 'delinking',
+                        builder: (_, __) => const NinDelinkingScreen(),
+                      ),
+                      GoRoute(
+                        path: 'validation',
+                        builder: (_, __) => const NinValidationScreen(),
+                      ),
+                      GoRoute(
+                        path: 'personalization',
+                        builder: (_, __) => const NinPersonalizationScreen(),
+                      ),
+                      GoRoute(
+                        path: 'ipe-clearance',
+                        builder: (_, __) => const IpeClearanceScreen(),
+                      ),
+                    ],
                   ),
                   GoRoute(
                     path: 'bvn',
-                    builder: (_, __) => const ComingSoonScreen(
-                      title: 'BVN Services',
-                      icon: Icons.fingerprint_rounded,
-                      color: AppColors.secondary600,
-                      description:
-                          'BVN verification and modification services are '
-                          'coming soon to MAJOR DATA-LINK.',
-                    ),
+                    builder: (_, __) => const BvnServicesHubScreen(),
+                    routes: [
+                      GoRoute(
+                        path: 'slip',
+                        builder: (_, __) => const BvnSlipScreen(),
+                      ),
+                      GoRoute(
+                        path: 'retrieval',
+                        builder: (_, __) => const BvnRetrievalScreen(),
+                      ),
+                    ],
                   ),
                   GoRoute(
                     path: 'cac',
