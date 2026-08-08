@@ -3,17 +3,23 @@ import '../../../../core/error/failures.dart';
 import '../entities/user_entity.dart';
 
 /// Result of a successful login/register call. Wrapping the user together
-/// with [requiresLoginPinSetup] lets the UI/notifier layer decide whether to
-/// force the mandatory "create your login PIN" screen right after this call,
-/// without a second round trip.
+/// with [requiresLoginPinSetup] / [requiresPinSetup] lets the UI/notifier
+/// layer decide whether to force the mandatory "create your login PIN" /
+/// "create your transaction PIN" screens right after this call, without a
+/// second round trip.
 class AuthLoginResult {
   const AuthLoginResult({
     required this.user,
     this.requiresLoginPinSetup = false,
+    this.requiresPinSetup = false,
   });
 
   final UserEntity user;
   final bool requiresLoginPinSetup;
+
+  /// Whether the 4-digit transaction PIN (wallet confirm/balance/delete)
+  /// still needs to be created. New accounts always start with this true.
+  final bool requiresPinSetup;
 }
 
 abstract class AuthRepository {
@@ -88,6 +94,17 @@ abstract class AuthRepository {
 
   /// Set the 6-digit login PIN (first time, mandatory right after login)
   Future<Either<Failure, void>> setLoginPin({required String pin});
+
+  /// Recovery path for someone who forgot their login PIN: proves identity
+  /// with password (since the PIN itself can't be used to prove anything -
+  /// that's the whole problem), clears the old PIN server-side, and logs
+  /// in fresh. The caller should treat the result exactly like login() -
+  /// requiresLoginPinSetup will be true, so the mandatory setup screen
+  /// naturally follows.
+  Future<Either<Failure, AuthLoginResult>> resetLoginPinWithPassword({
+    required String identifier,
+    required String password,
+  });
 
   /// Change the existing 6-digit login PIN
   Future<Either<Failure, void>> changeLoginPin({

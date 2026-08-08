@@ -18,6 +18,11 @@ abstract class RouteNames {
   // see app_router.dart's _guard.
   static const pinSetup = '/pin-setup';
   static const loginPinUnlock = '/pin-unlock';
+  static const resetLoginPin = '/reset-login-pin';
+
+  // ── Transaction PIN (4-digit) ──────────────────────────────
+  // Reached only from AuthStatus.transactionPinSetupRequired.
+  static const transactionPinSetup = '/transaction-pin-setup';
 
   // ── Main tabs ─────────────────────────────────────────────
   static const home = '/home/dashboard';

@@ -15,6 +15,8 @@ import '../../features/auth/presentation/screens/otp_screen.dart';
 import '../../features/auth/presentation/screens/forgot_password_screen.dart';
 import '../../features/auth/presentation/screens/set_login_pin_screen.dart';
 import '../../features/auth/presentation/screens/login_pin_unlock_screen.dart';
+import '../../features/auth/presentation/screens/reset_login_pin_screen.dart';
+import '../../features/auth/presentation/screens/set_transaction_pin_screen.dart';
 import '../../features/home/presentation/screens/home_screen.dart';
 import '../../features/home/presentation/screens/main_shell.dart';
 import '../../features/home/presentation/screens/services_screen.dart';
@@ -120,6 +122,18 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: RouteNames.loginPinUnlock,
         builder: (_, __) => const LoginPinUnlockScreen(),
+      ),
+      GoRoute(
+        path: RouteNames.resetLoginPin,
+        builder: (_, state) => ResetLoginPinScreen(
+          prefilledIdentifier: state.uri.queryParameters['identifier'],
+        ),
+      ),
+
+      // ── Transaction PIN (4-digit) ───────────────────────────
+      GoRoute(
+        path: RouteNames.transactionPinSetup,
+        builder: (_, __) => const SetTransactionPinScreen(),
       ),
 
       // ── Main Shell (bottom nav) ───────────────────────────
@@ -416,6 +430,7 @@ String? _guard(AsyncValue<AuthStatus> authState, GoRouterState state) {
     RouteNames.forgotPassword,
     RouteNames.privacyPolicy,
     RouteNames.terms,
+    RouteNames.resetLoginPin,
   ];
   if (publicRoutes.contains(location)) return null;
 
@@ -426,12 +441,17 @@ String? _guard(AsyncValue<AuthStatus> authState, GoRouterState state) {
           // Don't let a fully authenticated user linger on the PIN
           // setup/unlock screens (e.g. after a hot restart mid-flow).
           if (location == RouteNames.pinSetup ||
-              location == RouteNames.loginPinUnlock) {
+              location == RouteNames.loginPinUnlock ||
+              location == RouteNames.transactionPinSetup) {
             return RouteNames.home;
           }
           return null;
         case AuthStatus.pinSetupRequired:
           return location == RouteNames.pinSetup ? null : RouteNames.pinSetup;
+        case AuthStatus.transactionPinSetupRequired:
+          return location == RouteNames.transactionPinSetup
+              ? null
+              : RouteNames.transactionPinSetup;
         case AuthStatus.pinLockRequired:
           return location == RouteNames.loginPinUnlock
               ? null

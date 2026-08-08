@@ -25,6 +25,7 @@ class AppEndpoints {
   static String get verifyPin => '$_base/user/pin/verify';
   static String get setLoginPin => '$_base/user/login-pin/set';
   static String get changeLoginPin => '$_base/user/login-pin/change';
+  static String get resetLoginPin => '$_base/auth/login-pin/reset';
   static String get deleteAccount => '$_base/user/account';
   static String get deactivateAccount => '$_base/user/deactivate';
 

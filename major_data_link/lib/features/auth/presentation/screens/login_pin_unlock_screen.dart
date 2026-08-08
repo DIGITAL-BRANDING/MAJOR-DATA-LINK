@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_dimensions.dart';
 import '../../../../core/constants/app_strings.dart';
 import '../../../../core/error/failures.dart';
+import '../../../../core/router/route_names.dart';
 import '../../../../core/utils/extensions.dart';
 import '../../../../shared/widgets/kd_pin_input.dart';
 import '../providers/auth_provider.dart';
@@ -121,6 +123,13 @@ class _LoginPinUnlockScreenState extends ConsumerState<LoginPinUnlockScreen> {
                   ),
                 ],
                 const SizedBox(height: 32),
+                const SizedBox(height: 12),
+                TextButton(
+                  onPressed: () => context.push(
+                    '${RouteNames.resetLoginPin}?identifier=${Uri.encodeComponent(user?.email ?? '')}',
+                  ),
+                  child: const Text('Forgot PIN?'),
+                ),
                 TextButton(
                   onPressed: _logout,
                   child: const Text('Not you? Log out'),

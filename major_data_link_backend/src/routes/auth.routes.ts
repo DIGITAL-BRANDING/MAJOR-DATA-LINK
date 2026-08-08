@@ -198,6 +198,76 @@ authRoutes.post('/login', async (req, res) => {
   res.json(await authResponse(user, tokens));
 });
 
+// Recovery for someone who forgot their 6-digit login PIN. There's no way
+// to prove identity with the PIN itself if you don't remember it, so this
+// falls back to the account password (the same credential /login already
+// trusts, including the lockout tracking above) - if it matches, the old
+// login PIN is cleared and the response comes back with
+// requires_login_pin_setup: true, so the client naturally lands on the same
+// "create your login PIN" screen a first-time login uses.
+authRoutes.post('/login-pin/reset', async (req, res) => {
+  const body = z
+    .object({
+      identifier: z.string().trim().min(3),
+      password: z.string().min(1)
+    })
+    .parse(req.body);
+
+  const user = await prisma.user.findFirst({
+    where: { OR: [{ email: body.identifier.toLowerCase() }, { phone: body.identifier }] }
+  });
+  if (!user || !user.passwordHash) {
+    throw new ApiError(401, 'Invalid email/phone or password', 'INVALID_CREDENTIALS');
+  }
+
+  if (user.passwordLockedUntil && user.passwordLockedUntil > new Date()) {
+    throw new ApiError(
+      423,
+      'Too many failed attempts. Try again in a bit.',
+      'PASSWORD_LOCKED'
+    );
+  }
+
+  const ok = await bcrypt.compare(body.password, user.passwordHash);
+  if (!ok) {
+    const failures = user.passwordFailures + 1;
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        passwordFailures: failures,
+        passwordLockedUntil:
+          failures >= MAX_PASSWORD_FAILURES
+            ? new Date(Date.now() + PASSWORD_LOCKOUT_MINUTES * 60 * 1000)
+            : null
+      }
+    });
+    throw new ApiError(401, 'Invalid email/phone or password', 'INVALID_CREDENTIALS');
+  }
+
+  if (user.accountStatus === 'DEACTIVATED') {
+    throw new ApiError(
+      403,
+      'Your account is deactivated. Contact support to reactivate it.',
+      'ACCOUNT_DEACTIVATED'
+    );
+  }
+
+  await prisma.user.update({
+    where: { id: user.id },
+    data: {
+      passwordFailures: 0,
+      passwordLockedUntil: null,
+      loginPinHash: null,
+      loginPinFailures: 0,
+      loginPinLockedUntil: null
+    }
+  });
+
+  const tokens = await issueAuthTokens({ id: user.id, email: user.email });
+  const freshUser = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+  res.json(await authResponse(freshUser, tokens));
+});
+
 authRoutes.post('/token/refresh', async (req, res) => {
   const body = z.object({ refresh_token: z.string().min(1) }).parse(req.body);
   const { user, tokens } = await rotateRefreshToken(body.refresh_token);

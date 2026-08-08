@@ -83,6 +83,9 @@ final changeLoginPinUseCaseProvider = Provider(
 final unlockWithLoginPinUseCaseProvider = Provider(
   (ref) => UnlockWithLoginPinUseCase(ref.read(authRepositoryProvider)),
 );
+final resetLoginPinUseCaseProvider = Provider(
+  (ref) => ResetLoginPinUseCase(ref.read(authRepositoryProvider)),
+);
 
 // Ã¢â€â‚¬Ã¢â€â‚¬ Auth State Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 class AuthState {
@@ -92,6 +95,7 @@ class AuthState {
     this.isLoading = false,
     this.errorMessage,
     this.needsLoginPinForVerification = false,
+    this.pendingTransactionPinSetup = false,
   });
 
   final UserEntity? user;
@@ -104,6 +108,12 @@ class AuthState {
   /// screen should reveal a 6-digit PIN field and resubmit with it included.
   final bool needsLoginPinForVerification;
 
+  /// True when a fresh login/register/reset also needs a transaction PIN
+  /// AND a login PIN, and the login PIN screen is showing first - once that
+  /// completes, this tells completeLoginPinSetup() to chain into the
+  /// transaction PIN screen next instead of going straight to Home.
+  final bool pendingTransactionPinSetup;
+
   bool get isAuthenticated => status == AuthStatus.authenticated;
 
   AuthState copyWith({
@@ -113,6 +123,7 @@ class AuthState {
     String? errorMessage,
     bool clearError = false,
     bool? needsLoginPinForVerification,
+    bool? pendingTransactionPinSetup,
   }) {
     return AuthState(
       user: user ?? this.user,
@@ -121,6 +132,8 @@ class AuthState {
       errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
       needsLoginPinForVerification:
           needsLoginPinForVerification ?? this.needsLoginPinForVerification,
+      pendingTransactionPinSetup:
+          pendingTransactionPinSetup ?? this.pendingTransactionPinSetup,
     );
   }
 }
@@ -132,6 +145,30 @@ class AuthNotifier extends StateNotifier<AuthState> {
   }
 
   final Ref _ref;
+
+  /// Shared by login(), register(), and resetLoginPinWithPassword() so the
+  /// "which mandatory setup screen comes next" logic lives in exactly one
+  /// place. Order: login PIN first (if needed), then transaction PIN (if
+  /// needed) - see pendingTransactionPinSetup and completeLoginPinSetup().
+  AuthState _applyPostAuthResult(AuthLoginResult result) {
+    final AuthStatus status;
+    if (result.requiresLoginPinSetup) {
+      status = AuthStatus.pinSetupRequired;
+    } else if (result.requiresPinSetup) {
+      status = AuthStatus.transactionPinSetupRequired;
+    } else {
+      status = AuthStatus.authenticated;
+    }
+    return state.copyWith(
+      user: result.user,
+      status: status,
+      isLoading: false,
+      clearError: true,
+      needsLoginPinForVerification: false,
+      pendingTransactionPinSetup:
+          result.requiresLoginPinSetup && result.requiresPinSetup,
+    );
+  }
 
   /// Resolves once the very first `_checkSession()` run (kicked off in the
   /// constructor above) has fully updated `state`. Callers that need to
@@ -230,15 +267,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
       },
       (loginResult) {
         _invalidateUserScopedProviders();
-        state = state.copyWith(
-          user: loginResult.user,
-          status: loginResult.requiresLoginPinSetup
-              ? AuthStatus.pinSetupRequired
-              : AuthStatus.authenticated,
-          isLoading: false,
-          clearError: true,
-          needsLoginPinForVerification: false,
-        );
+        state = _applyPostAuthResult(loginResult);
         _syncRouterAuthState();
         return true;
       },
@@ -269,18 +298,13 @@ class AuthNotifier extends StateNotifier<AuthState> {
         state = state.copyWith(isLoading: false, errorMessage: failure.message);
       },
       (loginResult) {
-        // New registrants always need to set a login PIN right after this -
-        // requiresLoginPinSetup will be true here since the account was
-        // just created.
+        // New registrants always need to set a login PIN (and a transaction
+        // PIN) right after this - both requiresLoginPinSetup and
+        // requiresPinSetup will be true here since the account was just
+        // created, so _applyPostAuthResult chains login PIN -> transaction
+        // PIN -> Home.
         _invalidateUserScopedProviders();
-        state = state.copyWith(
-          user: loginResult.user,
-          status: loginResult.requiresLoginPinSetup
-              ? AuthStatus.pinSetupRequired
-              : AuthStatus.authenticated,
-          isLoading: false,
-          clearError: true,
-        );
+        state = _applyPostAuthResult(loginResult);
         _syncRouterAuthState();
       },
     );
@@ -382,11 +406,66 @@ class AuthNotifier extends StateNotifier<AuthState> {
         return false;
       },
       (_) {
+        final needsTransactionPin = state.pendingTransactionPinSetup;
+        state = state.copyWith(
+          status: needsTransactionPin
+              ? AuthStatus.transactionPinSetupRequired
+              : AuthStatus.authenticated,
+          isLoading: false,
+          clearError: true,
+          pendingTransactionPinSetup: false,
+        );
+        _syncRouterAuthState();
+        return true;
+      },
+    );
+  }
+
+  /// Called from the mandatory transaction-PIN screen - either chained
+  /// right after login PIN setup for a brand new account, or reached
+  /// directly if only the transaction PIN was still missing.
+  Future<bool> completeTransactionPinSetup(String pin) async {
+    state = state.copyWith(isLoading: true, clearError: true);
+    final result =
+        await _ref.read(setTransactionPinUseCaseProvider).call(pin: pin);
+    return result.fold(
+      (failure) {
+        state = state.copyWith(isLoading: false, errorMessage: failure.message);
+        return false;
+      },
+      (_) {
         state = state.copyWith(
           status: AuthStatus.authenticated,
           isLoading: false,
           clearError: true,
         );
+        _syncRouterAuthState();
+        return true;
+      },
+    );
+  }
+
+  /// Recovery flow for a forgotten login PIN - proves identity with the
+  /// account password instead, then behaves exactly like a fresh login
+  /// (the backend always comes back with requiresLoginPinSetup: true here,
+  /// so the mandatory setup screen naturally follows via _applyPostAuthResult).
+  Future<bool> resetLoginPinWithPassword({
+    required String identifier,
+    required String password,
+  }) async {
+    state = state.copyWith(isLoading: true, clearError: true);
+    final result = await _ref.read(resetLoginPinUseCaseProvider).call(
+          identifier: identifier,
+          password: password,
+        );
+    return result.fold(
+      (failure) {
+        state = state.copyWith(isLoading: false, errorMessage: failure.message);
+        return false;
+      },
+      (loginResult) {
+        _invalidateUserScopedProviders();
+        state = _applyPostAuthResult(loginResult);
         _syncRouterAuthState();
         return true;
       },

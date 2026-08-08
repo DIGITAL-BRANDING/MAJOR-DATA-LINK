@@ -173,6 +173,22 @@ class SetLoginPinUseCase {
   }
 }
 
+// ── Reset forgotten Login PIN via password ──────────────────
+class ResetLoginPinUseCase {
+  const ResetLoginPinUseCase(this._repository);
+  final AuthRepository _repository;
+
+  Future<Either<Failure, AuthLoginResult>> call({
+    required String identifier,
+    required String password,
+  }) {
+    return _repository.resetLoginPinWithPassword(
+      identifier: identifier,
+      password: password,
+    );
+  }
+}
+
 // ── Change Login PIN (6-digit) ─────────────────────────────
 class ChangeLoginPinUseCase {
   const ChangeLoginPinUseCase(this._repository);

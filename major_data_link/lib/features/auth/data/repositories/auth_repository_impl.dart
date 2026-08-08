@@ -64,6 +64,7 @@ class AuthRepositoryImpl implements AuthRepository {
         AuthLoginResult(
           user: response.user,
           requiresLoginPinSetup: response.requiresLoginPinSetup,
+          requiresPinSetup: response.requiresPinSetup,
         ),
       );
     } on AppException catch (e) {
@@ -98,6 +99,7 @@ class AuthRepositoryImpl implements AuthRepository {
         AuthLoginResult(
           user: response.user,
           requiresLoginPinSetup: response.requiresLoginPinSetup,
+          requiresPinSetup: response.requiresPinSetup,
         ),
       );
     } on AppException catch (e) {
@@ -333,6 +335,35 @@ class AuthRepositoryImpl implements AuthRepository {
       await _remote.setLoginPin(pin: pin);
       await _local.saveLoginPinLocally(pin);
       return const Right(null);
+    } on AppException catch (e) {
+      return Left(ErrorHandler.exceptionToFailure(e));
+    } catch (e) {
+      return Left(UnknownFailure(message: e.toString()));
+    }
+  }
+
+  @override
+  Future<Either<Failure, AuthLoginResult>> resetLoginPinWithPassword({
+    required String identifier,
+    required String password,
+  }) async {
+    if (!await _networkInfo.isConnected) {
+      return const Left(NetworkFailure());
+    }
+    try {
+      final response = await _remote.resetLoginPinWithPassword(
+        identifier: identifier,
+        password: password,
+      );
+      _refreshCoordinator.invalidatePendingRefreshes();
+      await _local.cacheAuthResponse(response);
+      return Right(
+        AuthLoginResult(
+          user: response.user,
+          requiresLoginPinSetup: response.requiresLoginPinSetup,
+          requiresPinSetup: response.requiresPinSetup,
+        ),
+      );
     } on AppException catch (e) {
       return Left(ErrorHandler.exceptionToFailure(e));
     } catch (e) {

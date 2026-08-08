@@ -227,6 +227,16 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     onCompleted: (pin) => setState(() => _loginPin = pin),
                     onChanged: (pin) => _loginPin = pin,
                   ),
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      onPressed: () => context.push(
+                        '${RouteNames.resetLoginPin}?identifier=${Uri.encodeComponent(_identifierController.text.trim())}',
+                      ),
+                      child: const Text('Forgot PIN?'),
+                    ),
+                  ),
                 ],
 
                 const SizedBox(height: 12),

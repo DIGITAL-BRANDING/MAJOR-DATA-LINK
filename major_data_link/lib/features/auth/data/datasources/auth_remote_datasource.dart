@@ -13,6 +13,14 @@ abstract class AuthRemoteDataSource {
     String? loginPin,
   });
 
+  /// Recovery path for a forgotten login PIN - see AuthRepository for
+  /// the full explanation. Returns the same shape as login() since the
+  /// backend treats it as a fresh login once the password checks out.
+  Future<AuthResponseModel> resetLoginPinWithPassword({
+    required String identifier,
+    required String password,
+  });
+
   Future<AuthResponseModel> register({
     required String fullName,
     required String email,
@@ -79,6 +87,22 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
           'password': password,
           if (loginPin != null && loginPin.isNotEmpty) 'login_pin': loginPin,
         },
+      );
+      return AuthResponseModel.fromJson(response.data as Map<String, dynamic>);
+    } on DioException catch (e) {
+      throw ErrorHandler.handleException(e);
+    }
+  }
+
+  @override
+  Future<AuthResponseModel> resetLoginPinWithPassword({
+    required String identifier,
+    required String password,
+  }) async {
+    try {
+      final response = await _dio.post(
+        AppEndpoints.resetLoginPin,
+        data: {'identifier': identifier.trim(), 'password': password},
       );
       return AuthResponseModel.fromJson(response.data as Map<String, dynamic>);
     } on DioException catch (e) {
