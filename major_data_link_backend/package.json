@@ -16,6 +16,8 @@
     "prisma:migrate:deploy": "prisma migrate deploy",
     "seed:admin": "tsx src/admin/seed-super-admin.ts",
     "purge:pii": "tsx src/scripts/purge-expired-pii.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "lint": "eslint src --ext .ts"
   },
   "dependencies": {
@@ -41,6 +43,7 @@
     "zod": "^3.24.1"
   },
   "devDependencies": {
+    "vitest": "^3.2.4",
     "@types/bcryptjs": "^2.4.6",
     "@types/connect-pg-simple": "^7.0.3",
     "@types/cors": "^2.8.17",
