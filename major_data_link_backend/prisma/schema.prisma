@@ -243,6 +243,20 @@ model ReferralSettings {
   minWithdrawalKobo BigInt   @default(50000) // 50000 kobo = NGN 500
   updatedAt         DateTime @updatedAt
 }
+// Conversation state for the WhatsApp data-purchase bot (see
+// src/services/whatsapp-session.service.ts). One row per WhatsApp phone
+// number - `state` drives which step of the menu flow the user is on,
+// `context` holds what they've selected so far (network/plan/recipient)
+// until the purchase is confirmed and the row resets to START.
+model WhatsAppSession {
+  id        String   @id @default(cuid())
+  phone     String   @unique // E.164 as sent by WhatsApp Cloud API, e.g. "2348012345678"
+  userId    String? // resolved once the phone number is matched to an existing User
+  state     String   @default("START")
+  context   Json?
+  updatedAt DateTime @updatedAt
+}
+
 model Coupon {
   id               String    @id @default(uuid())
   code             String    @unique

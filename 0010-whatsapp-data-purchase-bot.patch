@@ -1,0 +1,497 @@
+From a1450a48afa045de03269bec8db57b7ba8ced61e Mon Sep 17 00:00:00 2001
+From: Claude <dev@example.com>
+Date: Sun, 9 Aug 2026 14:48:43 +0000
+Subject: [PATCH] feat: WhatsApp data-purchase bot via Cloud API webhook
+
+Lets a user buy data, and now also fund their wallet, by chatting the
+WhatsApp Business number instead of opening the app. Reuses the existing
+wallet debit/refund, wallet-funding, and Alrahuz provider logic
+end-to-end - no purchase/money code is duplicated.
+
+- prisma: add WhatsAppSession (per-phone conversation state), RLS enabled
+  to match the rest of the schema
+- config/env.ts: WHATSAPP_TOKEN, WHATSAPP_PHONE_NUMBER_ID,
+  WHATSAPP_VERIFY_TOKEN, WHATSAPP_APP_SECRET (all optional)
+- routes/vtu.routes.ts: export processProviderPurchase so the bot uses the
+  exact same debit -> provider call -> refund-on-failure sequence as the
+  REST /data/purchase endpoint
+- routes/webhook.routes.ts:
+  - GET /api/webhooks/whatsapp verification handshake + POST
+    /api/webhooks/whatsapp inbound messages, signature verified via
+    X-Hub-Signature-256 the same way the Paystack webhook verifies
+    x-paystack-signature
+  - Paystack handler now sends a WhatsApp confirmation once a
+    WhatsApp-initiated funding transaction is credited, since the
+    existing in-app push notification won't be seen by someone who paid
+    entirely from WhatsApp
+- services/whatsapp-session.service.ts: menu-number-driven state machine
+  (network -> plan -> recipient -> PIN -> confirm), plus a global "fund"
+  command (works from any state, like "cancel") that collects an amount,
+  reuses createPendingFunding + paystackService.initializeTransaction
+  exactly like POST /wallet/fund, and texts back the Paystack checkout
+  link. Data-purchase amounts are re-fetched by plan ID at confirmation
+  time rather than trusting the cached session amount, and the purchase's
+  idempotency key is the WhatsApp message ID so a redelivered webhook can
+  never double-charge
+
+Not yet done, left for a follow-up: an admin-panel view of
+WhatsAppSession for support, and a "balance" command to check wallet
+balance without starting a purchase.
+---
+ .../migration.sql                             |  19 ++
+ major_data_link_backend/prisma/schema.prisma  |  14 ++
+ major_data_link_backend/src/config/env.ts     |  13 +
+ .../src/routes/vtu.routes.ts                  |   2 +-
+ .../src/routes/webhook.routes.ts              | 105 +++++++-
+ .../src/services/whatsapp-session.service.ts  | 224 ++++++++++++++++++
+ 6 files changed, 375 insertions(+), 2 deletions(-)
+ create mode 100644 major_data_link_backend/prisma/migrations/20260809160000_add_whatsapp_sessions/migration.sql
+ create mode 100644 major_data_link_backend/src/services/whatsapp-session.service.ts
+
+diff --git a/major_data_link_backend/prisma/migrations/20260809160000_add_whatsapp_sessions/migration.sql b/major_data_link_backend/prisma/migrations/20260809160000_add_whatsapp_sessions/migration.sql
+new file mode 100644
+index 0000000..c9306f4
+--- /dev/null
++++ b/major_data_link_backend/prisma/migrations/20260809160000_add_whatsapp_sessions/migration.sql
+@@ -0,0 +1,19 @@
++-- CreateTable
++CREATE TABLE "WhatsAppSession" (
++    "id" TEXT NOT NULL,
++    "phone" TEXT NOT NULL,
++    "userId" TEXT,
++    "state" TEXT NOT NULL DEFAULT 'START',
++    "context" JSONB,
++    "updatedAt" TIMESTAMP(3) NOT NULL,
++
++    CONSTRAINT "WhatsAppSession_pkey" PRIMARY KEY ("id")
++);
++
++-- CreateIndex
++CREATE UNIQUE INDEX "WhatsAppSession_phone_key" ON "WhatsAppSession"("phone");
++
++-- Same reasoning as 20260803090000_enable_row_level_security: the backend
++-- reads/writes this table as the Postgres owner role, which RLS never
++-- restricts, so this only closes off Supabase's separate PostgREST path.
++ALTER TABLE "WhatsAppSession" ENABLE ROW LEVEL SECURITY;
+diff --git a/major_data_link_backend/prisma/schema.prisma b/major_data_link_backend/prisma/schema.prisma
+index 3098682..01f9d9c 100644
+--- a/major_data_link_backend/prisma/schema.prisma
++++ b/major_data_link_backend/prisma/schema.prisma
+@@ -243,6 +243,20 @@ model ReferralSettings {
+   minWithdrawalKobo BigInt   @default(50000) // 50000 kobo = NGN 500
+   updatedAt         DateTime @updatedAt
+ }
++// Conversation state for the WhatsApp data-purchase bot (see
++// src/services/whatsapp-session.service.ts). One row per WhatsApp phone
++// number - `state` drives which step of the menu flow the user is on,
++// `context` holds what they've selected so far (network/plan/recipient)
++// until the purchase is confirmed and the row resets to START.
++model WhatsAppSession {
++  id        String   @id @default(cuid())
++  phone     String   @unique // E.164 as sent by WhatsApp Cloud API, e.g. "2348012345678"
++  userId    String? // resolved once the phone number is matched to an existing User
++  state     String   @default("START")
++  context   Json?
++  updatedAt DateTime @updatedAt
++}
++
+ model Coupon {
+   id               String    @id @default(uuid())
+   code             String    @unique
+diff --git a/major_data_link_backend/src/config/env.ts b/major_data_link_backend/src/config/env.ts
+index 1945cef..c17cacf 100644
+--- a/major_data_link_backend/src/config/env.ts
++++ b/major_data_link_backend/src/config/env.ts
+@@ -73,6 +73,19 @@ const EnvSchema = z.object({
+     .transform((value) => value.toLowerCase() !== 'false' && value !== '0'),
+   ADMIN_SESSION_SECRET: z.string().min(16).default('dev-only-insecure-admin-secret-change-me'),
+ 
++  // WhatsApp Cloud API (Meta Business Platform) - lets a user buy data by chatting
++  // with our WhatsApp Business number instead of opening the app. Optional: if
++  // WHATSAPP_TOKEN is unset, the webhook route still mounts but every call to Meta's
++  // API will fail fast rather than silently do nothing - see whatsapp-session.service.ts.
++  WHATSAPP_TOKEN: z.string().optional(),
++  WHATSAPP_PHONE_NUMBER_ID: z.string().optional(),
++  // Chosen by us and entered into the Meta App Dashboard webhook config - proves the
++  // GET verification handshake request actually came from Meta, not a random caller.
++  WHATSAPP_VERIFY_TOKEN: z.string().optional(),
++  // Meta App Secret, used to verify the X-Hub-Signature-256 header on every inbound
++  // POST the same way PAYSTACK_SECRET_KEY verifies x-paystack-signature above.
++  WHATSAPP_APP_SECRET: z.string().optional(),
++
+   // Encrypts NIN/BVN/names/DOB/phone and the generated slip PDFs stored in
+   // Transaction.metadata.pii - see src/lib/pii-encryption.ts. Generate a real
+   // one with: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+diff --git a/major_data_link_backend/src/routes/vtu.routes.ts b/major_data_link_backend/src/routes/vtu.routes.ts
+index 674f672..71744a2 100644
+--- a/major_data_link_backend/src/routes/vtu.routes.ts
++++ b/major_data_link_backend/src/routes/vtu.routes.ts
+@@ -26,7 +26,7 @@ function idempotencyKeyFrom(req: Request) {
+  *    negative if the provider call times out mid-flight), and is reversed if the provider
+  *    reports failure
+  */
+-async function processProviderPurchase(params: {
++export async function processProviderPurchase(params: {
+   userId: string;
+   amount: number;
+   type: TransactionType;
+diff --git a/major_data_link_backend/src/routes/webhook.routes.ts b/major_data_link_backend/src/routes/webhook.routes.ts
+index 31804c5..bd0660b 100644
+--- a/major_data_link_backend/src/routes/webhook.routes.ts
++++ b/major_data_link_backend/src/routes/webhook.routes.ts
+@@ -4,6 +4,7 @@ import { env } from '../config/env.js';
+ import { prisma } from '../lib/prisma.js';
+ import { creditDirectDeposit, creditWalletByReference, markFundingFailed } from '../services/wallet.service.js';
+ import { paystackService } from '../services/paystack.service.js';
++import { advanceSession } from '../services/whatsapp-session.service.js';
+ 
+ export const webhookRoutes = Router();
+ 
+@@ -47,7 +48,20 @@ webhookRoutes.post('/paystack', async (req, res) => {
+           // A funding attempt WE initiated — card charge (/wallet/fund) or a
+           // Pay-with-Transfer dynamic account (/wallet/fund/dynamic) — already has
+           // a PENDING row waiting for this exact reference. Credit it as before.
+-          await creditWalletByReference(reference);
++          const credited = await creditWalletByReference(reference);
++
++          // If this funding attempt came from the WhatsApp bot's "fund" command
++          // (tagged in metadata when the PENDING row was created — see
++          // whatsapp-session.service.ts), let the same chat know it went through,
++          // since the in-app push notification creditWalletByReference already
++          // sent won't be seen by someone who paid entirely from WhatsApp.
++          const metadata = credited.metadata as { channel?: string; whatsapp_phone?: string } | null;
++          if (metadata?.channel === 'whatsapp' && metadata.whatsapp_phone) {
++            await sendWhatsAppText(
++              metadata.whatsapp_phone,
++              `Payment received! NGN${(Number(credited.amountKobo) / 100).toFixed(2)} was added to your wallet. Reply "fund" to top up again, or pick a network to buy data.`
++            );
++          }
+         } else if (customerCode && (channel === 'dedicated_nuban' || channel === 'bank_transfer')) {
+           // No pending transaction exists for this reference, which means the
+           // money arrived as a direct transfer into the user's permanent Dedicated
+@@ -73,3 +87,92 @@ webhookRoutes.post('/paystack', async (req, res) => {
+   // Paystack expects a fast 200 regardless of whether we acted on the event type.
+   res.sendStatus(200);
+ });
++
++/**
++ * One-time handshake Meta sends when you register this URL in the App Dashboard.
++ * No body involved, so mounting under the raw-body parser above is harmless.
++ */
++webhookRoutes.get('/whatsapp', (req, res) => {
++  const mode = req.query['hub.mode'];
++  const token = req.query['hub.verify_token'];
++  const challenge = req.query['hub.challenge'];
++
++  if (mode === 'subscribe' && env.WHATSAPP_VERIFY_TOKEN && token === env.WHATSAPP_VERIFY_TOKEN) {
++    return res.status(200).send(challenge);
++  }
++  return res.sendStatus(403);
++});
++
++/**
++ * Inbound WhatsApp messages. Mounted under the same express.raw() as /paystack
++ * above (see app.ts) because, exactly like Paystack, Meta's X-Hub-Signature-256
++ * is computed over the exact raw request bytes - parsing first would make the
++ * signature check unreliable.
++ */
++webhookRoutes.post('/whatsapp', async (req, res) => {
++  const signatureHeader = req.header('x-hub-signature-256');
++  if (!env.WHATSAPP_APP_SECRET || !signatureHeader) {
++    return res.sendStatus(400);
++  }
++
++  const rawBody = req.body as Buffer;
++  const expectedSignature =
++    'sha256=' + crypto.createHmac('sha256', env.WHATSAPP_APP_SECRET).update(rawBody).digest('hex');
++
++  if (
++    signatureHeader.length !== expectedSignature.length ||
++    !crypto.timingSafeEqual(Buffer.from(signatureHeader), Buffer.from(expectedSignature))
++  ) {
++    return res.sendStatus(401);
++  }
++
++  // Meta expects a fast 200 regardless of what we do with the payload, and retries
++  // aggressively on non-2xx - respond immediately so a slow provider call downstream
++  // can never cause a duplicate delivery on top of the idempotency key already in place.
++  res.sendStatus(200);
++
++  try {
++    const payload = JSON.parse(rawBody.toString('utf8'));
++    const entries = payload?.entry ?? [];
++
++    for (const entry of entries) {
++      for (const change of entry.changes ?? []) {
++        const messages = change.value?.messages ?? [];
++        for (const msg of messages) {
++          const from = msg.from as string; // E.164 without a leading '+'
++          const text: string =
++            msg.text?.body ?? msg.button?.text ?? msg.interactive?.button_reply?.title ?? '';
++          if (!from || !text) continue;
++
++          const reply = await advanceSession(from, text, msg.id);
++          await sendWhatsAppText(from, reply);
++        }
++      }
++    }
++  } catch (error) {
++    console.error('[whatsapp-webhook] failed to process inbound message', error);
++  }
++});
++
++async function sendWhatsAppText(to: string, body: string) {
++  if (!env.WHATSAPP_TOKEN || !env.WHATSAPP_PHONE_NUMBER_ID) {
++    console.error('[whatsapp-webhook] WHATSAPP_TOKEN/WHATSAPP_PHONE_NUMBER_ID not configured, cannot reply');
++    return;
++  }
++
++  const response = await fetch(
++    `https://graph.facebook.com/v20.0/${env.WHATSAPP_PHONE_NUMBER_ID}/messages`,
++    {
++      method: 'POST',
++      headers: {
++        Authorization: `Bearer ${env.WHATSAPP_TOKEN}`,
++        'Content-Type': 'application/json'
++      },
++      body: JSON.stringify({ messaging_product: 'whatsapp', to, type: 'text', text: { body } })
++    }
++  );
++
++  if (!response.ok) {
++    console.error('[whatsapp-webhook] failed to send reply', response.status, await response.text());
++  }
++}
+diff --git a/major_data_link_backend/src/services/whatsapp-session.service.ts b/major_data_link_backend/src/services/whatsapp-session.service.ts
+new file mode 100644
+index 0000000..b8d2b09
+--- /dev/null
++++ b/major_data_link_backend/src/services/whatsapp-session.service.ts
+@@ -0,0 +1,224 @@
++import { TransactionType } from '@prisma/client';
++import { prisma } from '../lib/prisma.js';
++import { ApiError } from '../middleware/error.js';
++import { nanoid } from 'nanoid';
++import { verifyPin, createPendingFunding } from './wallet.service.js';
++import { paystackService } from './paystack.service.js';
++import { providerService, NETWORK_IDS } from './provider.service.js';
++import { processProviderPurchase } from '../routes/vtu.routes.js';
++
++// Deliberately generous but bounded — mirrors no explicit limit in the app's
++// own /wallet/fund route, but chat is an easier place for a typo (an extra
++// zero) to slip through than a numeric keyboard input field.
++const MIN_FUND_NAIRA = 50;
++const MAX_FUND_NAIRA = 200_000;
++
++const NETWORK_MENU = Object.keys(NETWORK_IDS); // ['MTN', 'GLO', '9MOBILE', 'AIRTEL', 'SMILE']
++
++type SessionContext = {
++  network?: string;
++  planId?: string;
++  planName?: string;
++  planAmount?: number;
++  recipientPhone?: string;
++  planOptions?: { id: string; name: string; amount: number }[];
++  pinFailures?: number;
++};
++
++function networkMenuText() {
++  return NETWORK_MENU.map((name, i) => `${i + 1}. ${name}`).join('\n');
++}
++
++async function setState(phone: string, state: string, context: SessionContext) {
++  await prisma.whatsAppSession.update({
++    where: { phone },
++    data: { state, context: context as any }
++  });
++}
++
++/**
++ * Advances the WhatsApp conversation for `phone` by one turn given the raw
++ * text they just sent, and returns the reply to send back.
++ *
++ * Menu-number driven end to end (never free-text parsing of amounts, plans,
++ * or network names) - this moves real money, so every step must resolve to
++ * one unambiguous choice rather than trying to interpret what someone meant.
++ */
++export async function advanceSession(phone: string, rawText: string, messageId: string): Promise<string> {
++  const input = rawText.trim();
++
++  if (input.toLowerCase() === 'cancel') {
++    await prisma.whatsAppSession.upsert({
++      where: { phone },
++      create: { phone, state: 'START' },
++      update: { state: 'START', context: {} }
++    });
++    return 'Cancelled. Send any message to start again.';
++  }
++
++  if (input.toLowerCase() === 'fund') {
++    await prisma.whatsAppSession.upsert({
++      where: { phone },
++      create: { phone, state: 'FUND_AWAITING_AMOUNT' },
++      update: { state: 'FUND_AWAITING_AMOUNT', context: {} }
++    });
++    return `How much would you like to fund your wallet with? Reply with an amount between NGN${MIN_FUND_NAIRA} and NGN${MAX_FUND_NAIRA.toLocaleString('en-NG')}, or "cancel".`;
++  }
++
++  const session = await prisma.whatsAppSession.upsert({
++    where: { phone },
++    create: { phone, state: 'START' },
++    update: {}
++  });
++
++  const ctx = (session.context as SessionContext) ?? {};
++
++  const user = session.userId
++    ? await prisma.user.findUnique({ where: { id: session.userId } })
++    : await prisma.user.findFirst({ where: { phone } });
++
++  if (!user) {
++    return "We couldn't find an account registered to this WhatsApp number. Please sign up in the Major Data Link app using this same phone number, then message us again.";
++  }
++  if (user.accountStatus !== 'ACTIVE') {
++    return 'Your account is not currently active. Please contact support in the app.';
++  }
++  if (!session.userId) {
++    await prisma.whatsAppSession.update({ where: { phone }, data: { userId: user.id } });
++  }
++
++  switch (session.state) {
++    case 'START': {
++      await setState(phone, 'AWAITING_NETWORK', {});
++      return `Welcome to Major Data Link! Which network?\n${networkMenuText()}\n\n(Reply "fund" to top up your wallet, or "cancel" anytime to stop.)`;
++    }
++
++    case 'AWAITING_NETWORK': {
++      const idx = Number(input) - 1;
++      const network = NETWORK_MENU[idx];
++      if (!network) return `Please reply with a number from 1-${NETWORK_MENU.length}.\n${networkMenuText()}`;
++
++      const plans = await providerService.getDataPlans(network);
++      if (plans.length === 0) {
++        await setState(phone, 'AWAITING_NETWORK', {});
++        return `No ${network} plans are available right now. Pick another network:\n${networkMenuText()}`;
++      }
++
++      const options = plans.slice(0, 9).map((p) => ({ id: p.id, name: p.name, amount: p.amount }));
++      const listText = options.map((p, i) => `${i + 1}. ${p.name} - NGN${p.amount}`).join('\n');
++
++      await setState(phone, 'AWAITING_PLAN', { network, planOptions: options });
++      return `${network} plans:\n${listText}\n\nReply with the plan number.`;
++    }
++
++    case 'AWAITING_PLAN': {
++      const options = ctx.planOptions ?? [];
++      const idx = Number(input) - 1;
++      const chosen = options[idx];
++      if (!chosen) return 'Please reply with a valid plan number from the list, or "cancel".';
++
++      await setState(phone, 'AWAITING_RECIPIENT', {
++        network: ctx.network,
++        planId: chosen.id,
++        planName: chosen.name,
++        planAmount: chosen.amount
++      });
++      return `Which number should receive the ${chosen.name} data? Reply with the phone number, or reply "me" to use this WhatsApp number.`;
++    }
++
++    case 'AWAITING_RECIPIENT': {
++      const recipientPhone = input.toLowerCase() === 'me' ? user.phone : input.replace(/[\s-]/g, '');
++      if (!/^(\+?234|0)\d{10}$/.test(recipientPhone)) {
++        return 'That doesn\'t look like a valid Nigerian phone number. Please try again, or reply "cancel".';
++      }
++
++      await setState(phone, 'AWAITING_PIN', { ...ctx, recipientPhone });
++      return `Confirm: ${ctx.planName} for ${recipientPhone} - NGN${ctx.planAmount}.\nEnter your 4-digit transaction PIN to pay, or reply "cancel".`;
++    }
++
++    case 'AWAITING_PIN': {
++      if (!/^\d{4}$/.test(input)) return 'PIN must be 4 digits. Please try again, or reply "cancel".';
++
++      try {
++        await verifyPin(user.id, input);
++      } catch (error) {
++        if (error instanceof ApiError && error.code === 'PIN_LOCKED') {
++          await setState(phone, 'START', {});
++          return 'Too many wrong PIN attempts. Your PIN is temporarily locked - please try again later or reset it in the app.';
++        }
++        return 'Incorrect PIN. Please try again, or reply "cancel".';
++      }
++
++      // Re-fetch the plan by ID rather than trusting the amount cached in the
++      // session context - same defense-in-depth as POST /api/data/purchase,
++      // in case pricing changed between menu selection and confirmation.
++      const plan = await providerService.getDataPlan(ctx.network!, ctx.planId!);
++
++      const result = await processProviderPurchase({
++        userId: user.id,
++        amount: plan.amount,
++        type: TransactionType.DATA_PURCHASE,
++        description: `${plan.name} data purchase for ${ctx.recipientPhone} (WhatsApp)`,
++        metadata: {
++          channel: 'whatsapp',
++          network: ctx.network,
++          plan_id: ctx.planId,
++          plan_name: plan.name,
++          phone: ctx.recipientPhone,
++          amount: plan.amount
++        },
++        // Keyed off the WhatsApp message's own ID (globally unique per Meta) so
++        // a redelivered webhook - which Meta does not guarantee against, same
++        // as Paystack - can never trigger a second debit for the same message.
++        idempotencyKey: `wa-${messageId}`,
++        callProvider: (reference) =>
++          providerService.buyData({
++            network: ctx.network!,
++            planId: ctx.planId!,
++            phone: ctx.recipientPhone!,
++            amount: plan.amount,
++            reference
++          })
++      });
++
++      await setState(phone, 'START', {});
++      return result.status === 'success'
++        ? `Payment successful! ${result.message}\nReference: ${result.reference}\nNew balance: NGN${result.balanceAfter}`
++        : `${result.message}\nNew balance: NGN${result.balanceAfter}`;
++    }
++
++    case 'FUND_AWAITING_AMOUNT': {
++      const amount = Number(input.replace(/[^\d.]/g, ''));
++      if (!Number.isFinite(amount) || amount < MIN_FUND_NAIRA || amount > MAX_FUND_NAIRA) {
++        return `Please reply with a number between NGN${MIN_FUND_NAIRA} and NGN${MAX_FUND_NAIRA.toLocaleString('en-NG')}, or "cancel".`;
++      }
++
++      const reference = `IDS-FUND-${Date.now()}-${nanoid(8).toUpperCase()}`;
++
++      // Same PENDING-first pattern as POST /api/wallet/fund - the balance only
++      // changes once Paystack confirms via the existing webhook, which also
++      // sends the WhatsApp confirmation below (see webhook.routes.ts) since
++      // this transaction is tagged with channel: 'whatsapp'.
++      await createPendingFunding({
++        userId: user.id,
++        amount,
++        reference,
++        metadata: { channel: 'whatsapp', whatsapp_phone: phone }
++      });
++
++      const paystack = await paystackService.initializeTransaction({
++        email: user.email,
++        amountKobo: BigInt(Math.round(amount * 100)),
++        reference
++      });
++
++      await setState(phone, 'START', {});
++      return `Tap this link to pay NGN${amount} securely via Paystack:\n${paystack.authorization_url}\n\nYour wallet will be credited automatically once payment is confirmed.`;
++    }
++
++    default: {
++      await setState(phone, 'AWAITING_NETWORK', {});
++      return `Let's start over. Which network?\n${networkMenuText()}`;
++    }
++  }
++}
+-- 
+2.43.0
+

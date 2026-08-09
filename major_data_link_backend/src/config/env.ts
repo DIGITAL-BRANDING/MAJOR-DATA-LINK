@@ -73,6 +73,19 @@ const EnvSchema = z.object({
     .transform((value) => value.toLowerCase() !== 'false' && value !== '0'),
   ADMIN_SESSION_SECRET: z.string().min(16).default('dev-only-insecure-admin-secret-change-me'),
 
+  // WhatsApp Cloud API (Meta Business Platform) - lets a user buy data by chatting
+  // with our WhatsApp Business number instead of opening the app. Optional: if
+  // WHATSAPP_TOKEN is unset, the webhook route still mounts but every call to Meta's
+  // API will fail fast rather than silently do nothing - see whatsapp-session.service.ts.
+  WHATSAPP_TOKEN: z.string().optional(),
+  WHATSAPP_PHONE_NUMBER_ID: z.string().optional(),
+  // Chosen by us and entered into the Meta App Dashboard webhook config - proves the
+  // GET verification handshake request actually came from Meta, not a random caller.
+  WHATSAPP_VERIFY_TOKEN: z.string().optional(),
+  // Meta App Secret, used to verify the X-Hub-Signature-256 header on every inbound
+  // POST the same way PAYSTACK_SECRET_KEY verifies x-paystack-signature above.
+  WHATSAPP_APP_SECRET: z.string().optional(),
+
   // Encrypts NIN/BVN/names/DOB/phone and the generated slip PDFs stored in
   // Transaction.metadata.pii - see src/lib/pii-encryption.ts. Generate a real
   // one with: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"

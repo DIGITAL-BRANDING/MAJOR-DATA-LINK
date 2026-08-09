@@ -26,7 +26,7 @@ function idempotencyKeyFrom(req: Request) {
  *    negative if the provider call times out mid-flight), and is reversed if the provider
  *    reports failure
  */
-async function processProviderPurchase(params: {
+export async function processProviderPurchase(params: {
   userId: string;
   amount: number;
   type: TransactionType;
