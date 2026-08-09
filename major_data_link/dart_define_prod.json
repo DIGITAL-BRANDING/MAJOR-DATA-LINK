@@ -1,6 +1,6 @@
 {
   "APP_ENV": "production",
-  "API_BASE_URL": "https://imamdatasubweb-production-d2d7.up.railway.app/api",
+  "API_BASE_URL": "https://major-data-link-production.up.railway.app/api",
   "SUPABASE_URL": "https://szxzxumweasuwqvubbss.supabase.co",
   "SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN6eHp4dW13ZWFzdXdxdnViYnNzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQwMjEzOTQsImV4cCI6MjA5OTU5NzM5NH0.pGpj_RDwagVZuYbn45Lr1MdzKBJGg_58b7QwpE0Hyx8"
 }

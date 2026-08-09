@@ -16,6 +16,7 @@
     "prisma:migrate:deploy": "prisma migrate deploy",
     "seed:admin": "tsx src/admin/seed-super-admin.ts",
     "purge:pii": "tsx src/scripts/purge-expired-pii.ts",
+    "sync:techhub-prices": "tsx src/scripts/sync-techhub-prices.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint src --ext .ts"

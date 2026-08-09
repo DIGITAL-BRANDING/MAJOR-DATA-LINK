@@ -36,28 +36,37 @@ const SERVICE_KEYS = [
 export type VerificationServiceKey = (typeof SERVICE_KEYS)[number];
 
 /**
- * Placeholder selling prices (naira) until real Techhub costs are confirmed.
- * NIN_PERSONALIZATION's 400 comes straight from the documented example
- * response (`"amount_charged": 400`) - the rest are reasonable starting
- * points only. Adjust via PATCH /api/admin/service-prices/:service same as
- * every other ServicePricing row; nothing here needs a redeploy to change.
+ * Provider cost (naira) - what Techhub actually charges us per call, taken
+ * directly from https://techhubltd.co/api_summary.php (confirmed against a
+ * screenshot of that page). Techhub does not price NIN/BVN slip tiers
+ * (Premium/Standard/Regular/VNIN) separately - it quotes one flat "NIN
+ * Slips" / "BVN Slips" rate that applies across all of them, so every tier
+ * within a slip family shares the same providerCostKobo below. NIN
+ * Delinking (₦3,500) isn't listed on that summary page - confirmed
+ * separately.
+ *
+ * This is PROVIDER COST, not the selling price shown to users - it's the
+ * floor `sellingPriceKobo` falls back to only until an admin sets a real
+ * selling price (with markup) via PATCH /api/admin/service-prices/:service
+ * or the AdminJS "Verification Pricing" page. Nothing here needs a
+ * redeploy to change afterward - only affects rows not yet created.
  */
 const DEFAULTS: Record<VerificationServiceKey, { label: string; price: number }> = {
-  NIN_SLIP_PREMIUM: { label: 'NIN Slip (Premium) — by NIN', price: 800 },
-  NIN_SLIP_STANDARD: { label: 'NIN Slip (Standard) — by NIN', price: 500 },
-  NIN_SLIP_REGULAR: { label: 'NIN Slip (Regular) — by NIN', price: 300 },
-  NIN_SLIP_VNIN: { label: 'NIN Slip (VNIN) — by NIN', price: 1000 },
-  NIN_PHONE_SLIP_PREMIUM: { label: 'NIN Slip (Premium) — by Phone', price: 800 },
-  NIN_PHONE_SLIP_STANDARD: { label: 'NIN Slip (Standard) — by Phone', price: 500 },
-  NIN_PHONE_SLIP_REGULAR: { label: 'NIN Slip (Regular) — by Phone', price: 300 },
-  NIN_DEMOGRAPHIC: { label: 'NIN Slip — by Demographic', price: 500 },
-  BVN_SLIP_PREMIUM: { label: 'BVN Slip (Premium)', price: 800 },
-  BVN_SLIP_STANDARD: { label: 'BVN Slip (Standard)', price: 500 },
-  NIN_DELINKING: { label: 'NIN Delinking', price: 400 },
-  NIN_VALIDATION: { label: 'NIN Validation', price: 400 },
-  NIN_PERSONALIZATION: { label: 'NIN Personalization', price: 400 },
-  BVN_RETRIEVAL: { label: 'BVN Retrieval', price: 500 },
-  IPE_CLEARANCE: { label: 'IPE Clearance', price: 400 }
+  NIN_SLIP_PREMIUM: { label: 'NIN Slip (Premium) — by NIN', price: 120 },
+  NIN_SLIP_STANDARD: { label: 'NIN Slip (Standard) — by NIN', price: 120 },
+  NIN_SLIP_REGULAR: { label: 'NIN Slip (Regular) — by NIN', price: 120 },
+  NIN_SLIP_VNIN: { label: 'NIN Slip (VNIN) — by NIN', price: 120 },
+  NIN_PHONE_SLIP_PREMIUM: { label: 'NIN Slip (Premium) — by Phone', price: 130 },
+  NIN_PHONE_SLIP_STANDARD: { label: 'NIN Slip (Standard) — by Phone', price: 130 },
+  NIN_PHONE_SLIP_REGULAR: { label: 'NIN Slip (Regular) — by Phone', price: 130 },
+  NIN_DEMOGRAPHIC: { label: 'NIN Slip — by Demographic', price: 130 },
+  BVN_SLIP_PREMIUM: { label: 'BVN Slip (Premium)', price: 80 },
+  BVN_SLIP_STANDARD: { label: 'BVN Slip (Standard)', price: 80 },
+  NIN_DELINKING: { label: 'NIN Delinking', price: 3500 },
+  NIN_VALIDATION: { label: 'NIN Validation', price: 1000 },
+  NIN_PERSONALIZATION: { label: 'NIN Personalization', price: 300 },
+  BVN_RETRIEVAL: { label: 'BVN Retrieval', price: 700 },
+  IPE_CLEARANCE: { label: 'IPE Clearance', price: 450 }
 };
 
 function priceToKobo(amount: number) {

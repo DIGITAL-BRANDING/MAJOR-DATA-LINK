@@ -12,6 +12,7 @@ import { transactionResource } from './resources/transaction.resource.js';
 import { adminUserResource } from './resources/admin-user.resource.js';
 import { adminAuditLogResource } from './resources/audit-log.resource.js';
 import { dataPlanPricingResource } from './resources/data-plan-pricing.resource.js';
+import { servicePricingResource } from './resources/service-pricing.resource.js';
 import { couponResource } from './resources/coupon.resource.js';
 import { providerBalanceResource } from './resources/provider-balance.resource.js';
 import { referralSettingsResource } from './resources/referral-settings.resource.js';
@@ -92,6 +93,7 @@ export async function buildAdminRouter() {
       userResource,
       transactionResource,
       dataPlanPricingResource,
+      servicePricingResource,
       couponResource,
       providerBalanceResource,
       referralSettingsResource,
