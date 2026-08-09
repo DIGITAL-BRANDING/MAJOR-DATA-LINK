@@ -40,8 +40,13 @@ ALTER TABLE "Notification" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "NotificationBroadcast" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "AdminUser" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "AdminAuditLog" ENABLE ROW LEVEL SECURITY;
-ALTER TABLE "SupportTicket" ENABLE ROW LEVEL SECURITY;
-ALTER TABLE "SupportTicketMessage" ENABLE ROW LEVEL SECURITY;
+
+-- SupportTicket / SupportTicketMessage were intentionally NOT added here.
+-- Those two tables don't exist yet at this point in migration history (they're
+-- created later, in 20260804090000_add_support_tickets) - enabling RLS on them
+-- from this migration made a fresh database applying all migrations in order
+-- fail with "relation does not exist". Enabling RLS on them was moved to
+-- 20260809140000_enable_rls_support_tickets, which runs after that table exists.
 
 -- Prisma's own internal migration-tracking table also lives in the public
 -- schema, so Supabase's linter flags it too even though it holds no user
