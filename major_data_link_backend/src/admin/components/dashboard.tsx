@@ -23,10 +23,16 @@ const quickLinks: QuickLink[] = [
     resourceId: 'DataPlanPricing',
     icon: 'ShoppingCart'
   },
+  {
+    label: 'Service Pricing',
+    description: 'NIN/BVN (Techhub) & result pin (Alrahuz) prices',
+    resourceId: 'ServicePricing',
+    icon: 'Tag'
+  },
   { label: 'Coupons', description: 'Discount codes & promotions', resourceId: 'Coupon', icon: 'CreditCard' },
   {
     label: 'Provider Balance',
-    description: 'VTU provider wallet status',
+    description: 'Alrahuz (VTU) & Techhub (NIN/BVN) wallet status',
     resourceId: 'ProviderBalanceStatus',
     icon: 'AlertTriangle'
   },
