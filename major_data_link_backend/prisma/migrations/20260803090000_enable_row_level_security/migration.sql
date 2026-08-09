@@ -40,6 +40,8 @@ ALTER TABLE "Notification" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "NotificationBroadcast" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "AdminUser" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "AdminAuditLog" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "SupportTicket" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "SupportTicketMessage" ENABLE ROW LEVEL SECURITY;
 
 -- Prisma's own internal migration-tracking table also lives in the public
 -- schema, so Supabase's linter flags it too even though it holds no user
