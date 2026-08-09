@@ -3,10 +3,16 @@ import type { ResourceWithOptions } from 'adminjs';
 import { prisma } from '../../lib/prisma.js';
 
 /**
- * Read-only view of YOUR balance at Alrahuz — see ProviderBalanceStatus in
- * schema.prisma and recordProviderBalance in provider.service.ts. This is not
- * editable here because it's just a mirror of what Alrahuz itself reports;
- * the only way to actually change it is to fund your Alrahuz account.
+ * Read-only view of YOUR balance at each provider — Alrahuz (VTU) and
+ * Techhub (NIN/BVN verification), distinguished by the `provider` column.
+ * See ProviderBalanceStatus in schema.prisma, and recordProviderBalance in
+ * provider.service.ts (Alrahuz) / techhub.service.ts (Techhub). Not
+ * editable here because it's just a mirror of what each provider itself
+ * reports; the only way to actually change it is to fund that provider
+ * account directly. A provider's row only appears after its first
+ * balance-reporting API call since deploy — Techhub only reports balance
+ * on the five async services (Delinking/NIN Validation/Personalization/BVN
+ * Retrieval/IPE Clearance), not on slip lookups.
  */
 export const providerBalanceResource: ResourceWithOptions = {
   resource: { model: getModelByName('ProviderBalanceStatus'), client: prisma },
@@ -22,7 +28,8 @@ export const providerBalanceResource: ResourceWithOptions = {
     },
     properties: {
       lastKnownBalance: {
-        description: 'Your last known balance at Alrahuz — updates automatically after every purchase.'
+        description:
+          'Your last known balance at this provider — updates automatically after every purchase (Alrahuz) or async-service call (Techhub).'
       }
     }
   }

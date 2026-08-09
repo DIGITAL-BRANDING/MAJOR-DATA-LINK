@@ -1,5 +1,6 @@
 import { env } from '../config/env.js';
 import { ApiError } from '../middleware/error.js';
+import { prisma } from '../lib/prisma.js';
 
 /**
  * Techhubltd — NIN / BVN identity verification provider.
@@ -255,6 +256,12 @@ export class TechhubService {
 
     const data = (await response.json().catch(() => ({}))) as TechhubAsyncSubmitResponse;
 
+    if (data.balance !== undefined) {
+      this.recordProviderBalance(data.balance).catch((err) =>
+        console.error('[techhub-balance] failed to record balance:', err)
+      );
+    }
+
     if (!response.ok || data.success !== true || !data.ticket_id) {
       console.error(`[techhub] async submit failed (path=${path}, http=${response.status}):`, JSON.stringify(data));
       return {
@@ -265,6 +272,48 @@ export class TechhubService {
     }
 
     return { ok: true, ticketId: data.ticket_id, message: data.message ?? 'Request submitted successfully', raw: data };
+  }
+
+  /**
+   * Persists Techhub's own reported balance (returned on every async-submit
+   * call — see TechhubAsyncSubmitResponse.balance above) and fires a
+   * low-balance alert, same pattern and same reasoning as
+   * provider.service.ts's recordProviderBalance for Alrahuz. Visible in the
+   * admin panel via ProviderBalanceStatus, keyed by provider: 'techhub' so
+   * it shows up alongside the existing Alrahuz row rather than overwriting
+   * it. Never throws — a failure to record this must never break an actual
+   * verification request.
+   */
+  private async recordProviderBalance(rawBalance: unknown) {
+    const balance =
+      typeof rawBalance === 'number'
+        ? rawBalance
+        : typeof rawBalance === 'string'
+          ? Number(rawBalance)
+          : undefined;
+    if (balance === undefined || !Number.isFinite(balance)) return null;
+
+    const status = await prisma.providerBalanceStatus.upsert({
+      where: { provider: 'techhub' },
+      create: { provider: 'techhub', lastKnownBalance: balance },
+      update: { lastKnownBalance: balance }
+    });
+
+    if (balance >= env.TECHHUB_LOW_BALANCE_THRESHOLD) return status;
+
+    const cooldownMs = env.TECHHUB_LOW_BALANCE_ALERT_COOLDOWN_MINUTES * 60 * 1000;
+    const alreadyAlerted =
+      status.lowBalanceAlertSentAt && Date.now() - status.lowBalanceAlertSentAt.getTime() < cooldownMs;
+    if (alreadyAlerted) return status;
+
+    console.error(
+      `[techhub-balance] LOW BALANCE ALERT: only NGN${balance} left at Techhub ` +
+        `(threshold NGN${env.TECHHUB_LOW_BALANCE_THRESHOLD}) - top up now to avoid failed verification requests.`
+    );
+    return prisma.providerBalanceStatus.update({
+      where: { provider: 'techhub' },
+      data: { lowBalanceAlertSentAt: new Date() }
+    });
   }
 
   /**

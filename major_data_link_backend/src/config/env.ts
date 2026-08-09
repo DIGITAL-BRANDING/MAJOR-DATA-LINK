@@ -34,6 +34,15 @@ const EnvSchema = z.object({
   // See src/services/techhub.service.ts.
   TECHHUB_BASE_URL: z.string().url().default('https://techhubltd.co/api/verification'),
   TECHHUB_API_KEY: z.string().optional(),
+  // Same reasoning as ALRAHUZ_LOW_BALANCE_THRESHOLD above — YOUR balance at
+  // Techhub, reported back on every async-service submit call (see
+  // TechhubAsyncSubmitResponse.balance in techhub.service.ts). Techhub's
+  // slip endpoints don't report a balance, so this only updates on
+  // Delinking/NIN Validation/Personalization/BVN Retrieval/IPE Clearance
+  // calls — still enough for ongoing visibility since those five run
+  // through this app regularly.
+  TECHHUB_LOW_BALANCE_THRESHOLD: z.coerce.number().positive().default(2000),
+  TECHHUB_LOW_BALANCE_ALERT_COOLDOWN_MINUTES: z.coerce.number().int().positive().default(60),
   // Same string-boolean footgun as MOCK_PROVIDER above — see that comment.
   MOCK_TECHHUB: z
     .string()

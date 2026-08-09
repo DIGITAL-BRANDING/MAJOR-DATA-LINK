@@ -55,6 +55,31 @@ async function startServer() {
     console.log('[server] Creating Express app');
     const app = createApp();
 
+    // Eagerly create every ServicePricing row (both Techhub NIN/BVN services
+    // and Alrahuz result-pin exam types) right now, instead of waiting for
+    // each one's first real API call. Without this, a freshly-deployed
+    // environment shows an incomplete/empty "Verification Pricing" admin
+    // page until every single service has been purchased at least once —
+    // getOrCreateVerificationPricingRow / getOrCreateServicePricingRow only
+    // insert a row lazily on first read, and AdminJS's ServicePricing
+    // resource queries the table directly (not through those functions), so
+    // rows nobody has bought yet were simply invisible to admins trying to
+    // review or adjust prices. Failure here must never block startup - it's
+    // a convenience seed, not a dependency of anything else.
+    try {
+      const { listVerificationPricesForAdmin } = await import('./services/verification.service.js');
+      const { listServicePricesForAdmin } = await import('./services/result-pin.service.js');
+      const [verificationPrices, resultPinPrices] = await Promise.all([
+        listVerificationPricesForAdmin(),
+        listServicePricesForAdmin()
+      ]);
+      console.log(
+        `[server] Seeded service pricing rows: ${verificationPrices.length} Techhub, ${resultPinPrices.length} Alrahuz`
+      );
+    } catch (error) {
+      console.error('[server] Failed to seed service pricing rows (non-fatal):', error);
+    }
+
     const server = app.listen(env.PORT, '0.0.0.0', () => {
       console.log(`MAJOR DATA-LINK backend listening on port ${env.PORT}`);
     });

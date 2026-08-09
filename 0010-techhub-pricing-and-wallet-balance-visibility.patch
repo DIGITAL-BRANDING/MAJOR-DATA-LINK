@@ -1,0 +1,164 @@
+diff --git a/major_data_link_backend/src/admin/resources/provider-balance.resource.ts b/major_data_link_backend/src/admin/resources/provider-balance.resource.ts
+index 077468b..2b26b1c 100644
+--- a/major_data_link_backend/src/admin/resources/provider-balance.resource.ts
++++ b/major_data_link_backend/src/admin/resources/provider-balance.resource.ts
+@@ -3,10 +3,16 @@ import type { ResourceWithOptions } from 'adminjs';
+ import { prisma } from '../../lib/prisma.js';
+ 
+ /**
+- * Read-only view of YOUR balance at Alrahuz — see ProviderBalanceStatus in
+- * schema.prisma and recordProviderBalance in provider.service.ts. This is not
+- * editable here because it's just a mirror of what Alrahuz itself reports;
+- * the only way to actually change it is to fund your Alrahuz account.
++ * Read-only view of YOUR balance at each provider — Alrahuz (VTU) and
++ * Techhub (NIN/BVN verification), distinguished by the `provider` column.
++ * See ProviderBalanceStatus in schema.prisma, and recordProviderBalance in
++ * provider.service.ts (Alrahuz) / techhub.service.ts (Techhub). Not
++ * editable here because it's just a mirror of what each provider itself
++ * reports; the only way to actually change it is to fund that provider
++ * account directly. A provider's row only appears after its first
++ * balance-reporting API call since deploy — Techhub only reports balance
++ * on the five async services (Delinking/NIN Validation/Personalization/BVN
++ * Retrieval/IPE Clearance), not on slip lookups.
+  */
+ export const providerBalanceResource: ResourceWithOptions = {
+   resource: { model: getModelByName('ProviderBalanceStatus'), client: prisma },
+@@ -22,7 +28,8 @@ export const providerBalanceResource: ResourceWithOptions = {
+     },
+     properties: {
+       lastKnownBalance: {
+-        description: 'Your last known balance at Alrahuz — updates automatically after every purchase.'
++        description:
++          'Your last known balance at this provider — updates automatically after every purchase (Alrahuz) or async-service call (Techhub).'
+       }
+     }
+   }
+diff --git a/major_data_link_backend/src/config/env.ts b/major_data_link_backend/src/config/env.ts
+index c17cacf..4eb3f2f 100644
+--- a/major_data_link_backend/src/config/env.ts
++++ b/major_data_link_backend/src/config/env.ts
+@@ -34,6 +34,15 @@ const EnvSchema = z.object({
+   // See src/services/techhub.service.ts.
+   TECHHUB_BASE_URL: z.string().url().default('https://techhubltd.co/api/verification'),
+   TECHHUB_API_KEY: z.string().optional(),
++  // Same reasoning as ALRAHUZ_LOW_BALANCE_THRESHOLD above — YOUR balance at
++  // Techhub, reported back on every async-service submit call (see
++  // TechhubAsyncSubmitResponse.balance in techhub.service.ts). Techhub's
++  // slip endpoints don't report a balance, so this only updates on
++  // Delinking/NIN Validation/Personalization/BVN Retrieval/IPE Clearance
++  // calls — still enough for ongoing visibility since those five run
++  // through this app regularly.
++  TECHHUB_LOW_BALANCE_THRESHOLD: z.coerce.number().positive().default(2000),
++  TECHHUB_LOW_BALANCE_ALERT_COOLDOWN_MINUTES: z.coerce.number().int().positive().default(60),
+   // Same string-boolean footgun as MOCK_PROVIDER above — see that comment.
+   MOCK_TECHHUB: z
+     .string()
+diff --git a/major_data_link_backend/src/server.ts b/major_data_link_backend/src/server.ts
+index 11d64e5..6f3d424 100644
+--- a/major_data_link_backend/src/server.ts
++++ b/major_data_link_backend/src/server.ts
+@@ -55,6 +55,31 @@ async function startServer() {
+     console.log('[server] Creating Express app');
+     const app = createApp();
+ 
++    // Eagerly create every ServicePricing row (both Techhub NIN/BVN services
++    // and Alrahuz result-pin exam types) right now, instead of waiting for
++    // each one's first real API call. Without this, a freshly-deployed
++    // environment shows an incomplete/empty "Verification Pricing" admin
++    // page until every single service has been purchased at least once —
++    // getOrCreateVerificationPricingRow / getOrCreateServicePricingRow only
++    // insert a row lazily on first read, and AdminJS's ServicePricing
++    // resource queries the table directly (not through those functions), so
++    // rows nobody has bought yet were simply invisible to admins trying to
++    // review or adjust prices. Failure here must never block startup - it's
++    // a convenience seed, not a dependency of anything else.
++    try {
++      const { listVerificationPricesForAdmin } = await import('./services/verification.service.js');
++      const { listServicePricesForAdmin } = await import('./services/result-pin.service.js');
++      const [verificationPrices, resultPinPrices] = await Promise.all([
++        listVerificationPricesForAdmin(),
++        listServicePricesForAdmin()
++      ]);
++      console.log(
++        `[server] Seeded service pricing rows: ${verificationPrices.length} Techhub, ${resultPinPrices.length} Alrahuz`
++      );
++    } catch (error) {
++      console.error('[server] Failed to seed service pricing rows (non-fatal):', error);
++    }
++
+     const server = app.listen(env.PORT, '0.0.0.0', () => {
+       console.log(`MAJOR DATA-LINK backend listening on port ${env.PORT}`);
+     });
+diff --git a/major_data_link_backend/src/services/techhub.service.ts b/major_data_link_backend/src/services/techhub.service.ts
+index e5a0755..b783d74 100644
+--- a/major_data_link_backend/src/services/techhub.service.ts
++++ b/major_data_link_backend/src/services/techhub.service.ts
+@@ -1,5 +1,6 @@
+ import { env } from '../config/env.js';
+ import { ApiError } from '../middleware/error.js';
++import { prisma } from '../lib/prisma.js';
+ 
+ /**
+  * Techhubltd — NIN / BVN identity verification provider.
+@@ -255,6 +256,12 @@ export class TechhubService {
+ 
+     const data = (await response.json().catch(() => ({}))) as TechhubAsyncSubmitResponse;
+ 
++    if (data.balance !== undefined) {
++      this.recordProviderBalance(data.balance).catch((err) =>
++        console.error('[techhub-balance] failed to record balance:', err)
++      );
++    }
++
+     if (!response.ok || data.success !== true || !data.ticket_id) {
+       console.error(`[techhub] async submit failed (path=${path}, http=${response.status}):`, JSON.stringify(data));
+       return {
+@@ -267,6 +274,48 @@ export class TechhubService {
+     return { ok: true, ticketId: data.ticket_id, message: data.message ?? 'Request submitted successfully', raw: data };
+   }
+ 
++  /**
++   * Persists Techhub's own reported balance (returned on every async-submit
++   * call — see TechhubAsyncSubmitResponse.balance above) and fires a
++   * low-balance alert, same pattern and same reasoning as
++   * provider.service.ts's recordProviderBalance for Alrahuz. Visible in the
++   * admin panel via ProviderBalanceStatus, keyed by provider: 'techhub' so
++   * it shows up alongside the existing Alrahuz row rather than overwriting
++   * it. Never throws — a failure to record this must never break an actual
++   * verification request.
++   */
++  private async recordProviderBalance(rawBalance: unknown) {
++    const balance =
++      typeof rawBalance === 'number'
++        ? rawBalance
++        : typeof rawBalance === 'string'
++          ? Number(rawBalance)
++          : undefined;
++    if (balance === undefined || !Number.isFinite(balance)) return null;
++
++    const status = await prisma.providerBalanceStatus.upsert({
++      where: { provider: 'techhub' },
++      create: { provider: 'techhub', lastKnownBalance: balance },
++      update: { lastKnownBalance: balance }
++    });
++
++    if (balance >= env.TECHHUB_LOW_BALANCE_THRESHOLD) return status;
++
++    const cooldownMs = env.TECHHUB_LOW_BALANCE_ALERT_COOLDOWN_MINUTES * 60 * 1000;
++    const alreadyAlerted =
++      status.lowBalanceAlertSentAt && Date.now() - status.lowBalanceAlertSentAt.getTime() < cooldownMs;
++    if (alreadyAlerted) return status;
++
++    console.error(
++      `[techhub-balance] LOW BALANCE ALERT: only NGN${balance} left at Techhub ` +
++        `(threshold NGN${env.TECHHUB_LOW_BALANCE_THRESHOLD}) - top up now to avoid failed verification requests.`
++    );
++    return prisma.providerBalanceStatus.update({
++      where: { provider: 'techhub' },
++      data: { lowBalanceAlertSentAt: new Date() }
++    });
++  }
++
+   /**
+    * Unlike submit, a failed status check IS thrown as an ApiError - it can
+    * only fail here because of a bad/unknown ticket_id or a transient
