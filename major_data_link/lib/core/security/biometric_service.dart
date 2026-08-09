@@ -70,6 +70,20 @@ class BiometricService {
       return null;
     }
   }
+
+  // ── Screenshot / screen-recording protection ──────────────
+  // Toggles Android's FLAG_SECURE on the app window. Debug builds never
+  // enable it regardless of what's passed here (see MainActivity.kt's
+  // isDebuggableBuild() check) - only release builds actually block
+  // screenshots. Reference-counted by SecureScreenController
+  // (core/security/secure_screen_mixin.dart), not called directly by UI code.
+  Future<void> setSecureScreen(bool secure) async {
+    try {
+      await _securityChannel.invokeMethod('setSecureScreen', {'secure': secure});
+    } on PlatformException catch (e) {
+      appLogger.w('Set secure screen failed', error: e);
+    }
+  }
 }
 
 enum BiometricResult { success, failed, error, cancelled }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/constants/app_dimensions.dart';
+import '../../../../core/security/secure_screen_mixin.dart';
 import '../../../../core/utils/extensions.dart';
 import '../../../../shared/widgets/kd_button.dart';
 import '../../../../shared/widgets/kd_card.dart';
@@ -19,7 +20,7 @@ class NinDelinkingScreen extends ConsumerStatefulWidget {
 }
 
 class _NinDelinkingScreenState extends ConsumerState<NinDelinkingScreen>
-    with AsyncTicketPoller<NinDelinkingScreen> {
+    with AsyncTicketPoller<NinDelinkingScreen>, SecureScreenMixin {
   final _ninController = TextEditingController();
   final _emailController = TextEditingController();
   final _formKey = GlobalKey<FormState>();

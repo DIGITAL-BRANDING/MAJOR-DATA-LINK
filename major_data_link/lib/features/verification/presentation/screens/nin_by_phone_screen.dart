@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/constants/app_dimensions.dart';
+import '../../../../core/security/secure_screen_mixin.dart';
 import '../../../../core/utils/extensions.dart';
 import '../../../../shared/widgets/kd_button.dart';
 import '../../../../shared/widgets/kd_card.dart';
@@ -25,7 +26,8 @@ class NinByPhoneScreen extends ConsumerStatefulWidget {
   ConsumerState<NinByPhoneScreen> createState() => _NinByPhoneScreenState();
 }
 
-class _NinByPhoneScreenState extends ConsumerState<NinByPhoneScreen> {
+class _NinByPhoneScreenState extends ConsumerState<NinByPhoneScreen>
+    with SecureScreenMixin {
   final _phoneController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
   SlipTier _tier = SlipTier.standard;

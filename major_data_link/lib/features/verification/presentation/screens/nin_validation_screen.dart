@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/constants/app_colors.dart';
+import '../../../../core/security/secure_screen_mixin.dart';
 import '../../../../core/constants/app_dimensions.dart';
 import '../../../../core/utils/extensions.dart';
 import '../../../../shared/widgets/kd_button.dart';
@@ -20,7 +21,7 @@ class NinValidationScreen extends ConsumerStatefulWidget {
 }
 
 class _NinValidationScreenState extends ConsumerState<NinValidationScreen>
-    with AsyncTicketPoller<NinValidationScreen> {
+    with AsyncTicketPoller<NinValidationScreen>, SecureScreenMixin {
   final _ninController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
   NinValidationType _type = NinValidationType.ninValidation;

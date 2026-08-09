@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/constants/app_dimensions.dart';
+import '../../../../core/security/secure_screen_mixin.dart';
 import '../../../../core/utils/extensions.dart';
 import '../../../../shared/widgets/kd_button.dart';
 import '../../../../shared/widgets/kd_card.dart';
@@ -19,7 +20,7 @@ class BvnRetrievalScreen extends ConsumerStatefulWidget {
 }
 
 class _BvnRetrievalScreenState extends ConsumerState<BvnRetrievalScreen>
-    with AsyncTicketPoller<BvnRetrievalScreen> {
+    with AsyncTicketPoller<BvnRetrievalScreen>, SecureScreenMixin {
   final _firstNameController = TextEditingController();
   final _lastNameController = TextEditingController();
   final _phoneController = TextEditingController();

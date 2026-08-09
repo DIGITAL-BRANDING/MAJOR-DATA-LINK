@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/constants/app_dimensions.dart';
+import '../../../../core/security/secure_screen_mixin.dart';
 import '../../../../core/utils/extensions.dart';
 import '../../../../shared/widgets/kd_button.dart';
 import '../../../../shared/widgets/kd_card.dart';
@@ -22,7 +23,8 @@ class BvnSlipScreen extends ConsumerStatefulWidget {
   ConsumerState<BvnSlipScreen> createState() => _BvnSlipScreenState();
 }
 
-class _BvnSlipScreenState extends ConsumerState<BvnSlipScreen> {
+class _BvnSlipScreenState extends ConsumerState<BvnSlipScreen>
+    with SecureScreenMixin {
   final _bvnController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
   BvnTier _tier = BvnTier.standard;

@@ -23,17 +23,33 @@ class MainActivity : FlutterFragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // Prevent screenshots in release builds
-        if (!isDebuggableBuild()) {
-            window.setFlags(
-                WindowManager.LayoutParams.FLAG_SECURE,
-                WindowManager.LayoutParams.FLAG_SECURE
-            )
-        }
+        // Screenshot/screen-recording protection (FLAG_SECURE) is no longer
+        // applied blanket-wide here. It's toggled dynamically per-screen via
+        // the "setSecureScreen" security-channel method below, driven by
+        // SecureScreenMixin on the Flutter side (wallet, PIN/OTP, and
+        // NIN/BVN verification screens only) - see
+        // lib/core/security/secure_screen_mixin.dart for the Flutter side
+        // of this and why it's reference-counted there.
     }
 
     private fun isDebuggableBuild(): Boolean {
         return (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+    }
+
+    // Called from Flutter (SecureScreenMixin, via SecureScreenController's
+    // reference count) when a sensitive screen mounts/unmounts. No-op on
+    // debug builds so screenshots keep working normally for local dev/QA -
+    // only release builds actually get FLAG_SECURE applied.
+    private fun setSecureScreen(secure: Boolean) {
+        if (isDebuggableBuild()) return
+        if (secure) {
+            window.setFlags(
+                WindowManager.LayoutParams.FLAG_SECURE,
+                WindowManager.LayoutParams.FLAG_SECURE
+            )
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -45,6 +61,11 @@ class MainActivity : FlutterFragmentActivity() {
                 "isRooted" -> result.success(isDeviceRooted())
                 "getAndroidId" -> result.success(getSecureAndroidId())
                 "getDeviceFingerprint" -> result.success(getDeviceFingerprint())
+                "setSecureScreen" -> {
+                    val secure = call.argument<Boolean>("secure") ?: false
+                    setSecureScreen(secure)
+                    result.success(null)
+                }
                 else -> result.notImplemented()
             }
         }

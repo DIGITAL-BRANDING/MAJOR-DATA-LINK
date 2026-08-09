@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_dimensions.dart';
 import '../../../../core/router/route_names.dart';
+import '../../../../core/security/secure_screen_mixin.dart';
 import '../../../../core/utils/extensions.dart';
 import '../../../../shared/widgets/kd_button.dart';
 import '../../../../shared/widgets/kd_card.dart';
@@ -22,7 +23,8 @@ class WalletScreen extends ConsumerWidget {
     final walletAsync = ref.watch(walletNotifierProvider);
     final balanceHidden = ref.watch(balanceVisibilityProvider);
 
-    return Scaffold(
+    return SecureScreenWrapper(
+      child: Scaffold(
       appBar: AppBar(title: const Text('My Wallet')),
       body: SafeArea(
         top: false,
@@ -158,7 +160,7 @@ class WalletScreen extends ConsumerWidget {
           ),
         ),
       ),
-    );
+    ));
   }
 }
 

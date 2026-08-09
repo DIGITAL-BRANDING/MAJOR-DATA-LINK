@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/constants/app_dimensions.dart';
+import '../../../../core/security/secure_screen_mixin.dart';
 import '../../../../core/utils/extensions.dart';
 import '../../../../shared/widgets/kd_button.dart';
 import '../../../../shared/widgets/kd_card.dart';
@@ -18,7 +19,8 @@ class NinByDemographicScreen extends ConsumerStatefulWidget {
 }
 
 class _NinByDemographicScreenState
-    extends ConsumerState<NinByDemographicScreen> {
+    extends ConsumerState<NinByDemographicScreen>
+    with SecureScreenMixin {
   final _firstNameController = TextEditingController();
   final _lastNameController = TextEditingController();
   final _dobController = TextEditingController();

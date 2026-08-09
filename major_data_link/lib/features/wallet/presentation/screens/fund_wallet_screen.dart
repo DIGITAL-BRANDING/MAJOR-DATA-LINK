@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_dimensions.dart';
 import '../../../../core/constants/app_strings.dart';
+import '../../../../core/security/secure_screen_mixin.dart';
 import '../../../../core/utils/extensions.dart';
 import '../../../../core/utils/formatters.dart';
 import '../../../../core/utils/validators.dart';
@@ -24,7 +25,8 @@ class FundWalletScreen extends ConsumerStatefulWidget {
   ConsumerState<FundWalletScreen> createState() => _FundWalletScreenState();
 }
 
-class _FundWalletScreenState extends ConsumerState<FundWalletScreen> {
+class _FundWalletScreenState extends ConsumerState<FundWalletScreen>
+    with SecureScreenMixin {
   final _amountController = TextEditingController();
   final _couponController = TextEditingController();
   double _selectedAmount = 0;

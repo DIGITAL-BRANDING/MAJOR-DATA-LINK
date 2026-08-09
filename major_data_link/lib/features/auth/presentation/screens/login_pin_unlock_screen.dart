@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/constants/app_colors.dart';
+import '../../../../core/security/secure_screen_mixin.dart';
 import '../../../../core/constants/app_dimensions.dart';
 import '../../../../core/constants/app_strings.dart';
 import '../../../../core/error/failures.dart';
@@ -21,7 +22,8 @@ class LoginPinUnlockScreen extends ConsumerStatefulWidget {
       _LoginPinUnlockScreenState();
 }
 
-class _LoginPinUnlockScreenState extends ConsumerState<LoginPinUnlockScreen> {
+class _LoginPinUnlockScreenState extends ConsumerState<LoginPinUnlockScreen>
+    with SecureScreenMixin {
   bool _isLoading = false;
   bool _hasError = false;
   String? _errorText;

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/constants/app_colors.dart';
+import '../../../../core/security/secure_screen_mixin.dart';
 import '../../../../core/constants/app_dimensions.dart';
 import '../../../../core/constants/app_strings.dart';
 import '../../../../core/utils/extensions.dart';
@@ -21,7 +22,8 @@ class SetTransactionPinScreen extends ConsumerStatefulWidget {
 }
 
 class _SetTransactionPinScreenState
-    extends ConsumerState<SetTransactionPinScreen> {
+    extends ConsumerState<SetTransactionPinScreen>
+    with SecureScreenMixin {
   String _firstPin = '';
   int _step = 0; // 0 = create, 1 = confirm
   bool _isLoading = false;

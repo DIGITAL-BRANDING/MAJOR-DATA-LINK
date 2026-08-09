@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_dimensions.dart';
 import '../../core/security/biometric_service.dart';
+import '../../core/security/secure_screen_mixin.dart';
 import '../../core/di/injection.dart';
 import '../../features/auth/presentation/providers/auth_provider.dart';
 import 'kd_button.dart';
@@ -47,7 +48,8 @@ class _PinConfirmationSheet extends ConsumerStatefulWidget {
       _PinConfirmationSheetState();
 }
 
-class _PinConfirmationSheetState extends ConsumerState<_PinConfirmationSheet> {
+class _PinConfirmationSheetState extends ConsumerState<_PinConfirmationSheet>
+    with SecureScreenMixin {
   bool _isVerifying = false;
   bool _hasError = false;
   String? _errorMessage;

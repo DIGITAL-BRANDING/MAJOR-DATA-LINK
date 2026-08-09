@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/constants/app_dimensions.dart';
+import '../../../../core/security/secure_screen_mixin.dart';
 import '../../../../core/utils/extensions.dart';
 import '../../../../shared/widgets/kd_button.dart';
 import '../../../../shared/widgets/kd_card.dart';
@@ -19,7 +20,7 @@ class NinPersonalizationScreen extends ConsumerStatefulWidget {
 
 class _NinPersonalizationScreenState
     extends ConsumerState<NinPersonalizationScreen>
-    with AsyncTicketPoller<NinPersonalizationScreen> {
+    with AsyncTicketPoller<NinPersonalizationScreen>, SecureScreenMixin {
   final _trackingIdController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
 

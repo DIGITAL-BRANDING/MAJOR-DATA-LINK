@@ -1,0 +1,563 @@
+diff --git a/major_data_link/android/app/src/main/AndroidManifest.xml b/major_data_link/android/app/src/main/AndroidManifest.xml
+index 2419801..1135a37 100644
+--- a/major_data_link/android/app/src/main/AndroidManifest.xml
++++ b/major_data_link/android/app/src/main/AndroidManifest.xml
+@@ -121,7 +121,6 @@
+             android:name="flutterEmbedding"
+             android:value="2" />
+ 
+-        <!-- Prevent screenshots in sensitive screens (set per-screen in Flutter) -->
+         <meta-data
+             android:name="io.flutter.app.android.SplashScreenUntilFirstFrame"
+             android:value="true" />
+diff --git a/major_data_link/android/app/src/main/kotlin/com/majordatalink/app/MainActivity.kt b/major_data_link/android/app/src/main/kotlin/com/majordatalink/app/MainActivity.kt
+index 12b0a05..fe18749 100644
+--- a/major_data_link/android/app/src/main/kotlin/com/majordatalink/app/MainActivity.kt
++++ b/major_data_link/android/app/src/main/kotlin/com/majordatalink/app/MainActivity.kt
+@@ -23,19 +23,35 @@ class MainActivity : FlutterFragmentActivity() {
+ 
+     override fun onCreate(savedInstanceState: Bundle?) {
+         super.onCreate(savedInstanceState)
+-        // Prevent screenshots in release builds
+-        if (!isDebuggableBuild()) {
++        // Screenshot/screen-recording protection (FLAG_SECURE) is no longer
++        // applied blanket-wide here. It's toggled dynamically per-screen via
++        // the "setSecureScreen" security-channel method below, driven by
++        // SecureScreenMixin on the Flutter side (wallet, PIN/OTP, and
++        // NIN/BVN verification screens only) - see
++        // lib/core/security/secure_screen_mixin.dart for the Flutter side
++        // of this and why it's reference-counted there.
++    }
++
++    private fun isDebuggableBuild(): Boolean {
++        return (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
++    }
++
++    // Called from Flutter (SecureScreenMixin, via SecureScreenController's
++    // reference count) when a sensitive screen mounts/unmounts. No-op on
++    // debug builds so screenshots keep working normally for local dev/QA -
++    // only release builds actually get FLAG_SECURE applied.
++    private fun setSecureScreen(secure: Boolean) {
++        if (isDebuggableBuild()) return
++        if (secure) {
+             window.setFlags(
+                 WindowManager.LayoutParams.FLAG_SECURE,
+                 WindowManager.LayoutParams.FLAG_SECURE
+             )
++        } else {
++            window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+         }
+     }
+ 
+-    private fun isDebuggableBuild(): Boolean {
+-        return (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+-    }
+-
+     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+         super.configureFlutterEngine(flutterEngine)
+ 
+@@ -45,6 +61,11 @@ class MainActivity : FlutterFragmentActivity() {
+                 "isRooted" -> result.success(isDeviceRooted())
+                 "getAndroidId" -> result.success(getSecureAndroidId())
+                 "getDeviceFingerprint" -> result.success(getDeviceFingerprint())
++                "setSecureScreen" -> {
++                    val secure = call.argument<Boolean>("secure") ?: false
++                    setSecureScreen(secure)
++                    result.success(null)
++                }
+                 else -> result.notImplemented()
+             }
+         }
+diff --git a/major_data_link/lib/core/security/biometric_service.dart b/major_data_link/lib/core/security/biometric_service.dart
+index a31c6d6..9bfce26 100644
+--- a/major_data_link/lib/core/security/biometric_service.dart
++++ b/major_data_link/lib/core/security/biometric_service.dart
+@@ -70,6 +70,20 @@ class BiometricService {
+       return null;
+     }
+   }
++
++  // ── Screenshot / screen-recording protection ──────────────
++  // Toggles Android's FLAG_SECURE on the app window. Debug builds never
++  // enable it regardless of what's passed here (see MainActivity.kt's
++  // isDebuggableBuild() check) - only release builds actually block
++  // screenshots. Reference-counted by SecureScreenController
++  // (core/security/secure_screen_mixin.dart), not called directly by UI code.
++  Future<void> setSecureScreen(bool secure) async {
++    try {
++      await _securityChannel.invokeMethod('setSecureScreen', {'secure': secure});
++    } on PlatformException catch (e) {
++      appLogger.w('Set secure screen failed', error: e);
++    }
++  }
+ }
+ 
+ enum BiometricResult { success, failed, error, cancelled }
+diff --git a/major_data_link/lib/core/security/secure_screen_mixin.dart b/major_data_link/lib/core/security/secure_screen_mixin.dart
+new file mode 100644
+index 0000000..ae994c8
+--- /dev/null
++++ b/major_data_link/lib/core/security/secure_screen_mixin.dart
+@@ -0,0 +1,85 @@
++import 'package:flutter/widgets.dart';
++import 'biometric_service.dart';
++
++/// Reference-counts how many "secure" screens/sheets are currently mounted
++/// at once, so screenshot protection (Android FLAG_SECURE) only turns off
++/// once the LAST one is gone. Without this, navigating from one secure
++/// screen straight to another (e.g. Wallet -> transaction PIN sheet) would
++/// flip protection off for a frame when the first screen's State disposes,
++/// then back on when the second mounts - a real, if brief, gap.
++///
++/// Release builds only - MainActivity.kt's isDebuggableBuild() check means
++/// this is a no-op on debug builds regardless of what's requested here, so
++/// screenshots still work normally for local development/QA.
++class SecureScreenController {
++  SecureScreenController._();
++
++  static int _activeCount = 0;
++  static final _service = BiometricService();
++
++  static Future<void> push() async {
++    _activeCount += 1;
++    if (_activeCount == 1) {
++      await _service.setSecureScreen(true);
++    }
++  }
++
++  static Future<void> pop() async {
++    if (_activeCount == 0) return; // guards against a stray extra dispose()
++    _activeCount -= 1;
++    if (_activeCount == 0) {
++      await _service.setSecureScreen(false);
++    }
++  }
++}
++
++/// Mix into any State that shows sensitive data - wallet balance/funding,
++/// transaction PIN entry, OTP, or a generated NIN/BVN slip/response - to
++/// block screenshots and screen recording for as long as it's mounted.
++///
++/// Usage:
++/// ```dart
++/// class _WalletScreenState extends ConsumerState<WalletScreen>
++///     with SecureScreenMixin {
++///   // ... no other changes needed - initState/dispose are handled here.
++/// }
++/// ```
++///
++/// If a State overrides initState or dispose itself, call
++/// `super.initState()` / `super.dispose()` as usual - this mixin hooks into
++/// those the normal Dart mixin way and doesn't need any other wiring.
++mixin SecureScreenMixin<T extends StatefulWidget> on State<T> {
++  @override
++  void initState() {
++    super.initState();
++    SecureScreenController.push();
++  }
++
++  @override
++  void dispose() {
++    SecureScreenController.pop();
++    super.dispose();
++  }
++}
++
++/// Same protection as [SecureScreenMixin], for screens built as a
++/// ConsumerWidget/StatelessWidget (no State class to mix into) - e.g.
++/// WalletScreen. Wrap the screen's root widget in build():
++/// ```dart
++/// Widget build(BuildContext context, WidgetRef ref) {
++///   return SecureScreenWrapper(child: Scaffold(...));
++/// }
++/// ```
++class SecureScreenWrapper extends StatefulWidget {
++  const SecureScreenWrapper({super.key, required this.child});
++
++  final Widget child;
++
++  @override
++  State<SecureScreenWrapper> createState() => _SecureScreenWrapperState();
++}
++
++class _SecureScreenWrapperState extends State<SecureScreenWrapper> with SecureScreenMixin {
++  @override
++  Widget build(BuildContext context) => widget.child;
++}
+diff --git a/major_data_link/lib/features/auth/presentation/screens/login_pin_unlock_screen.dart b/major_data_link/lib/features/auth/presentation/screens/login_pin_unlock_screen.dart
+index 58a7b36..cd58889 100644
+--- a/major_data_link/lib/features/auth/presentation/screens/login_pin_unlock_screen.dart
++++ b/major_data_link/lib/features/auth/presentation/screens/login_pin_unlock_screen.dart
+@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
+ import 'package:flutter_riverpod/flutter_riverpod.dart';
+ import 'package:go_router/go_router.dart';
+ import '../../../../core/constants/app_colors.dart';
++import '../../../../core/security/secure_screen_mixin.dart';
+ import '../../../../core/constants/app_dimensions.dart';
+ import '../../../../core/constants/app_strings.dart';
+ import '../../../../core/error/failures.dart';
+@@ -21,7 +22,8 @@ class LoginPinUnlockScreen extends ConsumerStatefulWidget {
+       _LoginPinUnlockScreenState();
+ }
+ 
+-class _LoginPinUnlockScreenState extends ConsumerState<LoginPinUnlockScreen> {
++class _LoginPinUnlockScreenState extends ConsumerState<LoginPinUnlockScreen>
++    with SecureScreenMixin {
+   bool _isLoading = false;
+   bool _hasError = false;
+   String? _errorText;
+diff --git a/major_data_link/lib/features/auth/presentation/screens/otp_screen.dart b/major_data_link/lib/features/auth/presentation/screens/otp_screen.dart
+index bf58279..69b1716 100644
+--- a/major_data_link/lib/features/auth/presentation/screens/otp_screen.dart
++++ b/major_data_link/lib/features/auth/presentation/screens/otp_screen.dart
+@@ -4,6 +4,7 @@ import 'package:flutter_animate/flutter_animate.dart';
+ import 'package:flutter_riverpod/flutter_riverpod.dart';
+ import 'package:go_router/go_router.dart';
+ import '../../../../core/constants/app_colors.dart';
++import '../../../../core/security/secure_screen_mixin.dart';
+ import '../../../../core/constants/app_dimensions.dart';
+ import '../../../../core/constants/app_strings.dart';
+ import '../../../../core/router/route_names.dart';
+@@ -28,7 +29,7 @@ class OtpScreen extends ConsumerStatefulWidget {
+   ConsumerState<OtpScreen> createState() => _OtpScreenState();
+ }
+ 
+-class _OtpScreenState extends ConsumerState<OtpScreen> {
++class _OtpScreenState extends ConsumerState<OtpScreen> with SecureScreenMixin {
+   Timer? _timer;
+   int _secondsLeft = 60;
+   bool _hasError = false;
+diff --git a/major_data_link/lib/features/auth/presentation/screens/reset_login_pin_screen.dart b/major_data_link/lib/features/auth/presentation/screens/reset_login_pin_screen.dart
+index 2522ce5..fa5d642 100644
+--- a/major_data_link/lib/features/auth/presentation/screens/reset_login_pin_screen.dart
++++ b/major_data_link/lib/features/auth/presentation/screens/reset_login_pin_screen.dart
+@@ -1,6 +1,7 @@
+ import 'package:flutter/material.dart';
+ import 'package:flutter_riverpod/flutter_riverpod.dart';
+ import '../../../../core/constants/app_colors.dart';
++import '../../../../core/security/secure_screen_mixin.dart';
+ import '../../../../core/constants/app_dimensions.dart';
+ import '../../../../core/utils/extensions.dart';
+ import '../../../../shared/widgets/kd_button.dart';
+@@ -26,7 +27,8 @@ class ResetLoginPinScreen extends ConsumerStatefulWidget {
+       _ResetLoginPinScreenState();
+ }
+ 
+-class _ResetLoginPinScreenState extends ConsumerState<ResetLoginPinScreen> {
++class _ResetLoginPinScreenState extends ConsumerState<ResetLoginPinScreen>
++    with SecureScreenMixin {
+   late final _identifierController =
+       TextEditingController(text: widget.prefilledIdentifier ?? '');
+   final _passwordController = TextEditingController();
+diff --git a/major_data_link/lib/features/auth/presentation/screens/set_login_pin_screen.dart b/major_data_link/lib/features/auth/presentation/screens/set_login_pin_screen.dart
+index 8e09269..870ab35 100644
+--- a/major_data_link/lib/features/auth/presentation/screens/set_login_pin_screen.dart
++++ b/major_data_link/lib/features/auth/presentation/screens/set_login_pin_screen.dart
+@@ -1,6 +1,7 @@
+ import 'package:flutter/material.dart';
+ import 'package:flutter_riverpod/flutter_riverpod.dart';
+ import '../../../../core/constants/app_colors.dart';
++import '../../../../core/security/secure_screen_mixin.dart';
+ import '../../../../core/constants/app_dimensions.dart';
+ import '../../../../core/constants/app_strings.dart';
+ import '../../../../core/utils/extensions.dart';
+@@ -18,7 +19,8 @@ class SetLoginPinScreen extends ConsumerStatefulWidget {
+   ConsumerState<SetLoginPinScreen> createState() => _SetLoginPinScreenState();
+ }
+ 
+-class _SetLoginPinScreenState extends ConsumerState<SetLoginPinScreen> {
++class _SetLoginPinScreenState extends ConsumerState<SetLoginPinScreen>
++    with SecureScreenMixin {
+   String _firstPin = '';
+   int _step = 0; // 0 = create, 1 = confirm
+   bool _isLoading = false;
+diff --git a/major_data_link/lib/features/auth/presentation/screens/set_transaction_pin_screen.dart b/major_data_link/lib/features/auth/presentation/screens/set_transaction_pin_screen.dart
+index 1b0a6b7..3492ed5 100644
+--- a/major_data_link/lib/features/auth/presentation/screens/set_transaction_pin_screen.dart
++++ b/major_data_link/lib/features/auth/presentation/screens/set_transaction_pin_screen.dart
+@@ -1,6 +1,7 @@
+ import 'package:flutter/material.dart';
+ import 'package:flutter_riverpod/flutter_riverpod.dart';
+ import '../../../../core/constants/app_colors.dart';
++import '../../../../core/security/secure_screen_mixin.dart';
+ import '../../../../core/constants/app_dimensions.dart';
+ import '../../../../core/constants/app_strings.dart';
+ import '../../../../core/utils/extensions.dart';
+@@ -21,7 +22,8 @@ class SetTransactionPinScreen extends ConsumerStatefulWidget {
+ }
+ 
+ class _SetTransactionPinScreenState
+-    extends ConsumerState<SetTransactionPinScreen> {
++    extends ConsumerState<SetTransactionPinScreen>
++    with SecureScreenMixin {
+   String _firstPin = '';
+   int _step = 0; // 0 = create, 1 = confirm
+   bool _isLoading = false;
+diff --git a/major_data_link/lib/features/verification/presentation/screens/bvn_retrieval_screen.dart b/major_data_link/lib/features/verification/presentation/screens/bvn_retrieval_screen.dart
+index 9a52140..6216aac 100644
+--- a/major_data_link/lib/features/verification/presentation/screens/bvn_retrieval_screen.dart
++++ b/major_data_link/lib/features/verification/presentation/screens/bvn_retrieval_screen.dart
+@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
+ import 'package:flutter/services.dart';
+ import 'package:flutter_riverpod/flutter_riverpod.dart';
+ import '../../../../core/constants/app_dimensions.dart';
++import '../../../../core/security/secure_screen_mixin.dart';
+ import '../../../../core/utils/extensions.dart';
+ import '../../../../shared/widgets/kd_button.dart';
+ import '../../../../shared/widgets/kd_card.dart';
+@@ -19,7 +20,7 @@ class BvnRetrievalScreen extends ConsumerStatefulWidget {
+ }
+ 
+ class _BvnRetrievalScreenState extends ConsumerState<BvnRetrievalScreen>
+-    with AsyncTicketPoller<BvnRetrievalScreen> {
++    with AsyncTicketPoller<BvnRetrievalScreen>, SecureScreenMixin {
+   final _firstNameController = TextEditingController();
+   final _lastNameController = TextEditingController();
+   final _phoneController = TextEditingController();
+diff --git a/major_data_link/lib/features/verification/presentation/screens/bvn_slip_screen.dart b/major_data_link/lib/features/verification/presentation/screens/bvn_slip_screen.dart
+index 61f0a34..ef2e1db 100644
+--- a/major_data_link/lib/features/verification/presentation/screens/bvn_slip_screen.dart
++++ b/major_data_link/lib/features/verification/presentation/screens/bvn_slip_screen.dart
+@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
+ import 'package:flutter/services.dart';
+ import 'package:flutter_riverpod/flutter_riverpod.dart';
+ import '../../../../core/constants/app_dimensions.dart';
++import '../../../../core/security/secure_screen_mixin.dart';
+ import '../../../../core/utils/extensions.dart';
+ import '../../../../shared/widgets/kd_button.dart';
+ import '../../../../shared/widgets/kd_card.dart';
+@@ -22,7 +23,8 @@ class BvnSlipScreen extends ConsumerStatefulWidget {
+   ConsumerState<BvnSlipScreen> createState() => _BvnSlipScreenState();
+ }
+ 
+-class _BvnSlipScreenState extends ConsumerState<BvnSlipScreen> {
++class _BvnSlipScreenState extends ConsumerState<BvnSlipScreen>
++    with SecureScreenMixin {
+   final _bvnController = TextEditingController();
+   final _formKey = GlobalKey<FormState>();
+   BvnTier _tier = BvnTier.standard;
+diff --git a/major_data_link/lib/features/verification/presentation/screens/ipe_clearance_screen.dart b/major_data_link/lib/features/verification/presentation/screens/ipe_clearance_screen.dart
+index 6b5233d..e475671 100644
+--- a/major_data_link/lib/features/verification/presentation/screens/ipe_clearance_screen.dart
++++ b/major_data_link/lib/features/verification/presentation/screens/ipe_clearance_screen.dart
+@@ -1,6 +1,7 @@
+ import 'package:flutter/material.dart';
+ import 'package:flutter_riverpod/flutter_riverpod.dart';
+ import '../../../../core/constants/app_dimensions.dart';
++import '../../../../core/security/secure_screen_mixin.dart';
+ import '../../../../core/utils/extensions.dart';
+ import '../../../../shared/widgets/kd_button.dart';
+ import '../../../../shared/widgets/kd_card.dart';
+@@ -18,7 +19,7 @@ class IpeClearanceScreen extends ConsumerStatefulWidget {
+ }
+ 
+ class _IpeClearanceScreenState extends ConsumerState<IpeClearanceScreen>
+-    with AsyncTicketPoller<IpeClearanceScreen> {
++    with AsyncTicketPoller<IpeClearanceScreen>, SecureScreenMixin {
+   final _trackingIdController = TextEditingController();
+   final _formKey = GlobalKey<FormState>();
+ 
+diff --git a/major_data_link/lib/features/verification/presentation/screens/nin_by_demographic_screen.dart b/major_data_link/lib/features/verification/presentation/screens/nin_by_demographic_screen.dart
+index e9d1a7d..973a97e 100644
+--- a/major_data_link/lib/features/verification/presentation/screens/nin_by_demographic_screen.dart
++++ b/major_data_link/lib/features/verification/presentation/screens/nin_by_demographic_screen.dart
+@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
+ import 'package:flutter/services.dart';
+ import 'package:flutter_riverpod/flutter_riverpod.dart';
+ import '../../../../core/constants/app_dimensions.dart';
++import '../../../../core/security/secure_screen_mixin.dart';
+ import '../../../../core/utils/extensions.dart';
+ import '../../../../shared/widgets/kd_button.dart';
+ import '../../../../shared/widgets/kd_card.dart';
+@@ -18,7 +19,8 @@ class NinByDemographicScreen extends ConsumerStatefulWidget {
+ }
+ 
+ class _NinByDemographicScreenState
+-    extends ConsumerState<NinByDemographicScreen> {
++    extends ConsumerState<NinByDemographicScreen>
++    with SecureScreenMixin {
+   final _firstNameController = TextEditingController();
+   final _lastNameController = TextEditingController();
+   final _dobController = TextEditingController();
+diff --git a/major_data_link/lib/features/verification/presentation/screens/nin_by_nin_screen.dart b/major_data_link/lib/features/verification/presentation/screens/nin_by_nin_screen.dart
+index 9fec490..9b62022 100644
+--- a/major_data_link/lib/features/verification/presentation/screens/nin_by_nin_screen.dart
++++ b/major_data_link/lib/features/verification/presentation/screens/nin_by_nin_screen.dart
+@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
+ import 'package:flutter/services.dart';
+ import 'package:flutter_riverpod/flutter_riverpod.dart';
+ import '../../../../core/constants/app_dimensions.dart';
++import '../../../../core/security/secure_screen_mixin.dart';
+ import '../../../../core/utils/extensions.dart';
+ import '../../../../shared/widgets/kd_button.dart';
+ import '../../../../shared/widgets/kd_card.dart';
+@@ -24,7 +25,8 @@ class NinByNinScreen extends ConsumerStatefulWidget {
+   ConsumerState<NinByNinScreen> createState() => _NinByNinScreenState();
+ }
+ 
+-class _NinByNinScreenState extends ConsumerState<NinByNinScreen> {
++class _NinByNinScreenState extends ConsumerState<NinByNinScreen>
++    with SecureScreenMixin {
+   final _ninController = TextEditingController();
+   final _formKey = GlobalKey<FormState>();
+   SlipTier _tier = SlipTier.standard;
+diff --git a/major_data_link/lib/features/verification/presentation/screens/nin_by_phone_screen.dart b/major_data_link/lib/features/verification/presentation/screens/nin_by_phone_screen.dart
+index c7bed79..c6ea0ae 100644
+--- a/major_data_link/lib/features/verification/presentation/screens/nin_by_phone_screen.dart
++++ b/major_data_link/lib/features/verification/presentation/screens/nin_by_phone_screen.dart
+@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
+ import 'package:flutter/services.dart';
+ import 'package:flutter_riverpod/flutter_riverpod.dart';
+ import '../../../../core/constants/app_dimensions.dart';
++import '../../../../core/security/secure_screen_mixin.dart';
+ import '../../../../core/utils/extensions.dart';
+ import '../../../../shared/widgets/kd_button.dart';
+ import '../../../../shared/widgets/kd_card.dart';
+@@ -25,7 +26,8 @@ class NinByPhoneScreen extends ConsumerStatefulWidget {
+   ConsumerState<NinByPhoneScreen> createState() => _NinByPhoneScreenState();
+ }
+ 
+-class _NinByPhoneScreenState extends ConsumerState<NinByPhoneScreen> {
++class _NinByPhoneScreenState extends ConsumerState<NinByPhoneScreen>
++    with SecureScreenMixin {
+   final _phoneController = TextEditingController();
+   final _formKey = GlobalKey<FormState>();
+   SlipTier _tier = SlipTier.standard;
+diff --git a/major_data_link/lib/features/verification/presentation/screens/nin_delinking_screen.dart b/major_data_link/lib/features/verification/presentation/screens/nin_delinking_screen.dart
+index a9f1b96..ece81a6 100644
+--- a/major_data_link/lib/features/verification/presentation/screens/nin_delinking_screen.dart
++++ b/major_data_link/lib/features/verification/presentation/screens/nin_delinking_screen.dart
+@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
+ import 'package:flutter/services.dart';
+ import 'package:flutter_riverpod/flutter_riverpod.dart';
+ import '../../../../core/constants/app_dimensions.dart';
++import '../../../../core/security/secure_screen_mixin.dart';
+ import '../../../../core/utils/extensions.dart';
+ import '../../../../shared/widgets/kd_button.dart';
+ import '../../../../shared/widgets/kd_card.dart';
+@@ -19,7 +20,7 @@ class NinDelinkingScreen extends ConsumerStatefulWidget {
+ }
+ 
+ class _NinDelinkingScreenState extends ConsumerState<NinDelinkingScreen>
+-    with AsyncTicketPoller<NinDelinkingScreen> {
++    with AsyncTicketPoller<NinDelinkingScreen>, SecureScreenMixin {
+   final _ninController = TextEditingController();
+   final _emailController = TextEditingController();
+   final _formKey = GlobalKey<FormState>();
+diff --git a/major_data_link/lib/features/verification/presentation/screens/nin_personalization_screen.dart b/major_data_link/lib/features/verification/presentation/screens/nin_personalization_screen.dart
+index 50d0399..74b7276 100644
+--- a/major_data_link/lib/features/verification/presentation/screens/nin_personalization_screen.dart
++++ b/major_data_link/lib/features/verification/presentation/screens/nin_personalization_screen.dart
+@@ -1,6 +1,7 @@
+ import 'package:flutter/material.dart';
+ import 'package:flutter_riverpod/flutter_riverpod.dart';
+ import '../../../../core/constants/app_dimensions.dart';
++import '../../../../core/security/secure_screen_mixin.dart';
+ import '../../../../core/utils/extensions.dart';
+ import '../../../../shared/widgets/kd_button.dart';
+ import '../../../../shared/widgets/kd_card.dart';
+@@ -19,7 +20,7 @@ class NinPersonalizationScreen extends ConsumerStatefulWidget {
+ 
+ class _NinPersonalizationScreenState
+     extends ConsumerState<NinPersonalizationScreen>
+-    with AsyncTicketPoller<NinPersonalizationScreen> {
++    with AsyncTicketPoller<NinPersonalizationScreen>, SecureScreenMixin {
+   final _trackingIdController = TextEditingController();
+   final _formKey = GlobalKey<FormState>();
+ 
+diff --git a/major_data_link/lib/features/verification/presentation/screens/nin_validation_screen.dart b/major_data_link/lib/features/verification/presentation/screens/nin_validation_screen.dart
+index 7453d9b..72262fe 100644
+--- a/major_data_link/lib/features/verification/presentation/screens/nin_validation_screen.dart
++++ b/major_data_link/lib/features/verification/presentation/screens/nin_validation_screen.dart
+@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
+ import 'package:flutter/services.dart';
+ import 'package:flutter_riverpod/flutter_riverpod.dart';
+ import '../../../../core/constants/app_colors.dart';
++import '../../../../core/security/secure_screen_mixin.dart';
+ import '../../../../core/constants/app_dimensions.dart';
+ import '../../../../core/utils/extensions.dart';
+ import '../../../../shared/widgets/kd_button.dart';
+@@ -20,7 +21,7 @@ class NinValidationScreen extends ConsumerStatefulWidget {
+ }
+ 
+ class _NinValidationScreenState extends ConsumerState<NinValidationScreen>
+-    with AsyncTicketPoller<NinValidationScreen> {
++    with AsyncTicketPoller<NinValidationScreen>, SecureScreenMixin {
+   final _ninController = TextEditingController();
+   final _formKey = GlobalKey<FormState>();
+   NinValidationType _type = NinValidationType.ninValidation;
+diff --git a/major_data_link/lib/features/wallet/presentation/screens/fund_wallet_screen.dart b/major_data_link/lib/features/wallet/presentation/screens/fund_wallet_screen.dart
+index 1740692..4ae85d3 100644
+--- a/major_data_link/lib/features/wallet/presentation/screens/fund_wallet_screen.dart
++++ b/major_data_link/lib/features/wallet/presentation/screens/fund_wallet_screen.dart
+@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
+ import '../../../../core/constants/app_colors.dart';
+ import '../../../../core/constants/app_dimensions.dart';
+ import '../../../../core/constants/app_strings.dart';
++import '../../../../core/security/secure_screen_mixin.dart';
+ import '../../../../core/utils/extensions.dart';
+ import '../../../../core/utils/formatters.dart';
+ import '../../../../core/utils/validators.dart';
+@@ -24,7 +25,8 @@ class FundWalletScreen extends ConsumerStatefulWidget {
+   ConsumerState<FundWalletScreen> createState() => _FundWalletScreenState();
+ }
+ 
+-class _FundWalletScreenState extends ConsumerState<FundWalletScreen> {
++class _FundWalletScreenState extends ConsumerState<FundWalletScreen>
++    with SecureScreenMixin {
+   final _amountController = TextEditingController();
+   final _couponController = TextEditingController();
+   double _selectedAmount = 0;
+diff --git a/major_data_link/lib/features/wallet/presentation/screens/wallet_screen.dart b/major_data_link/lib/features/wallet/presentation/screens/wallet_screen.dart
+index 1c45020..779e235 100644
+--- a/major_data_link/lib/features/wallet/presentation/screens/wallet_screen.dart
++++ b/major_data_link/lib/features/wallet/presentation/screens/wallet_screen.dart
+@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
+ import '../../../../core/constants/app_colors.dart';
+ import '../../../../core/constants/app_dimensions.dart';
+ import '../../../../core/router/route_names.dart';
++import '../../../../core/security/secure_screen_mixin.dart';
+ import '../../../../core/utils/extensions.dart';
+ import '../../../../shared/widgets/kd_button.dart';
+ import '../../../../shared/widgets/kd_card.dart';
+@@ -22,7 +23,8 @@ class WalletScreen extends ConsumerWidget {
+     final walletAsync = ref.watch(walletNotifierProvider);
+     final balanceHidden = ref.watch(balanceVisibilityProvider);
+ 
+-    return Scaffold(
++    return SecureScreenWrapper(
++      child: Scaffold(
+       appBar: AppBar(title: const Text('My Wallet')),
+       body: SafeArea(
+         top: false,
+@@ -158,7 +160,7 @@ class WalletScreen extends ConsumerWidget {
+           ),
+         ),
+       ),
+-    );
++    ));
+   }
+ }
+ 
+diff --git a/major_data_link/lib/shared/widgets/pin_confirmation_sheet.dart b/major_data_link/lib/shared/widgets/pin_confirmation_sheet.dart
+index b7c0c4e..2e69605 100644
+--- a/major_data_link/lib/shared/widgets/pin_confirmation_sheet.dart
++++ b/major_data_link/lib/shared/widgets/pin_confirmation_sheet.dart
+@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
+ import '../../core/constants/app_colors.dart';
+ import '../../core/constants/app_dimensions.dart';
+ import '../../core/security/biometric_service.dart';
++import '../../core/security/secure_screen_mixin.dart';
+ import '../../core/di/injection.dart';
+ import '../../features/auth/presentation/providers/auth_provider.dart';
+ import 'kd_button.dart';
+@@ -47,7 +48,8 @@ class _PinConfirmationSheet extends ConsumerStatefulWidget {
+       _PinConfirmationSheetState();
+ }
+ 
+-class _PinConfirmationSheetState extends ConsumerState<_PinConfirmationSheet> {
++class _PinConfirmationSheetState extends ConsumerState<_PinConfirmationSheet>
++    with SecureScreenMixin {
+   bool _isVerifying = false;
+   bool _hasError = false;
+   String? _errorMessage;

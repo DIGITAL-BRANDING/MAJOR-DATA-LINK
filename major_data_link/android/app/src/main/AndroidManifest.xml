@@ -121,7 +121,6 @@
             android:name="flutterEmbedding"
             android:value="2" />
 
-        <!-- Prevent screenshots in sensitive screens (set per-screen in Flutter) -->
         <meta-data
             android:name="io.flutter.app.android.SplashScreenUntilFirstFrame"
             android:value="true" />

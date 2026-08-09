@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/constants/app_colors.dart';
+import '../../../../core/security/secure_screen_mixin.dart';
 import '../../../../core/constants/app_dimensions.dart';
 import '../../../../core/utils/extensions.dart';
 import '../../../../shared/widgets/kd_button.dart';
@@ -26,7 +27,8 @@ class ResetLoginPinScreen extends ConsumerStatefulWidget {
       _ResetLoginPinScreenState();
 }
 
-class _ResetLoginPinScreenState extends ConsumerState<ResetLoginPinScreen> {
+class _ResetLoginPinScreenState extends ConsumerState<ResetLoginPinScreen>
+    with SecureScreenMixin {
   late final _identifierController =
       TextEditingController(text: widget.prefilledIdentifier ?? '');
   final _passwordController = TextEditingController();

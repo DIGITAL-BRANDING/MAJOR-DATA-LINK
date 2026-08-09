@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/constants/app_dimensions.dart';
+import '../../../../core/security/secure_screen_mixin.dart';
 import '../../../../core/utils/extensions.dart';
 import '../../../../shared/widgets/kd_button.dart';
 import '../../../../shared/widgets/kd_card.dart';
@@ -18,7 +19,7 @@ class IpeClearanceScreen extends ConsumerStatefulWidget {
 }
 
 class _IpeClearanceScreenState extends ConsumerState<IpeClearanceScreen>
-    with AsyncTicketPoller<IpeClearanceScreen> {
+    with AsyncTicketPoller<IpeClearanceScreen>, SecureScreenMixin {
   final _trackingIdController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
 
