@@ -59,7 +59,17 @@ async function seedUser(balanceNaira: number) {
   userCounter += 1;
   const id = `user-${userCounter}`;
   await prisma.user.create({
-    data: { id, walletBalanceKobo: BigInt(Math.round(balanceNaira * 100)) }
+    data: {
+      id,
+      walletBalanceKobo: BigInt(Math.round(balanceNaira * 100)),
+      // Required by Prisma's UserCreateInput but irrelevant to the wallet
+      // logic under test - the fake Prisma client doesn't enforce
+      // uniqueness, so per-user placeholder values are enough.
+      fullName: `Test User ${userCounter}`,
+      email: `test-user-${userCounter}@example.test`,
+      phone: `+23480000${String(userCounter).padStart(4, '0')}`,
+      referralCode: `REF${userCounter}`
+    }
   });
   return id;
 }
