@@ -72,6 +72,11 @@ const EnvSchema = z.object({
     .default('true')
     .transform((value) => value.toLowerCase() !== 'false' && value !== '0'),
   ADMIN_SESSION_SECRET: z.string().min(16).default('dev-only-insecure-admin-secret-change-me'),
+
+  // Encrypts NIN/BVN/names/DOB/phone and the generated slip PDFs stored in
+  // Transaction.metadata.pii - see src/lib/pii-encryption.ts. Generate a real
+  // one with: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+  PII_ENCRYPTION_KEY: z.string().min(16).default('dev-only-insecure-pii-key-change-me'),
   SUPABASE_JWT_SECRET: z.string().optional()
 });
 
@@ -103,6 +108,13 @@ if (env.NODE_ENV === 'production') {
 
   if (env.AUTH_TOKEN_SECRET === 'dev-only-insecure-auth-token-secret-32') {
     securityIssues.push('AUTH_TOKEN_SECRET is still the default dev value');
+  }
+
+  if (env.PII_ENCRYPTION_KEY === 'dev-only-insecure-pii-key-change-me') {
+    securityIssues.push(
+      'PII_ENCRYPTION_KEY is still the default dev value - NIN/BVN data would be encrypted with a key ' +
+        'published in this source file. Generate a real one (see the comment above its definition in env.ts).'
+    );
   }
 
   if (securityIssues.length > 0) {

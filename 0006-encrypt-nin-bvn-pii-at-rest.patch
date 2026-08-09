@@ -1,0 +1,610 @@
+diff --git a/major_data_link_backend/package.json b/major_data_link_backend/package.json
+index fea99b1..9010e4e 100644
+--- a/major_data_link_backend/package.json
++++ b/major_data_link_backend/package.json
+@@ -15,6 +15,7 @@
+     "prisma:migrate": "prisma migrate dev",
+     "prisma:migrate:deploy": "prisma migrate deploy",
+     "seed:admin": "tsx src/admin/seed-super-admin.ts",
++    "purge:pii": "tsx src/scripts/purge-expired-pii.ts",
+     "lint": "eslint src --ext .ts"
+   },
+   "dependencies": {
+diff --git a/major_data_link_backend/src/admin/resources/transaction.resource.ts b/major_data_link_backend/src/admin/resources/transaction.resource.ts
+index 9b12c49..71bad59 100644
+--- a/major_data_link_backend/src/admin/resources/transaction.resource.ts
++++ b/major_data_link_backend/src/admin/resources/transaction.resource.ts
+@@ -1,6 +1,7 @@
+ import { getModelByName } from '@adminjs/prisma';
+ import type { ResourceWithOptions } from 'adminjs';
+ import { prisma } from '../../lib/prisma.js';
++import { decryptTransactionPII } from '../../services/verification.service.js';
+ import { refundWallet } from '../../services/wallet.service.js';
+ import { logAdminAction } from '../audit.js';
+ import type { AdminSessionUser } from '../auth.js';
+@@ -81,6 +82,49 @@ export const transactionResource: ResourceWithOptions = {
+             };
+           }
+         }
++      },
++      // NIN/BVN/names/phone/generated slip PDFs are encrypted at rest under
++      // metadata.pii (see src/lib/pii.ts) precisely so that browsing the
++      // Transaction list - or a raw DB dump - never exposes them. This is
++      // the one deliberate, narrow door back in: SUPER_ADMIN only, and every
++      // single use is written to AdminAuditLog (who, when, which record) via
++      // logAdminAction below, same as `reverse` above. It never persists the
++      // decrypted value anywhere - it's read fresh from the DB, decrypted in
++      // memory, shown once, and gone.
++      viewPii: {
++        actionType: 'record',
++        icon: 'Eye',
++        guard:
++          'This decrypts and displays the NIN/BVN/name/phone/slip data on this transaction, and is logged to the audit trail. Continue?',
++        isAccessible: ({ currentAdmin }) => {
++          const admin = currentAdmin as unknown as AdminSessionUser | undefined;
++          return admin?.role === 'SUPER_ADMIN';
++        },
++        handler: async (request, response, context) => {
++          const { record, currentAdmin } = context;
++          const admin = currentAdmin as unknown as AdminSessionUser | undefined;
++          if (!record || !admin) {
++            throw new Error('Missing record or admin context');
++          }
++
++          const fresh = await prisma.transaction.findUnique({ where: { id: record.params.id as string } });
++          const pii = fresh ? decryptTransactionPII(fresh.metadata) : null;
++
++          await logAdminAction({
++            adminId: admin.id,
++            action: 'VIEW_TRANSACTION_PII',
++            targetType: 'Transaction',
++            targetId: record.params.id as string,
++            metadata: { reference: record.params.reference }
++          });
++
++          return {
++            record: record.toJSON(currentAdmin),
++            notice: pii
++              ? { message: `Decrypted: ${JSON.stringify(pii)}`, type: 'success' }
++              : { message: 'No PII found on this transaction, or it failed to decrypt.', type: 'error' }
++          };
++        }
+       }
+     }
+   }
+diff --git a/major_data_link_backend/src/config/env.ts b/major_data_link_backend/src/config/env.ts
+index 6694f40..1945cef 100644
+--- a/major_data_link_backend/src/config/env.ts
++++ b/major_data_link_backend/src/config/env.ts
+@@ -72,6 +72,11 @@ const EnvSchema = z.object({
+     .default('true')
+     .transform((value) => value.toLowerCase() !== 'false' && value !== '0'),
+   ADMIN_SESSION_SECRET: z.string().min(16).default('dev-only-insecure-admin-secret-change-me'),
++
++  // Encrypts NIN/BVN/names/DOB/phone and the generated slip PDFs stored in
++  // Transaction.metadata.pii - see src/lib/pii-encryption.ts. Generate a real
++  // one with: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
++  PII_ENCRYPTION_KEY: z.string().min(16).default('dev-only-insecure-pii-key-change-me'),
+   SUPABASE_JWT_SECRET: z.string().optional()
+ });
+ 
+@@ -105,6 +110,13 @@ if (env.NODE_ENV === 'production') {
+     securityIssues.push('AUTH_TOKEN_SECRET is still the default dev value');
+   }
+ 
++  if (env.PII_ENCRYPTION_KEY === 'dev-only-insecure-pii-key-change-me') {
++    securityIssues.push(
++      'PII_ENCRYPTION_KEY is still the default dev value - NIN/BVN data would be encrypted with a key ' +
++        'published in this source file. Generate a real one (see the comment above its definition in env.ts).'
++    );
++  }
++
+   if (securityIssues.length > 0) {
+     console.error('Ã¢Å“â€” Production security violations detected:');
+     securityIssues.forEach((issue) => {
+diff --git a/major_data_link_backend/src/lib/pii-encryption.ts b/major_data_link_backend/src/lib/pii-encryption.ts
+new file mode 100644
+index 0000000..bd745f9
+--- /dev/null
++++ b/major_data_link_backend/src/lib/pii-encryption.ts
+@@ -0,0 +1,75 @@
++import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'crypto';
++import { env } from '../config/env.js';
++
++/**
++ * Field-level encryption for PII at rest (NIN, BVN, names, phone numbers,
++ * generated identity-slip PDFs, and raw provider responses that carry the
++ * same). This is separate from - and in addition to - TLS in transit and
++ * Postgres disk encryption: it protects the data even if the database
++ * itself, a backup, or an admin-panel session is ever compromised, and it's
++ * what keeps a casual `SELECT * FROM "Transaction"` from being a privacy
++ * incident.
++ *
++ * AES-256-GCM: authenticated encryption (tampering with the ciphertext makes
++ * decryption fail loudly, rather than silently returning corrupted data) and
++ * needs no extra dependency - it's built into Node's crypto module.
++ */
++
++const ALGORITHM = 'aes-256-gcm';
++const IV_LENGTH = 12; // 96-bit IV - the size GCM is designed for.
++const CURRENT_KEY_VERSION = 'v1';
++
++function deriveKey(): Buffer {
++  const secret = env.PII_ENCRYPTION_KEY;
++  // A 64-hex-char string is used as raw 32 bytes directly (this is what
++  // `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
++  // produces, and what the README asks you to set PII_ENCRYPTION_KEY to).
++  // Anything else is hashed down to 32 bytes so a plain passphrase still
++  // works without silently truncating/padding it in an unobvious way.
++  if (/^[0-9a-fA-F]{64}$/.test(secret)) {
++    return Buffer.from(secret, 'hex');
++  }
++  return createHash('sha256').update(secret).digest();
++}
++
++/**
++ * Encrypts a plaintext string into a single self-contained, versioned token:
++ * `v1:<iv>:<authTag>:<ciphertext>` (all base64, colon-joined - safe to store
++ * directly in a Postgres `text`/`jsonb` string field).
++ *
++ * The `v1:` prefix is a key/algorithm version marker, not a display detail -
++ * decrypt() dispatches on it. If PII_ENCRYPTION_KEY is ever rotated, bump
++ * CURRENT_KEY_VERSION, add the old key as a fallback in decrypt() keyed by
++ * version, and re-encrypt existing rows in the background at your leisure
++ * instead of needing a hard cutover.
++ */
++export function encryptPII(plaintext: string): string {
++  const key = deriveKey();
++  const iv = randomBytes(IV_LENGTH);
++  const cipher = createCipheriv(ALGORITHM, key, iv);
++  const ciphertext = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
++  const authTag = cipher.getAuthTag();
++  return [CURRENT_KEY_VERSION, iv.toString('base64'), authTag.toString('base64'), ciphertext.toString('base64')].join(
++    ':'
++  );
++}
++
++export function decryptPII(token: string): string {
++  const parts = token.split(':');
++  const [version, ivB64, authTagB64, ciphertextB64] = parts;
++  if (parts.length !== 4 || version !== CURRENT_KEY_VERSION || !ivB64 || !authTagB64 || !ciphertextB64) {
++    throw new Error('Unrecognized or corrupted PII token');
++  }
++
++  const key = deriveKey();
++  const iv = Buffer.from(ivB64, 'base64');
++  const authTag = Buffer.from(authTagB64, 'base64');
++  const ciphertext = Buffer.from(ciphertextB64, 'base64');
++
++  const decipher = createDecipheriv(ALGORITHM, key, iv);
++  decipher.setAuthTag(authTag);
++  // Throws (auth tag mismatch) if the token was tampered with or the wrong
++  // key is in play - never returns silently-garbled plaintext.
++  const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
++  return plaintext.toString('utf8');
++}
+diff --git a/major_data_link_backend/src/lib/pii.ts b/major_data_link_backend/src/lib/pii.ts
+new file mode 100644
+index 0000000..1bbc8c0
+--- /dev/null
++++ b/major_data_link_backend/src/lib/pii.ts
+@@ -0,0 +1,51 @@
++import { decryptPII, encryptPII } from './pii-encryption.js';
++
++/**
++ * Shape stored inside `Transaction.metadata.pii`. The `_sealed: true` marker
++ * lets openPII() (and anything eyeballing raw JSON in a DB client) tell at a
++ * glance that this is ciphertext, not an empty/malformed object.
++ */
++export type SealedPII = { _sealed: true; data: string };
++
++export function isSealedPII(value: unknown): value is SealedPII {
++  return typeof value === 'object' && value !== null && (value as { _sealed?: unknown })._sealed === true;
++}
++
++/** Encrypts an arbitrary JSON-serializable payload for storage under `metadata.pii`. */
++export function sealPII(payload: Record<string, unknown>): SealedPII {
++  return { _sealed: true, data: encryptPII(JSON.stringify(payload)) };
++}
++
++/** Decrypts a previously-sealed payload. Returns null for missing/malformed input rather than throwing, so callers reading old rows or a null field don't need a try/catch at every call site. */
++export function openPII<T = Record<string, unknown>>(sealed: unknown): T | null {
++  if (!isSealedPII(sealed)) return null;
++  try {
++    return JSON.parse(decryptPII(sealed.data)) as T;
++  } catch (error) {
++    console.error('[pii] failed to decrypt a sealed PII blob:', error instanceof Error ? error.message : error);
++    return null;
++  }
++}
++
++/**
++ * Merges a new set of fields into an already-sealed PII blob and re-seals -
++ * used when a record's identity data arrives in stages (e.g. the NIN/BVN
++ * submitted at request time, then the provider's returned slip/response
++ * data added once the purchase or async ticket resolves). Everything ends
++ * up under the one `metadata.pii` field rather than scattered plaintext
++ * fields added at each stage.
++ */
++export function mergeSealedPII(existing: unknown, extra: Record<string, unknown>): SealedPII {
++  const current = openPII(existing) ?? {};
++  return sealPII({ ...current, ...extra });
++}
++
++/**
++ * Last-4-digits masking for contexts that need to *show* an identifier
++ * without decrypting it (support UI hints, log lines) - same convention the
++ * app already uses for `User.bvnLast4` in kyc.service.ts.
++ */
++export function maskIdentifier(value: string | undefined | null): string {
++  if (!value) return '';
++  return value.length <= 4 ? '*'.repeat(value.length) : `${'*'.repeat(value.length - 4)}${value.slice(-4)}`;
++}
+diff --git a/major_data_link_backend/src/scripts/purge-expired-pii.ts b/major_data_link_backend/src/scripts/purge-expired-pii.ts
+new file mode 100644
+index 0000000..318d03d
+--- /dev/null
++++ b/major_data_link_backend/src/scripts/purge-expired-pii.ts
+@@ -0,0 +1,74 @@
++import 'dotenv/config';
++import { TransactionStatus } from '@prisma/client';
++import { prisma } from '../lib/prisma.js';
++
++/**
++ * Deletes the encrypted NIN/BVN/name/phone/slip-PDF data (metadata.pii) off
++ * Techhub-provider transactions once it's past its retention window -
++ * everything else about the transaction (amount, status, reference, dates)
++ * is left untouched, since that's the accounting record and needs to stay
++ * for the ledger regardless of how old it is.
++ *
++ * This is data-minimization, layered on top of the field-level encryption
++ * in src/lib/pii.ts: encryption protects the data while it's retained,
++ * this makes sure it isn't retained forever "just in case". Run on a
++ * schedule (Railway Cron Job / any external scheduler calling
++ * `npm run purge:pii`, or a plain `cron` entry on your own box) - it does
++ * nothing destructive if run more than once, since already-purged rows are
++ * simply skipped.
++ *
++ * PII_RETENTION_DAYS controls the window (default 90). Only touches
++ * SUCCESS/FAILED transactions - a still-PENDING async ticket needs its PII
++ * to eventually be checked/resolved, so it's never a purge candidate.
++ */
++async function main() {
++  const retentionDays = Number(process.env.PII_RETENTION_DAYS ?? 90);
++  if (!Number.isFinite(retentionDays) || retentionDays <= 0) {
++    throw new Error(`Invalid PII_RETENTION_DAYS: ${process.env.PII_RETENTION_DAYS}`);
++  }
++
++  const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
++
++  const candidates = await prisma.transaction.findMany({
++    where: {
++      provider: 'techhub',
++      status: { in: [TransactionStatus.SUCCESS, TransactionStatus.FAILED] },
++      createdAt: { lt: cutoff }
++    },
++    select: { id: true, metadata: true, createdAt: true }
++  });
++
++  let purged = 0;
++  let skipped = 0;
++
++  for (const row of candidates) {
++    const metadata = row.metadata as Record<string, unknown> | null;
++    if (!metadata || !metadata.pii || (metadata.pii as { _purged?: boolean })._purged) {
++      skipped += 1;
++      continue;
++    }
++
++    await prisma.transaction.update({
++      where: { id: row.id },
++      data: {
++        metadata: {
++          ...metadata,
++          pii: { _purged: true, purgedAt: new Date().toISOString() }
++        }
++      }
++    });
++    purged += 1;
++  }
++
++  console.log(
++    `[purge-expired-pii] retention=${retentionDays}d cutoff=${cutoff.toISOString()} ` +
++      `purged=${purged} skipped=${skipped} (of ${candidates.length} candidates)`
++  );
++}
++
++main()
++  .then(() => process.exit(0))
++  .catch((error) => {
++    console.error('[purge-expired-pii] failed:', error);
++    process.exit(1);
++  });
+diff --git a/major_data_link_backend/src/services/verification.service.ts b/major_data_link_backend/src/services/verification.service.ts
+index 85c4b97..6c23619 100644
+--- a/major_data_link_backend/src/services/verification.service.ts
++++ b/major_data_link_backend/src/services/verification.service.ts
+@@ -1,5 +1,6 @@
+ import { Prisma, TransactionStatus, TransactionType } from '@prisma/client';
+ import { koboToNaira } from '../lib/money.js';
++import { mergeSealedPII, openPII, sealPII } from '../lib/pii.js';
+ import { prisma } from '../lib/prisma.js';
+ import { ApiError } from '../middleware/error.js';
+ import { debitWallet, refundWallet } from './wallet.service.js';
+@@ -141,13 +142,24 @@ export type SlipPurchaseResult = {
+  * shape as result-pin.service.ts's purchaseResultPin() - see that function's
+  * comments for why the idempotent-replay branch reads back from the
+  * transaction's own metadata instead of re-calling the provider.
++ *
++ * PII handling: `operational` (service/mode/tier) stays as plain, readable
++ * metadata - it's what the admin transaction list filters/sorts on and
++ * carries no identity information on its own. `pii` (the submitted
++ * nin/phone/bvn/names/dob, and - once the provider responds - the full
++ * user_data + generated slip PDF) is encrypted with sealPII() before it ever
++ * reaches Prisma, so a database dump, backup, or a support agent browsing
++ * the admin panel never sees it in the clear. See src/lib/pii.ts and the
++ * "View PII" admin action on the Transaction resource for the one
++ * (audited, SUPER_ADMIN-only) place it's ever decrypted again.
+  */
+ async function purchaseSlip(params: {
+   userId: string;
+   service: VerificationServiceKey;
+   transactionType: typeof TransactionType.NIN_VERIFICATION | typeof TransactionType.BVN_VERIFICATION;
+   description: string;
+-  metadata: Record<string, unknown>;
++  operational: Record<string, unknown>;
++  pii: Record<string, unknown>;
+   idempotencyKey?: string;
+   call: () => ReturnType<typeof techhubService.ninByNin>;
+ }): Promise<SlipPurchaseResult> {
+@@ -158,18 +170,24 @@ async function purchaseSlip(params: {
+     amount: price.unitPrice,
+     type: params.transactionType,
+     description: params.description,
+-    metadata: { service: params.service, ...params.metadata, unit_price: price.unitPrice } as Prisma.InputJsonValue,
++    metadata: {
++      service: params.service,
++      ...params.operational,
++      unit_price: price.unitPrice,
++      pii: sealPII(params.pii)
++    } as Prisma.InputJsonValue,
+     idempotencyKey: params.idempotencyKey
+   });
+ 
+   if (debit.reused && debit.transaction.status !== TransactionStatus.PENDING) {
+     const metadata = debit.transaction.metadata as Record<string, unknown> | null;
++    const pii = openPII<{ user_data?: Record<string, unknown>; pdf_base64?: string }>(metadata?.pii);
+     return {
+       status: debit.transaction.status === TransactionStatus.SUCCESS,
+       message: 'Transaction already processed',
+       reference: debit.reference,
+-      userData: metadata?.user_data as Record<string, unknown> | undefined,
+-      pdfBase64: metadata?.pdf_base64?.toString(),
++      userData: pii?.user_data,
++      pdfBase64: pii?.pdf_base64,
+       balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo)
+     };
+   }
+@@ -177,6 +195,7 @@ async function purchaseSlip(params: {
+   const provider = await params.call();
+ 
+   if (provider.ok) {
++    const existingMetadata = debit.transaction.metadata as Record<string, unknown> | null;
+     await prisma.transaction.update({
+       where: { id: debit.transaction.id },
+       data: {
+@@ -184,10 +203,13 @@ async function purchaseSlip(params: {
+         provider: 'techhub',
+         metadata: {
+           service: params.service,
+-          ...params.metadata,
++          ...params.operational,
+           unit_price: price.unitPrice,
+-          user_data: provider.userData,
+-          pdf_base64: provider.pdfBase64
++          pii: mergeSealedPII(existingMetadata?.pii, {
++            ...params.pii,
++            user_data: provider.userData,
++            pdf_base64: provider.pdfBase64
++          })
+         } as Prisma.InputJsonValue
+       }
+     });
+@@ -240,7 +262,8 @@ export function purchaseNinByNin(params: { userId: string; nin: string; tier: Te
+     service: NIN_SLIP_SERVICE_BY_TIER[params.tier],
+     transactionType: TransactionType.NIN_VERIFICATION,
+     description: `NIN slip (${params.tier}) by NIN`,
+-    metadata: { mode: 'by_nin', tier: params.tier, nin: params.nin },
++    operational: { mode: 'by_nin', tier: params.tier },
++    pii: { nin: params.nin },
+     idempotencyKey: params.idempotencyKey,
+     call: () => techhubService.ninByNin(params.nin, params.tier)
+   });
+@@ -257,7 +280,8 @@ export function purchaseNinByPhone(params: {
+     service: NIN_PHONE_SLIP_SERVICE_BY_TIER[params.tier],
+     transactionType: TransactionType.NIN_VERIFICATION,
+     description: `NIN slip (${params.tier}) by Phone`,
+-    metadata: { mode: 'by_phone', tier: params.tier, phone: params.phone },
++    operational: { mode: 'by_phone', tier: params.tier },
++    pii: { phone: params.phone },
+     idempotencyKey: params.idempotencyKey,
+     call: () => techhubService.ninByPhone(params.phone, params.tier)
+   });
+@@ -276,8 +300,8 @@ export function purchaseNinByDemographic(params: {
+     service: 'NIN_DEMOGRAPHIC',
+     transactionType: TransactionType.NIN_VERIFICATION,
+     description: 'NIN slip by demographic details',
+-    metadata: {
+-      mode: 'by_demographic',
++    operational: { mode: 'by_demographic' },
++    pii: {
+       firstname: params.firstname,
+       lastname: params.lastname,
+       dob: params.dob,
+@@ -300,7 +324,8 @@ export function purchaseBvnSlip(params: { userId: string; bvn: string; tier: Tec
+     service: BVN_SLIP_SERVICE_BY_TIER[params.tier],
+     transactionType: TransactionType.BVN_VERIFICATION,
+     description: `BVN slip (${params.tier})`,
+-    metadata: { tier: params.tier, bvn: params.bvn },
++    operational: { tier: params.tier },
++    pii: { bvn: params.bvn },
+     idempotencyKey: params.idempotencyKey,
+     call: () => techhubService.bvnSlip(params.bvn, params.tier)
+   });
+@@ -319,12 +344,17 @@ export type AsyncStatusResult = { ticketId: string; status: 'pending' | 'success
+  * PENDING with providerRef = Techhub's ticket_id - the eventual
+  * success/failure (and any refund for a failure) only happens later, when
+  * checkAsyncServiceStatus() below is polled and Techhub reports an outcome.
++ *
++ * Same PII split as purchaseSlip() above: `operational` metadata (service,
++ * ticket_id) stays plaintext; `pii` (nin/email/tracking_id/names/phone, plus
++ * Techhub's submit_raw once it responds) is sealed with sealPII().
+  */
+ async function submitAsyncService(params: {
+   userId: string;
+   service: VerificationServiceKey;
+   description: string;
+-  metadata: Record<string, unknown>;
++  operational: Record<string, unknown>;
++  pii: Record<string, unknown>;
+   idempotencyKey?: string;
+   call: () => ReturnType<typeof techhubService.submitDelinking>;
+ }): Promise<AsyncSubmitResult> {
+@@ -335,7 +365,12 @@ async function submitAsyncService(params: {
+     amount: price.unitPrice,
+     type: TransactionType.IDENTITY_SERVICE_REQUEST,
+     description: params.description,
+-    metadata: { service: params.service, ...params.metadata, unit_price: price.unitPrice } as Prisma.InputJsonValue,
++    metadata: {
++      service: params.service,
++      ...params.operational,
++      unit_price: price.unitPrice,
++      pii: sealPII(params.pii)
++    } as Prisma.InputJsonValue,
+     idempotencyKey: params.idempotencyKey
+   });
+ 
+@@ -360,6 +395,7 @@ async function submitAsyncService(params: {
+     throw new ApiError(502, result.message, 'TECHHUB_SUBMIT_FAILED');
+   }
+ 
++  const existingMetadata = debit.transaction.metadata as Record<string, unknown> | null;
+   await prisma.transaction.update({
+     where: { id: debit.transaction.id },
+     data: {
+@@ -367,10 +403,10 @@ async function submitAsyncService(params: {
+       providerRef: result.ticketId,
+       metadata: {
+         service: params.service,
+-        ...params.metadata,
++        ...params.operational,
+         unit_price: price.unitPrice,
+         ticket_id: result.ticketId,
+-        submit_raw: result.raw
++        pii: mergeSealedPII(existingMetadata?.pii, { ...params.pii, submit_raw: result.raw })
+       } as Prisma.InputJsonValue
+       // status intentionally left PENDING - see checkAsyncServiceStatus below.
+     }
+@@ -399,10 +435,11 @@ async function checkAsyncServiceStatus(params: {
+ 
+   if (transaction.status === TransactionStatus.SUCCESS || transaction.status === TransactionStatus.FAILED) {
+     const metadata = transaction.metadata as Record<string, unknown> | null;
++    const pii = openPII<{ response?: Record<string, unknown> | null }>(metadata?.pii);
+     return {
+       ticketId: params.ticketId,
+       status: transaction.status === TransactionStatus.SUCCESS ? 'success' : 'failed',
+-      response: (metadata?.response as Record<string, unknown> | null | undefined) ?? null
++      response: pii?.response ?? null
+     };
+   }
+ 
+@@ -418,7 +455,10 @@ async function checkAsyncServiceStatus(params: {
+       where: { id: transaction.id },
+       data: {
+         status: TransactionStatus.SUCCESS,
+-        metadata: { ...existingMetadata, response: result.response, check_raw: result.raw } as Prisma.InputJsonValue
++        metadata: {
++          ...existingMetadata,
++          pii: mergeSealedPII(existingMetadata.pii, { response: result.response, check_raw: result.raw })
++        } as Prisma.InputJsonValue
+       }
+     });
+     return { ticketId: result.ticketId, status: 'success', response: result.response };
+@@ -432,7 +472,10 @@ async function checkAsyncServiceStatus(params: {
+     where: { id: transaction.id },
+     data: {
+       status: TransactionStatus.FAILED,
+-      metadata: { ...existingMetadata, response: result.response, check_raw: result.raw } as Prisma.InputJsonValue
++      metadata: {
++        ...existingMetadata,
++        pii: mergeSealedPII(existingMetadata.pii, { response: result.response, check_raw: result.raw })
++      } as Prisma.InputJsonValue
+     }
+   });
+   await refundWallet({ transactionId: transaction.id, userId: params.userId });
+@@ -444,7 +487,8 @@ export function submitDelinking(params: { userId: string; nin: string; email: st
+     userId: params.userId,
+     service: 'NIN_DELINKING',
+     description: 'NIN delinking request',
+-    metadata: { nin: params.nin, email: params.email },
++    operational: {},
++    pii: { nin: params.nin, email: params.email },
+     idempotencyKey: params.idempotencyKey,
+     call: () => techhubService.submitDelinking(params.nin, params.email)
+   });
+@@ -462,7 +506,8 @@ export function submitNinValidation(params: { userId: string; nin: string; valid
+     userId: params.userId,
+     service: 'NIN_VALIDATION',
+     description: 'NIN validation request',
+-    metadata: { nin: params.nin, validation_type: params.validationType },
++    operational: { validation_type: params.validationType },
++    pii: { nin: params.nin },
+     idempotencyKey: params.idempotencyKey,
+     call: () => techhubService.submitNinValidation(params.nin, params.validationType)
+   });
+@@ -480,7 +525,8 @@ export function submitPersonalization(params: { userId: string; trackingId: stri
+     userId: params.userId,
+     service: 'NIN_PERSONALIZATION',
+     description: 'NIN personalization request',
+-    metadata: { tracking_id: params.trackingId },
++    operational: {},
++    pii: { tracking_id: params.trackingId },
+     idempotencyKey: params.idempotencyKey,
+     call: () => techhubService.submitPersonalization(params.trackingId)
+   });
+@@ -504,7 +550,8 @@ export function submitBvnRetrieval(params: {
+     userId: params.userId,
+     service: 'BVN_RETRIEVAL',
+     description: 'BVN retrieval request',
+-    metadata: { first_name: params.firstName, last_name: params.lastName, phone_number: params.phoneNumber },
++    operational: {},
++    pii: { first_name: params.firstName, last_name: params.lastName, phone_number: params.phoneNumber },
+     idempotencyKey: params.idempotencyKey,
+     call: () =>
+       techhubService.submitBvnRetrieval({
+@@ -527,7 +574,8 @@ export function submitIpeClearance(params: { userId: string; trackingId: string;
+     userId: params.userId,
+     service: 'IPE_CLEARANCE',
+     description: 'IPE clearance request',
+-    metadata: { tracking_id: params.trackingId },
++    operational: {},
++    pii: { tracking_id: params.trackingId },
+     idempotencyKey: params.idempotencyKey,
+     call: () => techhubService.submitIpeClearance(params.trackingId)
+   });
+@@ -539,3 +587,15 @@ export function checkIpeClearanceStatus(params: { userId: string; ticketId: stri
+     call: (id) => techhubService.checkIpeClearance(id)
+   });
+ }
++
++/**
++ * Decrypts the PII sealed on a verification Transaction's metadata. The ONE
++ * place this is ever called from is the "View PII" admin action on the
++ * Transaction resource (src/admin/resources/transaction.resource.ts), which
++ * is SUPER_ADMIN-gated and writes an AdminAuditLog row every time it's used -
++ * see that file for the access-control and audit-trail side of this.
++ */
++export function decryptTransactionPII(metadata: unknown): Record<string, unknown> | null {
++  const parsed = metadata as Record<string, unknown> | null;
++  return openPII(parsed?.pii);
++}

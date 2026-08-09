@@ -1,6 +1,7 @@
 import { getModelByName } from '@adminjs/prisma';
 import type { ResourceWithOptions } from 'adminjs';
 import { prisma } from '../../lib/prisma.js';
+import { decryptTransactionPII } from '../../services/verification.service.js';
 import { refundWallet } from '../../services/wallet.service.js';
 import { logAdminAction } from '../audit.js';
 import type { AdminSessionUser } from '../auth.js';
@@ -80,6 +81,49 @@ export const transactionResource: ResourceWithOptions = {
               }
             };
           }
+        }
+      },
+      // NIN/BVN/names/phone/generated slip PDFs are encrypted at rest under
+      // metadata.pii (see src/lib/pii.ts) precisely so that browsing the
+      // Transaction list - or a raw DB dump - never exposes them. This is
+      // the one deliberate, narrow door back in: SUPER_ADMIN only, and every
+      // single use is written to AdminAuditLog (who, when, which record) via
+      // logAdminAction below, same as `reverse` above. It never persists the
+      // decrypted value anywhere - it's read fresh from the DB, decrypted in
+      // memory, shown once, and gone.
+      viewPii: {
+        actionType: 'record',
+        icon: 'Eye',
+        guard:
+          'This decrypts and displays the NIN/BVN/name/phone/slip data on this transaction, and is logged to the audit trail. Continue?',
+        isAccessible: ({ currentAdmin }) => {
+          const admin = currentAdmin as unknown as AdminSessionUser | undefined;
+          return admin?.role === 'SUPER_ADMIN';
+        },
+        handler: async (request, response, context) => {
+          const { record, currentAdmin } = context;
+          const admin = currentAdmin as unknown as AdminSessionUser | undefined;
+          if (!record || !admin) {
+            throw new Error('Missing record or admin context');
+          }
+
+          const fresh = await prisma.transaction.findUnique({ where: { id: record.params.id as string } });
+          const pii = fresh ? decryptTransactionPII(fresh.metadata) : null;
+
+          await logAdminAction({
+            adminId: admin.id,
+            action: 'VIEW_TRANSACTION_PII',
+            targetType: 'Transaction',
+            targetId: record.params.id as string,
+            metadata: { reference: record.params.reference }
+          });
+
+          return {
+            record: record.toJSON(currentAdmin),
+            notice: pii
+              ? { message: `Decrypted: ${JSON.stringify(pii)}`, type: 'success' }
+              : { message: 'No PII found on this transaction, or it failed to decrypt.', type: 'error' }
+          };
         }
       }
     }

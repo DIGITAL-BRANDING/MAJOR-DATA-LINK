@@ -15,6 +15,7 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:migrate:deploy": "prisma migrate deploy",
     "seed:admin": "tsx src/admin/seed-super-admin.ts",
+    "purge:pii": "tsx src/scripts/purge-expired-pii.ts",
     "lint": "eslint src --ext .ts"
   },
   "dependencies": {

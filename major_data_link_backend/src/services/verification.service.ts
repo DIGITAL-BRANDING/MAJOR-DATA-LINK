@@ -1,5 +1,6 @@
 import { Prisma, TransactionStatus, TransactionType } from '@prisma/client';
 import { koboToNaira } from '../lib/money.js';
+import { mergeSealedPII, openPII, sealPII } from '../lib/pii.js';
 import { prisma } from '../lib/prisma.js';
 import { ApiError } from '../middleware/error.js';
 import { debitWallet, refundWallet } from './wallet.service.js';
@@ -141,13 +142,24 @@ export type SlipPurchaseResult = {
  * shape as result-pin.service.ts's purchaseResultPin() - see that function's
  * comments for why the idempotent-replay branch reads back from the
  * transaction's own metadata instead of re-calling the provider.
+ *
+ * PII handling: `operational` (service/mode/tier) stays as plain, readable
+ * metadata - it's what the admin transaction list filters/sorts on and
+ * carries no identity information on its own. `pii` (the submitted
+ * nin/phone/bvn/names/dob, and - once the provider responds - the full
+ * user_data + generated slip PDF) is encrypted with sealPII() before it ever
+ * reaches Prisma, so a database dump, backup, or a support agent browsing
+ * the admin panel never sees it in the clear. See src/lib/pii.ts and the
+ * "View PII" admin action on the Transaction resource for the one
+ * (audited, SUPER_ADMIN-only) place it's ever decrypted again.
  */
 async function purchaseSlip(params: {
   userId: string;
   service: VerificationServiceKey;
   transactionType: typeof TransactionType.NIN_VERIFICATION | typeof TransactionType.BVN_VERIFICATION;
   description: string;
-  metadata: Record<string, unknown>;
+  operational: Record<string, unknown>;
+  pii: Record<string, unknown>;
   idempotencyKey?: string;
   call: () => ReturnType<typeof techhubService.ninByNin>;
 }): Promise<SlipPurchaseResult> {
@@ -158,18 +170,24 @@ async function purchaseSlip(params: {
     amount: price.unitPrice,
     type: params.transactionType,
     description: params.description,
-    metadata: { service: params.service, ...params.metadata, unit_price: price.unitPrice } as Prisma.InputJsonValue,
+    metadata: {
+      service: params.service,
+      ...params.operational,
+      unit_price: price.unitPrice,
+      pii: sealPII(params.pii)
+    } as Prisma.InputJsonValue,
     idempotencyKey: params.idempotencyKey
   });
 
   if (debit.reused && debit.transaction.status !== TransactionStatus.PENDING) {
     const metadata = debit.transaction.metadata as Record<string, unknown> | null;
+    const pii = openPII<{ user_data?: Record<string, unknown>; pdf_base64?: string }>(metadata?.pii);
     return {
       status: debit.transaction.status === TransactionStatus.SUCCESS,
       message: 'Transaction already processed',
       reference: debit.reference,
-      userData: metadata?.user_data as Record<string, unknown> | undefined,
-      pdfBase64: metadata?.pdf_base64?.toString(),
+      userData: pii?.user_data,
+      pdfBase64: pii?.pdf_base64,
       balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo)
     };
   }
@@ -177,6 +195,7 @@ async function purchaseSlip(params: {
   const provider = await params.call();
 
   if (provider.ok) {
+    const existingMetadata = debit.transaction.metadata as Record<string, unknown> | null;
     await prisma.transaction.update({
       where: { id: debit.transaction.id },
       data: {
@@ -184,10 +203,13 @@ async function purchaseSlip(params: {
         provider: 'techhub',
         metadata: {
           service: params.service,
-          ...params.metadata,
+          ...params.operational,
           unit_price: price.unitPrice,
-          user_data: provider.userData,
-          pdf_base64: provider.pdfBase64
+          pii: mergeSealedPII(existingMetadata?.pii, {
+            ...params.pii,
+            user_data: provider.userData,
+            pdf_base64: provider.pdfBase64
+          })
         } as Prisma.InputJsonValue
       }
     });
@@ -240,7 +262,8 @@ export function purchaseNinByNin(params: { userId: string; nin: string; tier: Te
     service: NIN_SLIP_SERVICE_BY_TIER[params.tier],
     transactionType: TransactionType.NIN_VERIFICATION,
     description: `NIN slip (${params.tier}) by NIN`,
-    metadata: { mode: 'by_nin', tier: params.tier, nin: params.nin },
+    operational: { mode: 'by_nin', tier: params.tier },
+    pii: { nin: params.nin },
     idempotencyKey: params.idempotencyKey,
     call: () => techhubService.ninByNin(params.nin, params.tier)
   });
@@ -257,7 +280,8 @@ export function purchaseNinByPhone(params: {
     service: NIN_PHONE_SLIP_SERVICE_BY_TIER[params.tier],
     transactionType: TransactionType.NIN_VERIFICATION,
     description: `NIN slip (${params.tier}) by Phone`,
-    metadata: { mode: 'by_phone', tier: params.tier, phone: params.phone },
+    operational: { mode: 'by_phone', tier: params.tier },
+    pii: { phone: params.phone },
     idempotencyKey: params.idempotencyKey,
     call: () => techhubService.ninByPhone(params.phone, params.tier)
   });
@@ -276,8 +300,8 @@ export function purchaseNinByDemographic(params: {
     service: 'NIN_DEMOGRAPHIC',
     transactionType: TransactionType.NIN_VERIFICATION,
     description: 'NIN slip by demographic details',
-    metadata: {
-      mode: 'by_demographic',
+    operational: { mode: 'by_demographic' },
+    pii: {
       firstname: params.firstname,
       lastname: params.lastname,
       dob: params.dob,
@@ -300,7 +324,8 @@ export function purchaseBvnSlip(params: { userId: string; bvn: string; tier: Tec
     service: BVN_SLIP_SERVICE_BY_TIER[params.tier],
     transactionType: TransactionType.BVN_VERIFICATION,
     description: `BVN slip (${params.tier})`,
-    metadata: { tier: params.tier, bvn: params.bvn },
+    operational: { tier: params.tier },
+    pii: { bvn: params.bvn },
     idempotencyKey: params.idempotencyKey,
     call: () => techhubService.bvnSlip(params.bvn, params.tier)
   });
@@ -319,12 +344,17 @@ export type AsyncStatusResult = { ticketId: string; status: 'pending' | 'success
  * PENDING with providerRef = Techhub's ticket_id - the eventual
  * success/failure (and any refund for a failure) only happens later, when
  * checkAsyncServiceStatus() below is polled and Techhub reports an outcome.
+ *
+ * Same PII split as purchaseSlip() above: `operational` metadata (service,
+ * ticket_id) stays plaintext; `pii` (nin/email/tracking_id/names/phone, plus
+ * Techhub's submit_raw once it responds) is sealed with sealPII().
  */
 async function submitAsyncService(params: {
   userId: string;
   service: VerificationServiceKey;
   description: string;
-  metadata: Record<string, unknown>;
+  operational: Record<string, unknown>;
+  pii: Record<string, unknown>;
   idempotencyKey?: string;
   call: () => ReturnType<typeof techhubService.submitDelinking>;
 }): Promise<AsyncSubmitResult> {
@@ -335,7 +365,12 @@ async function submitAsyncService(params: {
     amount: price.unitPrice,
     type: TransactionType.IDENTITY_SERVICE_REQUEST,
     description: params.description,
-    metadata: { service: params.service, ...params.metadata, unit_price: price.unitPrice } as Prisma.InputJsonValue,
+    metadata: {
+      service: params.service,
+      ...params.operational,
+      unit_price: price.unitPrice,
+      pii: sealPII(params.pii)
+    } as Prisma.InputJsonValue,
     idempotencyKey: params.idempotencyKey
   });
 
@@ -360,6 +395,7 @@ async function submitAsyncService(params: {
     throw new ApiError(502, result.message, 'TECHHUB_SUBMIT_FAILED');
   }
 
+  const existingMetadata = debit.transaction.metadata as Record<string, unknown> | null;
   await prisma.transaction.update({
     where: { id: debit.transaction.id },
     data: {
@@ -367,10 +403,10 @@ async function submitAsyncService(params: {
       providerRef: result.ticketId,
       metadata: {
         service: params.service,
-        ...params.metadata,
+        ...params.operational,
         unit_price: price.unitPrice,
         ticket_id: result.ticketId,
-        submit_raw: result.raw
+        pii: mergeSealedPII(existingMetadata?.pii, { ...params.pii, submit_raw: result.raw })
       } as Prisma.InputJsonValue
       // status intentionally left PENDING - see checkAsyncServiceStatus below.
     }
@@ -399,10 +435,11 @@ async function checkAsyncServiceStatus(params: {
 
   if (transaction.status === TransactionStatus.SUCCESS || transaction.status === TransactionStatus.FAILED) {
     const metadata = transaction.metadata as Record<string, unknown> | null;
+    const pii = openPII<{ response?: Record<string, unknown> | null }>(metadata?.pii);
     return {
       ticketId: params.ticketId,
       status: transaction.status === TransactionStatus.SUCCESS ? 'success' : 'failed',
-      response: (metadata?.response as Record<string, unknown> | null | undefined) ?? null
+      response: pii?.response ?? null
     };
   }
 
@@ -418,7 +455,10 @@ async function checkAsyncServiceStatus(params: {
       where: { id: transaction.id },
       data: {
         status: TransactionStatus.SUCCESS,
-        metadata: { ...existingMetadata, response: result.response, check_raw: result.raw } as Prisma.InputJsonValue
+        metadata: {
+          ...existingMetadata,
+          pii: mergeSealedPII(existingMetadata.pii, { response: result.response, check_raw: result.raw })
+        } as Prisma.InputJsonValue
       }
     });
     return { ticketId: result.ticketId, status: 'success', response: result.response };
@@ -432,7 +472,10 @@ async function checkAsyncServiceStatus(params: {
     where: { id: transaction.id },
     data: {
       status: TransactionStatus.FAILED,
-      metadata: { ...existingMetadata, response: result.response, check_raw: result.raw } as Prisma.InputJsonValue
+      metadata: {
+        ...existingMetadata,
+        pii: mergeSealedPII(existingMetadata.pii, { response: result.response, check_raw: result.raw })
+      } as Prisma.InputJsonValue
     }
   });
   await refundWallet({ transactionId: transaction.id, userId: params.userId });
@@ -444,7 +487,8 @@ export function submitDelinking(params: { userId: string; nin: string; email: st
     userId: params.userId,
     service: 'NIN_DELINKING',
     description: 'NIN delinking request',
-    metadata: { nin: params.nin, email: params.email },
+    operational: {},
+    pii: { nin: params.nin, email: params.email },
     idempotencyKey: params.idempotencyKey,
     call: () => techhubService.submitDelinking(params.nin, params.email)
   });
@@ -462,7 +506,8 @@ export function submitNinValidation(params: { userId: string; nin: string; valid
     userId: params.userId,
     service: 'NIN_VALIDATION',
     description: 'NIN validation request',
-    metadata: { nin: params.nin, validation_type: params.validationType },
+    operational: { validation_type: params.validationType },
+    pii: { nin: params.nin },
     idempotencyKey: params.idempotencyKey,
     call: () => techhubService.submitNinValidation(params.nin, params.validationType)
   });
@@ -480,7 +525,8 @@ export function submitPersonalization(params: { userId: string; trackingId: stri
     userId: params.userId,
     service: 'NIN_PERSONALIZATION',
     description: 'NIN personalization request',
-    metadata: { tracking_id: params.trackingId },
+    operational: {},
+    pii: { tracking_id: params.trackingId },
     idempotencyKey: params.idempotencyKey,
     call: () => techhubService.submitPersonalization(params.trackingId)
   });
@@ -504,7 +550,8 @@ export function submitBvnRetrieval(params: {
     userId: params.userId,
     service: 'BVN_RETRIEVAL',
     description: 'BVN retrieval request',
-    metadata: { first_name: params.firstName, last_name: params.lastName, phone_number: params.phoneNumber },
+    operational: {},
+    pii: { first_name: params.firstName, last_name: params.lastName, phone_number: params.phoneNumber },
     idempotencyKey: params.idempotencyKey,
     call: () =>
       techhubService.submitBvnRetrieval({
@@ -527,7 +574,8 @@ export function submitIpeClearance(params: { userId: string; trackingId: string;
     userId: params.userId,
     service: 'IPE_CLEARANCE',
     description: 'IPE clearance request',
-    metadata: { tracking_id: params.trackingId },
+    operational: {},
+    pii: { tracking_id: params.trackingId },
     idempotencyKey: params.idempotencyKey,
     call: () => techhubService.submitIpeClearance(params.trackingId)
   });
@@ -538,4 +586,16 @@ export function checkIpeClearanceStatus(params: { userId: string; ticketId: stri
     ticketId: params.ticketId,
     call: (id) => techhubService.checkIpeClearance(id)
   });
+}
+
+/**
+ * Decrypts the PII sealed on a verification Transaction's metadata. The ONE
+ * place this is ever called from is the "View PII" admin action on the
+ * Transaction resource (src/admin/resources/transaction.resource.ts), which
+ * is SUPER_ADMIN-gated and writes an AdminAuditLog row every time it's used -
+ * see that file for the access-control and audit-trail side of this.
+ */
+export function decryptTransactionPII(metadata: unknown): Record<string, unknown> | null {
+  const parsed = metadata as Record<string, unknown> | null;
+  return openPII(parsed?.pii);
 }
