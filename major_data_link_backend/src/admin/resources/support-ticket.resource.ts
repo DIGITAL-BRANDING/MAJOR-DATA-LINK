@@ -1,5 +1,5 @@
 import { getModelByName } from '@adminjs/prisma';
-import type { ResourceWithOptions } from 'adminjs';
+import type { ActionRequest, ActionResponse, ResourceWithOptions } from 'adminjs';
 import { prisma } from '../../lib/prisma.js';
 import type { AdminSessionUser } from '../auth.js';
 
@@ -72,7 +72,7 @@ export const supportTicketMessageResource: ResourceWithOptions = {
           }
           return request;
         },
-        after: async (response, request) => {
+        after: async (response: ActionResponse, request: ActionRequest) => {
           const ticketId = request.payload?.ticketId as string | undefined;
           if (ticketId) {
             await prisma.supportTicket.update({
