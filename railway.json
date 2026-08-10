@@ -2,7 +2,7 @@
   "$schema": "https://railway.app/railway.schema.json",
   "build": {
     "builder": "NIXPACKS",
-    "buildCommand": "cd major_data_link_backend && NPM_CONFIG_PRODUCTION=false npm install --cache /tmp/.npm --no-audit --no-fund && npm run prisma:generate && npm run build"
+    "buildCommand": "cd major_data_link_backend && NPM_CONFIG_PRODUCTION=false npm install --cache /tmp/.npm --no-audit --no-fund && npm run prisma:generate && npm run build && cd ../web && npm install --cache /tmp/.npm --no-audit --no-fund && npm run build && mkdir -p ../major_data_link_backend/public/app && cp -r dist/. ../major_data_link_backend/public/app/"
   },
   "deploy": {
     "startCommand": "cd major_data_link_backend && npm run start:prod",

@@ -149,6 +149,28 @@ export function createApp() {
     }
   });
 
+  // The web app (landing page + browser dashboard, built from ../web via
+  // Vite - see railway.json/nixpacks.toml, which copy `web/dist` here at
+  // build time). Mounted LAST, after every API/admin/legal route above, so
+  // none of those can ever be shadowed by it.
+  //
+  // Two-step static serve:
+  //  1. express.static first - serves real files (JS/CSS bundles, images)
+  //     directly, with long-lived caching since Vite fingerprints filenames.
+  //  2. For anything NOT a real file (e.g. /dashboard, /buy-airtime - React
+  //     Router client-side routes that don't exist as files on disk), fall
+  //     back to index.html so the React app boots and its own router takes
+  //     over. Without this, refreshing the browser on /dashboard would 404
+  //     instead of reloading the app.
+  const webAppDir = path.join(process.cwd(), 'public', 'app');
+  app.use(express.static(webAppDir, { maxAge: '1y', index: false }));
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api') || req.path.startsWith(ADMIN_ROOT_PATH)) return next();
+    res.sendFile(path.join(webAppDir, 'index.html'), (err) => {
+      if (err) next(err);
+    });
+  });
+
   app.use(errorHandler);
   return app;
 }
