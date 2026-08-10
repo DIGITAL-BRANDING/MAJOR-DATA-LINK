@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Smartphone, Wifi, Copy, Check } from 'lucide-react';
+import { Copy, Check, Wallet, Sparkles } from 'lucide-react';
 import AppShell from '../components/AppShell';
 import { useAuth } from '../lib/auth';
 import { api } from '../lib/api';
+import { SERVICES, TINT_CLASSES } from '../lib/services';
 
 type WalletBalance = {
   balance: number;
@@ -25,6 +26,7 @@ export default function DashboardPage() {
   const { user } = useAuth();
   const [wallet, setWallet] = useState<WalletBalance | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [loadedTransactions, setLoadedTransactions] = useState(false);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
@@ -32,7 +34,8 @@ export default function DashboardPage() {
     api
       .get<{ status: boolean; data: Transaction[] }>('/transactions')
       .then((res) => setTransactions((res.data ?? []).slice(0, 5)))
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setLoadedTransactions(true));
   }, []);
 
   function copyAccount() {
@@ -41,6 +44,11 @@ export default function DashboardPage() {
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   }
+
+  // Shown only to first-timers (no transactions yet) — once someone has
+  // actually bought something, they know how the site works and this just
+  // becomes clutter above their real activity.
+  const isFirstTimeUser = loadedTransactions && transactions.length === 0;
 
   return (
     <AppShell>
@@ -57,7 +65,7 @@ export default function DashboardPage() {
           {wallet ? `₦${wallet.balance.toLocaleString()}` : '···'}
         </div>
 
-        {wallet?.virtual_account_number && (
+        {wallet?.virtual_account_number ? (
           <div className="mt-5 flex items-center justify-between rounded-lg border border-ink-line bg-ink-soft px-4 py-3">
             <div>
               <span className="block font-mono text-[11px] text-cream/50">
@@ -75,13 +83,54 @@ export default function DashboardPage() {
               {copied ? 'Copied' : 'Copy'}
             </button>
           </div>
+        ) : (
+          <div className="mt-5 flex items-center gap-2 rounded-lg border border-ink-line bg-ink-soft px-4 py-3">
+            <Wallet size={15} className="shrink-0 text-gold-500/70" />
+            <span className="font-body text-xs text-cream/60">
+              Your dedicated account number is being set up — check back shortly, or fund via
+              card from Buy Data / Buy Airtime.
+            </span>
+          </div>
         )}
       </div>
 
-      {/* Quick actions */}
-      <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <ActionCard to="/buy-airtime" icon={Smartphone} label="Buy Airtime" />
-        <ActionCard to="/buy-data" icon={Wifi} label="Buy Data" />
+      {/* First-time helper: how this whole thing works, in three steps */}
+      {isFirstTimeUser && (
+        <div className="mt-6 rounded-2xl border border-gold-500/30 bg-gold-50 p-5">
+          <div className="flex items-center gap-2">
+            <Sparkles size={16} className="text-gold-600" />
+            <h2 className="font-display text-sm font-bold text-ink">
+              New here? Here's how it works
+            </h2>
+          </div>
+          <ol className="mt-4 space-y-3">
+            <HowItWorksStep
+              number={1}
+              title="Fund your wallet"
+              detail="Transfer any amount to the account number above — it lands in your wallet in seconds."
+            />
+            <HowItWorksStep
+              number={2}
+              title="Pick a service below"
+              detail="Buy Data and Buy Airtime are ready now; more services are on the way."
+            />
+            <HowItWorksStep
+              number={3}
+              title="Confirm and you're done"
+              detail="Enter the details, confirm — delivery is instant, and it shows up in Recent activity."
+            />
+          </ol>
+        </div>
+      )}
+
+      {/* All services */}
+      <div className="mt-8">
+        <h2 className="font-display text-base font-semibold text-ink">Services</h2>
+        <div className="mt-3 grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5">
+          {SERVICES.map((service) => (
+            <ServiceTile key={service.route} {...service} />
+          ))}
+        </div>
       </div>
 
       {/* Recent transactions */}
@@ -116,24 +165,52 @@ export default function DashboardPage() {
   );
 }
 
-function ActionCard({
-  to,
-  icon: Icon,
-  label,
+function HowItWorksStep({
+  number,
+  title,
+  detail,
 }: {
-  to: string;
-  icon: typeof Smartphone;
-  label: string;
+  number: number;
+  title: string;
+  detail: string;
 }) {
   return (
-    <Link
-      to={to}
-      className="flex flex-col items-center gap-2 rounded-xl border border-parchment-line bg-parchment py-5 transition hover:border-gold-500/60"
-    >
-      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-ink text-gold-500">
-        <Icon size={18} />
+    <li className="flex gap-3">
+      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-ink font-mono text-[11px] font-bold text-gold-500">
+        {number}
+      </span>
+      <div>
+        <p className="font-body text-sm font-semibold text-ink">{title}</p>
+        <p className="font-body text-xs text-ink-600">{detail}</p>
       </div>
-      <span className="font-body text-xs font-medium text-ink">{label}</span>
+    </li>
+  );
+}
+
+function ServiceTile({
+  label,
+  icon: Icon,
+  route,
+  tint,
+  implemented,
+}: (typeof SERVICES)[number]) {
+  const colors = TINT_CLASSES[tint];
+  return (
+    <Link
+      to={route}
+      className="group relative flex flex-col items-center gap-2 rounded-xl border border-parchment-line bg-parchment px-2 py-4 text-center transition hover:border-gold-500/60 hover:shadow-sm"
+    >
+      {!implemented && (
+        <span className="absolute right-1.5 top-1.5 rounded-full bg-ink px-1.5 py-0.5 font-mono text-[8px] font-semibold uppercase tracking-wide text-gold-500">
+          Soon
+        </span>
+      )}
+      <div
+        className={`flex h-11 w-11 items-center justify-center rounded-xl ${colors.bg} ${colors.text}`}
+      >
+        <Icon size={19} />
+      </div>
+      <span className="font-body text-[11px] font-medium leading-tight text-ink">{label}</span>
     </Link>
   );
 }

@@ -1,12 +1,14 @@
 import { type ReactNode } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './lib/auth';
+import { SERVICES } from './lib/services';
 import LandingPage from './pages/LandingPage';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import DashboardPage from './pages/DashboardPage';
 import BuyAirtimePage from './pages/BuyAirtimePage';
 import BuyDataPage from './pages/BuyDataPage';
+import ComingSoonPage from './pages/ComingSoonPage';
 import PrivacyRedirect from './pages/PrivacyRedirect';
 
 function ProtectedRoute({ children }: { children: ReactNode }) {
@@ -56,6 +58,21 @@ export default function App() {
               </ProtectedRoute>
             }
           />
+          {/* Every service in the catalog that isn't built on the web yet
+              gets a friendly "coming soon" page instead of a dead link —
+              generated straight from lib/services.ts so a new service only
+              ever needs to be added in one place. */}
+          {SERVICES.filter((s) => !s.implemented).map((service) => (
+            <Route
+              key={service.route}
+              path={service.route}
+              element={
+                <ProtectedRoute>
+                  <ComingSoonPage service={service} />
+                </ProtectedRoute>
+              }
+            />
+          ))}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </AuthProvider>
