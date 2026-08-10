@@ -6,6 +6,7 @@ import pg from 'pg';
 import { Database, Resource } from '@adminjs/prisma';
 import { env } from '../config/env.js';
 import { authenticateAdmin } from './auth.js';
+import { registerBulkPricingRoutes } from './bulk-pricing.js';
 import { componentLoader, Components } from './component-loader.js';
 import { userResource } from './resources/user.resource.js';
 import { transactionResource } from './resources/transaction.resource.js';
@@ -154,6 +155,8 @@ export async function buildAdminRouter() {
       }
     }
   );
+
+  registerBulkPricingRoutes(router);
 
   return { admin, router };
 }

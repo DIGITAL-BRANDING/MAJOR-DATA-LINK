@@ -118,6 +118,39 @@ export async function updateServicePrice(service: string, input: { sellingPrice?
   });
 }
 
+/**
+ * Bulk-reprices every ServicePricing row for one provider ('techhub' =
+ * NIN/BVN verification, 'alrahuz' = WAEC/NECO/NABTEB result pins) in one
+ * call, instead of an admin editing each row's sellingPriceKobo by hand.
+ * Same shape as DataPlanPricingService.applyMarkup() in
+ * data-plan-pricing.service.ts - see that function's comment for why the
+ * loop is sequential (DATABASE_URL's connection_limit=1).
+ */
+export async function applyServiceMarkup(params: { provider: 'techhub' | 'alrahuz'; markupNaira: number; markupPercent: number }) {
+  const rows = await prisma.servicePricing.findMany({ where: { provider: params.provider } });
+
+  let updated = 0;
+  let skipped = 0;
+
+  for (const row of rows) {
+    const providerCost = koboToNaira(row.providerCostKobo);
+    const sellingPrice = Math.ceil(providerCost + (providerCost * params.markupPercent) / 100 + params.markupNaira);
+    // See the identical guard in DataPlanPricingService.applyMarkup() - a
+    // single bad row must not abort the whole bulk update partway through.
+    if (sellingPrice <= 0) {
+      skipped += 1;
+      continue;
+    }
+    await prisma.servicePricing.update({
+      where: { id: row.id },
+      data: { sellingPriceKobo: priceToKobo(sellingPrice) }
+    });
+    updated += 1;
+  }
+
+  return { updated, skipped };
+}
+
 export async function purchaseResultPin(params: {
   userId: string;
   examType: ExamPinType;

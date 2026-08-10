@@ -1,6 +1,7 @@
-import { env } from '../config/env.js';
+import type { DataPlanPricing } from '@prisma/client';
 import { koboToNaira, nairaToKobo } from '../lib/money.js';
 import { prisma } from '../lib/prisma.js';
+import { getPricingSettings } from './pricing-settings.service.js';
 import type { DataPlan } from './data-plans.data.js';
 
 export type PricedDataPlan = DataPlan & {
@@ -17,11 +18,11 @@ function planTypeFrom(name: string) {
   return type && type !== name ? type.trim().toUpperCase() : undefined;
 }
 
-function defaultSellingPrice(providerCost: number) {
+type MarkupSettings = { dataPlanMarkupPercent: number; dataPlanMarkupNaira: number };
+
+function defaultSellingPrice(providerCost: number, settings: MarkupSettings) {
   return Math.ceil(
-    providerCost +
-      (providerCost * env.DATA_PLAN_MARKUP_PERCENT) / 100 +
-      env.DATA_PLAN_MARKUP_NAIRA
+    providerCost + (providerCost * settings.dataPlanMarkupPercent) / 100 + settings.dataPlanMarkupNaira
   );
 }
 
@@ -41,13 +42,16 @@ export class DataPlanPricingService {
   async applyPricing(plans: DataPlan[], network: string) {
     if (plans.length === 0) return [];
 
-    const existingRows = await prisma.dataPlanPricing.findMany({
-      where: {
-        provider: 'alrahuz',
-        providerPlanId: { in: plans.map((plan) => plan.id) }
-      }
-    });
-    const existingByPlanId = new Map(existingRows.map((row) => [row.providerPlanId, row]));
+    const [existingRows, settings] = await Promise.all([
+      prisma.dataPlanPricing.findMany({
+        where: {
+          provider: 'alrahuz',
+          providerPlanId: { in: plans.map((plan) => plan.id) }
+        }
+      }) as Promise<DataPlanPricing[]>,
+      getPricingSettings()
+    ]);
+    const existingByPlanId = new Map(existingRows.map((row: DataPlanPricing) => [row.providerPlanId, row]));
 
     const priced: PricedDataPlan[] = [];
     const toCreate: { plan: DataPlan; providerCostKobo: bigint; planType: string | undefined }[] = [];
@@ -68,7 +72,7 @@ export class DataPlanPricingService {
         providerAmount = koboToNaira(providerCostKobo);
         sellingAmount = existing.sellingPriceKobo
           ? koboToNaira(existing.sellingPriceKobo)
-          : defaultSellingPrice(providerAmount);
+          : defaultSellingPrice(providerAmount, settings);
         isActive = existing.isActive;
         pricingId = existing.id;
         resolvedPlanType = existing.planType ?? planType;
@@ -85,7 +89,7 @@ export class DataPlanPricingService {
         }
       } else {
         providerAmount = koboToNaira(providerCostKobo);
-        sellingAmount = defaultSellingPrice(providerAmount);
+        sellingAmount = defaultSellingPrice(providerAmount, settings);
         isActive = true; // schema default - new plans are active until an admin disables them
         resolvedPlanType = planType;
         toCreate.push({ plan, providerCostKobo, planType });
@@ -158,16 +162,19 @@ export class DataPlanPricingService {
   }
 
   async getPricingRows(network?: string) {
-    const rows = await prisma.dataPlanPricing.findMany({
-      where: network ? { network: network.toUpperCase() } : undefined,
-      orderBy: [{ networkId: 'asc' }, { planType: 'asc' }, { providerCostKobo: 'asc' }]
-    });
+    const [rows, settings] = await Promise.all([
+      prisma.dataPlanPricing.findMany({
+        where: network ? { network: network.toUpperCase() } : undefined,
+        orderBy: [{ networkId: 'asc' }, { planType: 'asc' }, { providerCostKobo: 'asc' }]
+      }) as Promise<DataPlanPricing[]>,
+      getPricingSettings()
+    ]);
 
-    return rows.map((row) => {
+    return rows.map((row: DataPlanPricing) => {
       const providerCost = koboToNaira(row.providerCostKobo);
       const sellingPrice = row.sellingPriceKobo
         ? koboToNaira(row.sellingPriceKobo)
-        : defaultSellingPrice(providerCost);
+        : defaultSellingPrice(providerCost, settings);
       return {
         id: row.id,
         provider_plan_id: row.providerPlanId,
@@ -205,7 +212,7 @@ export class DataPlanPricingService {
     const providerCost = koboToNaira(row.providerCostKobo);
     const sellingPrice = row.sellingPriceKobo
       ? koboToNaira(row.sellingPriceKobo)
-      : defaultSellingPrice(providerCost);
+      : defaultSellingPrice(providerCost, await getPricingSettings());
 
     return {
       id: row.id,
@@ -224,6 +231,9 @@ export class DataPlanPricingService {
       where: params.network ? { network: params.network.toUpperCase() } : undefined
     });
 
+    let updated = 0;
+    let skipped = 0;
+
     // Sequential for the same reason as applyPricing() above: connection_limit=1
     // in DATABASE_URL means concurrent updates exhaust the pool and time out.
     for (const row of rows) {
@@ -231,13 +241,23 @@ export class DataPlanPricingService {
       const sellingPrice = Math.ceil(
         providerCost + (providerCost * params.markupPercent) / 100 + params.markupNaira
       );
+      // nairaToKobo() throws on amount <= 0 - a single bad row (e.g. a
+      // providerCost of 0 from a data-entry error) must not abort the whole
+      // bulk update partway through and leave the rest of a ~250-row batch
+      // silently un-updated. Skip it and keep going; the caller sees the
+      // skipped count and can fix that one row by hand.
+      if (sellingPrice <= 0) {
+        skipped += 1;
+        continue;
+      }
       await prisma.dataPlanPricing.update({
         where: { id: row.id },
         data: { sellingPriceKobo: nairaToKobo(sellingPrice) }
       });
+      updated += 1;
     }
 
-    return { updated: rows.length };
+    return { updated, skipped };
   }
 }
 

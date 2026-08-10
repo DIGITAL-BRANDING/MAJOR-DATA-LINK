@@ -33,7 +33,21 @@ export const dataPlanPricingResource: ResourceWithOptions = {
     actions: {
       new: { isAccessible: false },
       delete: { isAccessible: false },
-      edit: { isAccessible: canManagePricing }
+      edit: { isAccessible: canManagePricing },
+      // Redirects to the plain server-rendered /admin/bulk-pricing page
+      // (src/admin/bulk-pricing.ts) - a resource-level action needs no input
+      // form of its own here, it's just a discoverable button in this
+      // resource's toolbar pointing at the real tool, so an admin editing
+      // one plan's price notices there's a faster way to do 250 of them at
+      // once instead of one at a time.
+      bulkPricingTool: {
+        actionType: 'resource',
+        icon: 'TrendingUp',
+        component: false,
+        isAccessible: canManagePricing,
+        handler: async () => ({ redirectUrl: '/admin/bulk-pricing' }),
+        guard: 'Open the Bulk Pricing tool to reprice many plans at once?'
+      }
     },
     properties: {
       providerCostKobo: {

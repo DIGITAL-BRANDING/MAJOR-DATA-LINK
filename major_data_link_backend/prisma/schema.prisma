@@ -243,6 +243,22 @@ model ReferralSettings {
   minWithdrawalKobo BigInt   @default(50000) // 50000 kobo = NGN 500
   updatedAt         DateTime @updatedAt
 }
+// Singleton (same "default"-id pattern as ReferralSettings above) holding the
+// GLOBAL default markup applied to any DataPlanPricing row that has no
+// explicit sellingPriceKobo override - see defaultSellingPrice() in
+// data-plan-pricing.service.ts. This used to live only in the
+// DATA_PLAN_MARKUP_PERCENT/DATA_PLAN_MARKUP_NAIRA env vars, which meant an
+// admin needed a developer + a Railway redeploy just to change the default
+// markup. Now it's editable directly from /admin/bulk-pricing (or the
+// PricingSettings AdminJS resource) and takes effect immediately - the env
+// vars still exist as the one-time seed value for a fresh database, read in
+// getPricingSettings()'s getOrCreate.
+model PricingSettings {
+  id                    String   @id @default("default")
+  dataPlanMarkupPercent Float    @default(0)
+  dataPlanMarkupNaira   Float    @default(0)
+  updatedAt             DateTime @updatedAt
+}
 // Conversation state for the WhatsApp data-purchase bot (see
 // src/services/whatsapp-session.service.ts). One row per WhatsApp phone
 // number - `state` drives which step of the menu flow the user is on,

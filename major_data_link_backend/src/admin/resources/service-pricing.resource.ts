@@ -49,7 +49,15 @@ export const servicePricingResource: ResourceWithOptions = {
       delete: { isAccessible: false },
       list: { isAccessible: canManagePricing },
       show: { isAccessible: canManagePricing },
-      edit: { isAccessible: canManagePricing }
+      edit: { isAccessible: canManagePricing },
+      bulkPricingTool: {
+        actionType: 'resource',
+        icon: 'TrendingUp',
+        component: false,
+        isAccessible: canManagePricing,
+        handler: async () => ({ redirectUrl: '/admin/bulk-pricing' }),
+        guard: 'Open the Bulk Pricing tool to reprice many services at once?'
+      }
     },
     properties: {
       providerCostKobo: {
