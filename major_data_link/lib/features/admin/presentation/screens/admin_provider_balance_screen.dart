@@ -8,10 +8,20 @@ import '../../../../shared/widgets/kd_button.dart';
 import '../../../../shared/widgets/kd_card.dart';
 import '../providers/admin_pricing_provider.dart';
 
-class AdminProviderBalanceScreen extends ConsumerWidget {
+class AdminProviderBalanceScreen extends ConsumerStatefulWidget {
   const AdminProviderBalanceScreen({super.key});
 
+  @override
+  ConsumerState<AdminProviderBalanceScreen> createState() =>
+      _AdminProviderBalanceScreenState();
+}
+
+class _AdminProviderBalanceScreenState
+    extends ConsumerState<AdminProviderBalanceScreen> {
+  bool _isRefreshing = false;
+
   Future<void> _refresh(BuildContext context, WidgetRef ref) async {
+    setState(() => _isRefreshing = true);
     try {
       await ref.read(adminPricingRepositoryProvider).refreshProviderBalance();
       ref.invalidate(adminProviderBalanceProvider);
@@ -22,11 +32,13 @@ class AdminProviderBalanceScreen extends ConsumerWidget {
       if (context.mounted) {
         context.showSnackBar(error.toString(), isError: true);
       }
+    } finally {
+      if (mounted) setState(() => _isRefreshing = false);
     }
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final balances = ref.watch(adminProviderBalanceProvider);
 
     return Scaffold(
@@ -162,6 +174,7 @@ class AdminProviderBalanceScreen extends ConsumerWidget {
                     child: KDButton(
                       label: 'Refresh Alrahuz Balance',
                       onPressed: () => _refresh(context, ref),
+                      isLoading: _isRefreshing,
                       gradient: AppColors.primaryGradient,
                     ),
                   ),

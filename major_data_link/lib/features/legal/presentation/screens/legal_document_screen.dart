@@ -43,7 +43,9 @@ class LegalDocumentScreen extends StatelessWidget {
             ...sections.map((section) => _LegalSection(section: section)),
             const SizedBox(height: 12),
             Text(
-              'Contact: ${AppConfig.supportEmailDisplay} | WhatsApp: ${AppConfig.supportWhatsApp}',
+              'Contact: ${AppConfig.supportEmailDisplay} | '
+              'WhatsApp: ${AppConfig.supportWhatsApp} | '
+              'Phone: ${AppConfig.supportPhoneAlt}',
               style: context.textTheme.bodyMedium?.copyWith(
                 fontWeight: FontWeight.w700,
               ),

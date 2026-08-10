@@ -33,9 +33,9 @@ class AppConfig {
       case 'development':
         return 'http://10.0.2.2:8787/api';
       case 'staging':
-        return 'https://staging.imamdatasub.ng/api';
+        return 'https://staging.majordatalink.ng/api';
       default:
-        return 'https://imamdatasubweb-production-d2d7.up.railway.app/api';
+        return 'https://major-data-link-production.up.railway.app/api';
     }
   }
 
@@ -79,18 +79,24 @@ class AppConfig {
   static const double minCommissionWithdrawal = 500.0;
 
   // â”€â”€ Support â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  static const String adminWhatsApp = '+2347067693590';
-  static const String supportWhatsApp = '+2348035679448';
+  static const String adminWhatsApp = '+2348037289774';
+  static const String supportWhatsApp = '+2348037289774';
+  // Second phone line (shown alongside the WhatsApp number on
+  // privacy/terms/support pages, not a WhatsApp-enabled number).
+  static const String supportPhoneAlt = '07025859543';
+  // Official WhatsApp Channel — broadcast updates/announcements.
+  static const String supportWhatsAppChannelUrl =
+      'https://whatsapp.com/channel/0029Vb8KzHy5PO0stgnsNy0l';
   // Single address - used for the tap-to-email button and anywhere only one
   // valid mailto: target makes sense.
-  static const String supportEmail = 'imam.datasub21@gmail.com';
+  static const String supportEmail = 'kindnesscomp20@gmail.com';
   // Both addresses together, for display-only contexts (privacy policy,
   // terms) - matches imam_datasub_backend/src/routes/legal.routes.ts's
   // SUPPORT_EMAIL, which already shows both on the web-hosted versions of
   // these same pages. Not valid as a mailto: target (the " / " separator
   // isn't a real address) - use supportEmail above for that.
   static const String supportEmailDisplay =
-      'abdulmhassan02@gmail.com / imam.datasub21@gmail.com';
+      'kindnesscomp20@gmail.com / sunusiusama94@gmail.com';
   static const String privacyPolicyUrl =
       'https://imamdatasubweb-production-4f62.up.railway.app/privacy-policy';
   static const String termsUrl =

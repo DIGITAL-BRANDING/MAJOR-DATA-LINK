@@ -66,8 +66,14 @@ class _KDPinInputState extends State<KDPinInput> {
             : widget.length * AppDimensions.pinSize;
         const spacing = AppDimensions.pinSpacing;
         final availableForBoxes = maxWidth - (spacing * (widget.length - 1));
-        final boxSize = (availableForBoxes / widget.length)
-            .clamp(36.0, AppDimensions.pinSize);
+        final boxSize =
+            (availableForBoxes / widget.length).clamp(36.0, AppDimensions.pinSize);
+        // boxSize can still exceed the truly available width on very narrow
+        // phones (common with budget Android devices) because of the 36px
+        // floor above. Wrapping in FittedBox guarantees the row scales down
+        // to fit instead of overflowing — this is what was showing up as
+        // the diagonal yellow/black overflow stripe ("screen tilting") on
+        // some phones after typing a 6-digit code.
 
         return GestureDetector(
           onTap: () => _focusNode.requestFocus(),
@@ -99,62 +105,67 @@ class _KDPinInputState extends State<KDPinInput> {
                 ),
               ),
 
-              // Visual PIN boxes
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: List.generate((widget.length * 2) - 1, (rowIndex) {
-                  if (rowIndex.isOdd) return SizedBox(width: spacing);
+              // Visual PIN boxes — FittedBox prevents overflow on narrow screens
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: List.generate((widget.length * 2) - 1, (rowIndex) {
+                    if (rowIndex.isOdd) return SizedBox(width: spacing);
 
-                  final index = rowIndex ~/ 2;
-                  final filled = index < _value.length;
-                  final isCurrent = index == _value.length;
+                    final index = rowIndex ~/ 2;
+                    final filled = index < _value.length;
+                    final isCurrent = index == _value.length;
 
-                  return AnimatedContainer(
-                    duration: const Duration(milliseconds: 150),
-                    width: boxSize,
-                    height: boxSize,
-                    decoration: BoxDecoration(
-                      color: isDark
-                          ? AppColors.darkSurfaceVariant
-                          : AppColors.lightSurfaceVariant,
-                      borderRadius:
-                          BorderRadius.circular(AppDimensions.radiusMD),
-                      border: Border.all(
-                        color: widget.hasError
-                            ? scheme.error
-                            : isCurrent
-                                ? scheme.primary
-                                : Colors.transparent,
-                        width: 1.5,
+                    return AnimatedContainer(
+                      duration: const Duration(milliseconds: 150),
+                      width: boxSize,
+                      height: boxSize,
+                      decoration: BoxDecoration(
+                        color: isDark
+                            ? AppColors.darkSurfaceVariant
+                            : AppColors.lightSurfaceVariant,
+                        borderRadius:
+                            BorderRadius.circular(AppDimensions.radiusMD),
+                        border: Border.all(
+                          color: widget.hasError
+                              ? scheme.error
+                              : isCurrent
+                                  ? scheme.primary
+                                  : Colors.transparent,
+                          width: 1.5,
+                        ),
                       ),
-                    ),
-                    child: Center(
-                      child: filled
-                          ? (widget.obscure
-                              ? Container(
-                                  width: 10,
-                                  height: 10,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    color: isDark
-                                        ? AppColors.neutral100
-                                        : AppColors.neutral900,
-                                  ),
-                                )
-                              : Text(
-                                  _value[index],
-                                  style: TextStyle(
-                                    fontSize: boxSize < 44 ? 18 : 22,
-                                    fontWeight: FontWeight.w700,
-                                    color: isDark
-                                        ? AppColors.neutral100
-                                        : AppColors.neutral900,
-                                  ),
-                                ))
-                          : null,
-                    ),
-                  );
-                }),
+                      child: Center(
+                        child: filled
+                            ? (widget.obscure
+                                ? Container(
+                                    width: 10,
+                                    height: 10,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: isDark
+                                          ? AppColors.neutral100
+                                          : AppColors.neutral900,
+                                    ),
+                                  )
+                                : Text(
+                                    _value[index],
+                                    style: TextStyle(
+                                      fontSize: boxSize < 44 ? 18 : 22,
+                                      fontWeight: FontWeight.w700,
+                                      color: isDark
+                                          ? AppColors.neutral100
+                                          : AppColors.neutral900,
+                                    ),
+                                  ))
+                            : null,
+                      ),
+                    );
+                  }),
+                ),
               )
                   .animate(
                     key: widget.errorShakeKey,

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../../../../core/config/app_config.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_dimensions.dart';
 import '../../../../core/constants/app_strings.dart';
@@ -440,7 +441,8 @@ class _FundWalletScreenState extends ConsumerState<FundWalletScreen>
               label: 'Contact WhatsApp support',
               onPressed: () => launchUrl(
                 Uri.parse(
-                  'https://wa.me/2347067693590?text=Hello%20IMAM%20DATASUB,%20I%20need%20help%20with%20wallet%20funding',
+                  'https://wa.me/${AppConfig.supportWhatsApp.replaceAll('+', '')}'
+                  '?text=Hello%20MAJOR%20DATA-LINK,%20I%20need%20help%20with%20wallet%20funding',
                 ),
                 mode: LaunchMode.externalApplication,
               ),
@@ -469,9 +471,11 @@ class _FundWalletScreenState extends ConsumerState<FundWalletScreen>
   }
 
   Future<void> _verifyFunding(String reference) async {
+    setState(() => _isProcessing = true);
     final result = await ref
         .read(walletNotifierProvider.notifier)
         .verifyFunding(reference: reference);
+    setState(() => _isProcessing = false);
     if (!mounted) return;
     result.fold(
       (failure) => context.showSnackBar(failure.message, isError: true),

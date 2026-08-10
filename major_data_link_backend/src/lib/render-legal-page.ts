@@ -13,6 +13,8 @@ export function renderLegalPage(params: {
   sections: LegalSection[];
   supportEmail: string;
   supportWhatsApp: string;
+  supportPhoneAlt?: string;
+  supportWhatsAppChannelUrl?: string;
 }) {
   const sectionsHtml = params.sections
     .map(
@@ -80,6 +82,8 @@ export function renderLegalPage(params: {
         Contact us: <a href="mailto:${escapeHtml(params.supportEmail)}">${escapeHtml(params.supportEmail)}</a>
         &nbsp;|&nbsp;
         <a href="https://wa.me/${escapeHtml(whatsappDigits)}">WhatsApp ${escapeHtml(params.supportWhatsApp)}</a>
+        ${params.supportPhoneAlt ? `&nbsp;|&nbsp; Phone: ${escapeHtml(params.supportPhoneAlt)}` : ''}
+        ${params.supportWhatsAppChannelUrl ? `&nbsp;|&nbsp; <a href="${escapeHtml(params.supportWhatsAppChannelUrl)}">WhatsApp Channel</a>` : ''}
       </p>
     </footer>
   </div>

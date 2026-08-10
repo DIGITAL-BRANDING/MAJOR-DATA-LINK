@@ -4,10 +4,12 @@ import { EFFECTIVE_DATE, PRIVACY_SECTIONS, TERMS_SECTIONS } from '../lib/legal-c
 
 export const legalRoutes = Router();
 
-// Matches imam_datasub/lib/core/config/app_config.dart's supportEmailDisplay/supportWhatsApp.
-// If you change contact details there, update these two constants too.
-const SUPPORT_EMAIL = 'abdulmhassan02@gmail.com / imam.datasub21@gmail.com';
-const SUPPORT_WHATSAPP = '+2348035679448';
+// Matches major_data_link/lib/core/config/app_config.dart's supportEmailDisplay/supportWhatsApp/supportPhoneAlt.
+// If you change contact details there, update these constants too.
+const SUPPORT_EMAIL = 'kindnesscomp20@gmail.com / sunusiusama94@gmail.com';
+const SUPPORT_WHATSAPP = '+2348037289774';
+const SUPPORT_PHONE_ALT = '07025859543';
+const SUPPORT_WHATSAPP_CHANNEL_URL = 'https://whatsapp.com/channel/0029Vb8KzHy5PO0stgnsNy0l';
 
 legalRoutes.get('/privacy-policy', (_req, res) => {
   res.type('html').send(
@@ -16,7 +18,9 @@ legalRoutes.get('/privacy-policy', (_req, res) => {
       effectiveDate: EFFECTIVE_DATE,
       sections: PRIVACY_SECTIONS,
       supportEmail: SUPPORT_EMAIL,
-      supportWhatsApp: SUPPORT_WHATSAPP
+      supportWhatsApp: SUPPORT_WHATSAPP,
+      supportPhoneAlt: SUPPORT_PHONE_ALT,
+      supportWhatsAppChannelUrl: SUPPORT_WHATSAPP_CHANNEL_URL
     })
   );
 });
@@ -28,7 +32,9 @@ legalRoutes.get('/terms', (_req, res) => {
       effectiveDate: EFFECTIVE_DATE,
       sections: TERMS_SECTIONS,
       supportEmail: SUPPORT_EMAIL,
-      supportWhatsApp: SUPPORT_WHATSAPP
+      supportWhatsApp: SUPPORT_WHATSAPP,
+      supportPhoneAlt: SUPPORT_PHONE_ALT,
+      supportWhatsAppChannelUrl: SUPPORT_WHATSAPP_CHANNEL_URL
     })
   );
 });

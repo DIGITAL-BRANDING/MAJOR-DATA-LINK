@@ -129,13 +129,22 @@ class _SupportScreenState extends ConsumerState<SupportScreen>
 
   Future<void> _launchWhatsApp() async {
     final url = Uri.parse(
-      'https://wa.me/${AppConfig.supportWhatsApp.replaceAll('+', '')}?text=Hello%20Imam%20Datasub%20Support',
+      'https://wa.me/${AppConfig.supportWhatsApp.replaceAll('+', '')}?text=Hello%20MAJOR%20DATA-LINK%20Support',
     );
     if (await canLaunchUrl(url)) {
       await launchUrl(url, mode: LaunchMode.externalApplication);
     } else if (mounted) {
       context.showSnackBar('WhatsApp not available on this device',
           isError: true);
+    }
+  }
+
+  Future<void> _launchWhatsAppChannel() async {
+    final url = Uri.parse(AppConfig.supportWhatsAppChannelUrl);
+    if (await canLaunchUrl(url)) {
+      await launchUrl(url, mode: LaunchMode.externalApplication);
+    } else if (mounted) {
+      context.showSnackBar('Could not open WhatsApp Channel', isError: true);
     }
   }
 
@@ -160,7 +169,10 @@ class _SupportScreenState extends ConsumerState<SupportScreen>
         child: TabBarView(
           controller: _tabs,
           children: [
-            _ContactTab(onWhatsApp: _launchWhatsApp),
+            _ContactTab(
+              onWhatsApp: _launchWhatsApp,
+              onWhatsAppChannel: _launchWhatsAppChannel,
+            ),
             const _TicketsTab(),
             const _FaqTab(),
           ],
@@ -172,8 +184,9 @@ class _SupportScreenState extends ConsumerState<SupportScreen>
 
 // ── Contact tab ────────────────────────────────────────────
 class _ContactTab extends StatelessWidget {
-  const _ContactTab({required this.onWhatsApp});
+  const _ContactTab({required this.onWhatsApp, required this.onWhatsAppChannel});
   final VoidCallback onWhatsApp;
+  final VoidCallback onWhatsAppChannel;
 
   @override
   Widget build(BuildContext context) {
@@ -212,12 +225,30 @@ class _ContactTab extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           _ContactCard(
+            icon: Icons.campaign_outlined,
+            title: 'WhatsApp Channel',
+            subtitle: 'Follow for updates & announcements',
+            color: AppColors.success600,
+            onTap: onWhatsAppChannel,
+          ),
+          const SizedBox(height: 12),
+          _ContactCard(
             icon: Icons.email_outlined,
             title: 'Email support',
             subtitle: AppConfig.supportEmail,
             color: AppColors.secondary500,
             onTap: () => launchUrl(
               Uri.parse('mailto:${AppConfig.supportEmail}'),
+            ),
+          ),
+          const SizedBox(height: 12),
+          _ContactCard(
+            icon: Icons.call_outlined,
+            title: 'Call support',
+            subtitle: AppConfig.supportPhoneAlt,
+            color: AppColors.secondary500,
+            onTap: () => launchUrl(
+              Uri.parse('tel:${AppConfig.supportPhoneAlt}'),
             ),
           ),
           const SizedBox(height: 32),

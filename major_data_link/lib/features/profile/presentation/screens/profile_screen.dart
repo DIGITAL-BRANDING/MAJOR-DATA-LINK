@@ -260,7 +260,7 @@ class ProfileScreen extends ConsumerWidget {
   static Future<void> _openWhatsApp(String phone) async {
     final digits = phone.replaceAll(RegExp(r'\D'), '');
     await launchUrl(
-      Uri.parse('https://wa.me/$digits?text=Hello%20IMAM%20DATASUB%20Support'),
+      Uri.parse('https://wa.me/$digits?text=Hello%20MAJOR%20DATA-LINK%20Support'),
       mode: LaunchMode.externalApplication,
     );
   }
