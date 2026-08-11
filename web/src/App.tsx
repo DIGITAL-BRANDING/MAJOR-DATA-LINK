@@ -12,6 +12,7 @@ import ComingSoonPage from './pages/ComingSoonPage';
 import PrivacyRedirect from './pages/PrivacyRedirect';
 import ResultPinPage from './pages/ResultPinPage';
 import VerificationPage from './pages/VerificationPage';
+import FundWalletPage from './pages/FundWalletPage';
 
 function ProtectedRoute({ children }: { children: ReactNode }) {
   const { user, isLoading } = useAuth();
@@ -40,6 +41,7 @@ export default function App() {
           <Route path="/nin-services" element={<ProtectedRoute><VerificationPage mode="nin" /></ProtectedRoute>} />
           <Route path="/bvn-services" element={<ProtectedRoute><VerificationPage mode="bvn" /></ProtectedRoute>} />
           <Route path="/terms" element={<PrivacyRedirect page="terms" />} />
+          <Route path="/fund-wallet" element={<ProtectedRoute><FundWalletPage /></ProtectedRoute>} />
           <Route
             path="/dashboard"
             element={

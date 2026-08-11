@@ -1,0 +1,9 @@
+import { useState } from 'react';
+import { api } from '../lib/api';
+
+export function PinConfirmDialog({ open, onClose, onVerified }: { open: boolean; onClose: () => void; onVerified: () => void }) {
+  const [pin, setPin] = useState(''); const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
+  if (!open) return null;
+  async function confirm() { setBusy(true); setError(''); try { const r = await api.post<{status:boolean}>('/user/pin/verify', { pin }); if (!r.status) throw new Error('Invalid transaction PIN'); onVerified(); setPin(''); } catch (e) { setError(e instanceof Error ? e.message : 'PIN verification failed'); } finally { setBusy(false); } }
+  return <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/50 p-4"><div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl"><h2 className="font-display text-xl font-bold">Confirm with PIN</h2><p className="mt-2 text-sm text-slate-500">Enter your 4-digit transaction PIN to continue.</p><input autoFocus inputMode="numeric" maxLength={4} value={pin} onChange={e=>setPin(e.target.value.replace(/\D/g,''))} className="mt-5 w-full rounded-xl border border-slate-300 p-3 text-center font-mono text-xl tracking-[0.5em]" placeholder="••••"/><p className="mt-2 min-h-5 text-xs text-rose-600">{error}</p><div className="mt-3 flex gap-3"><button onClick={onClose} className="flex-1 rounded-xl border py-2.5 text-sm">Cancel</button><button onClick={confirm} disabled={busy || pin.length!==4} className="flex-1 rounded-xl bg-sky-700 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{busy?'Checking…':'Confirm'}</button></div></div></div>;
+}

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, CheckCircle2 } from 'lucide-react';
 import AppShell from '../components/AppShell';
 import { api, ApiError } from '../lib/api';
+import { PinConfirmDialog } from '../components/PinConfirmDialog';
 
 const NETWORKS = [
   { code: 'MTN', label: 'MTN', bg: 'bg-[#FFCC00]', text: 'text-ink' },
@@ -21,28 +22,10 @@ export default function BuyAirtimePage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [showPin, setShowPin] = useState(false);
 
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-    setError(null);
-    setIsSubmitting(true);
-    try {
-      const res = await api.post<{ status: boolean; message: string }>('/airtime/purchase', {
-        network,
-        phone,
-        amount: Number(amount),
-      });
-      if (res.status) {
-        setSuccess(res.message || 'Airtime delivered successfully');
-      } else {
-        setError(res.message || 'Purchase failed');
-      }
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Something went wrong. Please try again.');
-    } finally {
-      setIsSubmitting(false);
-    }
-  }
+  function handleSubmit(e: FormEvent) { e.preventDefault(); setShowPin(true); }
+  async function purchase() { setShowPin(false); setError(null); setIsSubmitting(true); try { const res = await api.post<{ status: boolean; message: string }>('/airtime/purchase', { network, phone, amount: Number(amount) }); if (res.status) setSuccess(res.message || 'Airtime delivered successfully'); else setError(res.message || 'Purchase failed'); } catch (err) { setError(err instanceof ApiError ? err.message : 'Something went wrong. Please try again.'); } finally { setIsSubmitting(false); } }
 
   if (success) {
     return (
@@ -70,7 +53,7 @@ export default function BuyAirtimePage() {
             </button>
           </div>
         </div>
-      </AppShell>
+      <PinConfirmDialog open={showPin} onClose={() => setShowPin(false)} onVerified={purchase} /></AppShell>
     );
   }
 
@@ -167,6 +150,6 @@ export default function BuyAirtimePage() {
           )}
         </button>
       </form>
-    </AppShell>
+    <PinConfirmDialog open={showPin} onClose={() => setShowPin(false)} onVerified={purchase} /></AppShell>
   );
 }

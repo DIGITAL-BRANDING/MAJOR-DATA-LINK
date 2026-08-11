@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, CheckCircle2 } from 'lucide-react';
 import AppShell from '../components/AppShell';
 import { api, ApiError } from '../lib/api';
+import { PinConfirmDialog } from '../components/PinConfirmDialog';
 
 const NETWORKS = [
   { code: 'MTN', label: 'MTN', bg: 'bg-[#FFCC00]', text: 'text-ink' },
@@ -29,6 +30,7 @@ export default function BuyDataPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [showPin, setShowPin] = useState(false);
 
   // Reload categories whenever network changes
   useEffect(() => {
@@ -57,27 +59,20 @@ export default function BuyDataPage() {
       .finally(() => setLoadingPlans(false));
   }, [network, category]);
 
-  async function handleSubmit(e: FormEvent) {
+  function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    if (planId) setShowPin(true);
+  }
+
+  async function purchase() {
     if (!planId) return;
+    setShowPin(false);
     setError(null);
     setIsSubmitting(true);
     try {
-      const res = await api.post<{ status: boolean; message: string }>('/data/purchase', {
-        network,
-        plan_id: planId,
-        phone,
-      });
-      if (res.status) {
-        setSuccess(res.message || 'Data delivered successfully');
-      } else {
-        setError(res.message || 'Purchase failed');
-      }
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Something went wrong. Please try again.');
-    } finally {
-      setIsSubmitting(false);
-    }
+      const res = await api.post<{ status: boolean; message: string }>('/data/purchase', { network, plan_id: planId, phone });
+      if (res.status) setSuccess(res.message || 'Data delivered successfully'); else setError(res.message || 'Purchase failed');
+    } catch (err) { setError(err instanceof ApiError ? err.message : 'Something went wrong. Please try again.'); } finally { setIsSubmitting(false); }
   }
 
   const selectedPlan = plans.find((p) => p.id === planId);
@@ -108,7 +103,7 @@ export default function BuyDataPage() {
             </button>
           </div>
         </div>
-      </AppShell>
+      <PinConfirmDialog open={showPin} onClose={() => setShowPin(false)} onVerified={purchase} /></AppShell>
     );
   }
 
@@ -236,7 +231,7 @@ export default function BuyDataPage() {
           )}
         </button>
       </form>
-    </AppShell>
+    <PinConfirmDialog open={showPin} onClose={() => setShowPin(false)} onVerified={purchase} /></AppShell>
   );
 }
 
