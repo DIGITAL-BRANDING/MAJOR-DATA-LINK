@@ -2,8 +2,14 @@ import crypto from 'node:crypto';
 import { Router } from 'express';
 import { env } from '../config/env.js';
 import { prisma } from '../lib/prisma.js';
-import { creditDirectDeposit, creditWalletByReference, markFundingFailed } from '../services/wallet.service.js';
+import {
+  creditDirectDeposit,
+  creditDirectDepositByAccountNumber,
+  creditWalletByReference,
+  markFundingFailed
+} from '../services/wallet.service.js';
 import { paystackService } from '../services/paystack.service.js';
+import { katpayService } from '../services/katpay.service.js';
 import { advanceSession } from '../services/whatsapp-session.service.js';
 
 export const webhookRoutes = Router();
@@ -85,6 +91,107 @@ webhookRoutes.post('/paystack', async (req, res) => {
   }
 
   // Paystack expects a fast 200 regardless of whether we acted on the event type.
+  res.sendStatus(200);
+});
+
+/**
+ * KatPay webhook. Mounted under the same express.raw() as /paystack above (see
+ * app.ts) — KatPay's X-Katpay-Signature, like Paystack's, is computed over the
+ * exact raw request bytes, so it must be verified before any JSON parsing happens.
+ *
+ * Handles the two events relevant to wallet funding:
+ *   - virtual_account.payment_received: money landed directly in a user's
+ *     permanent KatPay virtual account (the "just transfer to the account on your
+ *     dashboard" flow) — no pending transaction exists for this yet, matched by
+ *     the account number instead.
+ *   - transfer_payment.completed: confirms a one-time /wallet/fund/dynamic order
+ *     initiated by us — a PENDING transaction already exists, matched by our own
+ *     merchant_reference.
+ * Both other event types (transaction.completed, payout.processed) are accepted
+ * but currently no-ops — nothing in this app consumes them yet.
+ */
+webhookRoutes.post('/katpay', async (req, res) => {
+  const signature = req.header('x-katpay-signature');
+  const timestamp = req.header('x-katpay-timestamp');
+  const secret = env.KATPAY_WEBHOOK_SECRET ?? env.KATPAY_SECRET_KEY;
+
+  if (!secret || !signature || !timestamp) {
+    return res.status(400).json({ error: 'Missing required headers' });
+  }
+
+  const rawBody = req.body as Buffer;
+  const signedPayload = `${timestamp}.${rawBody.toString('utf8')}`;
+  const expectedSignature = crypto.createHmac('sha256', secret).update(signedPayload).digest('hex');
+
+  const signatureBuffer = Buffer.from(signature);
+  const expectedBuffer = Buffer.from(expectedSignature);
+  const signatureValid =
+    signatureBuffer.length === expectedBuffer.length && crypto.timingSafeEqual(signatureBuffer, expectedBuffer);
+
+  if (!signatureValid) {
+    return res.status(401).json({ error: 'Invalid signature' });
+  }
+
+  const event = JSON.parse(rawBody.toString('utf8'));
+  const eventType = event.event_type as string | undefined;
+
+  try {
+    if (eventType === 'virtual_account.payment_received') {
+      const transaction = event.data?.transaction ?? {};
+      const virtualAccount = event.data?.virtual_account ?? {};
+      const orderStatus = (transaction.order_status as string | undefined)?.toUpperCase();
+      const accountNumber = virtualAccount.account_number as string | undefined;
+      const reference = (transaction.reference ?? transaction.order_no) as string | undefined;
+      const amountKobo =
+        transaction.order_amount_cents != null
+          ? BigInt(transaction.order_amount_cents)
+          : BigInt(Math.round(Number(transaction.order_amount ?? 0) * 100));
+
+      if (orderStatus === 'SUCCESS' && accountNumber && reference) {
+        await creditDirectDepositByAccountNumber({
+          reference,
+          amountKobo,
+          accountNumber,
+          channel: 'katpay_virtual_account'
+        });
+      }
+    } else if (eventType === 'transfer_payment.completed') {
+      // NOTE: KatPay's published docs don't show this event's exact payload shape -
+      // this reads the same field names the /v1/transfer-payments response itself
+      // uses (merchant_reference/status), which is the most likely shape for the
+      // webhook too. Confirm against a real delivered webhook once KatPay sends one
+      // and adjust the paths below if it's nested differently.
+      const payment = event.data?.transfer_payment ?? event.data ?? {};
+      const reference = payment.merchant_reference as string | undefined;
+
+      if (reference) {
+        // Same "never trust the webhook payload alone" principle the /paystack
+        // handler above follows - re-check directly with KatPay before crediting,
+        // rather than trusting event.data.transfer_payment.status as-is. Needs the
+        // KatPay uuid, which was stored in the pending Transaction's metadata when
+        // /wallet/fund/dynamic created it (see payment-provider.service.ts).
+        const pending = await prisma.transaction.findUnique({ where: { reference } });
+        const uuid = (pending?.metadata as { provider_reference?: string } | null)?.provider_reference;
+
+        if (uuid) {
+          const verified = await katpayService.getTransferPaymentStatus(uuid);
+          // Accept both 'success' and 'completed' - see the comment on
+          // KatpayTransferPayment['status'] in katpay.service.ts for why.
+          if (verified.status === 'success' || verified.status === 'completed') {
+            await creditWalletByReference(reference);
+          } else if (verified.status === 'failed' || verified.status === 'expired') {
+            await markFundingFailed(reference);
+          }
+          // Any other in-between status (e.g. 'processing') - do nothing, a later
+          // webhook delivery or the /fund/verify fallback will resolve it.
+        }
+      }
+    }
+  } catch (error) {
+    console.error('[katpay-webhook] failed to process event', eventType, error);
+  }
+
+  // KatPay, like Paystack, expects a fast 200 regardless of whether we acted on the event.
   res.sendStatus(200);
 });
 

@@ -99,6 +99,11 @@ model User {
   passwordLockedUntil  DateTime?
   virtualAccountNumber String?
   virtualAccountBank   String?
+  // Which gateway ('paystack' | 'katpay') issued the virtualAccountNumber above -
+  // set by payment-provider.service.ts whenever an account is provisioned. Used to
+  // route direct-deposit webhooks (see creditDirectDeposit vs
+  // creditDirectDepositByAccountNumber in wallet.service.ts) to the right matcher.
+  virtualAccountProvider String?
   paystackCustomerCode String?
   bvnLast4             String?
   bvnVerifiedAt        DateTime?

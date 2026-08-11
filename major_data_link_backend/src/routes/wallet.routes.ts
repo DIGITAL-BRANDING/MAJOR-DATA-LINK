@@ -6,7 +6,13 @@ import { koboToNaira } from '../lib/money.js';
 import { requireAuth } from '../middleware/auth.js';
 import { paystackService } from '../services/paystack.service.js';
 import { createPendingFunding, creditWalletByReference, redeemCoupon } from '../services/wallet.service.js';
-import { tryProvisionInstantVirtualAccount } from '../services/kyc.service.js';
+// Provider-agnostic - picks Paystack or KatPay based on PAYMENT_PROVIDER in env.
+// See payment-provider.service.ts for how to fail over from one to the other.
+import {
+  createDynamicFundingAccount,
+  provisionInstantVirtualAccount,
+  verifyDynamicFunding
+} from '../services/payment-provider.service.js';
 
 export const walletRoutes = Router();
 
@@ -18,7 +24,7 @@ walletRoutes.get('/balance', async (req, res) => {
   // Covers users created before this feature existed, and anyone whose
   // signup-time attempt failed transiently. No-ops instantly if already provisioned.
   if (!user.virtualAccountNumber) {
-    await tryProvisionInstantVirtualAccount(user.id);
+    await provisionInstantVirtualAccount(user.id);
     user = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id } });
   }
 
@@ -34,7 +40,7 @@ walletRoutes.get('/virtual-account', async (req, res) => {
   let user = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id } });
 
   if (!user.virtualAccountNumber) {
-    await tryProvisionInstantVirtualAccount(user.id);
+    await provisionInstantVirtualAccount(user.id);
     user = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id } });
   }
 
@@ -97,8 +103,8 @@ walletRoutes.post('/fund/verify', async (req, res) => {
     return res.status(404).json({ status: false, message: 'Transaction not found' });
   }
 
-  const verified = await paystackService.verifyTransaction(body.reference);
-  if (verified.status === 'success') {
+  const status = await verifyDynamicFunding(transaction);
+  if (status === 'success') {
     const updated = await creditWalletByReference(body.reference);
     return res.json({
       status: true,
@@ -107,32 +113,39 @@ walletRoutes.post('/fund/verify', async (req, res) => {
     });
   }
 
-  res.json({ status: false, message: `Payment ${verified.status}` });
+  res.json({ status: false, message: `Payment ${status}` });
 });
 
 /**
  * "Dynamic Account" — a one-time account number tied to this exact amount,
  * matching the Alrahuz "Dynamic Account" tab (temporary, dies after use/expiry).
- * Uses Paystack's Pay with Transfer channel instead of a Dedicated Virtual Account.
+ * Routes through whichever gateway PAYMENT_PROVIDER points at (Paystack's Pay with
+ * Transfer, or KatPay's Pay with Transfer) — see payment-provider.service.ts.
  */
 walletRoutes.post('/fund/dynamic', async (req, res) => {
   const body = z.object({ amount: z.number().positive() }).parse(req.body);
 
   const user = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id } });
-  const amountKobo = BigInt(Math.round(body.amount * 100));
 
-  const charge = await paystackService.createTemporaryTransferAccount({
+  const funding = await createDynamicFundingAccount({
     email: user.email,
-    amountKobo
+    fullName: user.fullName,
+    amount: body.amount
   });
 
-  // Record the attempt as PENDING using Paystack's own reference for this charge —
-  // the webhook (or /fund/verify) credits the wallet once the transfer lands.
+  // Record the attempt as PENDING using the funding reference above — the webhook
+  // (or /fund/verify) credits the wallet once the transfer lands.
   await createPendingFunding({
     userId: user.id,
     amount: body.amount,
-    reference: charge.reference,
-    metadata: { payment_method: 'dynamic_transfer', account_number: charge.account_number }
+    reference: funding.reference,
+    provider: funding.provider,
+    description: `Wallet funding via ${funding.provider === 'katpay' ? 'KatPay' : 'Paystack'} (dynamic transfer)`,
+    metadata: {
+      payment_method: 'dynamic_transfer',
+      account_number: funding.accountNumber,
+      provider_reference: funding.providerReference ?? null
+    }
   });
 
   res.json({
@@ -140,11 +153,11 @@ walletRoutes.post('/fund/dynamic', async (req, res) => {
     message: 'Transfer this exact amount to the account below to fund your wallet',
     data: {
       amount: body.amount,
-      reference: charge.reference,
-      account_number: charge.account_number,
-      account_name: charge.account_name,
-      bank_name: charge.bank?.name,
-      expires_at: charge.account_expires_at
+      reference: funding.reference,
+      account_number: funding.accountNumber,
+      account_name: funding.accountName,
+      bank_name: funding.bankName,
+      expires_at: funding.expiresAt
     }
   });
 });

@@ -150,7 +150,7 @@ const _privacySections = [
   (
     title: '3. Payments and third parties',
     body:
-        'Wallet funding and some verification services may be processed through payment and service providers such as Paystack, Supabase, Firebase and VTU provider APIs including Alrahuz Data. We share only the information needed to complete the requested service, verify transactions, create virtual accounts, send notifications or maintain platform security.',
+        'Wallet funding and some verification services may be processed through payment and service providers such as Paystack, KatPay, Supabase, Firebase and VTU provider APIs including Alrahuz Data. We share only the information needed to complete the requested service, verify transactions, create virtual accounts, send notifications or maintain platform security.',
   ),
   (
     title: '4. KYC and security',

@@ -80,6 +80,42 @@ const EnvSchema = z.object({
     .string()
     .default('true')
     .transform((value) => value.toLowerCase() !== 'false' && value !== '0'),
+
+  // Which payment gateway is currently "live" for virtual-account provisioning and
+  // dynamic (pay-with-transfer) funding. Both providers' credentials can stay set in
+  // .env at the same time - only this flag decides which one actually gets called.
+  // Flip it to 'katpay' (or back to 'paystack') and redeploy if one provider starts
+  // giving trouble; no code changes needed. See src/services/payment-provider.service.ts.
+  PAYMENT_PROVIDER: z
+    .string()
+    .default('paystack')
+    .transform((value) => value.toLowerCase())
+    .pipe(z.enum(['paystack', 'katpay'])),
+
+  // --- KatPay (https://katpay.co/docs) - kept side-by-side with Paystack above as a
+  // swappable alternative. Same "must never throw / never block signup" philosophy as
+  // Paystack's instant DVA - see tryProvisionInstantVirtualAccount in kyc.service.ts.
+  KATPAY_SECRET_KEY: z.string().optional(),
+  KATPAY_PUBLIC_KEY: z.string().optional(),
+  KATPAY_MERCHANT_ID: z.string().optional(),
+  // Used as the callback_url when creating a /v1/transfer-payments (dynamic funding)
+  // order - KatPay POSTs the signed confirmation here once the customer's transfer lands.
+  KATPAY_CALLBACK_URL: z.string().url().optional(),
+  // HMAC key used to verify X-Katpay-Signature on inbound webhooks (see
+  // webhook.routes.ts). KatPay's docs don't show a separate webhook-only secret, so
+  // this defaults to KATPAY_SECRET_KEY unless you're given a distinct one.
+  KATPAY_WEBHOOK_SECRET: z.string().optional(),
+  // Bank code(s) passed as the `bankCode` array when creating a static virtual account
+  // (POST /v1/virtual-accounts). PalmPay is what KatPay's own docs example uses.
+  KATPAY_VIRTUAL_ACCOUNT_BANK_CODE: z.string().default('PALMPAY'),
+  // Mirrors PAYSTACK_INSTANT_DVA_ENABLED - whether to provision a KatPay virtual
+  // account for every new user immediately, with no BVN gate (KatPay's virtual-account
+  // endpoint doesn't require one - just email/name/phone).
+  KATPAY_INSTANT_VA_ENABLED: z
+    .string()
+    .default('true')
+    .transform((value) => value.toLowerCase() !== 'false' && value !== '0'),
+
   ADMIN_SESSION_SECRET: z.string().min(16).default('dev-only-insecure-admin-secret-change-me'),
 
   // WhatsApp Cloud API (Meta Business Platform) - lets a user buy data by chatting

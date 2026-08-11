@@ -1,7 +1,10 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
-import { getKycStatus, listSupportedBanks, verifyBvnAndActivateWallet } from '../services/kyc.service.js';
+import { getKycStatus, verifyBvnAndActivateWallet } from '../services/kyc.service.js';
+// Bank list comes from whichever gateway PAYMENT_PROVIDER currently points at,
+// not hardcoded to Paystack - see payment-provider.service.ts.
+import { listSupportedBanks } from '../services/payment-provider.service.js';
 
 export const kycRoutes = Router();
 
@@ -27,6 +30,10 @@ kycRoutes.get('/banks', async (_req, res) => {
   res.json({ status: true, data: banks });
 });
 
+// NOTE: this endpoint (verifyBvnAndActivateWallet) is Paystack-specific - KatPay's
+// virtual-account creation has no BVN/bank-validation step to mirror it. It only
+// matters if PAYMENT_PROVIDER=paystack AND PAYSTACK_INSTANT_DVA_ENABLED=false, so
+// the app falls back to this BVN-gated path instead of the instant one.
 kycRoutes.post('/bvn', async (req, res) => {
   const body = z
     .object({

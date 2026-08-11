@@ -23,6 +23,7 @@ export const userResource: ResourceWithOptions = {
       'phoneVerified',
       'virtualAccountNumber',
       'virtualAccountBank',
+      'virtualAccountProvider',
       'createdAt',
       'updatedAt'
     ],

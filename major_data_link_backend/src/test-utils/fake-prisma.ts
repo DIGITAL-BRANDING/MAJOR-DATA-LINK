@@ -8,7 +8,11 @@
  * It deliberately re-implements the two "conditional update" patterns
  * (`updateMany` with a `gte` guard) that debitWallet()/manualWalletAdjustment()
  * rely on for race-safety, so tests can actually exercise the
- * insufficient-balance rejection path realistically.
+ * insufficient-balance rejection path realistically. It also enforces
+ * Transaction.reference's `@unique` constraint (throwing a
+ * PrismaClientKnownRequestError with code P2002, same as real Prisma) so tests
+ * can exercise the "redelivered webhook" idempotency branches in
+ * creditDirectDeposit / creditDirectDepositByAccountNumber realistically.
  *
  * `$transaction(fn)` just calls `fn(api)` directly - there's no real
  * multi-statement atomicity here (no rollback-on-throw across the fake user/
@@ -17,6 +21,16 @@
  * itself. True concurrency/isolation guarantees need an integration test
  * against a real database - see the note in wallet.service.test.ts.
  */
+
+class FakePrismaClientKnownRequestError extends Error {
+  code: string;
+  constructor(message: string, opts: { code: string }) {
+    super(message);
+    this.code = opts.code;
+  }
+}
+export { FakePrismaClientKnownRequestError };
+
 
 export type FakeUser = {
   id: string;
@@ -74,6 +88,12 @@ export function createFakePrisma() {
       const user = users.get(where.id as string);
       return user ? { ...user } : null;
     },
+    async findFirst({ where }: { where: WhereClause }) {
+      for (const u of users.values()) {
+        if (matchesWhere(u, where)) return { ...u };
+      }
+      return null;
+    },
     async findUniqueOrThrow({ where }: { where: WhereClause }) {
       const user = users.get(where.id as string);
       if (!user) throw new Error(`FakePrisma: user ${where.id} not found`);
@@ -116,6 +136,15 @@ export function createFakePrisma() {
       return t;
     },
     async create({ data }: { data: Record<string, unknown> }) {
+      if (data.reference != null) {
+        for (const existing of transactions.values()) {
+          if (existing.reference === data.reference) {
+            throw new FakePrismaClientKnownRequestError('Unique constraint failed on the fields: (`reference`)', {
+              code: 'P2002'
+            });
+          }
+        }
+      }
       const t = { ...data } as FakeTransaction;
       transactions.set(t.id, t);
       return { ...t };

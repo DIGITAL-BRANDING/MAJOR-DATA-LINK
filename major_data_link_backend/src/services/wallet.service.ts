@@ -146,6 +146,9 @@ export async function createPendingFunding(params: {
   userId: string;
   amount: number;
   reference: string;
+  /** Which gateway this attempt is going through - defaults to 'paystack' for callers that predate KatPay support. */
+  provider?: string;
+  description?: string;
   metadata?: Prisma.InputJsonValue;
 }) {
   const amountKobo = nairaToKobo(params.amount);
@@ -161,7 +164,8 @@ export async function createPendingFunding(params: {
       balanceBeforeKobo: user.walletBalanceKobo,
       balanceAfterKobo: user.walletBalanceKobo, // unchanged until the payment is confirmed
       reference: params.reference,
-      description: 'Wallet funding via Paystack',
+      provider: params.provider ?? 'paystack',
+      description: params.description ?? 'Wallet funding via Paystack',
       metadata: params.metadata
     }
   });
@@ -257,6 +261,73 @@ export async function creditDirectDeposit(params: {
 
     // Scoped to this one depositor (resolved above by their unique paystackCustomerCode)
     // - every other user's wallet and notification feed is untouched.
+    await notifyUser({
+      userId: transaction.userId,
+      type: 'WALLET',
+      title: 'Wallet funded',
+      body: `Your wallet was credited with ${formatNaira(transaction.amountKobo)} via bank transfer. New balance: ${formatNaira(transaction.balanceAfterKobo)}.`,
+      data: { transactionId: transaction.id, reference: transaction.reference }
+    });
+
+    return transaction;
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      return prisma.transaction.findUniqueOrThrow({ where: { reference: params.reference } });
+    }
+    throw error;
+  }
+}
+
+/**
+ * KatPay equivalent of `creditDirectDeposit` above - credits a bank transfer that
+ * arrived with NO pre-created pending transaction, i.e. straight into the user's
+ * permanent KatPay virtual account rather than through /wallet/fund/dynamic.
+ * Matched by `virtualAccountNumber` instead of a customer code, since KatPay's
+ * virtual-account webhook payload identifies the account, not a customer id.
+ *
+ * Idempotent the same way: `reference` (KatPay's transaction reference/order_no) is
+ * unique per `Transaction.reference`, so a redelivered webhook hits the P2002 branch
+ * below and just returns what the first delivery already created.
+ */
+export async function creditDirectDepositByAccountNumber(params: {
+  reference: string;
+  amountKobo: bigint;
+  accountNumber: string;
+  channel: string;
+}) {
+  const user = await prisma.user.findFirst({ where: { virtualAccountNumber: params.accountNumber } });
+  if (!user) {
+    throw new ApiError(404, "No wallet matches this payment's virtual account", 'USER_NOT_FOUND_FOR_PAYMENT');
+  }
+
+  try {
+    const transaction = await prisma.$transaction(async (tx) => {
+      const before = await tx.user.findUniqueOrThrow({ where: { id: user.id } });
+      const after = await tx.user.update({
+        where: { id: user.id },
+        data: { walletBalanceKobo: { increment: params.amountKobo } }
+      });
+
+      return tx.transaction.create({
+        data: {
+          id: nanoid(),
+          userId: user.id,
+          type: TransactionType.WALLET_FUNDING,
+          status: TransactionStatus.SUCCESS,
+          amountKobo: params.amountKobo,
+          balanceBeforeKobo: before.walletBalanceKobo,
+          balanceAfterKobo: after.walletBalanceKobo,
+          provider: 'katpay',
+          providerRef: params.reference,
+          reference: params.reference,
+          description: `Wallet funded via direct bank transfer (${params.channel})`,
+          metadata: { channel: params.channel, accountNumber: params.accountNumber }
+        }
+      });
+    });
+
+    // Scoped to this one depositor (resolved above by their virtualAccountNumber) -
+    // every other user's wallet and notification feed is untouched.
     await notifyUser({
       userId: transaction.userId,
       type: 'WALLET',

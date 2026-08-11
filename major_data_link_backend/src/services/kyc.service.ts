@@ -95,6 +95,7 @@ export async function verifyBvnAndActivateWallet(params: {
         kycStatus: KycStatus.VERIFIED,
         virtualAccountNumber: dva.account_number,
         virtualAccountBank: dva.bank.name,
+        virtualAccountProvider: 'paystack',
         bvnLast4,
         bvnVerifiedAt: new Date(),
         kycFailureReason: null
@@ -146,6 +147,11 @@ export async function verifyBvnAndActivateWallet(params: {
  * error — expected, and handled silently below; `verifyBvnAndActivateWallet`
  * above remains the correct (BVN-gated) path for the Static Account tier in
  * that case. This must never throw and must never block signup.
+ *
+ * This is the Paystack-specific half of instant provisioning. Route handlers call
+ * `provisionInstantVirtualAccount` in payment-provider.service.ts instead of this
+ * function directly — that wrapper picks this or the KatPay equivalent based on
+ * PAYMENT_PROVIDER, so callers don't need to know which gateway is active.
  */
 export async function tryProvisionInstantVirtualAccount(userId: string) {
   if (!env.PAYSTACK_INSTANT_DVA_ENABLED || !env.PAYSTACK_SECRET_KEY) return;
@@ -172,7 +178,11 @@ export async function tryProvisionInstantVirtualAccount(userId: string) {
 
     await prisma.user.update({
       where: { id: userId },
-      data: { virtualAccountNumber: dva.account_number, virtualAccountBank: dva.bank.name }
+      data: {
+        virtualAccountNumber: dva.account_number,
+        virtualAccountBank: dva.bank.name,
+        virtualAccountProvider: 'paystack'
+      }
     });
   } catch (error) {
     // Non-fatal by design. Logged so it's visible in Railway logs if your Paystack
