@@ -86,7 +86,7 @@ describe('provisionInstantVirtualAccount', () => {
   it('creates a KatPay virtual account and stamps virtualAccountProvider when PAYMENT_PROVIDER=katpay', async () => {
     mockEnv.PAYMENT_PROVIDER = 'katpay';
     await prisma.user.create({
-      data: { id: 'user-2', walletBalanceKobo: 0n, fullName: 'Sadeeq Doe', email: 's@example.test', phone: '+2348000000000' }
+      data: { id: 'user-2', walletBalanceKobo: 0n, fullName: 'Sadeeq Doe', email: 's@example.test', phone: '+2348000000000', referralCode: 'REF002' }
     });
     katpayCreateVirtualAccount.mockResolvedValue({
       account_number: '8012345678',
@@ -117,7 +117,7 @@ describe('provisionInstantVirtualAccount', () => {
         walletBalanceKobo: 0n,
         fullName: 'Already Provisioned',
         email: 'a@example.test',
-        phone: '+2348000000001',
+        phone: '+2348000000001', referralCode: 'REF003',
         virtualAccountNumber: '9999999999'
       }
     });
@@ -131,7 +131,7 @@ describe('provisionInstantVirtualAccount', () => {
     mockEnv.PAYMENT_PROVIDER = 'katpay';
     mockEnv.KATPAY_MERCHANT_ID = undefined;
     await prisma.user.create({
-      data: { id: 'user-4', walletBalanceKobo: 0n, fullName: 'No Merchant Id', email: 'n@example.test', phone: '+2348000000002' }
+      data: { id: 'user-4', walletBalanceKobo: 0n, fullName: 'No Merchant Id', email: 'n@example.test', phone: '+2348000000002', referralCode: 'REF004' }
     });
 
     await expect(provisionInstantVirtualAccount('user-4')).resolves.toBeUndefined();
@@ -141,7 +141,7 @@ describe('provisionInstantVirtualAccount', () => {
   it('never throws when the KatPay API call itself fails', async () => {
     mockEnv.PAYMENT_PROVIDER = 'katpay';
     await prisma.user.create({
-      data: { id: 'user-5', walletBalanceKobo: 0n, fullName: 'API Fails', email: 'f@example.test', phone: '+2348000000003' }
+      data: { id: 'user-5', walletBalanceKobo: 0n, fullName: 'API Fails', email: 'f@example.test', phone: '+2348000000003', referralCode: 'REF005' }
     });
     katpayCreateVirtualAccount.mockRejectedValue(new Error('KatPay is down'));
 
