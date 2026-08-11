@@ -14,9 +14,9 @@ export default function AppShell({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen bg-cream">
-      <header className="border-b border-parchment-line bg-parchment">
-        <div className="mx-auto flex max-w-4xl items-center justify-between px-5 py-4">
+    <div className="min-h-screen bg-[#f5f7fb]">
+      <header className="border-b border-slate-200 bg-white/95 backdrop-blur">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4">
           <Link to="/dashboard">
             <Logo />
           </Link>
@@ -33,7 +33,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
           </div>
         </div>
       </header>
-      <main className="mx-auto max-w-4xl px-5 py-8">{children}</main>
+      <main className="mx-auto max-w-7xl px-5 py-8">{children}</main>
     </div>
   );
 }

@@ -198,19 +198,19 @@ function ServiceTile({
   return (
     <Link
       to={route}
-      className="group relative flex flex-col items-center gap-2 rounded-xl border border-parchment-line bg-parchment px-2 py-4 text-center transition hover:border-gold-500/60 hover:shadow-sm"
+      className="group relative flex min-h-36 flex-col items-center justify-center rounded-2xl border border-slate-200 bg-white p-4 text-center shadow-sm transition duration-200 hover:-translate-y-1 hover:border-sky-200 hover:shadow-lg hover:shadow-sky-900/10"
     >
       {!implemented && (
-        <span className="absolute right-1.5 top-1.5 rounded-full bg-ink px-1.5 py-0.5 font-mono text-[8px] font-semibold uppercase tracking-wide text-gold-500">
+        <span className="absolute right-2 top-2 rounded-full bg-slate-100 px-2 py-1 font-body text-[9px] font-semibold uppercase tracking-wide text-slate-500">
           Soon
         </span>
       )}
       <div
-        className={`flex h-11 w-11 items-center justify-center rounded-xl ${colors.bg} ${colors.text}`}
+        className={`flex h-12 w-12 items-center justify-center rounded-xl ${colors.bg} ${colors.text} transition group-hover:scale-110`}
       >
-        <Icon size={19} />
+        <Icon size={24} />
       </div>
-      <span className="font-body text-[11px] font-medium leading-tight text-ink">{label}</span>
+      <span className="mt-3 font-body text-sm font-semibold leading-tight text-slate-900">{label}</span>
     </Link>
   );
 }
