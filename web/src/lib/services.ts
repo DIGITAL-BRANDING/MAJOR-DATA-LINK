@@ -88,7 +88,7 @@ export const SERVICES: ServiceItem[] = [
     icon: GraduationCap,
     route: '/waec-result',
     tint: 'bronze',
-    implemented: false,
+    implemented: true,
   },
   {
     label: 'NECO Result',
@@ -96,7 +96,7 @@ export const SERVICES: ServiceItem[] = [
     icon: BookOpenCheck,
     route: '/neco-result',
     tint: 'bronze',
-    implemented: false,
+    implemented: true,
   },
   {
     label: 'NABTEB Result',
@@ -144,7 +144,7 @@ export const SERVICES: ServiceItem[] = [
     icon: IdCard,
     route: '/nin-services',
     tint: 'ink',
-    implemented: false,
+    implemented: true,
   },
   {
     label: 'BVN Services',
@@ -152,7 +152,7 @@ export const SERVICES: ServiceItem[] = [
     icon: Fingerprint,
     route: '/bvn-services',
     tint: 'ember',
-    implemented: false,
+    implemented: true,
   },
   {
     label: 'CAC Registration',

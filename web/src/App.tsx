@@ -10,6 +10,8 @@ import BuyAirtimePage from './pages/BuyAirtimePage';
 import BuyDataPage from './pages/BuyDataPage';
 import ComingSoonPage from './pages/ComingSoonPage';
 import PrivacyRedirect from './pages/PrivacyRedirect';
+import ResultPinPage from './pages/ResultPinPage';
+import VerificationPage from './pages/VerificationPage';
 
 function ProtectedRoute({ children }: { children: ReactNode }) {
   const { user, isLoading } = useAuth();
@@ -33,6 +35,10 @@ export default function App() {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/privacy-policy" element={<PrivacyRedirect page="privacy-policy" />} />
+          <Route path="/waec-result" element={<ProtectedRoute><ResultPinPage exam="WAEC" /></ProtectedRoute>} />
+          <Route path="/neco-result" element={<ProtectedRoute><ResultPinPage exam="NECO" /></ProtectedRoute>} />
+          <Route path="/nin-services" element={<ProtectedRoute><VerificationPage mode="nin" /></ProtectedRoute>} />
+          <Route path="/bvn-services" element={<ProtectedRoute><VerificationPage mode="bvn" /></ProtectedRoute>} />
           <Route path="/terms" element={<PrivacyRedirect page="terms" />} />
           <Route
             path="/dashboard"
