@@ -12,6 +12,19 @@ import { paystackService } from '../services/paystack.service.js';
 import { katpayService } from '../services/katpay.service.js';
 import { advanceSession } from '../services/whatsapp-session.service.js';
 
+function normalizeKatpayStatus(value: unknown): string | undefined {
+  if (typeof value === 'string' || typeof value === 'number') return String(value).trim().toUpperCase();
+  if (typeof value === 'boolean') return value ? 'SUCCESS' : 'FAILED';
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    for (const key of ['status', 'value', 'name', 'code']) {
+      const normalized = normalizeKatpayStatus(record[key]);
+      if (normalized) return normalized;
+    }
+  }
+  return undefined;
+}
+
 export const webhookRoutes = Router();
 
 /**
@@ -139,7 +152,7 @@ webhookRoutes.post('/katpay', async (req, res) => {
     if (eventType === 'virtual_account.payment_received') {
       const transaction = event.data?.transaction ?? {};
       const virtualAccount = event.data?.virtual_account ?? {};
-      const orderStatus = (transaction.order_status as string | undefined)?.toUpperCase();
+      const orderStatus = normalizeKatpayStatus(transaction.order_status);
       const accountNumber = virtualAccount.account_number as string | undefined;
       const reference = (transaction.reference ?? transaction.order_no) as string | undefined;
       const amountKobo =
@@ -147,7 +160,7 @@ webhookRoutes.post('/katpay', async (req, res) => {
           ? BigInt(transaction.order_amount_cents)
           : BigInt(Math.round(Number(transaction.order_amount ?? 0) * 100));
 
-      if (orderStatus === 'SUCCESS' && accountNumber && reference) {
+      if (['SUCCESS', 'COMPLETED', 'PAID', '1', 'TRUE'].includes(orderStatus ?? '') && accountNumber && reference) {
         await creditDirectDepositByAccountNumber({
           reference,
           amountKobo,
@@ -189,9 +202,10 @@ webhookRoutes.post('/katpay', async (req, res) => {
     }
   } catch (error) {
     console.error('[katpay-webhook] failed to process event', eventType, error);
+    // Return non-2xx for a genuine processing failure so KatPay retries delivery.
+    return res.status(500).json({ error: 'Webhook processing failed' });
   }
 
-  // KatPay, like Paystack, expects a fast 200 regardless of whether we acted on the event.
   res.sendStatus(200);
 });
 
