@@ -13,3 +13,13 @@ export function whatsappLink(text: string) {
   const digits = CONTACT.whatsapp.replace('+', '');
   return `https://wa.me/${digits}?text=${encodeURIComponent(text)}`;
 }
+
+// GitHub's "latest release" download URL is stable forever — it always
+// resolves to whatever release is currently marked "Latest" on
+// https://github.com/DIGITAL-BRANDING/MAJOR-DATA-LINK/releases, as long as
+// that release has an asset with EXACTLY this filename attached. So:
+// every time you publish a new APK, name the uploaded file
+// "MajorDataLink.apk" (case-sensitive) and this link never needs to change.
+// See the release checklist in web/README.md before the first upload.
+export const ANDROID_APK_URL =
+  'https://github.com/DIGITAL-BRANDING/MAJOR-DATA-LINK/releases/latest/download/MajorDataLink.apk';

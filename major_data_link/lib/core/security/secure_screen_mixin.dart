@@ -1,5 +1,4 @@
 import 'package:flutter/widgets.dart';
-import 'biometric_service.dart';
 
 /// Reference-counts how many "secure" screens/sheets are currently mounted
 /// at once, so screenshot protection (Android FLAG_SECURE) only turns off
@@ -14,23 +13,11 @@ import 'biometric_service.dart';
 class SecureScreenController {
   SecureScreenController._();
 
-  static int _activeCount = 0;
-  static final _service = BiometricService();
+  /// Screenshot protection is intentionally disabled across all builds.
+  /// Users can take screenshots on every screen, including release builds.
+  static Future<void> push() async {}
 
-  static Future<void> push() async {
-    _activeCount += 1;
-    if (_activeCount == 1) {
-      await _service.setSecureScreen(true);
-    }
-  }
-
-  static Future<void> pop() async {
-    if (_activeCount == 0) return; // guards against a stray extra dispose()
-    _activeCount -= 1;
-    if (_activeCount == 0) {
-      await _service.setSecureScreen(false);
-    }
-  }
+  static Future<void> pop() async {}
 }
 
 /// Mix into any State that shows sensitive data - wallet balance/funding,
@@ -79,7 +66,8 @@ class SecureScreenWrapper extends StatefulWidget {
   State<SecureScreenWrapper> createState() => _SecureScreenWrapperState();
 }
 
-class _SecureScreenWrapperState extends State<SecureScreenWrapper> with SecureScreenMixin {
+class _SecureScreenWrapperState extends State<SecureScreenWrapper>
+    with SecureScreenMixin {
   @override
   Widget build(BuildContext context) => widget.child;
 }

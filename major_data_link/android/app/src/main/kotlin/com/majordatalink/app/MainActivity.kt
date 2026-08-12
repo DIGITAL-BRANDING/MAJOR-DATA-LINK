@@ -40,16 +40,10 @@ class MainActivity : FlutterFragmentActivity() {
     // reference count) when a sensitive screen mounts/unmounts. No-op on
     // debug builds so screenshots keep working normally for local dev/QA -
     // only release builds actually get FLAG_SECURE applied.
+    // Screenshots and screen recording are allowed on every screen,
+    // including release builds. Clear any flag left by an earlier screen.
     private fun setSecureScreen(secure: Boolean) {
-        if (isDebuggableBuild()) return
-        if (secure) {
-            window.setFlags(
-                WindowManager.LayoutParams.FLAG_SECURE,
-                WindowManager.LayoutParams.FLAG_SECURE
-            )
-        } else {
-            window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
-        }
+        window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {

@@ -232,7 +232,7 @@ class WalletCard extends StatelessWidget {
 
                       const SizedBox(height: 4),
                       Text(
-                        'Acct: ${AppFormatters.maskAccountNumber(accountNumber)}',
+                        'Acct: $accountNumber',
                         style: TextStyle(
                           color: AppColors.neutral0.withValues(alpha: 0.6),
                           fontSize: 12,

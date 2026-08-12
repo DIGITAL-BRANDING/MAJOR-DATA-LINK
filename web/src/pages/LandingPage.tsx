@@ -22,7 +22,7 @@ import PublicNav from '../components/PublicNav';
 import RatesTicker from '../components/RatesTicker';
 import Footer from '../components/Footer';
 import { api } from '../lib/api';
-import { CONTACT, whatsappLink } from '../lib/contact';
+import { CONTACT, whatsappLink, ANDROID_APK_URL } from '../lib/contact';
 
 const SERVICES = [
   { icon: Smartphone, name: 'Airtime', desc: 'All networks, instant delivery' },
@@ -85,6 +85,10 @@ const FAQS = [
   {
     q: 'What if a transaction fails?',
     a: "If a purchase can't be completed, your wallet is automatically refunded — you can see this reflected instantly in your transaction history.",
+  },
+  {
+    q: "The app isn't on the Play Store yet — how do I install it?",
+    a: "Download the APK below, then open it. Android will ask you to allow installs from this source the first time — tap Settings, turn on 'Allow from this source', then go back and tap install. This warning is standard for any app installed outside the Play Store, not a sign anything is wrong.",
   },
   {
     q: "I'm stuck — how do I reach support?",
@@ -352,16 +356,23 @@ export default function LandingPage() {
             Biometric login, saved beneficiaries, instant push alerts on every transaction.
           </p>
           <div className="mt-2 flex flex-wrap justify-center gap-4">
+            <a
+              href={ANDROID_APK_URL}
+              className="flex items-center gap-2 rounded-lg bg-gold-500 px-6 py-3.5 font-display text-sm font-semibold text-ink transition hover:bg-gold-400"
+            >
+              <Download size={16} /> Download for Android
+            </a>
             <Link
               to="/register"
-              className="rounded-lg bg-gold-500 px-6 py-3.5 font-display text-sm font-semibold text-ink transition hover:bg-gold-400"
+              className="rounded-lg border border-ink-line px-6 py-3.5 font-body text-sm font-medium text-cream/80 transition hover:text-cream"
             >
               Continue on the web instead
             </Link>
-            <span className="flex items-center gap-2 rounded-lg border border-ink-line px-6 py-3.5 font-body text-sm text-cream/50">
-              <Download size={16} /> Android app coming to Play Store
-            </span>
           </div>
+          <p className="max-w-sm font-body text-xs text-cream/40">
+            Not on the Play Store yet — this installs directly. Android will ask you to allow
+            it the first time; that's expected, see the FAQ below.
+          </p>
           <a
             href={whatsappLink("Hello MAJOR DATA-LINK, I'd like to know more before signing up")}
             target="_blank"
