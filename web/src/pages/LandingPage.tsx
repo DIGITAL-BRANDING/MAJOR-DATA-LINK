@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Smartphone,
@@ -6,14 +7,22 @@ import {
   Zap,
   ShieldCheck,
   GraduationCap,
+  BookOpenCheck,
+  BookOpen,
   Wallet,
   MousePointerClick,
   PackageCheck,
   Download,
+  Lock,
+  Landmark,
+  MessageCircle,
+  ChevronDown,
 } from 'lucide-react';
 import PublicNav from '../components/PublicNav';
 import RatesTicker from '../components/RatesTicker';
 import Footer from '../components/Footer';
+import { api } from '../lib/api';
+import { CONTACT, whatsappLink } from '../lib/contact';
 
 const SERVICES = [
   { icon: Smartphone, name: 'Airtime', desc: 'All networks, instant delivery' },
@@ -21,7 +30,7 @@ const SERVICES = [
   { icon: Tv, name: 'Cable TV', desc: 'DStv, GOtv, Startimes' },
   { icon: Zap, name: 'Electricity', desc: 'Prepaid & postpaid tokens' },
   { icon: ShieldCheck, name: 'Verification', desc: 'NIN, BVN & ID services' },
-  { icon: GraduationCap, name: 'Result Checkers', desc: 'WAEC, NECO & JAMB pins' },
+  { icon: GraduationCap, name: 'Result Checkers', desc: 'WAEC, NECO & NABTEB pins' },
 ];
 
 const STEPS = [
@@ -42,7 +51,65 @@ const STEPS = [
   },
 ];
 
+const TRUST_POINTS = [
+  {
+    icon: Lock,
+    title: 'Encrypted at rest',
+    desc: 'Sensitive identity data (NIN/BVN) is encrypted in our database, not stored in plain text.',
+  },
+  {
+    icon: Landmark,
+    title: 'Bank-backed funding',
+    desc: 'Wallet funding runs through a licensed payment processor, straight to your dedicated account number.',
+  },
+  {
+    icon: MessageCircle,
+    title: 'Real support, on WhatsApp',
+    desc: `Reach an actual person any time at ${CONTACT.whatsapp} — no ticket queues.`,
+  },
+];
+
+const FAQS = [
+  {
+    q: 'How do I fund my wallet?',
+    a: 'After you register, you get a dedicated account number. Transfer any amount to it from any Nigerian bank and your wallet updates automatically — usually within seconds.',
+  },
+  {
+    q: 'How fast is delivery?',
+    a: "Airtime, data, and result checker pins are delivered instantly after payment — there's no manual approval step on our side.",
+  },
+  {
+    q: 'Is my money safe?',
+    a: 'Your wallet is funded through a licensed payment processor via a dedicated bank account in your name, and your identity data is encrypted in our database.',
+  },
+  {
+    q: 'What if a transaction fails?',
+    a: "If a purchase can't be completed, your wallet is automatically refunded — you can see this reflected instantly in your transaction history.",
+  },
+  {
+    q: "I'm stuck — how do I reach support?",
+    a: `Message us directly on WhatsApp at ${CONTACT.whatsapp}, or email ${CONTACT.emailDisplay}. A real person responds.`,
+  },
+];
+
+type ResultPrice = { service: string; label: string; unit_price: number };
+
+const RESULT_ICON: Record<string, typeof GraduationCap> = {
+  WAEC_PIN: GraduationCap,
+  NECO_PIN: BookOpenCheck,
+  NABTEB_PIN: BookOpen,
+};
+
 export default function LandingPage() {
+  const [resultPrices, setResultPrices] = useState<ResultPrice[] | null>(null);
+
+  useEffect(() => {
+    api
+      .get<{ status: boolean; data: ResultPrice[] }>('/public/result-prices', false)
+      .then((res) => setResultPrices(res.data ?? []))
+      .catch(() => setResultPrices([]));
+  }, []);
+
   return (
     <div className="min-h-screen bg-cream">
       <PublicNav />
@@ -133,33 +200,140 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ── How it works ── */}
-      <section id="how-it-works" className="bg-parchment">
+      {/* ── Result Checker Pricing ── */}
+      <section id="result-checkers" className="bg-parchment">
         <div className="mx-auto max-w-6xl px-5 py-20">
           <div className="max-w-lg">
             <span className="font-mono text-xs uppercase tracking-widest text-bronze-500">
-              The process
+              Result checkers
             </span>
             <h2 className="mt-2 font-display text-3xl font-bold text-ink sm:text-4xl">
-              Three steps, every time
+              WAEC, NECO & NABTEB pins, at real prices
+            </h2>
+            <p className="mt-3 font-body text-sm text-ink-600">
+              These are our live prices, pulled straight from the same system that processes
+              every order — not a rate card that goes stale.
+            </p>
+          </div>
+
+          <div className="mt-10 grid gap-4 sm:grid-cols-3">
+            {resultPrices === null &&
+              [0, 1, 2].map((i) => (
+                <div
+                  key={i}
+                  className="h-56 animate-pulse rounded-xl border border-parchment-line bg-cream"
+                />
+              ))}
+
+            {resultPrices?.length === 0 && (
+              <div className="col-span-full rounded-xl border border-dashed border-parchment-line px-6 py-10 text-center font-body text-sm text-ink-600">
+                Result checker pricing is being updated — check back shortly, or see current
+                prices in the app after you register.
+              </div>
+            )}
+
+            {resultPrices?.map((p) => {
+              const Icon = RESULT_ICON[p.service] ?? GraduationCap;
+              return (
+                <div
+                  key={p.service}
+                  className="flex flex-col rounded-xl border border-parchment-line bg-cream p-6"
+                >
+                  <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-ink text-gold-500">
+                    <Icon size={20} />
+                  </div>
+                  <h3 className="mt-4 font-display text-base font-semibold text-ink">
+                    {p.label}
+                  </h3>
+                  <p className="mt-1 font-body text-xs text-ink-600">
+                    Delivered instantly to your wallet's transaction history.
+                  </p>
+                  <div className="mt-5 flex items-baseline gap-1">
+                    <span className="font-display text-2xl font-bold text-ink">
+                      ₦{p.unit_price.toLocaleString()}
+                    </span>
+                    <span className="font-body text-xs text-ink-600">/ pin</span>
+                  </div>
+                  <Link
+                    to="/register"
+                    className="mt-5 rounded-lg bg-ink px-4 py-2.5 text-center font-body text-sm font-semibold text-cream transition hover:bg-ink-soft"
+                  >
+                    Get a {p.label.split(' ')[0]} pin
+                  </Link>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+
+      {/* ── How it works ── */}
+      <section id="how-it-works" className="mx-auto max-w-6xl px-5 py-20">
+        <div className="max-w-lg">
+          <span className="font-mono text-xs uppercase tracking-widest text-bronze-500">
+            The process
+          </span>
+          <h2 className="mt-2 font-display text-3xl font-bold text-ink sm:text-4xl">
+            Three steps, every time
+          </h2>
+        </div>
+        <div className="mt-10 grid gap-8 md:grid-cols-3">
+          {STEPS.map((step, i) => (
+            <div key={step.title} className="relative">
+              <span className="font-mono text-5xl font-bold text-gold-500/20">0{i + 1}</span>
+              <div className="-mt-6 flex h-10 w-10 items-center justify-center rounded-full bg-ink text-gold-500">
+                <step.icon size={18} />
+              </div>
+              <h3 className="mt-4 font-display text-lg font-semibold text-ink">{step.title}</h3>
+              <p className="mt-1.5 font-body text-sm leading-relaxed text-ink-600">
+                {step.desc}
+              </p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* ── Trust ── */}
+      <section className="bg-ink">
+        <div className="mx-auto max-w-6xl px-5 py-20">
+          <div className="max-w-lg">
+            <span className="font-mono text-xs uppercase tracking-widest text-gold-500">
+              Built to be trusted
+            </span>
+            <h2 className="mt-2 font-display text-3xl font-bold text-cream sm:text-4xl">
+              Not just fast — accountable
             </h2>
           </div>
-          <div className="mt-10 grid gap-8 md:grid-cols-3">
-            {STEPS.map((step, i) => (
-              <div key={step.title} className="relative">
-                <span className="font-mono text-5xl font-bold text-gold-500/20">
-                  0{i + 1}
-                </span>
-                <div className="-mt-6 flex h-10 w-10 items-center justify-center rounded-full bg-ink text-gold-500">
-                  <step.icon size={18} />
+          <div className="mt-10 grid gap-6 md:grid-cols-3">
+            {TRUST_POINTS.map((t) => (
+              <div key={t.title} className="rounded-xl border border-ink-line bg-ink-soft p-6">
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gold-500/10 text-gold-500">
+                  <t.icon size={18} />
                 </div>
-                <h3 className="mt-4 font-display text-lg font-semibold text-ink">
-                  {step.title}
+                <h3 className="mt-4 font-display text-base font-semibold text-cream">
+                  {t.title}
                 </h3>
-                <p className="mt-1.5 font-body text-sm leading-relaxed text-ink-600">
-                  {step.desc}
-                </p>
+                <p className="mt-1.5 font-body text-sm leading-relaxed text-cream/60">{t.desc}</p>
               </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ── FAQ ── */}
+      <section id="faq" className="bg-parchment">
+        <div className="mx-auto max-w-3xl px-5 py-20">
+          <div className="text-center">
+            <span className="font-mono text-xs uppercase tracking-widest text-bronze-500">
+              Questions
+            </span>
+            <h2 className="mt-2 font-display text-3xl font-bold text-ink sm:text-4xl">
+              Before you get started
+            </h2>
+          </div>
+          <div className="mt-10 divide-y divide-parchment-line rounded-xl border border-parchment-line bg-cream">
+            {FAQS.map((item) => (
+              <FaqItem key={item.q} {...item} />
             ))}
           </div>
         </div>
@@ -188,10 +362,37 @@ export default function LandingPage() {
               <Download size={16} /> Android app coming to Play Store
             </span>
           </div>
+          <a
+            href={whatsappLink("Hello MAJOR DATA-LINK, I'd like to know more before signing up")}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-2 font-body text-xs text-cream/40 transition hover:text-cream/70"
+          >
+            <MessageCircle size={13} /> Or ask us a question first, on WhatsApp
+          </a>
         </div>
       </section>
 
       <Footer />
+    </div>
+  );
+}
+
+function FaqItem({ q, a }: { q: string; a: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="px-5">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between gap-4 py-4 text-left"
+      >
+        <span className="font-body text-sm font-semibold text-ink">{q}</span>
+        <ChevronDown
+          size={16}
+          className={`shrink-0 text-ink-600 transition-transform ${open ? 'rotate-180' : ''}`}
+        />
+      </button>
+      {open && <p className="pb-4 font-body text-sm leading-relaxed text-ink-600">{a}</p>}
     </div>
   );
 }

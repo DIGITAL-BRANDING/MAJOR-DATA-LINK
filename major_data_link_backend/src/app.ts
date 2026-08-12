@@ -26,6 +26,7 @@ import { referralRoutes } from './routes/referral.routes.js';
 import { supportRoutes } from './routes/support.routes.js';
 import { referralLinkRoutes } from './routes/referral-link.routes.js';
 import { resultRoutes } from './routes/result.routes.js';
+import { publicRoutes } from './routes/public.routes.js';
 import { transactionRoutes } from './routes/transaction.routes.js';
 import { userRoutes } from './routes/user.routes.js';
 import { verificationRoutes } from './routes/verification.routes.js';
@@ -117,6 +118,7 @@ export function createApp() {
   app.use('/api/referral', referralRoutes);
   app.use('/api/support', supportRoutes);
   app.use('/api/result', resultRoutes);
+  app.use('/api/public', publicRoutes);
   app.use('/api/verification', verificationRoutes);
   app.use('/api', vtuRoutes);
   app.use('/api/transactions', transactionRoutes);
