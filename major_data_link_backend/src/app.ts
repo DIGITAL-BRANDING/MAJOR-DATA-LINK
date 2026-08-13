@@ -186,9 +186,11 @@ export function createApp() {
   //     over. Without this, refreshing the browser on /dashboard would 404
   //     instead of reloading the app.
   const webAppDir = path.join(process.cwd(), 'public', 'app');
-  app.use(express.static(webAppDir, { maxAge: '1y', index: false }));
+  app.use(express.static(webAppDir, { maxAge: '1y', immutable: true, index: false }));
   app.get('*', (req, res, next) => {
     if (req.path.startsWith('/api') || req.path.startsWith(ADMIN_ROOT_PATH)) return next();
+    // Never cache the HTML shell: a stale index can reference a bundle removed by a newer deploy.
+    res.setHeader('Cache-Control', 'no-store');
     res.sendFile(path.join(webAppDir, 'index.html'), (err) => {
       if (err) next(err);
     });
