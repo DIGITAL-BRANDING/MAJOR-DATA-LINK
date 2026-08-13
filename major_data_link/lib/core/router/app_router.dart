@@ -13,6 +13,7 @@ import '../../features/auth/presentation/screens/login_screen.dart';
 import '../../features/auth/presentation/screens/register_screen.dart';
 import '../../features/auth/presentation/screens/otp_screen.dart';
 import '../../features/auth/presentation/screens/forgot_password_screen.dart';
+import '../../features/auth/presentation/screens/reset_password_screen.dart';
 import '../../features/auth/presentation/screens/set_login_pin_screen.dart';
 import '../../features/auth/presentation/screens/login_pin_unlock_screen.dart';
 import '../../features/auth/presentation/screens/reset_login_pin_screen.dart';
@@ -112,6 +113,12 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: RouteNames.forgotPassword,
         builder: (_, __) => const ForgotPasswordScreen(),
+      ),
+      GoRoute(
+        path: RouteNames.resetPassword,
+        builder: (_, state) => ResetPasswordScreen(
+          email: state.uri.queryParameters['email'] ?? '',
+        ),
       ),
 
       // ── Login PIN (6-digit) ────────────────────────────────
@@ -428,6 +435,7 @@ String? _guard(AsyncValue<AuthStatus> authState, GoRouterState state) {
     RouteNames.register,
     RouteNames.verifyOtp,
     RouteNames.forgotPassword,
+    RouteNames.resetPassword,
     RouteNames.privacyPolicy,
     RouteNames.terms,
     RouteNames.resetLoginPin,

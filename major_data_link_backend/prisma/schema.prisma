@@ -128,6 +128,7 @@ model User {
   updatedAt            DateTime       @updatedAt
   transactions         Transaction[]
   refreshTokens        RefreshToken[]
+  passwordResetCodes   PasswordResetCode[]
   redeemedCoupons      Coupon[]
   deviceTokens         DeviceToken[]
   notifications        Notification[]
@@ -141,6 +142,26 @@ model RefreshToken {
   revokedAt DateTime?
   createdAt DateTime  @default(now())
   user      User      @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+}
+
+// A 6-digit code emailed via Resend for the "forgot password" flow (see
+// src/routes/password.routes.ts). Deliberately NOT a clickable link/token -
+// the mobile app has no deep-link handling set up, so the user types this
+// code into ResetPasswordScreen instead. codeHash only (never the plain
+// code) so a DB read alone can't be used to reset someone's password.
+// attempts caps brute-forcing a 6-digit space (1,000,000 possibilities) the
+// same way loginPinFailures/passwordFailures already do elsewhere on User.
+model PasswordResetCode {
+  id         String    @id @default(uuid())
+  userId     String
+  codeHash   String
+  attempts   Int       @default(0)
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+  user       User      @relation(fields: [userId], references: [id])
 
   @@index([userId])
 }

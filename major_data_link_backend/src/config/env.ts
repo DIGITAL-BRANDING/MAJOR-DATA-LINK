@@ -59,6 +59,18 @@ const EnvSchema = z.object({
   AUTH_TOKEN_SECRET: z.string().min(32).default('dev-only-insecure-auth-token-secret-32'),
   ACCESS_TOKEN_TTL_SECONDS: z.coerce.number().int().positive().default(86_400),
   REFRESH_TOKEN_TTL_SECONDS: z.coerce.number().int().positive().default(2_592_000),
+
+  // Resend — sends the 6-digit "forgot password" code (see
+  // src/lib/email.ts / src/routes/password.routes.ts). No SMTP/other
+  // provider is configured anywhere in this codebase, so leaving
+  // RESEND_API_KEY unset makes /password/forgot fail closed with a clear
+  // 500 rather than silently pretending to send an email nobody gets.
+  // RESEND_FROM_EMAIL defaults to Resend's own shared testing address,
+  // which works immediately with zero domain setup - swap it for
+  // something like 'MAJOR DATA-LINK <no-reply@yourdomain.com>' once a
+  // sending domain is verified in the Resend dashboard.
+  RESEND_API_KEY: z.string().optional(),
+  RESEND_FROM_EMAIL: z.string().default('MAJOR DATA-LINK <onboarding@resend.dev>'),
   // NOTE: z.coerce.boolean() would parse the STRING "false" as true (JS's
   // Boolean("false") === true Ã¢â‚¬â€ any non-empty string is truthy). This explicit
   // string comparison is what actually respects MOCK_PROVIDER=false in .env.

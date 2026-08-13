@@ -161,10 +161,11 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
 
   @override
   Future<void> forgotPassword({required String email}) async {
-    throw const AuthException(
-      message: 'Password reset will be added after MVP launch.',
-      code: 'PASSWORD_RESET_DISABLED',
-    );
+    try {
+      await _dio.post(AppEndpoints.forgotPassword, data: {'email': email});
+    } on DioException catch (e) {
+      throw ErrorHandler.handleException(e);
+    }
   }
 
   @override
@@ -173,10 +174,18 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
     required String token,
     required String newPassword,
   }) async {
-    throw const AuthException(
-      message: 'Password reset will be added after MVP launch.',
-      code: 'PASSWORD_RESET_DISABLED',
-    );
+    try {
+      await _dio.post(
+        AppEndpoints.resetPassword,
+        data: {
+          'email': email,
+          'token': token,
+          'new_password': newPassword,
+        },
+      );
+    } on DioException catch (e) {
+      throw ErrorHandler.handleException(e);
+    }
   }
 
   @override

@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_dimensions.dart';
+import '../../../../core/router/route_names.dart';
 import '../../../../core/utils/extensions.dart';
 import '../../../../core/utils/validators.dart';
 import '../../../../shared/widgets/kd_button.dart';
@@ -97,7 +98,7 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
 
           const SizedBox(height: 8),
           Text(
-            'Enter your email address and we will send you a link to reset your password.',
+            'Enter your email address and we will send you a 6-digit code to reset your password.',
             style: context.textTheme.bodyMedium?.copyWith(
               color: AppColors.neutral500,
             ),
@@ -157,7 +158,7 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
 
         const SizedBox(height: 8),
         Text(
-          'We sent a password reset link to\n${_emailController.text}',
+          'We sent a 6-digit code to\n${_emailController.text}',
           textAlign: TextAlign.center,
           style: context.textTheme.bodyMedium?.copyWith(
             color: AppColors.neutral500,
@@ -165,10 +166,19 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
         ).animate().fadeIn(delay: 150.ms),
 
         const SizedBox(height: 32),
+        KDButton(
+          label: 'Enter code',
+          onPressed: () => context.push(
+            '${RouteNames.resetPassword}?email=${Uri.encodeComponent(_emailController.text.trim())}',
+          ),
+          gradient: AppColors.primaryGradient,
+        ).animate().fadeIn(delay: 200.ms).slideY(begin: 0.1),
+
+        const SizedBox(height: 16),
         KDOutlinedButton(
           label: 'Back to sign in',
           onPressed: () => context.go('/login'),
-        ).animate().fadeIn(delay: 200.ms),
+        ).animate().fadeIn(delay: 250.ms),
       ],
     );
   }
