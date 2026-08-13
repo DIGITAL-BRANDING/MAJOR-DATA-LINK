@@ -93,6 +93,11 @@ export default function LoginPage() {
             >
               {isLoading ? <Spinner /> : needsPin ? 'Verify & sign in' : 'Sign in'}
             </button>
+            {!needsPin && (
+              <Link to="/forgot-password" className="flex justify-center font-body text-sm font-medium text-gold-600 hover:text-gold-700">
+                Forgot password?
+              </Link>
+            )}
           </form>
         </div>
 
