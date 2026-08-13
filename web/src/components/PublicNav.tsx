@@ -11,12 +11,6 @@ export default function PublicNav() {
           <Logo dark />
         </Link>
         <nav className="hidden items-center gap-7 md:flex">
-          <a href="#services" className="font-body text-sm text-cream/70 transition hover:text-cream">
-            Services
-          </a>
-          <a href="#verification" className="font-body text-sm text-cream/70 transition hover:text-cream">
-            NIN &amp; BVN
-          </a>
           <a href="#result-checkers" className="font-body text-sm text-cream/70 transition hover:text-cream">
             Results
           </a>

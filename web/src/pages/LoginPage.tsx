@@ -102,6 +102,12 @@ export default function LoginPage() {
             Open your wallet
           </Link>
         </p>
+        <Link
+          to="/"
+          className="mt-4 flex justify-center font-body text-sm font-medium text-gold-600 transition hover:text-gold-700"
+        >
+          Back to home
+        </Link>
       </div>
     </div>
   );

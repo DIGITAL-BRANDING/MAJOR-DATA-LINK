@@ -186,6 +186,7 @@ export default function LandingPage() {
         setVerificationPrices(map);
       })
       .catch(() => setVerificationPrices({}));
+
   }, []);
 
   return (
@@ -254,7 +255,7 @@ export default function LandingPage() {
       <RatesTicker />
 
       {/* ── All services ── */}
-      <section id="services" className="mx-auto max-w-6xl px-5 py-20">
+      <section id="services" className="hidden" aria-hidden="true">
         <div className="max-w-lg">
           <span className="font-mono text-xs uppercase tracking-widest text-bronze-500">
             The board
@@ -293,7 +294,7 @@ export default function LandingPage() {
       </section>
 
       {/* ── NIN & BVN Verification ── */}
-      <section id="verification" className="bg-parchment">
+      <section id="verification" className="hidden" aria-hidden="true">
         <div className="mx-auto max-w-6xl px-5 py-20">
           <div className="max-w-lg">
             <span className="font-mono text-xs uppercase tracking-widest text-bronze-500">

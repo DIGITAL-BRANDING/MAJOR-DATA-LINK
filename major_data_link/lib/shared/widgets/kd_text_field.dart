@@ -236,14 +236,6 @@ class KDPhoneField extends StatelessWidget {
   final TextInputAction textInputAction;
 
   @override
-  void didUpdateWidget(covariant KDTextField oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.obscureText != widget.obscureText) {
-      _obscured = widget.obscureText;
-    }
-  }
-
-  @override
   Widget build(BuildContext context) {
     return KDTextField(
       controller: controller,
@@ -284,14 +276,6 @@ class KDAmountField extends StatelessWidget {
   final String hint;
   final FocusNode? focusNode;
   final TextInputAction textInputAction;
-
-  @override
-  void didUpdateWidget(covariant KDTextField oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.obscureText != widget.obscureText) {
-      _obscured = widget.obscureText;
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -336,14 +320,6 @@ class KDSearchField extends StatelessWidget {
   final VoidCallback? onClear;
   final FocusNode? focusNode;
   final bool autofocus;
-
-  @override
-  void didUpdateWidget(covariant KDTextField oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.obscureText != widget.obscureText) {
-      _obscured = widget.obscureText;
-    }
-  }
 
   @override
   Widget build(BuildContext context) {

@@ -84,12 +84,25 @@ export function createApp() {
   const allowedOrigins = new Set(
     env.WEB_ALLOWED_ORIGINS.split(',').map((origin) => origin.trim()).filter(Boolean)
   );
-  app.use(cors({
-    origin(origin, callback) {
-      if (!origin || allowedOrigins.has(origin)) return callback(null, true);
-      return callback(new Error('Origin is not allowed by CORS policy'));
-    }
-  }));
+  // The browser dashboard is served by this same Express application. Its
+  // Origin header must always be accepted even when no separate web domain
+  // is configured, while callers from any other domain stay allow-listed.
+  app.use((req, res, next) => {
+    // The AdminJS panel is server-rendered and hosted on this same Express
+    // origin. It does not make cross-origin API calls, so applying API CORS
+    // validation here can only reject an otherwise valid admin login request
+    // (as happened on Railway when its forwarded origin differed from Host).
+    if (req.path.startsWith(ADMIN_ROOT_PATH)) return next();
+    const sameOrigin = `${req.protocol}://${req.get('host')}`;
+    return cors({
+      origin(origin, callback) {
+        if (!origin || origin === sameOrigin || allowedOrigins.has(origin)) {
+          return callback(null, true);
+        }
+        return callback(new Error('Origin is not allowed by CORS policy'));
+      }
+    })(req, res, next);
+  });
 
   // Public web pages (no auth, no rate limit) - these are what Play Store's
   // Data Safety / Privacy Policy fields, and the in-app "Read more" links,
