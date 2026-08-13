@@ -107,17 +107,33 @@ function Field({
   type?: string;
   autoFocus?: boolean;
 }) {
+  const [isVisible, setIsVisible] = useState(false);
+  const isSecretField = type === 'password';
+
   return (
     <label className="block">
       <span className="mb-1.5 block font-body text-xs font-medium text-ink-600">{label}</span>
-      <input
-        type={type}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        autoFocus={autoFocus}
-        required
-        className="w-full rounded-lg border border-parchment-line bg-cream px-3.5 py-2.5 font-body text-sm text-ink outline-none focus:border-gold-500"
-      />
+      <div className="relative">
+        <input
+          type={isSecretField && isVisible ? 'text' : type}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          autoFocus={autoFocus}
+          required
+          className={`w-full rounded-lg border border-parchment-line bg-cream px-3.5 py-2.5 font-body text-sm text-ink outline-none focus:border-gold-500${isSecretField ? ' pr-11' : ''}`}
+        />
+        {isSecretField && (
+          <button
+            type="button"
+            onClick={() => setIsVisible((visible) => !visible)}
+            aria-label={isVisible ? 'Hide password' : 'Show password'}
+            aria-pressed={isVisible}
+            className="absolute inset-y-0 right-0 flex w-11 items-center justify-center text-xs font-medium text-ink-600 transition hover:text-ink focus:outline-none focus:ring-2 focus:ring-gold-500"
+          >
+            {isVisible ? 'Hide' : 'Show'}
+          </button>
+        )}
+      </div>
     </label>
   );
 }

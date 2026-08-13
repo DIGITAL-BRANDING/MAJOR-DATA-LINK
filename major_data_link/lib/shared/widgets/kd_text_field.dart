@@ -83,6 +83,14 @@ class _KDTextFieldState extends State<KDTextField> {
   }
 
   @override
+  void didUpdateWidget(covariant KDTextField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.obscureText != widget.obscureText) {
+      _obscured = widget.obscureText;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final scheme = Theme.of(context).colorScheme;
@@ -171,13 +179,21 @@ class _KDTextFieldState extends State<KDTextField> {
 
     // Password visibility toggle
     if (widget.obscureText) {
+      final usesExternalToggle = widget.onSuffixTap != null;
       return IconButton(
+        tooltip: _obscured ? 'Show password' : 'Hide password',
         icon: Icon(
-          _obscured ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+          usesExternalToggle && widget.suffixIcon != null
+              ? widget.suffixIcon
+              : (_obscured
+                  ? Icons.visibility_outlined
+                  : Icons.visibility_off_outlined),
           size: AppDimensions.iconMD,
           color: iconColor,
         ),
-        onPressed: () => setState(() => _obscured = !_obscured),
+        onPressed: usesExternalToggle
+            ? widget.onSuffixTap
+            : () => setState(() => _obscured = !_obscured),
       );
     }
 
@@ -211,6 +227,14 @@ class KDPhoneField extends StatelessWidget {
   final String label;
   final FocusNode? focusNode;
   final TextInputAction textInputAction;
+
+  @override
+  void didUpdateWidget(covariant KDTextField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.obscureText != widget.obscureText) {
+      _obscured = widget.obscureText;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -255,6 +279,14 @@ class KDAmountField extends StatelessWidget {
   final TextInputAction textInputAction;
 
   @override
+  void didUpdateWidget(covariant KDTextField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.obscureText != widget.obscureText) {
+      _obscured = widget.obscureText;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     return KDTextField(
       controller: controller,
@@ -294,6 +326,14 @@ class KDSearchField extends StatelessWidget {
   final VoidCallback? onClear;
   final FocusNode? focusNode;
   final bool autofocus;
+
+  @override
+  void didUpdateWidget(covariant KDTextField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.obscureText != widget.obscureText) {
+      _obscured = widget.obscureText;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
