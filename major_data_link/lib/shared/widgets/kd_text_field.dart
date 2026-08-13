@@ -95,7 +95,9 @@ class _KDTextFieldState extends State<KDTextField> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final scheme = Theme.of(context).colorScheme;
 
-    final defaultFill = isDark ? AppColors.darkSurfaceVariant : AppColors.lightSurfaceVariant;
+    final defaultFill = isDark
+        ? AppColors.darkSurfaceVariant
+        : AppColors.lightSurfaceVariant;
 
     return TextFormField(
       controller: widget.controller,
@@ -118,8 +120,8 @@ class _KDTextFieldState extends State<KDTextField> {
       autofillHints: widget.autofillHints,
       textCapitalization: widget.textCapitalization,
       style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-            color: isDark ? AppColors.neutral100 : AppColors.neutral900,
-          ),
+        color: isDark ? AppColors.neutral100 : AppColors.neutral900,
+      ),
       decoration: InputDecoration(
         labelText: widget.label,
         hintText: widget.hint,
@@ -127,7 +129,8 @@ class _KDTextFieldState extends State<KDTextField> {
         helperMaxLines: 2,
         fillColor: widget.fillColor ?? defaultFill,
         filled: true,
-        contentPadding: widget.contentPadding ??
+        contentPadding:
+            widget.contentPadding ??
             EdgeInsets.symmetric(
               horizontal: AppDimensions.spaceMD,
               vertical: widget.maxLines > 1 ? AppDimensions.spaceMD : 0,
@@ -186,8 +189,8 @@ class _KDTextFieldState extends State<KDTextField> {
           usesExternalToggle && widget.suffixIcon != null
               ? widget.suffixIcon
               : (_obscured
-                  ? Icons.visibility_outlined
-                  : Icons.visibility_off_outlined),
+                    ? Icons.visibility_outlined
+                    : Icons.visibility_off_outlined),
           size: AppDimensions.iconMD,
           color: iconColor,
         ),
@@ -200,7 +203,11 @@ class _KDTextFieldState extends State<KDTextField> {
     // Custom suffix icon
     if (widget.suffixIcon != null) {
       return IconButton(
-        icon: Icon(widget.suffixIcon, size: AppDimensions.iconMD, color: iconColor),
+        icon: Icon(
+          widget.suffixIcon,
+          size: AppDimensions.iconMD,
+          color: iconColor,
+        ),
         onPressed: widget.onSuffixTap,
       );
     }
@@ -294,7 +301,10 @@ class KDAmountField extends StatelessWidget {
       hint: hint,
       prefix: const Padding(
         padding: EdgeInsets.only(left: 16, right: 8),
-        child: Text('₦', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+        child: Text(
+          '₦',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+        ),
       ),
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
       textInputAction: textInputAction,
