@@ -56,6 +56,11 @@ type AlrahuzResponse = {
   Status?: string;
   status?: string | boolean;
   detail?: string; // present on auth errors, e.g. "Authentication credentials were not provided."
+  // Present on real purchase responses (data/airtime) - see the confirmed
+  // example above ProviderResultPinInput. Used to derive our actual cost for
+  // that purchase - see actualCostFromBalanceDelta() below.
+  balance_before?: number | string;
+  balance_after?: number | string;
   [key: string]: unknown;
 };
 
@@ -261,7 +266,11 @@ export class ProviderService {
 
   async buyData(input: ProviderPurchaseInput) {
     if (env.MOCK_PROVIDER) {
-      return { status: true, providerRef: `MOCK-${input.reference}`, message: 'Data purchase queued' };
+      // No real balance movement to observe in mock mode - costKobo stays
+      // undefined ("unknown"), same as when Alrahuz's real response is
+      // missing balance fields. Whatever estimate the caller passed to
+      // debitWallet() up front (e.g. plan.providerAmount) is what sticks.
+      return { status: true, providerRef: `MOCK-${input.reference}`, message: 'Data purchase queued', costKobo: undefined };
     }
     if (!input.planId) {
       throw new ApiError(422, 'planId is required for data purchases', 'MISSING_PLAN_ID');
@@ -283,7 +292,7 @@ export class ProviderService {
 
   async buyAirtime(input: ProviderPurchaseInput) {
     if (env.MOCK_PROVIDER) {
-      return { status: true, providerRef: `MOCK-${input.reference}`, message: 'Airtime purchase queued' };
+      return { status: true, providerRef: `MOCK-${input.reference}`, message: 'Airtime purchase queued', costKobo: undefined };
     }
 
     const response = await fetch(`${env.ALRAHUZ_BASE_URL}/topup/`, {
@@ -356,6 +365,16 @@ export class ProviderService {
       );
     }
 
+    // Our ACTUAL cost for this one purchase - the exact amount Alrahuz's own
+    // ledger moved, straight from their response. Preferred over any
+    // pre-configured providerCostKobo (DataPlanPricing/ServicePricing) since
+    // it can never drift out of sync with what we were really charged, and
+    // it's the ONLY cost signal at all for airtime (which has no pricing
+    // config table). Only set on a genuinely successful, well-formed
+    // response - see the `succeeded` check below; a failed/malformed
+    // response must not produce a bogus cost figure.
+    const costKobo = this.actualCostFromBalanceDelta(body);
+
     if (!response.ok) {
       console.error(
         `[alrahuz] purchase failed (reference=${reference}, http=${response.status}):`,
@@ -366,7 +385,8 @@ export class ProviderService {
         providerRef: reference,
         message: this.isLikelyBalanceIssue(body)
           ? 'Service temporarily unavailable - please try again shortly'
-          : (body.detail ?? body.api_response ?? `Provider returned HTTP ${response.status}`)
+          : (body.detail ?? body.api_response ?? `Provider returned HTTP ${response.status}`),
+        costKobo: undefined
       };
     }
 
@@ -384,8 +404,30 @@ export class ProviderService {
         : this.isLikelyBalanceIssue(body)
           ? 'Service temporarily unavailable - please try again shortly'
           : (body.api_response ?? `Provider status: ${body.Status ?? 'unknown'}`),
+      costKobo: succeeded ? costKobo : undefined,
       raw: body
     };
+  }
+
+  /**
+   * Derives our real cost for one purchase from Alrahuz's own before/after
+   * balance figures on that same response (see the confirmed real /data/
+   * response shape documented above ProviderResultPinInput - `balance_before:
+   * "65.0"`, `balance_after: "40.0"`). Returns undefined (never a wrong
+   * number) whenever either figure is missing, non-numeric, or the delta
+   * isn't a sane positive amount - e.g. MOCK_PROVIDER mode returns neither
+   * field at all, so this correctly yields "unknown" rather than a fabricated
+   * zero or face-value guess.
+   */
+  private actualCostFromBalanceDelta(body: AlrahuzResponse): bigint | undefined {
+    const before = this.numberValue(body.balance_before);
+    const after = this.numberValue(body.balance_after);
+    if (before === undefined || after === undefined) return undefined;
+
+    const delta = before - after;
+    if (!Number.isFinite(delta) || delta <= 0) return undefined;
+
+    return BigInt(Math.round(delta * 100));
   }
 
 

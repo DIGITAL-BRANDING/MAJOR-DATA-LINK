@@ -10,9 +10,15 @@ export default function PublicNav() {
         <Link to="/">
           <Logo dark />
         </Link>
-        <nav className="hidden items-center gap-8 md:flex">
+        <nav className="hidden items-center gap-7 md:flex">
           <a href="#services" className="font-body text-sm text-cream/70 transition hover:text-cream">
             Services
+          </a>
+          <a href="#verification" className="font-body text-sm text-cream/70 transition hover:text-cream">
+            NIN &amp; BVN
+          </a>
+          <a href="#result-checkers" className="font-body text-sm text-cream/70 transition hover:text-cream">
+            Results
           </a>
           <a href="#how-it-works" className="font-body text-sm text-cream/70 transition hover:text-cream">
             How it works

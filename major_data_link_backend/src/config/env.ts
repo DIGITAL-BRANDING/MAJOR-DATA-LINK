@@ -1,8 +1,9 @@
-﻿import 'dotenv/config';
+import 'dotenv/config';
 import { z } from 'zod';
 
 const EnvSchema = z.object({
   NODE_ENV: z.string().default('development'),
+  WEB_ALLOWED_ORIGINS: z.string().default(''),
   PORT: z.coerce.number().default(8787),
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
   DIRECT_URL: z.string().optional(),
@@ -21,6 +22,11 @@ const EnvSchema = z.object({
   RESULT_PIN_WAEC_DEFAULT_PRICE_NAIRA: z.coerce.number().positive().default(5150),
   RESULT_PIN_NECO_DEFAULT_PRICE_NAIRA: z.coerce.number().positive().default(2150),
   RESULT_PIN_NABTEB_DEFAULT_PRICE_NAIRA: z.coerce.number().positive().default(900),
+  // Flat fee deducted from every successful wallet funding, regardless of
+  // which gateway (Paystack card, Paystack/KatPay bank transfer) or amount -
+  // see applyFundingFee() in wallet.service.ts. Pure revenue: no matching
+  // costKobo, since we don't pay anyone for it.
+  WALLET_FUNDING_FEE_NAIRA: z.coerce.number().min(0).default(20),
   ALRAHUZ_DATA_PLANS_CACHE_SECONDS: z.coerce.number().int().positive().default(900),
   // Alert threshold for YOUR OWN balance at Alrahuz (not any customer's wallet).
   // Below this, customer purchases will start failing even though their in-app
@@ -46,7 +52,7 @@ const EnvSchema = z.object({
   // Same string-boolean footgun as MOCK_PROVIDER above — see that comment.
   MOCK_TECHHUB: z
     .string()
-    .default('true')
+    .default('false')
     .transform((value) => value.toLowerCase() !== 'false' && value !== '0'),
   DATA_PLAN_MARKUP_PERCENT: z.coerce.number().min(0).default(0),
   DATA_PLAN_MARKUP_NAIRA: z.coerce.number().min(0).default(0),
@@ -58,7 +64,7 @@ const EnvSchema = z.object({
   // string comparison is what actually respects MOCK_PROVIDER=false in .env.
   MOCK_PROVIDER: z
     .string()
-    .default('true')
+    .default('false')
     .transform((value) => value.toLowerCase() !== 'false' && value !== '0'),
   PAYSTACK_SECRET_KEY: z.string().optional(),
   PAYSTACK_CALLBACK_URL: z.string().url().optional(),

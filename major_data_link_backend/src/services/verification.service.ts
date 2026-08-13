@@ -4,6 +4,7 @@ import { mergeSealedPII, openPII, sealPII } from '../lib/pii.js';
 import { prisma } from '../lib/prisma.js';
 import { ApiError } from '../middleware/error.js';
 import { debitWallet, refundWallet } from './wallet.service.js';
+import { recordProviderDebit } from './provider-ledger.service.js';
 import {
   techhubService,
   type TechhubBvnTier,
@@ -108,7 +109,12 @@ export async function getVerificationPrice(service: VerificationServiceKey) {
     throw new ApiError(422, `${row.label} is currently unavailable`, 'SERVICE_INACTIVE');
   }
   const unitKobo = row.sellingPriceKobo ?? row.providerCostKobo;
-  return { service: row.service, label: row.label, unitPrice: koboToNaira(unitKobo) };
+  return {
+    service: row.service,
+    label: row.label,
+    unitPrice: koboToNaira(unitKobo),
+    providerCostKobo: row.providerCostKobo
+  };
 }
 
 /** Public price list for every screen to read from - never throws on a disabled service. */
@@ -185,7 +191,10 @@ async function purchaseSlip(params: {
       unit_price: price.unitPrice,
       pii: sealPII(params.pii)
     } as Prisma.InputJsonValue,
-    idempotencyKey: params.idempotencyKey
+    idempotencyKey: params.idempotencyKey,
+    // Techhub quotes one flat rate per slip family (see the DEFAULTS comment
+    // above) - fixed and known up front, no balance-delta correction needed.
+    costKobo: price.providerCostKobo
   });
 
   if (debit.reused && debit.transaction.status !== TransactionStatus.PENDING) {
@@ -221,6 +230,18 @@ async function purchaseSlip(params: {
           })
         } as Prisma.InputJsonValue
       }
+    });
+
+    // Techhub quotes one flat rate per slip family, already stored as
+    // price.providerCostKobo above - no balance-delta correction available
+    // or needed (unlike Alrahuz data/airtime).
+    await recordProviderDebit({
+      provider: 'techhub',
+      amountKobo: price.providerCostKobo,
+      relatedTransactionId: debit.transaction.id,
+      description: params.description
+    }).catch((error) => {
+      console.error('[provider-ledger] failed to record debit for', debit.transaction.id, error);
     });
 
     return {
@@ -380,7 +401,8 @@ async function submitAsyncService(params: {
       unit_price: price.unitPrice,
       pii: sealPII(params.pii)
     } as Prisma.InputJsonValue,
-    idempotencyKey: params.idempotencyKey
+    idempotencyKey: params.idempotencyKey,
+    costKobo: price.providerCostKobo
   });
 
   if (debit.reused) {
@@ -470,6 +492,22 @@ async function checkAsyncServiceStatus(params: {
         } as Prisma.InputJsonValue
       }
     });
+
+    // costKobo was captured at submit time in submitAsyncService() above
+    // (Techhub charges our balance on submit, same as their own docs
+    // describe) - reuse it here rather than re-deriving the price, since
+    // pricing could have changed between submit and this eventual outcome.
+    if (transaction.costKobo) {
+      await recordProviderDebit({
+        provider: 'techhub',
+        amountKobo: transaction.costKobo,
+        relatedTransactionId: transaction.id,
+        description: transaction.description
+      }).catch((error) => {
+        console.error('[provider-ledger] failed to record debit for', transaction.id, error);
+      });
+    }
+
     return { ticketId: result.ticketId, status: 'success', response: result.response };
   }
 

@@ -132,6 +132,14 @@ webhookRoutes.post('/katpay', async (req, res) => {
     return res.status(400).json({ error: 'Missing required headers' });
   }
 
+  // Reject stale signed deliveries so a captured valid webhook cannot be replayed.
+  const parsedTimestamp = /^\d+$/.test(timestamp)
+    ? Number(timestamp) * (timestamp.length <= 10 ? 1000 : 1)
+    : Date.parse(timestamp);
+  if (!Number.isFinite(parsedTimestamp) || Math.abs(Date.now() - parsedTimestamp) > 5 * 60_000) {
+    return res.status(401).json({ error: 'Webhook timestamp is stale or invalid' });
+  }
+
   const rawBody = req.body as Buffer;
   const signedPayload = `${timestamp}.${rawBody.toString('utf8')}`;
   const expectedSignature = crypto.createHmac('sha256', secret).update(signedPayload).digest('hex');

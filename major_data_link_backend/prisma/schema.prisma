@@ -51,6 +51,15 @@ enum TransactionType {
   NIN_VERIFICATION
   BVN_VERIFICATION
   IDENTITY_SERVICE_REQUEST
+  /// The credit-back entry refundWallet() creates - distinct from the
+  /// original debit's own type (e.g. a reversed DATA_PURCHASE gets a REFUND
+  /// entry, not a second DATA_PURCHASE). See relatedTransactionId above.
+  REFUND
+  /// The flat WALLET_FUNDING_FEE_NAIRA charge debited right after every
+  /// successful WALLET_FUNDING credit - see applyFundingFee() in
+  /// wallet.service.ts. Pure revenue in Company Wallet's profit reporting:
+  /// costKobo is always 0 here, since there's no upstream cost for it.
+  WALLET_FUNDING_FEE
 }
 
 enum AdminRole {
@@ -144,6 +153,23 @@ model Transaction {
   amountKobo        BigInt
   balanceBeforeKobo BigInt
   balanceAfterKobo  BigInt
+  /// What THIS purchase actually cost us at our upstream provider (Alrahuz/
+  /// Techhub), captured AT THE TIME of the transaction - never derived from
+  /// current pricing config later, since selling prices and provider costs
+  /// both drift over time and a historical margin report must reflect what
+  /// was true when the sale happened, not today's numbers. Null for
+  /// transaction types with no cost basis at all (WALLET_FUNDING,
+  /// WALLET_TRANSFER, REFERRAL_COMMISSION, MANUAL_ADJUSTMENT,
+  /// COUPON_REDEMPTION, WITHDRAWAL) and, occasionally, for a purchase type
+  /// that normally has one but where neither the configured cost nor an
+  /// observed provider balance-delta was available (e.g. AIRTIME_PURCHASE in
+  /// MOCK_PROVIDER mode) - see costBasis() in company-wallet.service.ts,
+  /// which treats null as "unknown", never as zero. Populated by
+  /// debitWallet()'s `costKobo` param and (for Alrahuz data/airtime, where
+  /// it's more accurate than any static config) overwritten with the real
+  /// balance_before-minus-balance_after delta once the provider responds -
+  /// see normalize() in provider.service.ts.
+  costKobo          BigInt?
   provider          String?
   providerRef       String?
   reference         String            @unique
@@ -154,8 +180,25 @@ model Transaction {
   updatedAt         DateTime          @updatedAt
   user              User              @relation(fields: [userId], references: [id])
 
+  /// Links a REFUND entry back to the original debit it reverses. The
+  /// original transaction's own balanceBeforeKobo/balanceAfterKobo are never
+  /// rewritten after the fact (see refundWallet() in wallet.service.ts) - a
+  /// refund is always a NEW row with its own accurate before/after balance at
+  /// the moment it happened, so the ledger stays append-only and a full
+  /// history can always be replayed in order. Only `status` on the original
+  /// moves to REVERSED, which is a normal state transition, not a rewrite of
+  /// historical fact.
+  relatedTransactionId String?
+  relatedTransaction    Transaction?  @relation("TransactionReversal", fields: [relatedTransactionId], references: [id])
+  reversals             Transaction[] @relation("TransactionReversal")
+
   @@index([userId, createdAt])
   @@unique([userId, idempotencyKey])
+  // Powers company-wallet.service.ts's profit-by-type breakdown and the
+  // per-user wallet summary on the admin User page - both filter by
+  // status/type and aggregate over a date range.
+  @@index([type, status, createdAt])
+  @@index([relatedTransactionId])
 }
 
 model DataPlanPricing {
@@ -307,6 +350,61 @@ model ProviderBalanceStatus {
   lastKnownBalance      Float
   lastCheckedAt         DateTime  @updatedAt
   lowBalanceAlertSentAt DateTime?
+}
+
+enum ProviderLedgerEntryType {
+  /// Automatic - recorded whenever a customer purchase actually consumes our
+  /// balance at this provider (Transaction.costKobo becomes known).
+  PURCHASE_DEBIT
+  /// Manual - an admin recording that we paid the provider to top up our
+  /// balance with them ("Settlement" in the admin UI - see provider-ledger.ts).
+  TOPUP_CREDIT
+  /// Manual - any other correction (e.g. reconciling against the provider's
+  /// own dashboard figure) that isn't a purchase or a top-up.
+  ADJUSTMENT
+}
+
+/// The company's OWN computed running ledger of its balance at each upstream
+/// provider (Alrahuz, Techhub, ...) - built entirely from ProviderLedgerEntry
+/// rows below, the same way User.walletBalanceKobo is the running total of
+/// that user's own Transaction rows. This is intentionally a SEPARATE number
+/// from ProviderBalanceStatus.lastKnownBalance above, which is just a
+/// read-only mirror of whatever Alrahuz itself reports - the two SHOULD
+/// usually agree, but won't always (e.g. a provider-side fee we don't see
+/// itemized, or a manual top-up not yet reflected in their dashboard). Admins
+/// see both side by side on the Provider Ledger page specifically so a
+/// mismatch is visible rather than hidden.
+model ProviderLedgerBalance {
+  provider    String   @id
+  balanceKobo BigInt   @default(0)
+  updatedAt   DateTime @updatedAt
+}
+
+model ProviderLedgerEntry {
+  id                    String                  @id
+  provider              String
+  type                  ProviderLedgerEntryType
+  /// Signed: negative for PURCHASE_DEBIT (balance went down), positive for
+  /// TOPUP_CREDIT (balance went up). ADJUSTMENT can be either sign.
+  amountKobo            BigInt
+  balanceBeforeKobo     BigInt
+  balanceAfterKobo      BigInt
+  /// Set on PURCHASE_DEBIT entries - the customer Transaction that caused
+  /// this provider-side debit (loose reference, no FK - Transaction rows are
+  /// never deleted, but keeping this a plain string avoids a cross-model
+  /// migration dependency).
+  relatedTransactionId  String?
+  /// Receipt/reference for a TOPUP_CREDIT (e.g. the bank transfer reference
+  /// used to fund the Alrahuz account).
+  reference             String?
+  description           String
+  /// Set on manual entries (TOPUP_CREDIT/ADJUSTMENT) - which admin recorded it.
+  createdByAdminId      String?
+  metadata              Json?
+  createdAt             DateTime                @default(now())
+
+  @@index([provider, createdAt])
+  @@index([relatedTransactionId])
 }
 
 /// A single push-notification-capable device/browser registered to a user (FCM token).

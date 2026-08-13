@@ -25,10 +25,9 @@
     "@adminjs/express": "^6.1.1",
     "@adminjs/prisma": "^5.0.4",
     "@prisma/client": "^5.22.0",
-    "connect-pg-simple": "^10.0.0",
-    "pg": "^8.13.1",
     "adminjs": "^7.8.17",
     "bcryptjs": "^2.4.3",
+    "connect-pg-simple": "^10.0.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
@@ -39,12 +38,12 @@
     "firebase-admin": "^13.0.2",
     "helmet": "^8.0.0",
     "nanoid": "^5.0.9",
+    "pg": "^8.13.1",
     "tslib": "^2.8.1",
     "typescript": "^5.9.3",
     "zod": "^3.24.1"
   },
   "devDependencies": {
-    "vitest": "^3.2.4",
     "@types/bcryptjs": "^2.4.6",
     "@types/connect-pg-simple": "^7.0.3",
     "@types/cors": "^2.8.17",
@@ -54,6 +53,7 @@
     "@types/pg": "^8.11.10",
     "prisma": "^5.22.0",
     "tsx": "^4.19.2",
+    "vitest": "^3.2.4",
     "yaml": "^2.9.0"
   },
   "allowScripts": {

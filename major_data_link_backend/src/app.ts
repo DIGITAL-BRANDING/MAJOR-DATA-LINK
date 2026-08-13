@@ -1,4 +1,4 @@
-﻿// MUST be the first import in this file. It monkey-patches Express's Router
+// MUST be the first import in this file. It monkey-patches Express's Router
 // so that a rejected promise inside an `async (req, res) => {...}` handler is
 // automatically forwarded to `next(error)` -> errorHandler, instead of
 // escaping as an unhandled promise rejection at the process level.
@@ -16,6 +16,7 @@ import cors from 'cors';
 import express from 'express';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
+import { env } from './config/env.js';
 import { errorHandler } from './middleware/error.js';
 import { adminApiRoutes } from './routes/admin-api.routes.js';
 import { authRoutes } from './routes/auth.routes.js';
@@ -79,7 +80,15 @@ export function createApp() {
     }
     return helmet()(req, res, next);
   });
-  app.use(cors());
+  const allowedOrigins = new Set(
+    env.WEB_ALLOWED_ORIGINS.split(',').map((origin) => origin.trim()).filter(Boolean)
+  );
+  app.use(cors({
+    origin(origin, callback) {
+      if (!origin || allowedOrigins.has(origin)) return callback(null, true);
+      return callback(new Error('Origin is not allowed by CORS policy'));
+    }
+  }));
 
   // Public web pages (no auth, no rate limit) - these are what Play Store's
   // Data Safety / Privacy Policy fields, and the in-app "Read more" links,
@@ -101,7 +110,16 @@ export function createApp() {
     express.static(path.join(process.cwd(), 'public', 'branding'), { maxAge: '1d' })
   );
 
-  app.use(rateLimit({ windowMs: 60_000, limit: 120 }));
+  app.use(rateLimit({
+    windowMs: 60_000,
+    limit: 120,
+    standardHeaders: 'draft-7',
+    legacyHeaders: false,
+    skip: (req) => req.path.startsWith('/api/webhooks')
+  }));
+
+  const authLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 30, standardHeaders: 'draft-7', legacyHeaders: false });
+  const userLimiter = rateLimit({ windowMs: 5 * 60_000, limit: 45, standardHeaders: 'draft-7', legacyHeaders: false });
 
   // Mounted with a raw body parser, and BEFORE express.json() below, because Paystack's
   // signature is computed over the exact raw bytes of the request body.
@@ -109,9 +127,9 @@ export function createApp() {
 
   app.use(express.json({ limit: '1mb' }));
 
-  app.use('/api/auth', authRoutes);
+  app.use('/api/auth', authLimiter, authRoutes);
   app.use('/api/admin', adminApiRoutes);
-  app.use('/api/user', userRoutes);
+  app.use('/api/user', userLimiter, userRoutes);
   app.use('/api/wallet', walletRoutes);
   app.use('/api/kyc', kycRoutes);
   app.use('/api/notifications', notificationRoutes);

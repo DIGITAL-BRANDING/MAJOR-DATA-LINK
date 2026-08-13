@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs';
 import { nanoid } from 'nanoid';
 import { Prisma, TransactionStatus, TransactionType } from '@prisma/client';
+import { env } from '../config/env.js';
 import { ApiError } from '../middleware/error.js';
 import { koboToNaira, nairaToKobo } from '../lib/money.js';
 import { prisma } from '../lib/prisma.js';
@@ -8,6 +9,61 @@ import { notifyUser } from './notification.service.js';
 
 function formatNaira(kobo: bigint) {
   return `NGN${koboToNaira(kobo).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+const WALLET_FUNDING_FEE_KOBO = nairaToKobo(env.WALLET_FUNDING_FEE_NAIRA);
+
+/**
+ * Debits the flat WALLET_FUNDING_FEE_NAIRA fee right after a wallet-funding
+ * credit, as its own separate, linked Transaction - not folded into the
+ * funding transaction's own amount - so a user's history clearly shows
+ * "Wallet funded ₦1,000" followed by "Transaction fee -₦20" as two distinct
+ * line items, and Company Wallet's profit-by-type report picks up
+ * WALLET_FUNDING_FEE automatically as its own revenue line (costKobo 0 - no
+ * upstream cost) without needing any special-case aggregation logic.
+ *
+ * MUST be called from inside the SAME `tx` (Prisma transaction) that just
+ * performed the funding credit, using the balance it left behind - never
+ * re-reads the user row itself, so there's no window where the fee could be
+ * computed against a balance some other concurrent operation has since
+ * changed.
+ *
+ * If the funded amount is smaller than the fee itself (shouldn't normally
+ * happen - callers enforce sane minimums - but defends against ever pushing
+ * a balance negative), the fee is silently skipped for that one funding.
+ */
+async function applyFundingFee(
+  tx: Prisma.TransactionClient,
+  params: {
+    userId: string;
+    fundingTransactionId: string;
+    fundingReference: string;
+    balanceAfterFunding: bigint;
+  }
+) {
+  if (WALLET_FUNDING_FEE_KOBO <= 0n) return null; // fee disabled via env
+  if (params.balanceAfterFunding < WALLET_FUNDING_FEE_KOBO) return null;
+
+  const after = await tx.user.update({
+    where: { id: params.userId },
+    data: { walletBalanceKobo: { decrement: WALLET_FUNDING_FEE_KOBO } }
+  });
+
+  return tx.transaction.create({
+    data: {
+      id: nanoid(),
+      userId: params.userId,
+      type: TransactionType.WALLET_FUNDING_FEE,
+      status: TransactionStatus.SUCCESS,
+      amountKobo: WALLET_FUNDING_FEE_KOBO,
+      costKobo: 0n,
+      balanceBeforeKobo: params.balanceAfterFunding,
+      balanceAfterKobo: after.walletBalanceKobo,
+      relatedTransactionId: params.fundingTransactionId,
+      reference: `FEE-${params.fundingReference}`,
+      description: `Wallet funding transaction fee (${formatNaira(WALLET_FUNDING_FEE_KOBO)})`
+    }
+  });
 }
 
 export async function setPin(userId: string, pin: string) {
@@ -65,6 +121,20 @@ export async function debitWallet(params: {
   description: string;
   metadata?: Prisma.InputJsonValue;
   idempotencyKey?: string;
+  /**
+   * Our cost basis for this purchase, in kobo, captured up front from
+   * whatever pricing config the caller already looked up (e.g.
+   * DataPlanPricing.providerCostKobo, ServicePricing.providerCostKobo).
+   * Omit when there's no cost basis at all (funding, transfers, manual
+   * adjustments, etc) or when it genuinely isn't known yet (e.g. airtime,
+   * whose real cost is only learned from Alrahuz's response balance delta -
+   * see normalize() in provider.service.ts, which overwrites this with the
+   * observed actual cost on success when one is available). Never pass an
+   * estimated/guessed value just to avoid a null - company-wallet.service.ts
+   * treats a null costKobo as "unknown, excluded from margin totals", which
+   * is safer than a wrong number silently poisoning a profit report.
+   */
+  costKobo?: bigint;
 }): Promise<DebitResult> {
   if (params.idempotencyKey) {
     const existing = await prisma.transaction.findFirst({
@@ -115,7 +185,8 @@ export async function debitWallet(params: {
           reference,
           idempotencyKey: params.idempotencyKey,
           description: params.description,
-          metadata: params.metadata
+          metadata: params.metadata,
+          costKobo: params.costKobo ?? null
         }
       });
     } catch (error) {
@@ -180,7 +251,9 @@ export async function creditWalletByReference(reference: string) {
   const result = await prisma.$transaction(async (tx) => {
     const transaction = await tx.transaction.findUnique({ where: { reference } });
     if (!transaction) throw new ApiError(404, 'Transaction not found', 'TRANSACTION_NOT_FOUND');
-    if (transaction.status === TransactionStatus.SUCCESS) return { transaction, alreadyCredited: true };
+    if (transaction.status === TransactionStatus.SUCCESS) {
+      return { transaction, finalBalanceKobo: transaction.balanceAfterKobo, alreadyCredited: true };
+    }
 
     const user = await tx.user.update({
       where: { id: transaction.userId },
@@ -192,22 +265,40 @@ export async function creditWalletByReference(reference: string) {
       data: { status: TransactionStatus.SUCCESS, balanceAfterKobo: user.walletBalanceKobo }
     });
 
-    return { transaction: updated, alreadyCredited: false };
+    const fee = await applyFundingFee(tx, {
+      userId: updated.userId,
+      fundingTransactionId: updated.id,
+      fundingReference: updated.reference,
+      balanceAfterFunding: user.walletBalanceKobo
+    });
+
+    return { transaction: updated, finalBalanceKobo: fee?.balanceAfterKobo ?? updated.balanceAfterKobo, alreadyCredited: false };
   });
 
   // Fired only for THIS transaction's userId, and only once (skipped on the
   // idempotent replay branch above) - never a broadcast to every user.
   if (!result.alreadyCredited) {
+    const feeNote = result.finalBalanceKobo !== result.transaction.balanceAfterKobo
+      ? ` A ${formatNaira(WALLET_FUNDING_FEE_KOBO)} transaction fee was applied.`
+      : '';
     await notifyUser({
       userId: result.transaction.userId,
       type: 'WALLET',
       title: 'Wallet funded',
-      body: `Your wallet was credited with ${formatNaira(result.transaction.amountKobo)}. New balance: ${formatNaira(result.transaction.balanceAfterKobo)}.`,
+      body: `Your wallet was credited with ${formatNaira(result.transaction.amountKobo)}.${feeNote} New balance: ${formatNaira(result.finalBalanceKobo)}.`,
       data: { transactionId: result.transaction.id, reference: result.transaction.reference }
     });
   }
 
-  return result.transaction;
+  // Every caller (wallet.routes.ts's /fund/verify response, admin tooling,
+  // etc.) reads `.balanceAfterKobo` off the return value expecting "the
+  // user's balance right now" - override it to the true POST-fee figure
+  // here so that holds, without needing every call site to separately know
+  // about the fee. The Transaction row itself in the DB is untouched (its
+  // own balanceAfterKobo correctly reflects just that one funding credit,
+  // in order, ahead of the separate WALLET_FUNDING_FEE row) - only this
+  // in-memory returned copy carries the convenience override.
+  return { ...result.transaction, balanceAfterKobo: result.finalBalanceKobo };
 }
 
 /**
@@ -234,14 +325,14 @@ export async function creditDirectDeposit(params: {
   }
 
   try {
-    const transaction = await prisma.$transaction(async (tx) => {
+    const { transaction, finalBalanceKobo } = await prisma.$transaction(async (tx) => {
       const before = await tx.user.findUniqueOrThrow({ where: { id: user.id } });
       const after = await tx.user.update({
         where: { id: user.id },
         data: { walletBalanceKobo: { increment: params.amountKobo } }
       });
 
-      return tx.transaction.create({
+      const created = await tx.transaction.create({
         data: {
           id: nanoid(),
           userId: user.id,
@@ -257,19 +348,31 @@ export async function creditDirectDeposit(params: {
           metadata: { channel: params.channel, customerCode: params.customerCode }
         }
       });
+
+      const fee = await applyFundingFee(tx, {
+        userId: user.id,
+        fundingTransactionId: created.id,
+        fundingReference: created.reference,
+        balanceAfterFunding: after.walletBalanceKobo
+      });
+
+      return { transaction: created, finalBalanceKobo: fee?.balanceAfterKobo ?? created.balanceAfterKobo };
     });
 
     // Scoped to this one depositor (resolved above by their unique paystackCustomerCode)
     // - every other user's wallet and notification feed is untouched.
+    const feeNote = finalBalanceKobo !== transaction.balanceAfterKobo
+      ? ` A ${formatNaira(WALLET_FUNDING_FEE_KOBO)} transaction fee was applied.`
+      : '';
     await notifyUser({
       userId: transaction.userId,
       type: 'WALLET',
       title: 'Wallet funded',
-      body: `Your wallet was credited with ${formatNaira(transaction.amountKobo)} via bank transfer. New balance: ${formatNaira(transaction.balanceAfterKobo)}.`,
+      body: `Your wallet was credited with ${formatNaira(transaction.amountKobo)} via bank transfer.${feeNote} New balance: ${formatNaira(finalBalanceKobo)}.`,
       data: { transactionId: transaction.id, reference: transaction.reference }
     });
 
-    return transaction;
+    return { ...transaction, balanceAfterKobo: finalBalanceKobo };
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
       return prisma.transaction.findUniqueOrThrow({ where: { reference: params.reference } });
@@ -301,14 +404,14 @@ export async function creditDirectDepositByAccountNumber(params: {
   }
 
   try {
-    const transaction = await prisma.$transaction(async (tx) => {
+    const { transaction, finalBalanceKobo } = await prisma.$transaction(async (tx) => {
       const before = await tx.user.findUniqueOrThrow({ where: { id: user.id } });
       const after = await tx.user.update({
         where: { id: user.id },
         data: { walletBalanceKobo: { increment: params.amountKobo } }
       });
 
-      return tx.transaction.create({
+      const created = await tx.transaction.create({
         data: {
           id: nanoid(),
           userId: user.id,
@@ -324,19 +427,31 @@ export async function creditDirectDepositByAccountNumber(params: {
           metadata: { channel: params.channel, accountNumber: params.accountNumber }
         }
       });
+
+      const fee = await applyFundingFee(tx, {
+        userId: user.id,
+        fundingTransactionId: created.id,
+        fundingReference: created.reference,
+        balanceAfterFunding: after.walletBalanceKobo
+      });
+
+      return { transaction: created, finalBalanceKobo: fee?.balanceAfterKobo ?? created.balanceAfterKobo };
     });
 
     // Scoped to this one depositor (resolved above by their virtualAccountNumber) -
     // every other user's wallet and notification feed is untouched.
+    const feeNote = finalBalanceKobo !== transaction.balanceAfterKobo
+      ? ` A ${formatNaira(WALLET_FUNDING_FEE_KOBO)} transaction fee was applied.`
+      : '';
     await notifyUser({
       userId: transaction.userId,
       type: 'WALLET',
       title: 'Wallet funded',
-      body: `Your wallet was credited with ${formatNaira(transaction.amountKobo)} via bank transfer. New balance: ${formatNaira(transaction.balanceAfterKobo)}.`,
+      body: `Your wallet was credited with ${formatNaira(transaction.amountKobo)} via bank transfer.${feeNote} New balance: ${formatNaira(finalBalanceKobo)}.`,
       data: { transactionId: transaction.id, reference: transaction.reference }
     });
 
-    return transaction;
+    return { ...transaction, balanceAfterKobo: finalBalanceKobo };
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
       return prisma.transaction.findUniqueOrThrow({ where: { reference: params.reference } });
@@ -479,32 +594,87 @@ export async function manualWalletAdjustment(params: {
 }
 
 /**
- * Reverses a debit: credits the amount back to the user's wallet and marks the
- * transaction REVERSED. Safe to call more than once for the same transaction
- * (no-ops if it's already REVERSED).
+ * Reverses a debit: credits the amount back to the user's wallet as a NEW,
+ * separate REFUND transaction linked to the original via
+ * relatedTransactionId - never by rewriting the original row's own
+ * balanceBeforeKobo/balanceAfterKobo, which would corrupt the ability to
+ * replay the ledger in order (a later reversal would retroactively change
+ * what the ledger "looked like" at the time of the original debit). The
+ * original transaction's `status` moves to REVERSED - a normal state
+ * transition, not a rewrite of historical fact - so it's still immediately
+ * obvious from the original row alone that it was reversed, while the actual
+ * money movement gets its own accurate, chronologically-ordered entry.
+ *
+ * Safe to call more than once for the same transaction: if it's already
+ * REVERSED, returns the existing REFUND entry instead of creating another
+ * (checked both via the status flag and, as a belt-and-braces fallback, the
+ * REFUND reference's uniqueness constraint - see the P2002 catch below).
  */
-export async function refundWallet(params: { transactionId: string; userId: string }) {
+export async function refundWallet(params: {
+  transactionId: string;
+  userId: string;
+  reason?: string;
+  initiatedByAdminId?: string;
+}) {
   const result = await prisma.$transaction(async (tx) => {
-    const transaction = await tx.transaction.findFirst({
+    const original = await tx.transaction.findFirst({
       where: { id: params.transactionId, userId: params.userId }
     });
-    if (!transaction) throw new ApiError(404, 'Transaction not found', 'TRANSACTION_NOT_FOUND');
-    if (transaction.status === TransactionStatus.REVERSED) return { transaction, alreadyReversed: true };
+    if (!original) throw new ApiError(404, 'Transaction not found', 'TRANSACTION_NOT_FOUND');
 
-    const user = await tx.user.update({
+    if (original.status === TransactionStatus.REVERSED) {
+      const existingRefund = await tx.transaction.findFirst({
+        where: { relatedTransactionId: original.id, type: TransactionType.REFUND }
+      });
+      return { transaction: existingRefund ?? original, alreadyReversed: true };
+    }
+
+    const user = await tx.user.findUniqueOrThrow({ where: { id: params.userId } });
+    const updatedUser = await tx.user.update({
       where: { id: params.userId },
-      data: { walletBalanceKobo: { increment: transaction.amountKobo } }
+      data: { walletBalanceKobo: { increment: original.amountKobo } }
     });
 
-    const updated = await tx.transaction.update({
-      where: { id: transaction.id },
-      data: {
-        status: TransactionStatus.REVERSED,
-        balanceAfterKobo: user.walletBalanceKobo
+    let refund;
+    try {
+      refund = await tx.transaction.create({
+        data: {
+          id: nanoid(),
+          userId: params.userId,
+          type: TransactionType.REFUND,
+          status: TransactionStatus.SUCCESS,
+          amountKobo: original.amountKobo,
+          balanceBeforeKobo: user.walletBalanceKobo,
+          balanceAfterKobo: updatedUser.walletBalanceKobo,
+          reference: `RFND-${original.reference}`,
+          relatedTransactionId: original.id,
+          description: params.reason
+            ? `Refund: ${params.reason} (was: "${original.description}")`
+            : `Refund for "${original.description}"`,
+          metadata: {
+            originalTransactionId: original.id,
+            initiatedByAdminId: params.initiatedByAdminId ?? null
+          }
+        }
+      });
+    } catch (error) {
+      // Two concurrent refund attempts both passed the REVERSED check above
+      // before either committed - the unique `reference` constraint on
+      // `RFND-${original.reference}` catches the duplicate here. Whichever
+      // request loses the race gets back the winner's row instead of erroring.
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        refund = await tx.transaction.findUniqueOrThrow({ where: { reference: `RFND-${original.reference}` } });
+      } else {
+        throw error;
       }
+    }
+
+    await tx.transaction.update({
+      where: { id: original.id },
+      data: { status: TransactionStatus.REVERSED }
     });
 
-    return { transaction: updated, alreadyReversed: false };
+    return { transaction: refund, alreadyReversed: false };
   });
 
   if (!result.alreadyReversed) {

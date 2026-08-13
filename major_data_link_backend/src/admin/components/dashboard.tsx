@@ -6,7 +6,10 @@ const ADMIN_ROOT_PATH = '/admin';
 type QuickLink = {
   label: string;
   description: string;
-  resourceId: string;
+  /** AdminJS resource-backed page - mutually exclusive with `href`. */
+  resourceId?: string;
+  /** Plain server-rendered page (Bulk Pricing, Company Wallet, etc) - mutually exclusive with `resourceId`. */
+  href?: string;
   icon: string;
 };
 
@@ -18,10 +21,34 @@ const quickLinks: QuickLink[] = [
   { label: 'Customers', description: 'Users, KYC status & profiles', resourceId: 'User', icon: 'Users' },
   { label: 'Ledger', description: 'Transactions, reversals & history', resourceId: 'Transaction', icon: 'List' },
   {
+    label: 'User Wallet Activity',
+    description: 'Look up any customer: funding, spend & recent transactions',
+    href: `${ADMIN_ROOT_PATH}/user-wallet`,
+    icon: 'Search'
+  },
+  {
+    label: 'Company Wallet',
+    description: 'Revenue, provider cost & net profit by service',
+    href: `${ADMIN_ROOT_PATH}/company-wallet`,
+    icon: 'TrendingUp'
+  },
+  {
+    label: 'Provider Ledger',
+    description: 'Our balance at Alrahuz/Techhub, settlements & adjustments',
+    href: `${ADMIN_ROOT_PATH}/provider-ledger`,
+    icon: 'Repeat'
+  },
+  {
     label: 'Data Plan Pricing',
     description: 'Set prices for data plans',
     resourceId: 'DataPlanPricing',
     icon: 'ShoppingCart'
+  },
+  {
+    label: 'Bulk Pricing',
+    description: 'Reprice every data plan / service in one click',
+    href: `${ADMIN_ROOT_PATH}/bulk-pricing`,
+    icon: 'Sliders'
   },
   {
     label: 'Service Pricing',
@@ -85,8 +112,8 @@ const Dashboard: React.FC = () => (
       <Box display="flex" flexWrap="wrap" style={{ gap: 20 }}>
         {quickLinks.map((link) => (
           <a
-            key={link.resourceId}
-            href={`${ADMIN_ROOT_PATH}/resources/${link.resourceId}`}
+            key={link.resourceId ?? link.href}
+            href={link.href ?? `${ADMIN_ROOT_PATH}/resources/${link.resourceId}`}
             style={{ textDecoration: 'none', display: 'block', width: 280, flexGrow: 1, maxWidth: 340 }}
           >
             <Box variant="white" boxShadow="card" p="lg" style={{ cursor: 'pointer', height: '100%' }}>

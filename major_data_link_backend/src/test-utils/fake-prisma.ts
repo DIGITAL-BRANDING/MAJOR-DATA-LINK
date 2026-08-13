@@ -66,9 +66,17 @@ function applyUpdate(record: Record<string, unknown>, data: Record<string, unkno
 
 function matchesWhere(record: Record<string, unknown>, where: WhereClause): boolean {
   return Object.entries(where).every(([key, expected]) => {
-    if (expected !== null && typeof expected === 'object' && !Array.isArray(expected)) {
-      const op = expected as { gte?: bigint };
-      if ('gte' in op) return (record[key] as bigint) >= (op.gte as bigint);
+    if (expected !== null && typeof expected === 'object' && !Array.isArray(expected) && !(expected instanceof Date)) {
+      const op = expected as { gte?: unknown; lte?: unknown; in?: unknown[]; equals?: unknown; contains?: unknown };
+      if ('in' in op) return (op.in as unknown[]).includes(record[key]);
+      if ('gte' in op || 'lte' in op) {
+        const value = record[key] as bigint | number | Date;
+        if ('gte' in op && !(value >= (op.gte as typeof value))) return false;
+        if ('lte' in op && !(value <= (op.lte as typeof value))) return false;
+        return true;
+      }
+      if ('equals' in op) return record[key] === op.equals; // `mode: 'insensitive'` not modeled here
+      if ('contains' in op) return typeof record[key] === 'string' && (record[key] as string).includes(op.contains as string);
     }
     return record[key] === expected;
   });
@@ -114,11 +122,13 @@ export function createFakePrisma() {
   };
 
   const transactionApi = {
-    async findFirst({ where }: { where: WhereClause }) {
-      for (const t of transactions.values()) {
-        if (matchesWhere(t, where)) return { ...t };
+    async findFirst({ where, orderBy }: { where: WhereClause; orderBy?: { createdAt?: 'asc' | 'desc' } }) {
+      let matches = [...transactions.values()].filter((t) => matchesWhere(t, where));
+      if (orderBy?.createdAt) {
+        const dir = orderBy.createdAt === 'desc' ? -1 : 1;
+        matches = matches.sort((a, b) => dir * ((a.createdAt as Date).getTime() - (b.createdAt as Date).getTime()));
       }
-      return null;
+      return matches[0] ? { ...matches[0] } : null;
     },
     async findUnique({ where }: { where: WhereClause }) {
       if (where.id) {
@@ -164,6 +174,60 @@ export function createFakePrisma() {
         }
       }
       return { count };
+    },
+    async findMany({ where, orderBy, take }: { where?: WhereClause; orderBy?: { createdAt?: 'asc' | 'desc' }; take?: number } = {}) {
+      let results = [...transactions.values()].filter((t) => !where || matchesWhere(t, where));
+      if (orderBy?.createdAt) {
+        const dir = orderBy.createdAt === 'desc' ? -1 : 1;
+        results = results.sort((a, b) => dir * ((a.createdAt as Date).getTime() - (b.createdAt as Date).getTime()));
+      }
+      if (typeof take === 'number') results = results.slice(0, take);
+      return results.map((t) => ({ ...t }));
+    },
+    async count({ where }: { where?: WhereClause } = {}) {
+      return [...transactions.values()].filter((t) => !where || matchesWhere(t, where)).length;
+    },
+    /** Mirrors real Prisma's `_sum` semantics: nulls are treated as 0 in the sum, exactly like SQL SUM(). */
+    async aggregate({ where, _sum }: { where?: WhereClause; _sum?: Record<string, boolean> }) {
+      const matched = [...transactions.values()].filter((t) => !where || matchesWhere(t, where));
+      const sum: Record<string, bigint> = {};
+      for (const field of Object.keys(_sum ?? {})) {
+        sum[field] = matched.reduce((acc, t) => acc + ((t[field] as bigint | null) ?? 0n), 0n);
+      }
+      return { _sum: sum, _count: { _all: matched.length } };
+    },
+    async groupBy({
+      by,
+      where,
+      _sum,
+      _count
+    }: {
+      by: string[];
+      where?: WhereClause;
+      _sum?: Record<string, boolean>;
+      _count?: { _all: boolean };
+    }) {
+      const matched = [...transactions.values()].filter((t) => !where || matchesWhere(t, where));
+      const groups = new Map<string, FakeTransaction[]>();
+      for (const t of matched) {
+        const key = by.map((k) => String(t[k])).join('|');
+        const bucket = groups.get(key);
+        if (bucket) bucket.push(t);
+        else groups.set(key, [t]);
+      }
+      return [...groups.values()].map((rows) => {
+        const result: Record<string, unknown> = {};
+        for (const k of by) result[k] = rows[0][k];
+        if (_sum) {
+          const sum: Record<string, bigint> = {};
+          for (const field of Object.keys(_sum)) {
+            sum[field] = rows.reduce((acc, t) => acc + ((t[field] as bigint | null) ?? 0n), 0n);
+          }
+          result._sum = sum;
+        }
+        if (_count) result._count = { _all: rows.length };
+        return result;
+      });
     }
   };
 
@@ -181,7 +245,14 @@ export function createFakePrisma() {
     }
   };
 
-  return { api, users, transactions };
+  return {
+    api,
+    /** Clears all seeded data - call between tests that share one module-level fake instance (see company-wallet.service.test.ts). */
+    reset() {
+      users.clear();
+      transactions.clear();
+    }
+  };
 }
 
 export function makeUser(overrides: Partial<FakeUser> & { id: string; walletBalanceKobo: bigint }): FakeUser {

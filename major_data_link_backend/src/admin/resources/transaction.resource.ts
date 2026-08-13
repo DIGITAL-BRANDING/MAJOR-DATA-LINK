@@ -19,10 +19,12 @@ export const transactionResource: ResourceWithOptions = {
       'type',
       'status',
       'amountKobo',
+      'costKobo',
       'balanceBeforeKobo',
       'balanceAfterKobo',
       'provider',
       'providerRef',
+      'relatedTransactionId',
       'idempotencyKey',
       'description',
       'metadata',
@@ -57,7 +59,8 @@ export const transactionResource: ResourceWithOptions = {
           try {
             await refundWallet({
               transactionId: record.params.id as string,
-              userId: record.params.user as string
+              userId: record.params.user as string,
+              initiatedByAdminId: admin.id
             });
 
             await logAdminAction({

@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { getResultPinPrice, type ExamPinType } from '../services/result-pin.service.js';
+import { listVerificationPrices } from '../services/verification.service.js';
 
 export const publicRoutes = Router();
 
@@ -25,4 +26,24 @@ publicRoutes.get('/result-prices', async (_req, res) => {
     .map((p) => ({ service: p.service, label: p.label, unit_price: p.unitPrice }));
 
   res.json({ status: true, data: prices });
+});
+
+/**
+ * Same reasoning as /result-prices above, for the NIN/BVN verification
+ * catalog: lets the landing page's featured "NIN & BVN" section show real
+ * selling prices to a visitor who hasn't registered yet. Reuses
+ * listVerificationPrices() - the same function every authenticated
+ * verification screen reads from - which already only returns
+ * { service, label, unitPrice, isActive }, never providerCostKobo, so this
+ * can't leak margin. Inactive services are filtered out here rather than
+ * left for the frontend to check, so a service an admin has paused just
+ * disappears from the public page instead of showing a dead "unavailable"
+ * card to a visitor who hasn't signed up yet.
+ */
+publicRoutes.get('/verification-prices', async (_req, res) => {
+  const prices = await listVerificationPrices();
+  res.json({
+    status: true,
+    data: prices.filter((p) => p.isActive).map((p) => ({ service: p.service, label: p.label, unit_price: p.unitPrice }))
+  });
 });

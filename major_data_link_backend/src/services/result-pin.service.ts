@@ -5,6 +5,7 @@ import { prisma } from '../lib/prisma.js';
 import { ApiError } from '../middleware/error.js';
 import { providerService, type ProviderResultPinInput } from './provider.service.js';
 import { debitWallet, refundWallet } from './wallet.service.js';
+import { recordProviderDebit } from './provider-ledger.service.js';
 
 export type ExamPinType = 'WAEC' | 'NECO' | 'NABTEB';
 
@@ -166,7 +167,11 @@ export async function purchaseResultPin(params: {
     type: TransactionType.RESULT_PIN,
     description: `${params.examType} result checker PIN x${params.quantity}`,
     metadata: { exam_type: params.examType, quantity: params.quantity, unit_price: price.unitPrice } as Prisma.InputJsonValue,
-    idempotencyKey: params.idempotencyKey
+    idempotencyKey: params.idempotencyKey,
+    // Result pins have a fixed, known Alrahuz cost per unit (ServicePricing.
+    // providerCostKobo) - reliable enough on its own that, unlike data/
+    // airtime, this doesn't need a balance-delta correction afterward.
+    costKobo: priceToKobo(price.providerCost * params.quantity)
   });
 
   if (debit.reused && debit.transaction.status !== TransactionStatus.PENDING) {
@@ -188,6 +193,8 @@ export async function purchaseResultPin(params: {
   } satisfies ProviderResultPinInput);
 
   if (provider.status) {
+    const costKobo = priceToKobo(price.providerCost * params.quantity);
+
     await prisma.transaction.update({
       where: { id: debit.transaction.id },
       data: {
@@ -204,6 +211,18 @@ export async function purchaseResultPin(params: {
           raw: provider.raw
         } as Prisma.InputJsonValue
       }
+    });
+
+    // Result pins have a fixed, known-up-front provider cost (unlike
+    // airtime) - no balance-delta correction needed, just record the same
+    // figure debitWallet() already stored on the transaction.
+    await recordProviderDebit({
+      provider: 'alrahuz',
+      amountKobo: costKobo,
+      relatedTransactionId: debit.transaction.id,
+      description: `${params.quantity}x ${params.examType} result PIN`
+    }).catch((error) => {
+      console.error('[provider-ledger] failed to record debit for', debit.transaction.id, error);
     });
 
     return {
