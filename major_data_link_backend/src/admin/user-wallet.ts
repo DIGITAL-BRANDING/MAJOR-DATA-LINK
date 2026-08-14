@@ -1,8 +1,12 @@
 import type { Request, Router } from 'express';
+import express from 'express';
+import { logAdminAction } from './audit.js';
 import type { AdminSessionUser } from './auth.js';
 import { prisma } from '../lib/prisma.js';
 import { koboToNaira } from '../lib/money.js';
+import { ApiError } from '../middleware/error.js';
 import { getUserWalletSummary } from '../services/company-wallet.service.js';
+import { manualWalletAdjustment } from '../services/wallet.service.js';
 
 declare module 'express-session' {
   interface SessionData {
@@ -18,11 +22,26 @@ declare module 'express-session' {
  * still works for the FULL ledger of one user once you're on their profile;
  * this page is the fast lookup + summary in front of it).
  *
- * Any logged-in admin role can use this (including SUPPORT) - it's plain
- * account-activity information support staff routinely need for customer
- * service, unlike Company Wallet's margin data.
+ * The search + summary is visible to any logged-in admin role (including
+ * SUPPORT) - it's plain account-activity information support staff routinely
+ * need for customer service, unlike Company Wallet's margin data. The
+ * Credit/Debit form further down is real money movement though, so that part
+ * is gated to FINANCE/SUPER_ADMIN only, same as Company Wallet and Bulk
+ * Pricing - SUPPORT can look but not touch a balance.
+ *
+ * Manual credits go through manualWalletAdjustment(), which records a
+ * MANUAL_ADJUSTMENT transaction with its own generated `IDS-ADJ-...`
+ * reference. That reference is deliberately unrelated to any KatPay
+ * transaction reference, so if you're crediting someone here to work around
+ * the KatPay webhook not matching their virtual account, remember to note
+ * the KatPay reference/order number in the "Reason" box - and once the
+ * underlying webhook issue is fixed, cross-check any reprocessed/retried
+ * KatPay webhook deliveries against reasons logged here so the same deposit
+ * doesn't get credited twice (once manually, once via the webhook).
  */
 export function registerUserWalletRoutes(router: Router) {
+  const formParser = express.urlencoded({ extended: false });
+
   router.get('/user-wallet', async (req, res) => {
     const admin = req.session?.adminUser;
     if (!admin) return res.redirect('/admin/login');
@@ -42,8 +61,84 @@ export function registerUserWalletRoutes(router: Router) {
       }
     }
 
-    res.type('html').send(renderPage({ admin, q, user, summary, recentTransactions, notFound }));
+    res.type('html').send(
+      renderPage({ admin, q, user, summary, recentTransactions, notFound, flash: flashFromQuery(req.query) })
+    );
   });
+
+  router.post('/user-wallet/:userId/adjust', formParser, async (req, res) => {
+    const admin = requireFinanceOrSuper(req);
+    const q = typeof req.body.q === 'string' ? req.body.q : '';
+    const backTo = (flash: string) => `/admin/user-wallet?q=${encodeURIComponent(q)}&flash=${flash}`;
+
+    if (!admin) return res.redirect('/admin/login');
+
+    const { userId } = req.params;
+    const direction = req.body.direction === 'debit' ? 'debit' : req.body.direction === 'credit' ? 'credit' : null;
+    const amount = parsePositiveAmount(req.body.amount);
+    const reason = typeof req.body.reason === 'string' ? req.body.reason.trim() : '';
+
+    if (!direction || amount === null || reason.length < 4) {
+      return res.redirect(
+        backTo(encodeFlash('error', 'Enter a valid amount and a reason (min 4 characters, e.g. include the KatPay reference) before submitting.'))
+      );
+    }
+
+    try {
+      const { transaction, balanceAfter } = await manualWalletAdjustment({
+        userId,
+        direction,
+        amount,
+        reason,
+        adminId: admin.id
+      });
+
+      await logAdminAction({
+        adminId: admin.id,
+        action: direction === 'credit' ? 'MANUAL_WALLET_CREDIT' : 'MANUAL_WALLET_DEBIT',
+        targetType: 'User',
+        targetId: userId,
+        metadata: { transactionId: transaction.id, amount, reason, balanceAfterKobo: balanceAfter.toString() }
+      });
+
+      return res.redirect(
+        backTo(
+          encodeFlash(
+            'success',
+            `Wallet ${direction === 'credit' ? 'credited' : 'debited'} with NGN${amount.toLocaleString('en-NG', { minimumFractionDigits: 2 })}. New balance: NGN${koboToNaira(balanceAfter).toLocaleString('en-NG', { minimumFractionDigits: 2 })}.`
+          )
+        )
+      );
+    } catch (error) {
+      const message = error instanceof ApiError ? error.message : 'Something went wrong applying this adjustment. Check the server logs.';
+      console.error('[user-wallet] manual adjustment failed:', error);
+      return res.redirect(backTo(encodeFlash('error', message)));
+    }
+  });
+}
+
+function requireFinanceOrSuper(req: Request): AdminSessionUser | null {
+  const admin = req.session?.adminUser;
+  if (!admin || admin.role === 'SUPPORT') return null;
+  return admin;
+}
+
+function parsePositiveAmount(value: unknown): number | null {
+  if (typeof value !== 'string' || value.trim() === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function encodeFlash(type: 'success' | 'error', message: string): string {
+  return encodeURIComponent(`${type}:${message}`);
+}
+
+function flashFromQuery(query: Request['query']): { type: 'success' | 'error'; message: string } | null {
+  const raw = query.flash;
+  if (typeof raw !== 'string') return null;
+  const [type, ...rest] = raw.split(':');
+  if (type !== 'success' && type !== 'error') return null;
+  return { type, message: rest.join(':') };
 }
 
 async function findUser(q: string) {
@@ -83,6 +178,10 @@ function escape(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+function canFinance(admin: AdminSessionUser): boolean {
+  return admin.role === 'SUPER_ADMIN' || admin.role === 'FINANCE';
+}
+
 const STATUS_COLOR: Record<string, string> = {
   SUCCESS: '#1E7B34',
   PENDING: '#9C7A17',
@@ -97,8 +196,38 @@ function renderPage(params: {
   summary: Awaited<ReturnType<typeof getUserWalletSummary>> | null;
   recentTransactions: Awaited<ReturnType<typeof recentTransactionsFor>>;
   notFound: boolean;
+  flash: { type: 'success' | 'error'; message: string } | null;
 }) {
-  const { admin, q, user, summary, recentTransactions, notFound } = params;
+  const { admin, q, user, summary, recentTransactions, notFound, flash } = params;
+
+  const flashHtml = flash
+    ? `<div class="banner ${flash.type === 'success' ? 'banner-success' : ''}">${escape(flash.message)}</div>`
+    : '';
+
+  const adjustFormHtml =
+    user && canFinance(admin)
+      ? `
+    <div class="card">
+      <h2>Credit / Debit wallet</h2>
+      <p class="hint">For manual corrections - e.g. a KatPay virtual-account deposit that arrived (confirmed on the KatPay dashboard) but wasn't auto-credited. Put the KatPay reference/order number in the reason so this can be reconciled once the webhook issue is fixed, and to avoid crediting the same deposit twice.</p>
+      <form method="POST" action="/admin/user-wallet/${encodeURIComponent(user.id)}/adjust" class="adjust-form">
+        <input type="hidden" name="q" value="${escape(q)}">
+        <label>Direction
+          <select name="direction" required>
+            <option value="credit">Credit (add money)</option>
+            <option value="debit">Debit (remove money)</option>
+          </select>
+        </label>
+        <label>Amount (₦)
+          <input type="number" name="amount" min="0.01" step="0.01" required placeholder="e.g. 2000.00">
+        </label>
+        <label class="reason-label">Reason (shown to the user, kept in the audit log)
+          <textarea name="reason" required minlength="4" rows="2" placeholder="e.g. KatPay VA deposit ref KP-2026-XXXX confirmed on dashboard, not auto-credited"></textarea>
+        </label>
+        <button type="submit">Apply adjustment</button>
+      </form>
+    </div>`
+      : '';
 
   const resultHtml = notFound
     ? `<div class="banner">No user found matching "${escape(q)}". Try their email, phone number, full name, or user id.</div>`
@@ -119,6 +248,8 @@ function renderPage(params: {
       <div class="stat"><div class="label">Purchases made</div><div class="value">${summary.purchaseCount}</div></div>
       <div class="stat"><div class="label">Total transactions</div><div class="value">${summary.transactionCount}</div></div>
     </div>
+
+    ${adjustFormHtml}
 
     <div class="card">
       <h2>Recent activity</h2>
@@ -159,6 +290,13 @@ function renderPage(params: {
   .search button { background: var(--gold); color: #1A1508; border: none; padding: 0 22px; border-radius: 8px; font-weight: 700; font-size: 14px; cursor: pointer; }
   .search button:hover { background: var(--gold-dark); color: #fff; }
   .banner { background: #FDECEC; border: 1px solid #F3C6C4; color: #B3261E; padding: 12px 16px; border-radius: 10px; font-size: 13px; margin-bottom: 20px; }
+  .banner-success { background: #EAF6EC; border-color: #B9E0BF; color: #1E7B34; }
+  .adjust-form { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; }
+  .adjust-form label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
+  .adjust-form select, .adjust-form input, .adjust-form textarea { font-size: 14px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; font-family: inherit; text-transform: none; color: var(--text); background: #FFFDF5; }
+  .adjust-form .reason-label { grid-column: 1 / -1; }
+  .adjust-form button { grid-column: 1 / -1; justify-self: start; background: var(--gold); color: #1A1508; border: none; padding: 10px 22px; border-radius: 8px; font-weight: 700; font-size: 14px; cursor: pointer; }
+  .adjust-form button:hover { background: var(--gold-dark); color: #fff; }
   .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px; margin-bottom: 20px; }
   .stat { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
   .stat .label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px; }
@@ -186,6 +324,8 @@ function renderPage(params: {
     <input type="text" name="q" placeholder="Search by email, phone, full name, or user id..." value="${escape(q)}" autofocus>
     <button type="submit">Search</button>
   </form>
+
+  ${flashHtml}
 
   ${resultHtml}
 
