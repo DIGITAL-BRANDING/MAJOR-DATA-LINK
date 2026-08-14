@@ -165,20 +165,60 @@ webhookRoutes.post('/katpay', async (req, res) => {
       const transaction = event.data?.transaction ?? {};
       const virtualAccount = event.data?.virtual_account ?? {};
       const orderStatus = normalizeKatpayStatus(transaction.order_status);
-      const accountNumber = virtualAccount.account_number as string | undefined;
+      // Trimmed defensively - a stray leading/trailing space here (from either
+      // side) would otherwise cause a silent, permanent match failure below,
+      // since `findFirst({ where: { virtualAccountNumber } })` is an exact
+      // string match with no normalization of its own.
+      const accountNumber = (virtualAccount.account_number as string | undefined)?.trim();
       const reference = (transaction.reference ?? transaction.order_no) as string | undefined;
       const amountKobo =
         transaction.order_amount_cents != null
           ? BigInt(transaction.order_amount_cents)
           : BigInt(Math.round(Number(transaction.order_amount ?? 0) * 100));
 
+      console.log(
+        '[katpay-webhook] virtual_account.payment_received',
+        JSON.stringify({ accountNumber, reference, orderStatus, amountKobo: amountKobo.toString() })
+      );
+
       if (['SUCCESS', 'COMPLETED', 'PAID', '1', 'TRUE'].includes(orderStatus ?? '') && accountNumber && reference) {
-        await creditDirectDepositByAccountNumber({
-          reference,
-          amountKobo,
-          accountNumber,
-          channel: 'katpay_virtual_account'
-        });
+        // Logged separately from the generic catch below, with the exact
+        // accountNumber this webhook reported - if this throws
+        // USER_NOT_FOUND_FOR_PAYMENT, compare the accountNumber in THIS log
+        // line against the user's actual stored virtualAccountNumber
+        // (Admin -> User Wallet Activity, or `SELECT id, "virtualAccountNumber"
+        // FROM "User" WHERE "virtualAccountNumber" IS NOT NULL`) to confirm
+        // whether it's a genuine mismatch (wrong/stale number saved at
+        // provisioning time) versus some other failure entirely.
+        try {
+          await creditDirectDepositByAccountNumber({
+            reference,
+            amountKobo,
+            accountNumber,
+            channel: 'katpay_virtual_account'
+          });
+        } catch (creditError) {
+          console.error(
+            '[katpay-webhook] FAILED to credit virtual_account.payment_received',
+            JSON.stringify({ accountNumber, reference, amountKobo: amountKobo.toString() }),
+            creditError
+          );
+          throw creditError;
+        }
+      } else {
+        console.warn(
+          '[katpay-webhook] virtual_account.payment_received not credited - condition not met',
+          JSON.stringify({
+            accountNumber: accountNumber ?? null,
+            reference: reference ?? null,
+            orderStatus: orderStatus ?? null,
+            reason: !accountNumber
+              ? 'missing account_number in payload'
+              : !reference
+                ? 'missing reference/order_no in payload'
+                : 'orderStatus not in accepted list'
+          })
+        );
       }
     } else if (eventType === 'transfer_payment.completed') {
       // NOTE: KatPay's published docs don't show this event's exact payload shape -

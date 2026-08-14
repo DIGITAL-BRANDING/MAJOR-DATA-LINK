@@ -408,9 +408,14 @@ export async function creditDirectDepositByAccountNumber(params: {
   accountNumber: string;
   channel: string;
 }) {
-  const user = await prisma.user.findFirst({ where: { virtualAccountNumber: params.accountNumber } });
+  const accountNumber = params.accountNumber.trim();
+  const user = await prisma.user.findFirst({ where: { virtualAccountNumber: accountNumber } });
   if (!user) {
-    throw new ApiError(404, "No wallet matches this payment's virtual account", 'USER_NOT_FOUND_FOR_PAYMENT');
+    throw new ApiError(
+      404,
+      `No wallet matches virtual account number "${accountNumber}"`,
+      'USER_NOT_FOUND_FOR_PAYMENT'
+    );
   }
 
   try {
