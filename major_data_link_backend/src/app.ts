@@ -136,8 +136,16 @@ export function createApp() {
   const userLimiter = rateLimit({ windowMs: 5 * 60_000, limit: 45, standardHeaders: 'draft-7', legacyHeaders: false });
 
   // Mounted with a raw body parser, and BEFORE express.json() below, because Paystack's
-  // signature is computed over the exact raw bytes of the request body.
-  app.use('/api/webhooks', express.raw({ type: 'application/json' }), webhookRoutes);
+  // and KatPay's signatures are both computed over the exact raw bytes of the request
+  // body. `type: '*/*'` (not the narrower 'application/json') is deliberate: if a
+  // provider's webhook delivery omits Content-Type or sends something other than an
+  // exact 'application/json' match, express.raw() would otherwise silently skip parsing
+  // and leave req.body as `{}` - which the handlers below then coerce into the string
+  // "[object Object]" via `(req.body as Buffer).toString()`, permanently failing HMAC
+  // verification with zero error logged anywhere. Capturing raw bytes unconditionally
+  // here removes that whole failure mode; each handler still does its own JSON.parse
+  // and signature check exactly as before.
+  app.use('/api/webhooks', express.raw({ type: '*/*' }), webhookRoutes);
 
   app.use(express.json({ limit: '1mb' }));
 

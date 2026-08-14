@@ -129,6 +129,12 @@ webhookRoutes.post('/katpay', async (req, res) => {
   const secret = env.KATPAY_WEBHOOK_SECRET ?? env.KATPAY_SECRET_KEY;
 
   if (!secret || !signature || !timestamp) {
+    console.warn('[katpay-webhook] rejected - missing required data', {
+      hasSecret: Boolean(secret),
+      hasSignatureHeader: Boolean(signature),
+      hasTimestampHeader: Boolean(timestamp),
+      contentType: req.header('content-type') ?? null
+    });
     return res.status(400).json({ error: 'Missing required headers' });
   }
 
@@ -137,10 +143,30 @@ webhookRoutes.post('/katpay', async (req, res) => {
     ? Number(timestamp) * (timestamp.length <= 10 ? 1000 : 1)
     : Date.parse(timestamp);
   if (!Number.isFinite(parsedTimestamp) || Math.abs(Date.now() - parsedTimestamp) > 5 * 60_000) {
+    console.warn('[katpay-webhook] rejected - stale or unparseable timestamp', {
+      rawTimestamp: timestamp,
+      parsedTimestamp: Number.isFinite(parsedTimestamp) ? new Date(parsedTimestamp).toISOString() : 'unparseable',
+      serverNow: new Date().toISOString(),
+      driftMs: Number.isFinite(parsedTimestamp) ? Date.now() - parsedTimestamp : null
+    });
     return res.status(401).json({ error: 'Webhook timestamp is stale or invalid' });
   }
 
   const rawBody = req.body as Buffer;
+  // If express.raw() didn't actually capture a Buffer (e.g. body-parsing was
+  // skipped or something upstream consumed the stream first), rawBody would
+  // be a plain object here - Buffer.isBuffer catches that case explicitly
+  // instead of silently stringifying to "[object Object]" and failing HMAC
+  // verification with no trace of why.
+  if (!Buffer.isBuffer(rawBody)) {
+    console.error('[katpay-webhook] rejected - request body was not captured as a raw Buffer', {
+      bodyType: typeof rawBody,
+      contentType: req.header('content-type') ?? null,
+      contentLength: req.header('content-length') ?? null
+    });
+    return res.status(400).json({ error: 'Could not read request body' });
+  }
+
   const signedPayload = `${timestamp}.${rawBody.toString('utf8')}`;
   const expectedSignature = crypto.createHmac('sha256', secret).update(signedPayload).digest('hex');
 
@@ -150,10 +176,30 @@ webhookRoutes.post('/katpay', async (req, res) => {
     signatureBuffer.length === expectedBuffer.length && crypto.timingSafeEqual(signatureBuffer, expectedBuffer);
 
   if (!signatureValid) {
+    // Never log the secret or the raw signature/body content here (both are
+    // sensitive) - only lengths, which are enough to tell a length mismatch
+    // (near-certainly a body-capture problem, see the Buffer.isBuffer check
+    // above) apart from a same-length-but-wrong-bytes mismatch (a genuine
+    // secret/algorithm mismatch with KatPay's dashboard config).
+    console.error('[katpay-webhook] rejected - signature verification failed', {
+      receivedSignatureLength: signatureBuffer.length,
+      expectedSignatureLength: expectedBuffer.length,
+      bodyByteLength: rawBody.length,
+      usingWebhookSpecificSecret: Boolean(env.KATPAY_WEBHOOK_SECRET)
+    });
     return res.status(401).json({ error: 'Invalid signature' });
   }
 
-  const event = JSON.parse(rawBody.toString('utf8'));
+  let event: any;
+  try {
+    event = JSON.parse(rawBody.toString('utf8'));
+  } catch (parseError) {
+    console.error('[katpay-webhook] rejected - body is not valid JSON despite passing signature verification', {
+      bodyPreview: rawBody.toString('utf8').slice(0, 200)
+    });
+    return res.status(400).json({ error: 'Malformed JSON body' });
+  }
+
   // Static virtual-account webhooks use `event_type`, whereas KatPay's
   // documented pay-with-transfer callback uses `event`. Supporting both is
   // essential: otherwise completed dynamic transfers are acknowledged (200)
