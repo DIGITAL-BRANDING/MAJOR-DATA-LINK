@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:dio/dio.dart';
 import '../../../../core/config/app_config.dart';
 import '../../../../core/config/app_endpoints.dart';
+import '../../../../core/router/route_names.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_dimensions.dart';
 import '../../../../core/constants/app_strings.dart';
@@ -210,10 +211,9 @@ class _ContactTab extends StatelessWidget {
           _ContactCard(
             icon: Icons.support_agent_rounded,
             title: AppStrings.liveChat,
-            subtitle: 'Chat with us in real-time',
+            subtitle: 'Chat with MAJOR AI Assistant and our team',
             color: AppColors.primary500,
-            onTap: () => context.showSnackBar(
-                'Live chat coming soon. Use WhatsApp for now.'),
+            onTap: () => context.push(RouteNames.liveChat),
           ),
           const SizedBox(height: 12),
           _ContactCard(
@@ -439,6 +439,9 @@ class _TicketsTab extends ConsumerWidget {
             itemBuilder: (context, index) {
               final ticket = tickets[index];
               return KDCard(
+                onTap: () => context.push(
+                  '${RouteNames.support}/tickets/${ticket.id}',
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
