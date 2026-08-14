@@ -199,7 +199,9 @@ describe('refundWallet', () => {
 
     const refunded = await refundWallet({ transactionId: debit.transaction.id, userId });
 
-    expect(refunded.status).toBe('REVERSED');
+    // refundWallet returns the new REFUND ledger entry; the original debit is
+    // what is marked REVERSED. A refund entry itself is a successful credit.
+    expect(refunded.status).toBe('SUCCESS');
     expect(await balanceOf(userId)).toBe(5000);
   });
 

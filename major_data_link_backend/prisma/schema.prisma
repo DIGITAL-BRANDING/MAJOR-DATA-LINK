@@ -55,7 +55,7 @@ enum TransactionType {
   /// original debit's own type (e.g. a reversed DATA_PURCHASE gets a REFUND
   /// entry, not a second DATA_PURCHASE). See relatedTransactionId above.
   REFUND
-  /// The flat WALLET_FUNDING_FEE_NAIRA charge debited right after every
+  /// The percentage-based WALLET_FUNDING_FEE_PERCENT charge debited right after every
   /// successful WALLET_FUNDING credit - see applyFundingFee() in
   /// wallet.service.ts. Pure revenue in Company Wallet's profit reporting:
   /// costKobo is always 0 here, since there's no upstream cost for it.

@@ -154,7 +154,11 @@ webhookRoutes.post('/katpay', async (req, res) => {
   }
 
   const event = JSON.parse(rawBody.toString('utf8'));
-  const eventType = event.event_type as string | undefined;
+  // Static virtual-account webhooks use `event_type`, whereas KatPay's
+  // documented pay-with-transfer callback uses `event`. Supporting both is
+  // essential: otherwise completed dynamic transfers are acknowledged (200)
+  // but never credited.
+  const eventType = (event.event_type ?? event.event) as string | undefined;
 
   try {
     if (eventType === 'virtual_account.payment_received') {

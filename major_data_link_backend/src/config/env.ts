@@ -22,11 +22,10 @@ const EnvSchema = z.object({
   RESULT_PIN_WAEC_DEFAULT_PRICE_NAIRA: z.coerce.number().positive().default(5150),
   RESULT_PIN_NECO_DEFAULT_PRICE_NAIRA: z.coerce.number().positive().default(2150),
   RESULT_PIN_NABTEB_DEFAULT_PRICE_NAIRA: z.coerce.number().positive().default(900),
-  // Flat fee deducted from every successful wallet funding, regardless of
-  // which gateway (Paystack card, Paystack/KatPay bank transfer) or amount -
-  // see applyFundingFee() in wallet.service.ts. Pure revenue: no matching
-  // costKobo, since we don't pay anyone for it.
-  WALLET_FUNDING_FEE_NAIRA: z.coerce.number().min(0).default(20),
+  // Percentage deducted from every successful wallet funding, regardless of
+  // gateway. Set to 0 to disable the fee; changing this environment value and
+  // redeploying is all that is needed to change the rate.
+  WALLET_FUNDING_FEE_PERCENT: z.coerce.number().min(0).max(100).default(2),
   ALRAHUZ_DATA_PLANS_CACHE_SECONDS: z.coerce.number().int().positive().default(900),
   // Alert threshold for YOUR OWN balance at Alrahuz (not any customer's wallet).
   // Below this, customer purchases will start failing even though their in-app

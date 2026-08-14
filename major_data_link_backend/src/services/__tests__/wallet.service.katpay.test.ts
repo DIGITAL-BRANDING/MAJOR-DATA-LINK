@@ -81,7 +81,8 @@ describe('creditDirectDepositByAccountNumber', () => {
     expect(transaction.provider).toBe('katpay');
 
     const user = await prisma.user.findUniqueOrThrow({ where: { id: 'user-1' } });
-    expect(user.walletBalanceKobo).toBe(600000n);
+    // Default WALLET_FUNDING_FEE_PERCENT is 2%, so ₦5,000 funding incurs ₦100.
+    expect(user.walletBalanceKobo).toBe(590000n);
   });
 
   it('only touches the matching user, not other users with different account numbers', async () => {
@@ -98,7 +99,8 @@ describe('creditDirectDepositByAccountNumber', () => {
     const userA = await prisma.user.findUniqueOrThrow({ where: { id: 'user-a' } });
     const userB = await prisma.user.findUniqueOrThrow({ where: { id: 'user-b' } });
     expect(userA.walletBalanceKobo).toBe(100000n);
-    expect(userB.walletBalanceKobo).toBe(300000n);
+    // ₦2,000 funding incurs the configured 2% (₦40) fee.
+    expect(userB.walletBalanceKobo).toBe(296000n);
   });
 
   it('throws 404 when no user has that virtual account number', async () => {

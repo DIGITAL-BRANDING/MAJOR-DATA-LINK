@@ -11,13 +11,19 @@ function formatNaira(kobo: bigint) {
   return `NGN${koboToNaira(kobo).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-const WALLET_FUNDING_FEE_KOBO = nairaToKobo(env.WALLET_FUNDING_FEE_NAIRA);
+// Store the configured percentage as basis points (1/100th of one percent),
+// so 2.5% is exact and all calculations remain in integer kobo.
+const WALLET_FUNDING_FEE_BASIS_POINTS = BigInt(Math.round(env.WALLET_FUNDING_FEE_PERCENT * 100));
+
+function fundingFeeKobo(amountKobo: bigint) {
+  return (amountKobo * WALLET_FUNDING_FEE_BASIS_POINTS) / 10_000n;
+}
 
 /**
- * Debits the flat WALLET_FUNDING_FEE_NAIRA fee right after a wallet-funding
+ * Debits the configured WALLET_FUNDING_FEE_PERCENT fee right after a wallet-funding
  * credit, as its own separate, linked Transaction - not folded into the
  * funding transaction's own amount - so a user's history clearly shows
- * "Wallet funded ₦1,000" followed by "Transaction fee -₦20" as two distinct
+ * "Wallet funded ₦1,000" followed by its percentage fee as two distinct
  * line items, and Company Wallet's profit-by-type report picks up
  * WALLET_FUNDING_FEE automatically as its own revenue line (costKobo 0 - no
  * upstream cost) without needing any special-case aggregation logic.
@@ -38,15 +44,17 @@ async function applyFundingFee(
     userId: string;
     fundingTransactionId: string;
     fundingReference: string;
+    fundingAmountKobo: bigint;
     balanceAfterFunding: bigint;
   }
 ) {
-  if (WALLET_FUNDING_FEE_KOBO <= 0n) return null; // fee disabled via env
-  if (params.balanceAfterFunding < WALLET_FUNDING_FEE_KOBO) return null;
+  const feeKobo = fundingFeeKobo(params.fundingAmountKobo);
+  if (feeKobo <= 0n) return null; // fee disabled or too small to produce one kobo
+  if (params.balanceAfterFunding < feeKobo) return null;
 
   const after = await tx.user.update({
     where: { id: params.userId },
-    data: { walletBalanceKobo: { decrement: WALLET_FUNDING_FEE_KOBO } }
+    data: { walletBalanceKobo: { decrement: feeKobo } }
   });
 
   return tx.transaction.create({
@@ -55,13 +63,13 @@ async function applyFundingFee(
       userId: params.userId,
       type: TransactionType.WALLET_FUNDING_FEE,
       status: TransactionStatus.SUCCESS,
-      amountKobo: WALLET_FUNDING_FEE_KOBO,
+      amountKobo: feeKobo,
       costKobo: 0n,
       balanceBeforeKobo: params.balanceAfterFunding,
       balanceAfterKobo: after.walletBalanceKobo,
       relatedTransactionId: params.fundingTransactionId,
       reference: `FEE-${params.fundingReference}`,
-      description: `Wallet funding transaction fee (${formatNaira(WALLET_FUNDING_FEE_KOBO)})`
+      description: `Wallet funding fee (${env.WALLET_FUNDING_FEE_PERCENT}% / ${formatNaira(feeKobo)})`
     }
   });
 }
@@ -269,6 +277,7 @@ export async function creditWalletByReference(reference: string) {
       userId: updated.userId,
       fundingTransactionId: updated.id,
       fundingReference: updated.reference,
+      fundingAmountKobo: updated.amountKobo,
       balanceAfterFunding: user.walletBalanceKobo
     });
 
@@ -279,7 +288,7 @@ export async function creditWalletByReference(reference: string) {
   // idempotent replay branch above) - never a broadcast to every user.
   if (!result.alreadyCredited) {
     const feeNote = result.finalBalanceKobo !== result.transaction.balanceAfterKobo
-      ? ` A ${formatNaira(WALLET_FUNDING_FEE_KOBO)} transaction fee was applied.`
+      ? ` A ${env.WALLET_FUNDING_FEE_PERCENT}% (${formatNaira(fundingFeeKobo(result.transaction.amountKobo))}) transaction fee was applied.`
       : '';
     await notifyUser({
       userId: result.transaction.userId,
@@ -353,6 +362,7 @@ export async function creditDirectDeposit(params: {
         userId: user.id,
         fundingTransactionId: created.id,
         fundingReference: created.reference,
+        fundingAmountKobo: created.amountKobo,
         balanceAfterFunding: after.walletBalanceKobo
       });
 
@@ -362,7 +372,7 @@ export async function creditDirectDeposit(params: {
     // Scoped to this one depositor (resolved above by their unique paystackCustomerCode)
     // - every other user's wallet and notification feed is untouched.
     const feeNote = finalBalanceKobo !== transaction.balanceAfterKobo
-      ? ` A ${formatNaira(WALLET_FUNDING_FEE_KOBO)} transaction fee was applied.`
+      ? ` A ${env.WALLET_FUNDING_FEE_PERCENT}% (${formatNaira(fundingFeeKobo(transaction.amountKobo))}) transaction fee was applied.`
       : '';
     await notifyUser({
       userId: transaction.userId,
@@ -432,6 +442,7 @@ export async function creditDirectDepositByAccountNumber(params: {
         userId: user.id,
         fundingTransactionId: created.id,
         fundingReference: created.reference,
+        fundingAmountKobo: created.amountKobo,
         balanceAfterFunding: after.walletBalanceKobo
       });
 
@@ -441,7 +452,7 @@ export async function creditDirectDepositByAccountNumber(params: {
     // Scoped to this one depositor (resolved above by their virtualAccountNumber) -
     // every other user's wallet and notification feed is untouched.
     const feeNote = finalBalanceKobo !== transaction.balanceAfterKobo
-      ? ` A ${formatNaira(WALLET_FUNDING_FEE_KOBO)} transaction fee was applied.`
+      ? ` A ${env.WALLET_FUNDING_FEE_PERCENT}% (${formatNaira(fundingFeeKobo(transaction.amountKobo))}) transaction fee was applied.`
       : '';
     await notifyUser({
       userId: transaction.userId,
