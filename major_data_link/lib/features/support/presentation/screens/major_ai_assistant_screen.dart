@@ -85,6 +85,12 @@ class _MajorAiAssistantScreenState
     _input.clear();
     _user(text);
     final normalized = text.toLowerCase();
+    final mentionedNetwork = _parseNetwork(normalized);
+    if (mentionedNetwork != null && _network != null && mentionedNetwork != _network && _step != _Step.language && _step != _Step.task) {
+      setState(() { _network = mentionedNetwork; _dataType = null; _plans = const []; _plan = null; _step = _task == _Task.data ? _Step.dataType : _Step.phone; });
+      _bot(tr('Okay, I changed the network to $mentionedNetwork. Let us continue.', 'To, na canza network zuwa $mentionedNetwork. Mu ci gaba.'), options: _task == _Task.data ? const ['Corporate', 'Data Share', 'Gifting', 'SME', 'SME 2', 'Data Coupon'] : const []);
+      return;
+    }
     if (RegExp(
       r"(support|agent|human|live chat|ma'aikaci|mutum)",
     ).hasMatch(normalized)) {
@@ -293,13 +299,11 @@ class _MajorAiAssistantScreenState
           ),
         );
     } else if (_step == _Step.plan) {
+      final cleaned = normalized.replaceAll(RegExp(r'[^a-z0-9.]'), '');
       final chosen = _plans
           .where(
             (p) =>
-                '${p['name']} ${p['size']}'.toLowerCase().contains(
-                  normalized.replaceAll(' ', ''),
-                ) ||
-                '${p['name']} ${p['size']}'.toLowerCase().contains(normalized),
+                '${p['name']} ${p['size']} ${p['price'] ?? p['amount']}'.toLowerCase().replaceAll(RegExp(r'[^a-z0-9.]'), '').contains(cleaned),
           )
           .toList();
       final plan = chosen.isNotEmpty
@@ -380,7 +384,7 @@ class _MajorAiAssistantScreenState
             queryParameters: _dataType == null ? null : {'category': _dataType},
           );
       final raw = (response.data['data'] ?? response.data) as List<dynamic>;
-      _plans = raw.cast<Map<String, dynamic>>().take(8).toList();
+      _plans = raw.cast<Map<String, dynamic>>().toList();
       final list = _plans
           .map(
             (p) =>
@@ -580,6 +584,7 @@ class _MajorAiAssistantScreenState
     setState(() {
       _task = _Task.choose;
       _network = null;
+      _dataType = null;
       _phone = null;
       _amount = null;
       _plan = null;

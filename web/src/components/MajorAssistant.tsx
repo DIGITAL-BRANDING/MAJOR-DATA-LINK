@@ -24,6 +24,8 @@ export default function MajorAssistant() {
   async function answer(raw: string) {
     const value = raw.trim(); if (!value || busy) return; setText(''); add({ text: value, user: true }); const lower = value.toLowerCase();
     if (/(human|support|agent|live chat|ma'aikaci|mutum)/.test(lower)) { await handoff('Customer requested human support'); return; }
+    const mentionedNetwork = networks.find((item) => lower.includes(item.toLowerCase()));
+    if (mentionedNetwork && network && mentionedNetwork !== network && stage !== 'language' && stage !== 'task') { setNetwork(mentionedNetwork); setDataType(''); setPlans([]); setPlan(null); setStage(task === 'data' ? 'dataType' : 'phone'); add({ text: tr(`Okay, I changed the network from ${network} to ${mentionedNetwork}. Let us continue.`, `To, na canza network daga ${network} zuwa ${mentionedNetwork}. Mu ci gaba.`), options: task === 'data' ? ['Corporate','Data Share','Gifting','SME','SME 2','Data Coupon'] : undefined }); return; }
     if (stage === 'language') { const isHa = lower.includes('hausa'); setLanguage(isHa ? 'ha' : 'en'); setStage('task'); add({ text: isHa ? 'Me kake so in taimaka maka da shi?' : 'What would you like to do?', options: isHa ? ['Siyan Data','Siyan Airtime'] : ['Buy Data','Buy Airtime'] }); return; }
     if (stage === 'task') {
       type Parsed = { data?: { workflow?: string; fields?: { network?: string; data_type?: string; phone?: string; data_size?: string; amount?: number } } };

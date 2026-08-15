@@ -571,20 +571,27 @@ export class ProviderService {
     // response, short enough that a genuinely stuck provider fails fast and
     // falls back to the static plan snapshot below instead of leaving the
     // user staring at a spinner.
-    let response: Response;
-    try {
-      response = await fetch(url, { headers: this.headers(), signal: AbortSignal.timeout(8000) });
-    } catch (err) {
-      console.error(`[provider] ${network} plans endpoint timed out or failed for ${url.toString()}:`, err);
-      return [];
+    const bodies: unknown[] = [];
+    let nextUrl: string | null = url.toString();
+    for (let page = 0; nextUrl && page < 50; page += 1) {
+      let response: Response;
+      try {
+        response = await fetch(nextUrl, { headers: this.headers(), signal: AbortSignal.timeout(8000) });
+      } catch (err) {
+        console.error(`[provider] ${network} plans endpoint timed out or failed for ${nextUrl}:`, err);
+        return [];
+      }
+      if (!response.ok) {
+        console.error(`[provider] ${network} plans endpoint returned HTTP ${response.status} for ${nextUrl}`);
+        return [];
+      }
+      const body = (await response.json().catch(() => null)) as unknown;
+      bodies.push(body);
+      if (!body || typeof body !== 'object') break;
+      const candidate = (body as Record<string, unknown>).next;
+      nextUrl = typeof candidate === 'string' && candidate.length > 0 ? candidate : null;
     }
-    if (!response.ok) {
-      console.error(`[provider] ${network} plans endpoint returned HTTP ${response.status} for ${url.toString()}`);
-      return [];
-    }
-
-    const body = (await response.json().catch(() => null)) as unknown;
-    const plans = this.extractPlans(body, networkId);
+    const plans = bodies.flatMap((body) => this.extractPlans(body, networkId));
 
     // A count this low is almost always a parsing problem, not Alrahuz's real
     // catalog - log the raw shape so it's diagnosable from Railway logs
