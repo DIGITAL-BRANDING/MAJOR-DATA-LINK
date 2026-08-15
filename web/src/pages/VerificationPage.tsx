@@ -239,13 +239,13 @@ export default function VerificationPage({ mode }: { mode: Mode }) {
                 <button
                   key={item.id}
                   onClick={() => choose(item)}
-                  className="group flex min-h-40 flex-col items-center justify-center rounded-2xl border border-parchment-line bg-parchment p-4 text-center transition hover:-translate-y-1 hover:border-gold-500 hover:bg-gold-50"
+                  className="group flex min-h-40 flex-col items-center justify-center rounded-2xl border border-[#8b6914] bg-[#6b4f0b] p-4 text-center shadow-md shadow-[#6b4f0b]/20 transition hover:-translate-y-1 hover:bg-[#8a6712] hover:shadow-lg"
                 >
-                  <span className="rounded-xl bg-gold-500/15 p-3 text-gold-700">
+                  <span className="rounded-xl bg-[#f7d774] p-3 text-[#4a3505] shadow-sm">
                     <Icon size={26} />
                   </span>
-                  <span className="mt-3 font-body text-sm font-semibold text-ink">{item.label}</span>
-                  <span className="mt-1 font-body text-sm font-bold text-gold-700">{money(from)}</span>
+                  <span className="mt-3 font-body text-sm font-semibold text-white">{item.label}</span>
+                  <span className="mt-1 font-body text-sm font-bold text-[#ffe9a3]">{money(from)}</span>
                 </button>
               );
             })}

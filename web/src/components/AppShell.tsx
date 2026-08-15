@@ -1,6 +1,6 @@
 ﻿import { useState, type ReactNode } from 'react';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
-import { Fingerprint, IdCard, LayoutDashboard, LogOut, Menu, ReceiptText, Smartphone, WalletCards, Wifi, X } from 'lucide-react';
+import { ChevronDown, Fingerprint, IdCard, LayoutDashboard, LogOut, Menu, ReceiptText, Smartphone, WalletCards, Wifi, X } from 'lucide-react';
 import Logo from './Logo';
 import { useAuth } from '../lib/auth';
 import MajorAssistant from './MajorAssistant';
@@ -18,12 +18,13 @@ const serviceGroups = [
   { label: 'Result Checker', icon: ReceiptText, items: [{ label: 'WAEC', to: '/result-pins/waec' }, { label: 'NECO', to: '/result-pins/neco' }, { label: 'NABTEB', to: '/result-pins/nabteb' }] },
 ];
 function Sidebar({ close }: { close?: () => void }) {
-  const { logout } = useAuth(); const navigate = useNavigate();
+  const { logout } = useAuth(); const navigate = useNavigate(); const [open, setOpen] = useState<string | null>('VTU Services');
+  const go = (to: string) => { close?.(); navigate(to); };
   return <aside className="flex h-full w-64 flex-col border-r border-slate-200 bg-white px-3 py-5 shadow-sm">
     <Link to="/dashboard" onClick={close} className="mb-8 px-3"><Logo /></Link>
     <nav className="flex-1 space-y-1">
       {primary.map(({ label, to, icon: Icon }) => <NavLink key={to} to={to} onClick={close} className={({ isActive }) => `flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold transition ${isActive ? 'bg-brand-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100 hover:text-brand-700'}`}><Icon size={18} />{label}</NavLink>)}
-      {serviceGroups.map(({ label, icon: Icon, items }) => <NavLink key={label} to={items[0].to} onClick={close} className={({ isActive }) => `flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold transition ${isActive ? 'bg-brand-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100 hover:text-brand-700'}`}><Icon size={18} /><span>{label}</span></NavLink>)}
+      {serviceGroups.map(({ label, icon: Icon, items }) => <div key={label}><button onClick={() => setOpen(open === label ? null : label)} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold text-slate-600 hover:bg-slate-100 hover:text-brand-700"><Icon size={18} /><span className="flex-1 text-left">{label}</span><ChevronDown size={16} className={`transition-transform ${open === label ? 'rotate-180' : ''}`} /></button>{open === label && <div className="ml-6 border-l border-slate-200 py-1 pl-3">{items.map(item => <button key={item.to} onClick={() => go(item.to)} className="block w-full rounded-lg px-3 py-2 text-left text-xs font-medium text-slate-500 hover:bg-brand-50 hover:text-brand-700">{item.label}</button>)}</div>}</div>)}
     </nav>
     <div className="border-t border-slate-100 pt-3"><button onClick={() => { logout(); close?.(); navigate('/login'); }} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold text-rose-600 hover:bg-rose-50"><LogOut size={18} />Logout</button></div>
   </aside>;
