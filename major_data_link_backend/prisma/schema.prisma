@@ -101,11 +101,32 @@ model User {
   pinHash              String?
   pinFailures          Int            @default(0)
   pinLockedUntil       DateTime?
+  /// When pinFailures was last incremented - lets verifyPin() treat a stale
+  /// failure streak (older than the reset window) as expired instead of
+  /// letting failures accumulate forever across unrelated days/sessions.
+  /// See src/lib/lockout.ts.
+  pinFailureAt         DateTime?
   loginPinHash         String?
   loginPinFailures     Int            @default(0)
   loginPinLockedUntil  DateTime?
+  /// Same rolling-window purpose as pinFailureAt above, for the login PIN.
+  loginPinFailureAt    DateTime?
   passwordFailures     Int            @default(0)
   passwordLockedUntil  DateTime?
+  /// Same rolling-window purpose as pinFailureAt above, for the account
+  /// password. Without this, a handful of very old failed attempts (e.g.
+  /// from weeks ago, never followed by a successful login to clear them)
+  /// could combine with a couple of fresh typos today to trigger a lockout
+  /// that feels completely unearned from the user's perspective.
+  passwordFailureAt    DateTime?
+  // Set by the admin panel's "Reset Password" action (see
+  // src/admin/resources/user.resource.ts) when an admin issues a temporary
+  // password by hand - Resend needs a verified sending domain we don't have
+  // yet, so this is the fallback for "I forgot my password" until that's
+  // sorted out. /auth/login reports this back as requires_password_change
+  // so the app can force a "set a new password" screen before anything
+  // else; POST /user/password/change clears it once they do.
+  mustChangePassword   Boolean        @default(false)
   virtualAccountNumber String?
   virtualAccountBank   String?
   // Which gateway ('paystack' | 'katpay') issued the virtualAccountNumber above -

@@ -4,6 +4,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { sendPasswordResetEmail } from '../lib/email.js';
+import { clearLockout } from '../lib/lockout.js';
 import { ApiError } from '../middleware/error.js';
 
 // Mounted at /api/password in app.ts - a separate top-level namespace from
@@ -102,6 +103,7 @@ passwordRoutes.post('/reset', async (req, res) => {
   }
 
   const passwordHash = await bcrypt.hash(body.new_password, 12);
+  const cleared = clearLockout();
 
   await prisma.$transaction([
     prisma.user.update({
@@ -110,9 +112,15 @@ passwordRoutes.post('/reset', async (req, res) => {
         passwordHash,
         // A password reset is a strong enough proof of ownership to also
         // clear the login-lockout counters, same as /auth/login-pin/reset
-        // already does after a verified password check.
-        passwordFailures: 0,
-        passwordLockedUntil: null
+        // already does after a verified password check. Uses the same
+        // rolling-window helper the lockout itself is tracked with - see
+        // src/lib/lockout.ts. Also clears any pending admin-issued temp
+        // password flag (see mustChangePassword in schema.prisma) - this
+        // path is proof enough of ownership on its own.
+        passwordFailures: cleared.failures,
+        passwordLockedUntil: cleared.lockedUntil,
+        passwordFailureAt: cleared.failureAt,
+        mustChangePassword: false
       }
     }),
     prisma.passwordResetCode.update({

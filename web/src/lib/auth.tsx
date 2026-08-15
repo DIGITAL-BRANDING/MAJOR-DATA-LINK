@@ -18,12 +18,14 @@ type AuthResponse = {
     access_token: string;
     refresh_token: string;
     user: AppUser;
+    requires_password_change?: boolean;
   };
 };
 
 type AuthContextValue = {
   user: AppUser | null;
   isLoading: boolean;
+  mustChangePassword: boolean;
   login: (identifier: string, password: string, loginPin?: string) => Promise<void>;
   register: (input: {
     full_name: string;
@@ -41,11 +43,15 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AppUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [mustChangePassword, setMustChangePassword] = useState(false);
 
   async function refreshUser() {
     try {
-      const res = await api.get<{ status: boolean; data: AppUser }>('/auth/me');
+      const res = await api.get<{ status: boolean; data: AppUser & { requires_password_change?: boolean } }>(
+        '/auth/me'
+      );
       setUser(res.data);
+      setMustChangePassword(!!res.data.requires_password_change);
     } catch {
       clearTokens();
       setUser(null);
@@ -71,6 +77,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       );
       setTokens(res.data.access_token, res.data.refresh_token);
       setUser(res.data.user);
+      setMustChangePassword(!!res.data.requires_password_change);
     } catch (err) {
       // LOGIN_PIN_REQUIRED means the password was correct but this account
       // has a 6-digit login PIN set - the caller (LoginPage) shows a PIN
@@ -89,15 +96,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const res = await api.post<AuthResponse>('/auth/register', input, false);
     setTokens(res.data.access_token, res.data.refresh_token);
     setUser(res.data.user);
+    setMustChangePassword(!!res.data.requires_password_change);
   }
 
   function logout() {
     clearTokens();
     setUser(null);
+    setMustChangePassword(false);
   }
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, login, register, logout, refreshUser }}>
+    <AuthContext.Provider
+      value={{ user, isLoading, mustChangePassword, login, register, logout, refreshUser }}
+    >
       {children}
     </AuthContext.Provider>
   );

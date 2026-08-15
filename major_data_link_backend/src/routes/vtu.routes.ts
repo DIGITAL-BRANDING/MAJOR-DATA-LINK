@@ -131,7 +131,7 @@ export async function processProviderPurchase(params: {
     status: false as const,
     message: provider.message ?? 'Transaction failed and was refunded',
     reference: debit.reference,
-    balanceAfter: koboToNaira(refunded.balanceAfterKobo)
+    balanceAfter: koboToNaira(refunded.transaction.balanceAfterKobo)
   };
 }
 

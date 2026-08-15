@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { issueAuthTokens, revokeRefreshToken, rotateRefreshToken } from '../lib/auth-token.js';
 import { publicUser } from '../lib/public-user.js';
 import { prisma } from '../lib/prisma.js';
+import { clearLockout, isLocked, recordFailure } from '../lib/lockout.js';
 import { requireAuth } from '../middleware/auth.js';
 import { ApiError } from '../middleware/error.js';
 import { verifyLoginPin } from '../services/login-pin.service.js';
@@ -15,6 +16,7 @@ export const authRoutes = Router();
 // Mirrors the lockout already used for the transaction PIN and login PIN
 // (see login-pin.service.ts / wallet.service.ts verifyPin) - previously the
 // account password itself had no per-account brute-force protection at all.
+// See src/lib/lockout.ts for the rolling-window failure-tracking behavior.
 const MAX_PASSWORD_FAILURES = 5;
 const PASSWORD_LOCKOUT_MINUTES = 30;
 
@@ -30,6 +32,7 @@ async function authResponse(
       expires_in: tokens.expiresIn,
       requires_pin_setup: !user.pinHash,
       requires_login_pin_setup: !user.loginPinHash,
+      requires_password_change: user.mustChangePassword,
       user: await publicUser(user)
     }
   };
@@ -121,7 +124,7 @@ authRoutes.post('/login', async (req, res) => {
 
   // Checked before comparing the password so a locked account fails fast
   // (and consistently) regardless of what password is supplied.
-  if (user.passwordLockedUntil && user.passwordLockedUntil > new Date()) {
+  if (isLocked(user.passwordLockedUntil)) {
     throw new ApiError(
       423,
       'Too many failed login attempts. Try again in a bit, or reset your password.',
@@ -150,16 +153,13 @@ authRoutes.post('/login', async (req, res) => {
   }
 
   if (!ok) {
-    const failures = user.passwordFailures + 1;
+    const next = recordFailure(
+      { failures: user.passwordFailures, failureAt: user.passwordFailureAt },
+      { maxFailures: MAX_PASSWORD_FAILURES, lockoutMinutes: PASSWORD_LOCKOUT_MINUTES }
+    );
     await prisma.user.update({
       where: { id: user.id },
-      data: {
-        passwordFailures: failures,
-        passwordLockedUntil:
-          failures >= MAX_PASSWORD_FAILURES
-            ? new Date(Date.now() + PASSWORD_LOCKOUT_MINUTES * 60 * 1000)
-            : null
-      }
+      data: { passwordFailures: next.failures, passwordLockedUntil: next.lockedUntil, passwordFailureAt: next.failureAt }
     });
     throw new ApiError(401, 'Invalid email/phone or password', 'INVALID_CREDENTIALS');
   }
@@ -167,9 +167,10 @@ authRoutes.post('/login', async (req, res) => {
   // Successful password - clear any prior failure count/lockout so it
   // doesn't linger and affect a future legitimate attempt.
   if (user.passwordFailures > 0 || user.passwordLockedUntil) {
+    const cleared = clearLockout();
     await prisma.user.update({
       where: { id: user.id },
-      data: { passwordFailures: 0, passwordLockedUntil: null }
+      data: { passwordFailures: cleared.failures, passwordLockedUntil: cleared.lockedUntil, passwordFailureAt: cleared.failureAt }
     });
   }
 
@@ -220,7 +221,7 @@ authRoutes.post('/login-pin/reset', async (req, res) => {
     throw new ApiError(401, 'Invalid email/phone or password', 'INVALID_CREDENTIALS');
   }
 
-  if (user.passwordLockedUntil && user.passwordLockedUntil > new Date()) {
+  if (isLocked(user.passwordLockedUntil)) {
     throw new ApiError(
       423,
       'Too many failed attempts. Try again in a bit.',
@@ -230,16 +231,13 @@ authRoutes.post('/login-pin/reset', async (req, res) => {
 
   const ok = await bcrypt.compare(body.password, user.passwordHash);
   if (!ok) {
-    const failures = user.passwordFailures + 1;
+    const next = recordFailure(
+      { failures: user.passwordFailures, failureAt: user.passwordFailureAt },
+      { maxFailures: MAX_PASSWORD_FAILURES, lockoutMinutes: PASSWORD_LOCKOUT_MINUTES }
+    );
     await prisma.user.update({
       where: { id: user.id },
-      data: {
-        passwordFailures: failures,
-        passwordLockedUntil:
-          failures >= MAX_PASSWORD_FAILURES
-            ? new Date(Date.now() + PASSWORD_LOCKOUT_MINUTES * 60 * 1000)
-            : null
-      }
+      data: { passwordFailures: next.failures, passwordLockedUntil: next.lockedUntil, passwordFailureAt: next.failureAt }
     });
     throw new ApiError(401, 'Invalid email/phone or password', 'INVALID_CREDENTIALS');
   }
@@ -257,9 +255,11 @@ authRoutes.post('/login-pin/reset', async (req, res) => {
     data: {
       passwordFailures: 0,
       passwordLockedUntil: null,
+      passwordFailureAt: null,
       loginPinHash: null,
       loginPinFailures: 0,
-      loginPinLockedUntil: null
+      loginPinLockedUntil: null,
+      loginPinFailureAt: null
     }
   });
 
@@ -287,6 +287,7 @@ authRoutes.get('/me', requireAuth, async (req, res) => {
     data: {
       requires_pin_setup: !user.pinHash,
       requires_login_pin_setup: !user.loginPinHash,
+      requires_password_change: user.mustChangePassword,
       user: await publicUser(user)
     }
   });

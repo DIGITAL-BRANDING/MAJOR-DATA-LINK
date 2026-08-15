@@ -1,10 +1,11 @@
 import { type ReactNode } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './lib/auth';
 import { SERVICES } from './lib/services';
 import LandingPage from './pages/LandingPage';
 import LoginPage from './pages/LoginPage';
 import ForgotPasswordPage from './pages/ForgotPasswordPage';
+import SetNewPasswordPage from './pages/SetNewPasswordPage';
 import RegisterPage from './pages/RegisterPage';
 import DashboardPage from './pages/DashboardPage';
 import BuyAirtimePage from './pages/BuyAirtimePage';
@@ -14,9 +15,11 @@ import PrivacyRedirect from './pages/PrivacyRedirect';
 import ResultPinPage from './pages/ResultPinPage';
 import VerificationPage from './pages/VerificationPage';
 import FundWalletPage from './pages/FundWalletPage';
+import PaymentCallbackPage from './pages/PaymentCallbackPage';
 
 function ProtectedRoute({ children }: { children: ReactNode }) {
-  const { user, isLoading } = useAuth();
+  const { user, isLoading, mustChangePassword } = useAuth();
+  const location = useLocation();
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-cream">
@@ -25,6 +28,13 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
     );
   }
   if (!user) return <Navigate to="/login" replace />;
+  // An admin-issued temporary password (see the User resource's "Reset
+  // Password" action) forces this detour before anything else in the app
+  // is reachable - every other protected route goes through this same
+  // check, so there's no way to navigate around it.
+  if (mustChangePassword && location.pathname !== '/set-new-password') {
+    return <Navigate to="/set-new-password" replace />;
+  }
   return <>{children}</>;
 }
 
@@ -44,6 +54,8 @@ export default function App() {
           <Route path="/bvn-services" element={<ProtectedRoute><VerificationPage mode="bvn" /></ProtectedRoute>} />
           <Route path="/terms" element={<PrivacyRedirect page="terms" />} />
           <Route path="/fund-wallet" element={<ProtectedRoute><FundWalletPage /></ProtectedRoute>} />
+          <Route path="/payment/callback" element={<ProtectedRoute><PaymentCallbackPage /></ProtectedRoute>} />
+          <Route path="/set-new-password" element={<ProtectedRoute><SetNewPasswordPage /></ProtectedRoute>} />
           <Route
             path="/dashboard"
             element={

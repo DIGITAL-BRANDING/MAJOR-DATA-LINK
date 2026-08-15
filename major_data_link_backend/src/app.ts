@@ -133,7 +133,20 @@ export function createApp() {
     skip: (req) => req.path.startsWith('/api/webhooks')
   }));
 
-  const authLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 30, standardHeaders: 'draft-7', legacyHeaders: false });
+  // `skipSuccessfulRequests: true` - only requests that actually FAIL (wrong
+  // password, expired token, validation errors, etc) count toward this
+  // budget. A legitimate user's successful logins/registrations/refreshes in
+  // the same 15-minute window (e.g. opening the app on two devices) no
+  // longer eat into the same 30-request ceiling that's meant to catch
+  // brute-forcing - only genuine failures do, which is what a brute-force
+  // attempt actually looks like.
+  const authLimiter = rateLimit({
+    windowMs: 15 * 60_000,
+    limit: 30,
+    standardHeaders: 'draft-7',
+    legacyHeaders: false,
+    skipSuccessfulRequests: true
+  });
   const userLimiter = rateLimit({ windowMs: 5 * 60_000, limit: 45, standardHeaders: 'draft-7', legacyHeaders: false });
 
   // Mounted with a raw body parser, and BEFORE express.json() below, because Paystack's

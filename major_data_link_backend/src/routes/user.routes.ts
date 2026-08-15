@@ -163,7 +163,10 @@ userRoutes.post('/password/change', async (req, res) => {
   }
 
   const passwordHash = await bcrypt.hash(body.new_password, 12);
-  await prisma.user.update({ where: { id: req.user!.id }, data: { passwordHash } });
+  await prisma.user.update({
+    where: { id: req.user!.id },
+    data: { passwordHash, mustChangePassword: false }
+  });
 
   res.json({ status: true, message: 'Password changed successfully' });
 });

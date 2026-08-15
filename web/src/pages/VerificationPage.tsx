@@ -1,39 +1,481 @@
-﻿import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Fingerprint, IdCard, PenLine, Phone, SearchCheck, ShieldCheck, UserRoundCheck } from 'lucide-react';
+import {
+  Fingerprint,
+  IdCard,
+  PenLine,
+  Phone,
+  SearchCheck,
+  ShieldCheck,
+  UserRoundCheck,
+  Download,
+  Loader2,
+  RefreshCw,
+  CheckCircle2,
+  XCircle,
+  Clock,
+} from 'lucide-react';
 import AppShell from '../components/AppShell';
-import { api } from '../lib/api';
+import { api, ApiError } from '../lib/api';
 import { PinConfirmDialog } from '../components/PinConfirmDialog';
 import { ModificationConsent } from '../components/ModificationConsent';
 
 type Mode = 'nin' | 'bvn';
-type Item = { id: string; label: string; path: string; fields: string[]; icon: typeof IdCard; tiers?: string[] };
+type Item = {
+  id: string;
+  label: string;
+  path: string;
+  fields: string[];
+  icon: typeof IdCard;
+  tiers?: string[];
+  /** Sync = one POST returns the finished slip/PDF immediately.
+   *  Async = POST returns a ticket_id; an admin at Techhub processes it,
+   *  and GET {path}/{ticket_id} is polled for the outcome. */
+  async?: boolean;
+};
 type PriceRow = { service: string; unitPrice: number; isActive: boolean };
+
 const nin: Item[] = [
   { id: 'by-nin', label: 'NIN Verification', path: '/verification/nin/by-nin', fields: ['nin'], icon: IdCard, tiers: ['premium', 'standard', 'regular', 'vnin'] },
   { id: 'by-phone', label: 'NIN by Phone', path: '/verification/nin/by-phone', fields: ['phone'], icon: Phone, tiers: ['premium', 'standard', 'regular'] },
   { id: 'demographic', label: 'NIN Demographic', path: '/verification/nin/by-demographic', fields: ['firstname', 'lastname', 'dob', 'gender'], icon: UserRoundCheck },
-  { id: 'validation', label: 'NIN Validation', path: '/verification/nin-validation', fields: ['nin', 'validation_type'], icon: SearchCheck },
-  { id: 'modification', label: 'NIN Modification', path: '/verification/nin-validation', fields: ['nin'], icon: PenLine },
-  { id: 'personalization', label: 'NIN Personalization', path: '/verification/personalization', fields: ['tracking_id'], icon: UserRoundCheck },
-  { id: 'delinking', label: 'Self Service Delinking', path: '/verification/delinking', fields: ['nin', 'email'], icon: ShieldCheck },
-  { id: 'ipe', label: 'IPE Clearance', path: '/verification/ipe-clearance', fields: ['tracking_id'], icon: ShieldCheck },
+  { id: 'validation', label: 'NIN Validation', path: '/verification/nin-validation', fields: ['nin', 'validation_type'], icon: SearchCheck, async: true },
+  { id: 'modification', label: 'NIN Modification', path: '/verification/nin-validation', fields: ['nin'], icon: PenLine, async: true },
+  { id: 'personalization', label: 'NIN Personalization', path: '/verification/personalization', fields: ['tracking_id'], icon: UserRoundCheck, async: true },
+  { id: 'delinking', label: 'Self Service Delinking', path: '/verification/delinking', fields: ['nin', 'email'], icon: ShieldCheck, async: true },
+  { id: 'ipe', label: 'IPE Clearance', path: '/verification/ipe-clearance', fields: ['tracking_id'], icon: ShieldCheck, async: true },
 ];
 const bvn: Item[] = [
   { id: 'slip', label: 'BVN Verification', path: '/verification/bvn/slip', fields: ['bvn'], icon: Fingerprint, tiers: ['premium', 'standard'] },
-  { id: 'retrieval', label: 'BVN Retrieval', path: '/verification/bvn-retrieval', fields: ['first_name', 'last_name', 'phone_number'], icon: Phone },
+  { id: 'retrieval', label: 'BVN Retrieval', path: '/verification/bvn-retrieval', fields: ['first_name', 'last_name', 'phone_number'], icon: Phone, async: true },
 ];
-const labels: Record<string, string> = { nin: 'NIN number', bvn: 'BVN number', phone: 'Registered phone', firstname: 'First name', lastname: 'Last name', first_name: 'First name', last_name: 'Last name', phone_number: 'Registered phone', email: 'Email address', dob: 'Date of birth', gender: 'Gender', validation_type: 'Validation type', tracking_id: 'Tracking ID' };
-function keyFor(item: Item, tier = 'premium') { const name = tier.toUpperCase(); if (item.id === 'by-nin') return `NIN_SLIP_${name}`; if (item.id === 'by-phone') return `NIN_PHONE_SLIP_${name}`; if (item.id === 'slip') return `BVN_SLIP_${name}`; return ({ demographic: 'NIN_DEMOGRAPHIC', validation: 'NIN_VALIDATION', modification: 'NIN_VALIDATION', personalization: 'NIN_PERSONALIZATION', delinking: 'NIN_DELINKING', ipe: 'IPE_CLEARANCE', retrieval: 'BVN_RETRIEVAL' } as Record<string, string>)[item.id]; }
-const money = (amount?: number) => amount === undefined ? 'Price loading…' : `₦${amount.toLocaleString('en-NG', { maximumFractionDigits: 2 })}`;
+
+const labels: Record<string, string> = {
+  nin: 'NIN number',
+  bvn: 'BVN number',
+  phone: 'Registered phone',
+  firstname: 'First name',
+  lastname: 'Last name',
+  first_name: 'First name',
+  last_name: 'Last name',
+  phone_number: 'Registered phone',
+  email: 'Email address',
+  dob: 'Date of birth',
+  gender: 'Gender',
+  validation_type: 'Validation type',
+  tracking_id: 'Tracking ID',
+};
+
+function keyFor(item: Item, tier = 'premium') {
+  const name = tier.toUpperCase();
+  if (item.id === 'by-nin') return `NIN_SLIP_${name}`;
+  if (item.id === 'by-phone') return `NIN_PHONE_SLIP_${name}`;
+  if (item.id === 'slip') return `BVN_SLIP_${name}`;
+  return (
+    {
+      demographic: 'NIN_DEMOGRAPHIC',
+      validation: 'NIN_VALIDATION',
+      modification: 'NIN_VALIDATION',
+      personalization: 'NIN_PERSONALIZATION',
+      delinking: 'NIN_DELINKING',
+      ipe: 'IPE_CLEARANCE',
+      retrieval: 'BVN_RETRIEVAL',
+    } as Record<string, string>
+  )[item.id];
+}
+
+const money = (amount?: number) =>
+  amount === undefined ? 'Price loading…' : `₦${amount.toLocaleString('en-NG', { maximumFractionDigits: 2 })}`;
+
+type SlipResult = { user_data?: Record<string, unknown>; pdf_base64?: string; reference: string };
+type AsyncResult = { ticket_id: string; reference: string };
+type TicketStatus = { ticket_id: string; status: 'pending' | 'success' | 'failed'; response: Record<string, unknown> | null };
+
 export default function VerificationPage({ mode }: { mode: Mode }) {
-  const nav = useNavigate(); const items = mode === 'nin' ? nin : bvn;
-  const [selected, setSelected] = useState<Item | null>(null); const [values, setValues] = useState<Record<string, string>>({}); const [tier, setTier] = useState('premium'); const [pin, setPin] = useState(false); const [consent, setConsent] = useState(false); const [busy, setBusy] = useState(false); const [message, setMessage] = useState(''); const [prices, setPrices] = useState<Record<string, number>>({});
-  useEffect(() => { api.get<{ data?: PriceRow[] } | PriceRow[]>('/verification/prices').then(result => { const rows = Array.isArray(result) ? result : result.data ?? []; setPrices(Object.fromEntries(rows.map(row => [row.service, Number(row.unitPrice)]))); }).catch(() => setMessage('Unable to load current prices. Please refresh and try again.')); }, []);
-  const selectedPrice = useMemo(() => selected ? prices[keyFor(selected, tier)] : undefined, [selected, tier, prices]);
-  function choose(item: Item) { if (item.id === 'modification') { setConsent(true); return; } setSelected(item); setTier('premium'); setValues({}); setMessage(''); }
-  function agreed() { setConsent(false); setSelected(nin.find(item => item.id === 'modification')!); setValues({ validation_type: 'modification' }); }
-  async function submit() { if (!selected) return; setPin(false); setBusy(true); try { const data = { ...values, ...(selected.tiers ? { tier } : {}) }; const result = await api.post<{ status: boolean; message: string }>(selected.path, data); if (!result.status) throw new Error(result.message); setMessage(result.message || 'Request submitted successfully.'); } catch (error) { setMessage(error instanceof Error ? error.message : 'Request failed.'); } finally { setBusy(false); } }
-  function prepare(event: FormEvent) { event.preventDefault(); setPin(true); }
-  return <AppShell><div className="mx-auto max-w-6xl"><button onClick={() => selected ? setSelected(null) : nav('/dashboard')} className="text-sm font-semibold text-brand-700">← {selected ? 'All services' : 'Dashboard'}</button><header className="mt-5 rounded-2xl bg-white p-6 shadow-sm"><p className="text-sm font-semibold text-brand-700">Identity services</p><h1 className="mt-1 text-3xl font-bold text-slate-900">{mode === 'nin' ? 'NIN Services' : 'BVN Services'}</h1><p className="mt-2 text-sm text-slate-500">Select a service, see its current price, then continue securely with your transaction PIN.</p></header>{!selected ? <section className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">{items.map(item => { const Icon = item.icon; const from = prices[keyFor(item, item.tiers?.[0] ?? 'premium')]; return <button key={item.id} onClick={() => choose(item)} className="group flex min-h-40 flex-col items-center justify-center rounded-2xl border border-slate-200 bg-white p-4 text-center shadow-sm transition hover:-translate-y-1 hover:border-brand-300 hover:shadow-lg"><span className="rounded-xl bg-brand-50 p-3 text-brand-700"><Icon size={26} /></span><span className="mt-3 text-sm font-semibold text-slate-900">{item.label}</span><span className="mt-1 text-sm font-bold text-brand-700">{money(from)}</span></button>; })}</section> : <section className="mt-6 rounded-2xl bg-white p-6 shadow-sm"><div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-xl font-bold text-slate-900">{selected.label}</h2><span className="rounded-full bg-brand-50 px-4 py-2 text-sm font-bold text-brand-700">Service cost: {money(selectedPrice)}</span></div><form onSubmit={prepare} className="mt-5 grid gap-4 sm:grid-cols-2">{selected.fields.map(field => <label key={field} className="text-sm font-medium text-slate-700">{labels[field]}{field === 'gender' ? <select required className="mt-1 w-full rounded-xl border border-slate-200 p-3" value={values[field] ?? ''} onChange={e => setValues(v => ({ ...v, [field]: e.target.value }))}><option value="">Select gender</option><option value="MALE">Male</option><option value="FEMALE">Female</option></select> : field === 'validation_type' ? <select className="mt-1 w-full rounded-xl border border-slate-200 p-3" value={values[field] ?? ''} onChange={e => setValues(v => ({ ...v, [field]: e.target.value }))}><option value="modification">Modification</option><option value="nin_validation">General validation</option><option value="no_record">No record</option><option value="sim">SIM validation</option></select> : <input required type={field === 'dob' ? 'date' : field === 'email' ? 'email' : 'text'} className="mt-1 w-full rounded-xl border border-slate-200 p-3" value={values[field] ?? ''} onChange={e => setValues(v => ({ ...v, [field]: e.target.value }))} />}</label>)}{selected.tiers && <label className="text-sm font-medium text-slate-700">Slip type<select className="mt-1 w-full rounded-xl border border-slate-200 p-3" value={tier} onChange={e => setTier(e.target.value)}>{selected.tiers.map(option => <option key={option} value={option}>{option[0].toUpperCase() + option.slice(1)} — {money(prices[keyFor(selected, option)])}</option>)}</select></label>}<div className="sm:col-span-2"><button disabled={busy} className="w-full rounded-xl bg-brand-600 py-3 font-semibold text-white disabled:opacity-60">{busy ? 'Submitting…' : 'Continue to PIN confirmation'}</button>{message && <p className="mt-3 rounded-lg bg-slate-50 p-3 text-sm text-slate-700">{message}</p>}</div></form></section>}</div><PinConfirmDialog open={pin} onClose={() => setPin(false)} onVerified={submit} /><ModificationConsent open={consent} onClose={() => setConsent(false)} onAgree={agreed} /></AppShell>;
+  const nav = useNavigate();
+  const items = mode === 'nin' ? nin : bvn;
+
+  const [selected, setSelected] = useState<Item | null>(null);
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [tier, setTier] = useState('premium');
+  const [pin, setPin] = useState(false);
+  const [consent, setConsent] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+  const [prices, setPrices] = useState<Record<string, number>>({});
+  const [slipResult, setSlipResult] = useState<SlipResult | null>(null);
+  const [asyncResult, setAsyncResult] = useState<AsyncResult | null>(null);
+  const [ticketStatus, setTicketStatus] = useState<TicketStatus | null>(null);
+  const [polling, setPolling] = useState(false);
+
+  useEffect(() => {
+    api
+      .get<{ data?: PriceRow[] } | PriceRow[]>('/verification/prices')
+      .then((result) => {
+        const rows = Array.isArray(result) ? result : (result.data ?? []);
+        setPrices(Object.fromEntries(rows.map((row) => [row.service, Number(row.unitPrice)])));
+      })
+      .catch(() => setMessage('Unable to load current prices. Please refresh and try again.'));
+  }, []);
+
+  const selectedPrice = useMemo(() => (selected ? prices[keyFor(selected, tier)] : undefined), [selected, tier, prices]);
+
+  function choose(item: Item) {
+    if (item.id === 'modification') {
+      setConsent(true);
+      return;
+    }
+    resetResult();
+    setSelected(item);
+    setTier('premium');
+    setValues({});
+    setMessage('');
+  }
+
+  function agreed() {
+    setConsent(false);
+    resetResult();
+    setSelected(nin.find((item) => item.id === 'modification')!);
+    setValues({ validation_type: 'modification' });
+  }
+
+  function resetResult() {
+    setSlipResult(null);
+    setAsyncResult(null);
+    setTicketStatus(null);
+    setMessage('');
+  }
+
+  async function submit() {
+    if (!selected) return;
+    setPin(false);
+    setBusy(true);
+    setMessage('');
+    try {
+      const data = { ...values, ...(selected.tiers ? { tier } : {}) };
+      const result = await api.post<{
+        status: boolean;
+        message: string;
+        data?: { reference: string; user_data?: Record<string, unknown>; pdf_base64?: string; ticket_id?: string };
+      }>(selected.path, data);
+      if (!result.status) throw new Error(result.message);
+
+      if (selected.async) {
+        if (!result.data?.ticket_id) throw new Error('No ticket was returned - please contact support.');
+        setAsyncResult({ ticket_id: result.data.ticket_id, reference: result.data.reference });
+        setMessage('Request submitted. We\u2019ll check its status below - this is usually reviewed within a few minutes.');
+      } else {
+        setSlipResult({
+          user_data: result.data?.user_data,
+          pdf_base64: result.data?.pdf_base64,
+          reference: result.data?.reference ?? '',
+        });
+        setMessage(result.message || 'Done - your document is ready below.');
+      }
+    } catch (error) {
+      setMessage(error instanceof ApiError ? error.message : error instanceof Error ? error.message : 'Request failed.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function checkTicket(silent = false) {
+    if (!selected || !asyncResult) return;
+    if (!silent) setPolling(true);
+    try {
+      const result = await api.get<{ status: boolean; data: TicketStatus }>(`${selected.path}/${asyncResult.ticket_id}`);
+      setTicketStatus(result.data);
+    } catch {
+      // transient failures just mean "still can't tell yet" - the poll loop will retry
+    } finally {
+      if (!silent) setPolling(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!asyncResult || ticketStatus?.status === 'success' || ticketStatus?.status === 'failed') return;
+    void checkTicket(true);
+    const id = setInterval(() => void checkTicket(true), 6000);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [asyncResult, ticketStatus?.status]);
+
+  function prepare(event: FormEvent) {
+    event.preventDefault();
+    setPin(true);
+  }
+
+  return (
+    <AppShell>
+      <div className="mx-auto max-w-6xl">
+        <button
+          onClick={() => {
+            if (selected) {
+              setSelected(null);
+              resetResult();
+            } else {
+              nav('/dashboard');
+            }
+          }}
+          className="font-body text-sm font-semibold text-gold-700"
+        >
+          ← {selected ? 'All services' : 'Dashboard'}
+        </button>
+
+        <header className="mt-5 rounded-2xl border border-parchment-line bg-parchment p-6">
+          <p className="font-body text-sm font-semibold text-gold-700">Identity services</p>
+          <h1 className="mt-1 font-display text-3xl font-bold text-ink">{mode === 'nin' ? 'NIN Services' : 'BVN Services'}</h1>
+          <p className="mt-2 font-body text-sm text-ink-600">
+            Select a service, see its current price, then continue securely with your transaction PIN.
+          </p>
+        </header>
+
+        {!selected ? (
+          <section className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+            {items.map((item) => {
+              const Icon = item.icon;
+              const from = prices[keyFor(item, item.tiers?.[0] ?? 'premium')];
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => choose(item)}
+                  className="group flex min-h-40 flex-col items-center justify-center rounded-2xl border border-parchment-line bg-parchment p-4 text-center transition hover:-translate-y-1 hover:border-gold-500 hover:bg-gold-50"
+                >
+                  <span className="rounded-xl bg-gold-500/15 p-3 text-gold-700">
+                    <Icon size={26} />
+                  </span>
+                  <span className="mt-3 font-body text-sm font-semibold text-ink">{item.label}</span>
+                  <span className="mt-1 font-body text-sm font-bold text-gold-700">{money(from)}</span>
+                </button>
+              );
+            })}
+          </section>
+        ) : (
+          <section className="mt-6 rounded-2xl border border-parchment-line bg-parchment p-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="font-display text-xl font-bold text-ink">{selected.label}</h2>
+              <span className="rounded-full bg-gold-500/15 px-4 py-2 font-body text-sm font-bold text-gold-700">
+                Service cost: {money(selectedPrice)}
+              </span>
+            </div>
+
+            {!slipResult && !asyncResult && (
+              <form onSubmit={prepare} className="mt-5 grid gap-4 sm:grid-cols-2">
+                {selected.fields.map((field) => (
+                  <label key={field} className="font-body text-sm font-medium text-ink-600">
+                    {labels[field]}
+                    {field === 'gender' ? (
+                      <select
+                        required
+                        className="mt-1 w-full rounded-xl border border-parchment-line bg-cream p-3 text-ink outline-none focus:border-gold-500"
+                        value={values[field] ?? ''}
+                        onChange={(e) => setValues((v) => ({ ...v, [field]: e.target.value }))}
+                      >
+                        <option value="">Select gender</option>
+                        <option value="MALE">Male</option>
+                        <option value="FEMALE">Female</option>
+                      </select>
+                    ) : field === 'validation_type' ? (
+                      <select
+                        className="mt-1 w-full rounded-xl border border-parchment-line bg-cream p-3 text-ink outline-none focus:border-gold-500"
+                        value={values[field] ?? ''}
+                        onChange={(e) => setValues((v) => ({ ...v, [field]: e.target.value }))}
+                      >
+                        <option value="modification">Modification</option>
+                        <option value="nin_validation">General validation</option>
+                        <option value="no_record">No record</option>
+                        <option value="sim">SIM validation</option>
+                      </select>
+                    ) : (
+                      <input
+                        required
+                        type={field === 'dob' ? 'date' : field === 'email' ? 'email' : 'text'}
+                        className="mt-1 w-full rounded-xl border border-parchment-line bg-cream p-3 text-ink outline-none focus:border-gold-500"
+                        value={values[field] ?? ''}
+                        onChange={(e) => setValues((v) => ({ ...v, [field]: e.target.value }))}
+                      />
+                    )}
+                  </label>
+                ))}
+                {selected.tiers && (
+                  <label className="font-body text-sm font-medium text-ink-600">
+                    Slip type
+                    <select
+                      className="mt-1 w-full rounded-xl border border-parchment-line bg-cream p-3 text-ink outline-none focus:border-gold-500"
+                      value={tier}
+                      onChange={(e) => setTier(e.target.value)}
+                    >
+                      {selected.tiers.map((option) => (
+                        <option key={option} value={option}>
+                          {option[0].toUpperCase() + option.slice(1)} — {money(prices[keyFor(selected, option)])}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+                <div className="sm:col-span-2">
+                  <button
+                    disabled={busy}
+                    className="flex w-full items-center justify-center gap-2 rounded-xl bg-gold-500 py-3 font-display font-semibold text-ink disabled:opacity-60"
+                  >
+                    {busy ? <Loader2 size={16} className="animate-spin" /> : 'Continue to PIN confirmation'}
+                  </button>
+                  {message && <p className="mt-3 rounded-lg bg-cream p-3 font-body text-sm text-ink-600">{message}</p>}
+                </div>
+              </form>
+            )}
+
+            {slipResult && (
+              <SlipResultView
+                result={slipResult}
+                message={message}
+                onDone={() => {
+                  setSelected(null);
+                  resetResult();
+                }}
+              />
+            )}
+
+            {asyncResult && (
+              <AsyncResultView
+                ticket={asyncResult}
+                status={ticketStatus}
+                polling={polling}
+                message={message}
+                onRefresh={() => checkTicket(false)}
+                onDone={() => {
+                  setSelected(null);
+                  resetResult();
+                }}
+              />
+            )}
+          </section>
+        )}
+      </div>
+
+      <PinConfirmDialog open={pin} onClose={() => setPin(false)} onVerified={submit} />
+      <ModificationConsent open={consent} onClose={() => setConsent(false)} onAgree={agreed} />
+    </AppShell>
+  );
+}
+
+function SlipResultView({ result, message, onDone }: { result: SlipResult; message: string; onDone: () => void }) {
+  const pdfHref = result.pdf_base64 ? `data:application/pdf;base64,${result.pdf_base64}` : null;
+  const dataEntries = result.user_data
+    ? Object.entries(result.user_data).filter(([, v]) => v !== null && v !== undefined)
+    : [];
+
+  return (
+    <div className="mt-6">
+      <div className="flex items-center gap-2 rounded-lg border border-success-500/30 bg-success-500/5 px-4 py-3">
+        <CheckCircle2 size={18} className="shrink-0 text-success-500" />
+        <p className="font-body text-sm text-ink">{message}</p>
+      </div>
+
+      {dataEntries.length > 0 && (
+        <div className="mt-4 grid gap-x-6 gap-y-2 rounded-xl bg-cream p-4 sm:grid-cols-2">
+          {dataEntries.map(([key, value]) => (
+            <div key={key} className="flex justify-between border-b border-parchment-line py-1.5 text-sm">
+              <span className="font-body capitalize text-ink-600">{key.replace(/_/g, ' ')}</span>
+              <span className="font-body font-semibold text-ink">{String(value)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {pdfHref && (
+        <a
+          href={pdfHref}
+          download={`${result.reference || 'slip'}.pdf`}
+          className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-gold-500 py-3 font-display font-semibold text-ink"
+        >
+          <Download size={16} /> Download PDF slip
+        </a>
+      )}
+
+      <button onClick={onDone} className="mt-3 w-full rounded-xl border border-parchment-line py-2.5 font-body text-sm text-ink-600">
+        Done
+      </button>
+    </div>
+  );
+}
+
+function AsyncResultView({
+  ticket,
+  status,
+  polling,
+  message,
+  onRefresh,
+  onDone,
+}: {
+  ticket: AsyncResult;
+  status: TicketStatus | null;
+  polling: boolean;
+  message: string;
+  onRefresh: () => void;
+  onDone: () => void;
+}) {
+  const state = status?.status ?? 'pending';
+  const responseEntries = status?.response
+    ? Object.entries(status.response).filter(([, v]) => v !== null && v !== undefined)
+    : [];
+
+  return (
+    <div className="mt-6">
+      {message && <p className="mb-4 rounded-lg bg-cream p-3 font-body text-sm text-ink-600">{message}</p>}
+
+      <div
+        className={`flex items-center gap-3 rounded-xl border px-4 py-4 ${
+          state === 'success'
+            ? 'border-success-500/30 bg-success-500/5'
+            : state === 'failed'
+              ? 'border-ember-500/30 bg-ember-500/5'
+              : 'border-parchment-line bg-cream'
+        }`}
+      >
+        {state === 'success' ? (
+          <CheckCircle2 size={22} className="text-success-500" />
+        ) : state === 'failed' ? (
+          <XCircle size={22} className="text-ember-500" />
+        ) : (
+          <Clock size={22} className="text-gold-600" />
+        )}
+        <div>
+          <p className="font-display font-semibold text-ink">
+            {state === 'success' ? 'Approved' : state === 'failed' ? 'Rejected — refunded to your wallet' : 'Pending review'}
+          </p>
+          <p className="font-mono text-xs text-ink-600">Ticket: {ticket.ticket_id}</p>
+        </div>
+      </div>
+
+      {responseEntries.length > 0 && (
+        <div className="mt-4 grid gap-x-6 gap-y-2 rounded-xl bg-cream p-4 sm:grid-cols-2">
+          {responseEntries.map(([key, value]) => (
+            <div key={key} className="flex justify-between border-b border-parchment-line py-1.5 text-sm">
+              <span className="font-body capitalize text-ink-600">{key.replace(/_/g, ' ')}</span>
+              <span className="font-body font-semibold text-ink">{String(value)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {state === 'pending' && (
+        <button
+          onClick={onRefresh}
+          disabled={polling}
+          className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border border-parchment-line py-2.5 font-body text-sm text-ink-600 disabled:opacity-60"
+        >
+          {polling ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+          Check again now
+        </button>
+      )}
+      <p className="mt-2 text-center font-body text-[11px] text-ink-400">
+        We're also checking automatically every few seconds.
+      </p>
+
+      <button onClick={onDone} className="mt-3 w-full rounded-xl border border-parchment-line py-2.5 font-body text-sm text-ink-600">
+        Done
+      </button>
+    </div>
+  );
 }

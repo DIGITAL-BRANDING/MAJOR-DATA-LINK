@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Copy, Check, Wallet, Sparkles } from 'lucide-react';
+import { Copy, Check, Wallet, Sparkles, PlusCircle } from 'lucide-react';
 import AppShell from '../components/AppShell';
 import { useAuth } from '../lib/auth';
 import { api } from '../lib/api';
@@ -92,6 +92,13 @@ export default function DashboardPage() {
             </span>
           </div>
         )}
+
+        <Link
+          to="/fund-wallet"
+          className="mt-4 flex items-center justify-center gap-2 rounded-lg border border-gold-500/40 bg-gold-500/10 py-2.5 font-display text-sm font-semibold text-gold-400 transition hover:bg-gold-500/20"
+        >
+          <PlusCircle size={16} /> Fund Wallet
+        </Link>
       </div>
 
       {/* First-time helper: how this whole thing works, in three steps */}

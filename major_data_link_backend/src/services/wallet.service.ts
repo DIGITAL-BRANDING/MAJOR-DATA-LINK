@@ -5,6 +5,7 @@ import { env } from '../config/env.js';
 import { ApiError } from '../middleware/error.js';
 import { koboToNaira, nairaToKobo } from '../lib/money.js';
 import { prisma } from '../lib/prisma.js';
+import { clearLockout, isLocked, recordFailure } from '../lib/lockout.js';
 import { notifyUser } from './notification.service.js';
 
 function formatNaira(kobo: bigint) {
@@ -77,30 +78,43 @@ async function applyFundingFee(
 export async function setPin(userId: string, pin: string) {
   if (!/^\d{4}$/.test(pin)) throw new ApiError(422, 'PIN must be 4 digits', 'INVALID_PIN');
   const pinHash = await bcrypt.hash(pin, 12);
-  await prisma.user.update({ where: { id: userId }, data: { pinHash, pinFailures: 0, pinLockedUntil: null } });
+  const cleared = clearLockout();
+  await prisma.user.update({
+    where: { id: userId },
+    data: { pinHash, pinFailures: cleared.failures, pinLockedUntil: cleared.lockedUntil, pinFailureAt: cleared.failureAt }
+  });
 }
 
+/**
+ * Verifies the 4-digit transaction PIN, locking out after 5 failures. Shares
+ * its rolling-window failure logic with the account password and login PIN -
+ * see src/lib/lockout.ts.
+ */
 export async function verifyPin(userId: string, pin: string) {
   const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
-  if (user.pinLockedUntil && user.pinLockedUntil > new Date()) {
+  if (isLocked(user.pinLockedUntil)) {
     throw new ApiError(423, 'PIN is temporarily locked', 'PIN_LOCKED');
   }
   if (!user.pinHash) throw new ApiError(400, 'Transaction PIN has not been set', 'PIN_NOT_SET');
 
   const ok = await bcrypt.compare(pin, user.pinHash);
   if (!ok) {
-    const failures = user.pinFailures + 1;
+    const next = recordFailure(
+      { failures: user.pinFailures, failureAt: user.pinFailureAt },
+      { maxFailures: 5, lockoutMinutes: 30 }
+    );
     await prisma.user.update({
       where: { id: userId },
-      data: {
-        pinFailures: failures,
-        pinLockedUntil: failures >= 5 ? new Date(Date.now() + 30 * 60 * 1000) : null
-      }
+      data: { pinFailures: next.failures, pinLockedUntil: next.lockedUntil, pinFailureAt: next.failureAt }
     });
     throw new ApiError(401, 'Invalid transaction PIN', 'INVALID_PIN');
   }
 
-  await prisma.user.update({ where: { id: userId }, data: { pinFailures: 0, pinLockedUntil: null } });
+  const cleared = clearLockout();
+  await prisma.user.update({
+    where: { id: userId },
+    data: { pinFailures: cleared.failures, pinLockedUntil: cleared.lockedUntil, pinFailureAt: cleared.failureAt }
+  });
   return true;
 }
 
