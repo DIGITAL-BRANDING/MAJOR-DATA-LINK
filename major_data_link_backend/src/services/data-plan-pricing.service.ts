@@ -75,7 +75,9 @@ export class DataPlanPricingService {
           : defaultSellingPrice(providerAmount, settings);
         isActive = existing.isActive;
         pricingId = existing.id;
-        resolvedPlanType = existing.planType ?? planType;
+        // The provider name is the source of truth. Older rows may contain a
+        // stale category from a previous response-shape bug.
+        resolvedPlanType = planType ?? existing.planType ?? undefined;
 
         // Only queue a write if something Alrahuz-reported actually changed
         // (cost, name, validity) - avoids rewriting every row on every
@@ -83,7 +85,8 @@ export class DataPlanPricingService {
         const changed =
           existing.providerCostKobo !== providerCostKobo ||
           existing.name !== plan.name ||
-          existing.validity !== plan.validity;
+          existing.validity !== plan.validity ||
+          existing.planType !== planType;
         if (changed) {
           toUpdate.push({ id: existing.id, plan, providerCostKobo, planType });
         }

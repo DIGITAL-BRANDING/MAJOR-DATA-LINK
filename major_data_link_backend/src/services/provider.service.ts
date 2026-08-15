@@ -187,7 +187,17 @@ export class ProviderService {
       // pins down which case it actually was.
       const liveLooksIncomplete = livePlans.length > 0 && staticPlans.length > 0 && livePlans.length < staticPlans.length / 4;
 
-      const rawPlans = livePlans.length > 0 && !liveLooksIncomplete ? livePlans : staticPlans;
+      const rawPlans = livePlans.length > 0 && !liveLooksIncomplete
+        ? livePlans.map((live) => {
+            const snapshot = staticPlans.find((item) => item.id === live.id);
+            // Some provider responses expose only size/price and omit the
+            // catalog name or validity. Enrich by plan ID so categories and
+            // validity are never replaced with "Validity varies".
+            return snapshot
+              ? { ...snapshot, ...live, name: live.name.includes('Plan ') ? snapshot.name : live.name, validity: live.validity === 'Validity varies' ? snapshot.validity : live.validity }
+              : live;
+          })
+        : staticPlans;
       if (livePlans.length === 0) {
         console.warn(`[provider] ${network} (networkId=${networkId}): live fetch returned nothing usable, falling back to static snapshot, ${rawPlans.length} plans`);
       } else if (liveLooksIncomplete) {
