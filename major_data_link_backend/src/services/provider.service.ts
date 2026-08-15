@@ -112,8 +112,14 @@ export class ProviderService {
     const plans = await this.getAllDataPlans(network);
     if (!category) return plans;
 
-    const normalized = category.trim().toUpperCase();
-    return plans.filter((plan) => (plan.planType ?? '').toUpperCase() === normalized);
+    const requested = category.trim().toUpperCase().replace(/\s+/g, ' ');
+    // Keep the customer-facing labels short while matching the provider's
+    // canonical names (e.g. CORPORATE -> CORPORATE GIFTING).
+    const normalized = requested === 'CORPORATE' ? 'CORPORATE GIFTING'
+      : requested === 'DATA COUPON' ? 'DATA COUPONS'
+      : requested === 'SME 2' ? 'SME2'
+      : requested;
+    return plans.filter((plan) => (plan.planType ?? '').trim().toUpperCase() === normalized);
   }
 
   /** Distinct Data Types (SME, SME2, GIFTING, etc.) that currently have at least
