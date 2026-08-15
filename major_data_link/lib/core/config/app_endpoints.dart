@@ -146,6 +146,13 @@ class AppEndpoints {
       '$_base/support/tickets/$id/messages';
   static String get faq => '$_base/support/faq';
 
+  // Deterministic service-assistant workflow
+  static String get assistantWorkflows => '$_base/assistant/workflows';
+  static String get assistantParse => '$_base/assistant/parse';
+  static String get assistantBeneficiaries => '$_base/assistant/beneficiaries';
+  static String get assistantEvents => '$_base/assistant/events';
+  static String get assistantFallback => '$_base/assistant/fallback';
+
   // App config
   static String get appSettings => '$_base/app/settings';
   static String get banners => '$_base/app/banners';

@@ -132,6 +132,23 @@ model User {
   redeemedCoupons      Coupon[]
   deviceTokens         DeviceToken[]
   notifications        Notification[]
+  assistantAuditEvents  AssistantAuditEvent[]
+}
+
+model AssistantAuditEvent {
+  id             String   @id @default(uuid())
+  userId         String
+  intent         String?
+  stage          String
+  outcome        String
+  errorCode      String?
+  transactionRef String?
+  metadata       Json?
+  createdAt      DateTime @default(now())
+  user           User     @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt])
+  @@index([stage, outcome, createdAt])
 }
 
 model RefreshToken {

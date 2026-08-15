@@ -126,6 +126,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     _maybeShowWelcomeNotice(notificationsAsync);
 
     return Scaffold(
+      floatingActionButton: _MajorAssistantFab(
+        onPressed: () => context.push(RouteNames.liveChat),
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       body: SafeArea(
         bottom: false,
         child: RefreshIndicator(
@@ -442,3 +446,28 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 }
 
+class _MajorAssistantFab extends StatelessWidget {
+  const _MajorAssistantFab({required this.onPressed});
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    label: 'Open MAJOR AI Assistant',
+    button: true,
+    child: Tooltip(
+      message: 'MAJOR AI Assistant',
+      child: FloatingActionButton.extended(
+        heroTag: 'major-ai-fab',
+        onPressed: onPressed,
+        backgroundColor: AppColors.primary600,
+        icon: const Icon(Icons.waving_hand_rounded, color: Colors.white)
+            .animate(onPlay: (controller) => controller.repeat(reverse: true))
+            .rotate(begin: -0.12, end: 0.12, duration: 700.ms),
+        label: const Text(
+          'AI Help',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+        ),
+      ),
+    ),
+  );
+}

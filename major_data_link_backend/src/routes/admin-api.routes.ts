@@ -21,6 +21,16 @@ adminApiRoutes.get('/me', (req, res) => {
   res.json({ status: true, data: { admin: req.admin } });
 });
 
+adminApiRoutes.get('/assistant-audit', async (req, res) => {
+  const limit = Math.min(Number(req.query.limit) || 100, 500);
+  const rows = await prisma.assistantAuditEvent.findMany({
+    take: limit,
+    orderBy: { createdAt: 'desc' },
+    select: { id: true, userId: true, intent: true, stage: true, outcome: true, errorCode: true, transactionRef: true, metadata: true, createdAt: true }
+  });
+  res.json({ status: true, data: rows.map((row) => ({ ...row, created_at: row.createdAt.toISOString() })) });
+});
+
 function providerBalancePayload(rows: Awaited<ReturnType<typeof prisma.providerBalanceStatus.findMany>>) {
   const fundingAccount = providerService.getFundingAccount();
   return {

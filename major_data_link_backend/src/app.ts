@@ -20,6 +20,7 @@ import { env } from './config/env.js';
 import { errorHandler } from './middleware/error.js';
 import { adminApiRoutes } from './routes/admin-api.routes.js';
 import { authRoutes } from './routes/auth.routes.js';
+import { assistantRoutes } from './routes/assistant.routes.js';
 import { passwordRoutes } from './routes/password.routes.js';
 import { kycRoutes } from './routes/kyc.routes.js';
 import { legalRoutes } from './routes/legal.routes.js';
@@ -150,6 +151,7 @@ export function createApp() {
   app.use(express.json({ limit: '1mb' }));
 
   app.use('/api/auth', authLimiter, authRoutes);
+  app.use('/api/assistant', assistantRoutes);
   // Password reset is public and therefore receives the same strict anti-brute-force limit as login.
   app.use('/api/password', authLimiter, passwordRoutes);
   app.use('/api/admin', adminApiRoutes);
