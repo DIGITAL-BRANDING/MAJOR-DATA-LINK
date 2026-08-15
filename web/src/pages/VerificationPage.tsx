@@ -276,16 +276,9 @@ export default function VerificationPage({ mode }: { mode: Mode }) {
                         <option value="FEMALE">Female</option>
                       </select>
                     ) : field === 'validation_type' ? (
-                      <select
-                        className="mt-1 w-full rounded-xl border border-parchment-line bg-cream p-3 text-ink outline-none focus:border-gold-500"
-                        value={values[field] ?? ''}
-                        onChange={(e) => setValues((v) => ({ ...v, [field]: e.target.value }))}
-                      >
-                        <option value="modification">Modification</option>
-                        <option value="nin_validation">General validation</option>
-                        <option value="no_record">No record</option>
-                        <option value="sim">SIM validation</option>
-                      </select>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {[['modification', 'Modification'], ['nin_validation', 'General validation'], ['no_record', 'No record'], ['sim', 'SIM validation']].map(([value, label]) => <button key={value} type="button" onClick={() => setValues((v) => ({ ...v, [field]: value }))} className={`rounded-xl border px-4 py-3 text-left text-xs font-semibold transition ${values[field] === value ? 'border-[#8b6914] bg-[#6b4f0b] text-white' : 'border-parchment-line bg-cream text-ink hover:border-gold-500'}`}>{label}</button>)}
+                      </div>
                     ) : (
                       <input
                         required
@@ -298,20 +291,12 @@ export default function VerificationPage({ mode }: { mode: Mode }) {
                   </label>
                 ))}
                 {selected.tiers && (
-                  <label className="font-body text-sm font-medium text-ink-600">
-                    Slip type
-                    <select
-                      className="mt-1 w-full rounded-xl border border-parchment-line bg-cream p-3 text-ink outline-none focus:border-gold-500"
-                      value={tier}
-                      onChange={(e) => setTier(e.target.value)}
-                    >
-                      {selected.tiers.map((option) => (
-                        <option key={option} value={option}>
-                          {option[0].toUpperCase() + option.slice(1)} — {money(prices[keyFor(selected, option)])}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                  <div className="sm:col-span-2 font-body text-sm font-medium text-ink-600">
+                    <span>Slip type</span>
+                    <div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+                      {selected.tiers.map((option) => <button key={option} type="button" onClick={() => setTier(option)} className={`rounded-xl border p-4 text-center transition hover:-translate-y-0.5 ${tier === option ? 'border-[#8b6914] bg-[#6b4f0b] text-white shadow-md' : 'border-parchment-line bg-cream text-ink hover:border-gold-500'}`}><span className="block font-semibold">{option[0].toUpperCase() + option.slice(1)} Slip</span><span className={`mt-1 block text-xs font-bold ${tier === option ? 'text-[#ffe9a3]' : 'text-gold-700'}`}>{money(prices[keyFor(selected, option)])}</span></button>)}
+                    </div>
+                  </div>
                 )}
                 <div className="sm:col-span-2">
                   <button
