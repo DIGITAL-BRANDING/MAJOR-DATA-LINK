@@ -89,7 +89,6 @@ export const NETWORK_IDS: Record<string, number> = {
   GLO: 2,
   '9MOBILE': 3,
   AIRTEL: 4,
-  SMILE: 5
 };
 
 export class ProviderService {
@@ -109,17 +108,27 @@ export class ProviderService {
   }
 
   async getDataPlans(network: string, category?: string) {
+    if (category && env.ALRAHUZ_DATA_PLANS_PATH.includes('{dataType}')) {
+      const networkId = NETWORK_IDS[network.toUpperCase()];
+      if (!networkId) throw new ApiError(422, `Unsupported network: ${network}`, 'UNSUPPORTED_NETWORK');
+      const providerCategory = this.providerCategory(category);
+      const live = await this.fetchLiveDataPlans(network, networkId, providerCategory);
+      if (live.length > 0) {
+        return dataPlanPricingService.applyPricing(live, network.toUpperCase());
+      }
+    }
     const plans = await this.getAllDataPlans(network);
     if (!category) return plans;
+    const normalized = this.providerCategory(category);
+    return plans.filter((plan) => (plan.planType ?? '').trim().toUpperCase() === normalized);
+  }
 
+  private providerCategory(category: string) {
     const requested = category.trim().toUpperCase().replace(/\s+/g, ' ');
-    // Keep the customer-facing labels short while matching the provider's
-    // canonical names (e.g. CORPORATE -> CORPORATE GIFTING).
-    const normalized = requested === 'CORPORATE' ? 'CORPORATE GIFTING'
+    return requested === 'CORPORATE' ? 'CORPORATE GIFTING'
       : requested === 'DATA COUPON' ? 'DATA COUPONS'
       : requested === 'SME 2' ? 'SME2'
       : requested;
-    return plans.filter((plan) => (plan.planType ?? '').trim().toUpperCase() === normalized);
   }
 
   /** Distinct Data Types (SME, SME2, GIFTING, etc.) that currently have at least
@@ -570,14 +579,18 @@ export class ProviderService {
     };
   }
 
-  private async fetchLiveDataPlans(network: string, networkId: number) {
+  private async fetchLiveDataPlans(network: string, networkId: number, dataType?: string) {
     const path = env.ALRAHUZ_DATA_PLANS_PATH.replace('{network}', encodeURIComponent(String(networkId)))
       .replace('{networkName}', encodeURIComponent(network.toUpperCase()));
+    const pathWithType = path.replace('{dataType}', encodeURIComponent(dataType ?? ''));
     const baseUrl = env.ALRAHUZ_BASE_URL.replace(/\/$/, '');
-    const cleanPath = path.startsWith('/') ? path : `/${path}`;
+    const cleanPath = pathWithType.startsWith('/') ? pathWithType : `/${pathWithType}`;
     const url = new URL(`${baseUrl}${cleanPath}`);
     if (!env.ALRAHUZ_DATA_PLANS_PATH.includes('{network}')) {
       url.searchParams.set('network', String(networkId));
+    }
+    if (!env.ALRAHUZ_DATA_PLANS_PATH.includes('{dataType}') && dataType) {
+      url.searchParams.set('data_type', dataType);
     }
 
     // Without an explicit timeout, a slow/hanging Alrahuz response used to
@@ -657,6 +670,13 @@ export class ProviderService {
   private normalizePlan(item: unknown, fallbackNetworkId: number): DataPlan | undefined {
     if (!item || typeof item !== 'object') return undefined;
     const record = item as Record<string, unknown>;
+    // /api/data/ is the provider's purchase/transaction endpoint, not a plan
+    // catalog. Its rows contain mobile_number, Status and api_response. Never
+    // mistake those historical transactions for sellable plans just because
+    // they also contain a plan id and amount.
+    if (record.mobile_number !== undefined || record.Status !== undefined || record.api_response !== undefined) {
+      return undefined;
+    }
 
     const id = this.stringValue(record.id ?? record.plan_id ?? record.plan);
     const amount = this.numberValue(record.amount ?? record.price ?? record.plan_amount);
