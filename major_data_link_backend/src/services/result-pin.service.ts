@@ -249,6 +249,6 @@ export async function purchaseResultPin(params: {
     status: false as const,
     message: provider.message ?? 'PIN purchase failed and was refunded',
     reference: debit.reference,
-    balanceAfter: koboToNaira(refunded.transaction.balanceAfterKobo)
+    balanceAfter: koboToNaira(refunded.balanceAfterKobo)
   };
 }

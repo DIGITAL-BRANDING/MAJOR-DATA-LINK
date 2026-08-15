@@ -264,7 +264,7 @@ async function purchaseSlip(params: {
     status: false,
     message: provider.message,
     reference: debit.reference,
-    balanceAfter: koboToNaira(refunded.transaction.balanceAfterKobo)
+    balanceAfter: koboToNaira(refunded.balanceAfterKobo)
   };
 }
 
