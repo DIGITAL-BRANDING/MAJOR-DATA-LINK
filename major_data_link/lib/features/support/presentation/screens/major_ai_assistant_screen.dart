@@ -23,7 +23,7 @@ class MajorAiAssistantScreen extends ConsumerStatefulWidget {
 
 enum _Language { choose, hausa, english }
 
-enum _Task { choose, data, airtime }
+enum _Task { choose, data, airtime, fund }
 
 enum _Step { language, task, network, dataType, phone, plan, amount, review, done }
 
@@ -77,6 +77,11 @@ class _MajorAiAssistantScreenState
 
   void _user(String text) {
     setState(() => _messages.add(_Message(text, true, const [])));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scroll.hasClients) {
+        _scroll.animateTo(_scroll.position.maxScrollExtent, duration: const Duration(milliseconds: 220), curve: Curves.easeOut);
+      }
+    });
   }
 
   Future<void> _answer(String value) async {
@@ -85,6 +90,11 @@ class _MajorAiAssistantScreenState
     _input.clear();
     _user(text);
     final normalized = text.toLowerCase();
+    if (_step == _Step.task && RegExp(r'(fund|top ?up|wallet|cika wallet|saka kudi|add money|deposit)').hasMatch(normalized)) {
+      setState(() { _task = _Task.fund; _step = _Step.amount; });
+      _bot(tr('How much would you like to add to your wallet?', 'Nawa kake so ka saka a wallet ɗinka?'));
+      return;
+    }
     final mentionedNetwork = _parseNetwork(normalized);
     if (mentionedNetwork != null && _network != null && mentionedNetwork != _network && _step != _Step.language && _step != _Step.task) {
       setState(() { _network = mentionedNetwork; _dataType = null; _plans = const []; _plan = null; _step = _task == _Task.data ? _Step.dataType : _Step.phone; });
@@ -109,6 +119,7 @@ class _MajorAiAssistantScreenState
         options: [
           tr('Buy Data', 'Siyan Data'),
           tr('Buy Airtime', 'Siyan Airtime'),
+          tr('Fund Wallet', 'Cika Wallet'),
         ],
       );
     } else if (_step == _Step.task) {
@@ -335,12 +346,21 @@ class _MajorAiAssistantScreenState
         );
         return;
       }
+      if (_task == _Task.fund) {
+        _bot(tr('I will open the secure wallet funding page. Enter card or bank details only there; never send them in this chat.', 'Zan buɗe secure wallet funding page. Shigar da bayanan card ko banki a can kawai; kada ka turo su a chat.'), options: [tr('Continue to funding', 'Ci gaba zuwa funding'), tr('Start again', 'Fara kuma')]);
+        setState(() { _amount = amount; _step = _Step.review; });
+        return;
+      }
       setState(() {
         _amount = amount;
         _step = _Step.review;
       });
       await _review();
     } else if (_step == _Step.review) {
+      if (_task == _Task.fund && RegExp(r'(continue|ci gaba|yes|eh|confirm)').hasMatch(normalized)) {
+        Navigator.of(context).pushNamed('/fund-wallet');
+        return;
+      }
       if (normalized.contains('yes') ||
           normalized.contains('eh') ||
           normalized.contains('i') ||
