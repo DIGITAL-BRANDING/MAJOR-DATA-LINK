@@ -599,7 +599,7 @@ export class ProviderService {
     if (plans.length <= 1) {
       console.warn(
         `[provider] ${network} (networkId=${networkId}): only extracted ${plans.length} plan(s) from ${url.toString()}. Raw response:`,
-        JSON.stringify(body).slice(0, 4000)
+        JSON.stringify(bodies[bodies.length - 1]).slice(0, 4000)
       );
     }
 

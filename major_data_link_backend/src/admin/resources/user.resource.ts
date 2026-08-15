@@ -100,6 +100,10 @@ export const userResource: ResourceWithOptions = {
       resetPassword: {
         actionType: 'record',
         icon: 'Key',
+        // This action has no input form. AdminJS must be explicitly told to
+        // use its standard action page; otherwise it renders the error
+        // "You have to implement action component for your ActionSee".
+        component: false,
         guard:
           'This immediately replaces the user\'s password with a temporary one and forces them to set a new password on next login. Continue?',
         isAccessible: ({ currentAdmin }) => {
