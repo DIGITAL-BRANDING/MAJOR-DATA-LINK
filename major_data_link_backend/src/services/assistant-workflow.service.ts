@@ -25,7 +25,7 @@ export type AssistantWorkflow = {
 };
 
 export const assistantWorkflows: AssistantWorkflow[] = [
-  { id: 'data', title: 'Buy Data', titleHa: 'Siyan Data', intents: ['data', 'bundle', 'sayi min data', 'siyamin data'], fields: [{ key: 'network', label: 'Network', labelHa: 'Network', required: true, input: 'network' }, { key: 'phone', label: 'Phone number', labelHa: 'Lambar waya', required: true, input: 'phone' }, { key: 'plan_id', label: 'Data plan', labelHa: 'Data plan', required: true, input: 'plan' }], priceLookup: '/api/data/plans/:network', purchaseEndpoint: '/api/data/purchase', status: 'active' },
+  { id: 'data', title: 'Buy Data', titleHa: 'Siyan Data', intents: ['data', 'bundle', 'sayi min data', 'siyamin data'], fields: [{ key: 'network', label: 'Network', labelHa: 'Network', required: true, input: 'network' }, { key: 'data_type', label: 'Data type', labelHa: 'Nau’in Data', required: true, input: 'text' }, { key: 'phone', label: 'Phone number', labelHa: 'Lambar waya', required: true, input: 'phone' }, { key: 'plan_id', label: 'Data plan', labelHa: 'Data plan', required: true, input: 'plan' }], priceLookup: '/api/data/plans/:network', purchaseEndpoint: '/api/data/purchase', status: 'active' },
   { id: 'airtime', title: 'Buy Airtime', titleHa: 'Siyan Airtime', intents: ['airtime', 'top up', 'topup', 'recharge', 'sayi min airtime'], fields: [{ key: 'network', label: 'Network', labelHa: 'Network', required: true, input: 'network' }, { key: 'phone', label: 'Phone number', labelHa: 'Lambar waya', required: true, input: 'phone' }, { key: 'amount', label: 'Amount', labelHa: 'Kuɗi', required: true, input: 'amount' }], purchaseEndpoint: '/api/airtime/purchase', status: 'active' },
   { id: 'electricity', title: 'Buy Electricity', titleHa: 'Siyan Wutar Lantarki', intents: ['electricity', 'light token', 'wuta', 'lantarki'], fields: [{ key: 'provider', label: 'Distribution company', labelHa: 'Kamfanin wuta', required: true, input: 'text' }, { key: 'meter_number', label: 'Meter number', labelHa: 'Lambar meter', required: true, input: 'meter' }, { key: 'amount', label: 'Amount', labelHa: 'Kuɗi', required: true, input: 'amount' }], purchaseEndpoint: '/api/electricity/purchase', status: 'guided' },
   { id: 'cable', title: 'Cable TV', titleHa: 'Biyan Cable TV', intents: ['cable', 'dstv', 'gotv', 'startimes'], fields: [{ key: 'provider', label: 'Provider', labelHa: 'Provider', required: true, input: 'text' }, { key: 'smartcard', label: 'Smartcard number', labelHa: 'Lambar smartcard', required: true, input: 'smartcard' }, { key: 'plan', label: 'Package', labelHa: 'Package', required: true, input: 'plan' }], purchaseEndpoint: '/api/cable/subscribe', status: 'guided' },
@@ -44,6 +44,7 @@ export function parseAssistantIntent(message: string) {
   const phone = digits?.startsWith('234') ? `0${digits.slice(3)}` : digits;
   const network = /\bmtn\b/.test(normalized) ? 'MTN' : /\bairtel\b/.test(normalized) ? 'AIRTEL' : /\bglo\b/.test(normalized) ? 'GLO' : /(?:9mobile|nine mobile|etisalat)/.test(normalized) ? '9MOBILE' : undefined;
   const dataSize = normalized.match(/\b\d+(?:\.\d+)?\s*(?:gb|mb)\b/i)?.[0].replace(/\s+/g, '').toUpperCase();
+  const dataType = /data\s*coupon|coupon/.test(normalized) ? 'DATA COUPON' : /corporate/.test(normalized) ? 'CORPORATE' : /data\s*share|share/.test(normalized) ? 'DATA SHARE' : /gifting|gift/.test(normalized) ? 'GIFTING' : /sme\s*2|sme2/.test(normalized) ? 'SME2' : /\bsme\b/.test(normalized) ? 'SME' : undefined;
   // A size such as 1GB is an unambiguous data request even when the customer
   // uses only Hausa/English purchase words and never says the word "data".
   if (!workflow && dataSize) workflow = assistantWorkflows.find((item) => item.id === 'data');
@@ -52,5 +53,5 @@ export function parseAssistantIntent(message: string) {
   const withoutPhone = phoneMatch ? normalized.replace(phoneMatch[0], ' ') : normalized;
   const amountMatch = withoutPhone.match(/(?:₦|naira|kudi|kuɗi|amount)\s*(\d{2,6})(?:\.00)?\b|\b(\d{2,6})(?:\.00)?\b/i);
   const amount = amountMatch ? Number(amountMatch[1] ?? amountMatch[2]) : undefined;
-  return { workflow: workflow?.id, fields: { ...(network ? { network } : {}), ...(phone?.length === 11 ? { phone } : {}), ...(dataSize ? { data_size: dataSize } : {}), ...(amount ? { amount } : {}) } };
+  return { workflow: workflow?.id, fields: { ...(network ? { network } : {}), ...(dataType ? { data_type: dataType } : {}), ...(phone?.length === 11 ? { phone } : {}), ...(dataSize ? { data_size: dataSize } : {}), ...(amount ? { amount } : {}) } };
 }

@@ -27,6 +27,15 @@
   --color-success-500: #10b981;
   --color-success-600: #059669;
 
+  /* Assistant blue palette. Keep these explicit so Tailwind utilities such
+     as bg-brand-600/text-brand-800 always have a real, high-contrast color. */
+  --color-brand-50: #eff6ff;
+  --color-brand-200: #bfdbfe;
+  --color-brand-600: #2563eb;
+  --color-brand-700: #1d4ed8;
+  --color-brand-800: #1e3a8a;
+  --color-brand-900: #172554;
+
   --color-ink-900: #1c140b;
   --color-ink-600: #5c4d38;
 

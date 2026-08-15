@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -23,7 +25,7 @@ enum _Language { choose, hausa, english }
 
 enum _Task { choose, data, airtime }
 
-enum _Step { language, task, network, phone, plan, amount, review, done }
+enum _Step { language, task, network, dataType, phone, plan, amount, review, done }
 
 class _MajorAiAssistantScreenState
     extends ConsumerState<MajorAiAssistantScreen> {
@@ -34,6 +36,7 @@ class _MajorAiAssistantScreenState
   _Task _task = _Task.choose;
   _Step _step = _Step.language;
   String? _network;
+  String? _dataType;
   String? _phone;
   double? _amount;
   List<Map<String, dynamic>> _plans = const [];
@@ -193,6 +196,12 @@ class _MajorAiAssistantScreenState
         );
         return;
       }
+      final dataType = fields['data_type']?.toString();
+      if (isData && dataType == null) {
+        setState(() { _network = network; _step = _Step.dataType; });
+        _bot(tr('Which data type: Corporate, Data Share, Gifting, SME, SME 2 or Data Coupon?', 'Wanne nau’in Data: Corporate, Data Share, Gifting, SME, SME 2 ko Data Coupon?'), options: const ['Corporate', 'Data Share', 'Gifting', 'SME', 'SME 2', 'Data Coupon']);
+        return;
+      }
       if (phone == null) {
         setState(() => _step = _Step.phone);
         _bot(
@@ -242,14 +251,23 @@ class _MajorAiAssistantScreenState
       }
       setState(() {
         _network = network;
-        _step = _Step.phone;
+        _step = _task == _Task.data ? _Step.dataType : _Step.phone;
       });
+      if (_task == _Task.data) {
+        _bot(tr('Which data type: Corporate, Data Share, Gifting, SME, SME 2 or Data Coupon?', 'Wanne nau’in Data: Corporate, Data Share, Gifting, SME, SME 2 ko Data Coupon?'), options: const ['Corporate', 'Data Share', 'Gifting', 'SME', 'SME 2', 'Data Coupon']);
+        return;
+      }
       _bot(
         tr(
           'Enter the Nigerian phone number to receive it.',
           'Rubuta lambar Najeriya da za a tura mata.',
         ),
       );
+    } else if (_step == _Step.dataType) {
+      final dataType = normalized.contains('corporate') ? 'CORPORATE' : normalized.contains('share') ? 'DATA SHARE' : normalized.contains('gift') ? 'GIFTING' : (normalized.contains('sme 2') || normalized.contains('sme2')) ? 'SME2' : normalized.contains('coupon') ? 'DATA COUPON' : normalized.contains('sme') ? 'SME' : null;
+      if (dataType == null) { _bot(tr('Please choose one of the data types.', 'Zaɓi ɗaya daga cikin nau’in Data.')); return; }
+      setState(() { _dataType = dataType; _step = _Step.phone; });
+      _bot(tr('Enter the Nigerian phone number to receive it.', 'Rubuta lambar Najeriya da za a tura mata.'));
     } else if (_step == _Step.phone) {
       final phone = text.replaceAll(RegExp(r'\D'), '');
       if (phone.length != 11 || !phone.startsWith('0')) {
@@ -357,7 +375,10 @@ class _MajorAiAssistantScreenState
     try {
       final response = await ref
           .read(dioClientProvider)
-          .get(AppEndpoints.dataPlans(_network!));
+          .get(
+            AppEndpoints.dataPlans(_network!),
+            queryParameters: _dataType == null ? null : {'category': _dataType},
+          );
       final raw = (response.data['data'] ?? response.data) as List<dynamic>;
       _plans = raw.cast<Map<String, dynamic>>().take(8).toList();
       final list = _plans
