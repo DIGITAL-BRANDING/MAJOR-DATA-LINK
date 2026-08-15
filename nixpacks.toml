@@ -13,6 +13,6 @@ cmds = [
   "cd major_data_link_backend && npm run prisma:generate",
   "cd major_data_link_backend && npm run build",
   "cd web && npm run build",
-  "mkdir -p major_data_link_backend/public/app",
+  "rm -rf major_data_link_backend/public/app && mkdir -p major_data_link_backend/public/app",
   "cp -r web/dist/. major_data_link_backend/public/app/"
 ]

@@ -229,6 +229,10 @@ export function createApp() {
   app.use(webStatic);
   app.get('*', (req, res, next) => {
     if (req.path.startsWith('/api') || req.path.startsWith(ADMIN_ROOT_PATH)) return next();
+    // Do not serve the HTML shell for missing JS/CSS/image files. A stale
+    // mobile browser cache would otherwise receive index.html as a stylesheet
+    // or script, producing the completely unstyled page users reported.
+    if (path.extname(req.path)) return next();
     // Never cache the HTML shell: a stale index can reference a bundle removed by a newer deploy.
     res.setHeader('Cache-Control', 'no-store');
     res.sendFile(path.join(webAppDir, 'index.html'), (err) => {
