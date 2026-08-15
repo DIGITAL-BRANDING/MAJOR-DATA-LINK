@@ -24,7 +24,17 @@ export const transactionResource: ResourceWithOptions = {
       'balanceAfterKobo',
       'provider',
       'providerRef',
-      'relatedTransactionId',
+      // NOT 'relatedTransactionId' (the raw scalar FK) - Prisma marks any
+      // scalar field that backs a relation as isReadOnly:true in its DMMF
+      // (same reason 'userId' isn't listed above either - only 'user' is),
+      // and @adminjs/prisma's Resource.prepareProperties() silently drops
+      // every isReadOnly field before building its properties map. Listing
+      // the scalar name here made AdminJS throw "There is no property of
+      // the name: relatedTransactionId" on every single page load. Using
+      // the RELATION name instead is both the fix and strictly better UX -
+      // it renders as a clickable link to the original/reversal transaction
+      // instead of a bare opaque UUID string.
+      'relatedTransaction',
       'idempotencyKey',
       'description',
       'metadata',

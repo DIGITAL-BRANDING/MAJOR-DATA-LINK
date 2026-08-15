@@ -42,12 +42,21 @@ export const supportTicketMessageResource: ResourceWithOptions = {
   options: {
     id: 'SupportTicketMessage',
     navigation: { name: 'Support', icon: 'MessageCircle' },
-    listProperties: ['ticketId', 'senderType', 'senderName', 'message', 'createdAt'],
-    showProperties: ['id', 'ticketId', 'senderType', 'senderName', 'message', 'createdAt'],
+    // NOT 'ticketId' (the raw scalar FK) - Prisma marks any scalar field
+    // that backs a relation as isReadOnly:true in its DMMF, and
+    // @adminjs/prisma's Resource.prepareProperties() silently drops every
+    // isReadOnly field before building its properties map. Listing the
+    // scalar name here throws "There is no property of the name: ticketId"
+    // on every page load - the exact same failure this resource's sibling
+    // Transaction.relatedTransactionId had. Using the relation name 'ticket'
+    // is the fix; `type: 'string'` below keeps it rendering/behaving as the
+    // plain paste-the-ID text field it always was, not a reference dropdown.
+    listProperties: ['ticket', 'senderType', 'senderName', 'message', 'createdAt'],
+    showProperties: ['id', 'ticket', 'senderType', 'senderName', 'message', 'createdAt'],
     editProperties: [],
-    filterProperties: ['ticketId', 'senderType'],
+    filterProperties: ['ticket', 'senderType'],
     properties: {
-      ticketId: { description: 'Paste the ticket ID from Support Tickets to reply to it.' },
+      ticket: { type: 'string', description: 'Paste the ticket ID from Support Tickets to reply to it.' },
       senderType: { isVisible: { list: true, filter: true, show: true, edit: false } },
       senderId: { isVisible: { list: false, filter: false, show: true, edit: false } },
       senderName: { isVisible: { list: true, filter: false, show: true, edit: false } }
@@ -73,7 +82,12 @@ export const supportTicketMessageResource: ResourceWithOptions = {
           return request;
         },
         after: async (response: ActionResponse, request: ActionRequest) => {
-          const ticketId = request.payload?.ticketId as string | undefined;
+          // Submitted form field name follows the property PATH ('ticket'),
+          // not the underlying DB column ('ticketId') - see the comment on
+          // showProperties above. AdminJS only remaps path -> FK column
+          // internally when it persists the record; `request.payload` here
+          // still has the original submitted key.
+          const ticketId = request.payload?.ticket as string | undefined;
           if (ticketId) {
             await prisma.supportTicket.update({
               where: { id: ticketId },
