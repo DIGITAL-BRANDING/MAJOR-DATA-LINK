@@ -13,6 +13,7 @@ import BuyDataPage from './pages/BuyDataPage';
 import ComingSoonPage from './pages/ComingSoonPage';
 import PrivacyRedirect from './pages/PrivacyRedirect';
 import ResultPinPage from './pages/ResultPinPage';
+import ResultCheckersPage from './pages/ResultCheckersPage';
 import VerificationPage from './pages/VerificationPage';
 import FundWalletPage from './pages/FundWalletPage';
 import PaymentCallbackPage from './pages/PaymentCallbackPage';
@@ -48,8 +49,10 @@ export default function App() {
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/privacy-policy" element={<PrivacyRedirect page="privacy-policy" />} />
+          <Route path="/result-checkers" element={<ProtectedRoute><ResultCheckersPage /></ProtectedRoute>} />
           <Route path="/waec-result" element={<ProtectedRoute><ResultPinPage exam="WAEC" /></ProtectedRoute>} />
           <Route path="/neco-result" element={<ProtectedRoute><ResultPinPage exam="NECO" /></ProtectedRoute>} />
+          <Route path="/nabteb-result" element={<ProtectedRoute><ResultPinPage exam="NABTEB" /></ProtectedRoute>} />
           <Route path="/nin-services" element={<ProtectedRoute><VerificationPage mode="nin" /></ProtectedRoute>} />
           <Route path="/bvn-services" element={<ProtectedRoute><VerificationPage mode="bvn" /></ProtectedRoute>} />
           <Route path="/terms" element={<PrivacyRedirect page="terms" />} />
