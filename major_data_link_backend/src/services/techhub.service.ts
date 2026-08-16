@@ -82,6 +82,23 @@ export type TechhubSlipResult = {
   raw: unknown;
 };
 
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function firstNonEmptyString(records: Array<Record<string, unknown> | undefined>, keys: string[]) {
+  for (const record of records) {
+    if (!record) continue;
+    for (const key of keys) {
+      const value = record[key];
+      if (typeof value === 'string' && value.trim().length > 0) return value.trim();
+    }
+  }
+  return undefined;
+}
+
 export type TechhubAsyncSubmitResult = {
   ok: boolean;
   ticketId?: string;
@@ -206,16 +223,22 @@ export class TechhubService {
     }
 
     const nested = data.data;
-    const pdfBase64 = data.pdf_base64 ?? nested?.pdf_base64;
+    // Premium-slip responses have appeared in both shapes below:
+    // { pdf_base64: ... } and { user_data: { pdf_base64: ... } }. The latter
+    // must become a downloadable document, not a raw field in the UI.
+    const userData = data.user_data ?? nested?.user_data ?? nested;
+    const userDataRecord = asRecord(userData);
+    const records = [data as Record<string, unknown>, nested, userDataRecord];
+    const pdfBase64 = firstNonEmptyString(records, ['pdf_base64', 'pdf', 'pdf_data']);
     // Some Techhub slip variants return a ready-to-download URL instead of
     // embedding the PDF.  Preserve it for the user dashboard rather than
     // showing a misleading success without a document.
-    const pdfUrl = data.pdf_url ?? data.slip_url ?? nested?.pdf_url ?? nested?.slip_url;
+    const pdfUrl = firstNonEmptyString(records, ['pdf_url', 'slip_url', 'download_url']);
 
     return {
       ok: true,
       message: data.message ?? 'PDF generated successfully',
-      userData: data.user_data ?? nested?.user_data ?? nested,
+      userData: userDataRecord,
       pdfBase64,
       pdfUrl,
       raw: data

@@ -15,8 +15,7 @@ import '../widgets/verification_result_cards.dart';
 class NinDelinkingScreen extends ConsumerStatefulWidget {
   const NinDelinkingScreen({super.key});
   @override
-  ConsumerState<NinDelinkingScreen> createState() =>
-      _NinDelinkingScreenState();
+  ConsumerState<NinDelinkingScreen> createState() => _NinDelinkingScreenState();
 }
 
 class _NinDelinkingScreenState extends ConsumerState<NinDelinkingScreen>
@@ -33,7 +32,9 @@ class _NinDelinkingScreenState extends ConsumerState<NinDelinkingScreen>
   }
 
   @override
-  Future<void> checkStatus() => ref.read(asyncFlowProvider.notifier).checkStatus(
+  Future<void> checkStatus() => ref
+      .read(asyncFlowProvider.notifier)
+      .checkStatus(
         (id) => ref.read(verificationRemoteProvider).checkDelinking(id),
       );
 
@@ -47,8 +48,12 @@ class _NinDelinkingScreenState extends ConsumerState<NinDelinkingScreen>
     );
     if (pin == null || !mounted) return;
 
-    final ok = await ref.read(asyncFlowProvider.notifier).submit(
-          () => ref.read(verificationRemoteProvider).submitDelinking(
+    final ok = await ref
+        .read(asyncFlowProvider.notifier)
+        .submit(
+          () => ref
+              .read(verificationRemoteProvider)
+              .submitDelinking(
                 nin: _ninController.text.trim(),
                 email: _emailController.text.trim(),
                 pin: pin,
@@ -121,10 +126,7 @@ class _NinDelinkingScreenState extends ConsumerState<NinDelinkingScreen>
                 ),
                 if (state.isSubmitted) ...[
                   const SizedBox(height: 20),
-                  AsyncTicketStatusCard(
-                    state: state,
-                    onRefresh: checkStatus,
-                  ),
+                  AsyncTicketStatusCard(state: state, onRefresh: checkStatus),
                 ],
                 const SizedBox(height: 24),
                 if (!locked)
@@ -145,6 +147,8 @@ class _NinDelinkingScreenState extends ConsumerState<NinDelinkingScreen>
                       stopPolling();
                     },
                   ),
+                const SizedBox(height: 24),
+                const VerificationHistoryCard(service: 'NIN_DELINKING'),
               ],
             ),
           ),

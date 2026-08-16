@@ -12,11 +12,11 @@ enum SlipTier { premium, standard, regular, vnin }
 
 extension SlipTierX on SlipTier {
   String get label => switch (this) {
-        SlipTier.premium => 'Premium',
-        SlipTier.standard => 'Standard',
-        SlipTier.regular => 'Regular',
-        SlipTier.vnin => 'VNIN',
-      };
+    SlipTier.premium => 'Premium',
+    SlipTier.standard => 'Standard',
+    SlipTier.regular => 'Regular',
+    SlipTier.vnin => 'VNIN',
+  };
 
   String get apiValue => name;
 }
@@ -44,26 +44,26 @@ enum NinValidationType {
 
 extension NinValidationTypeX on NinValidationType {
   String get apiValue => switch (this) {
-        NinValidationType.ninValidation => 'nin_validation',
-        NinValidationType.noRecord => 'no_record',
-        NinValidationType.sim => 'sim',
-        NinValidationType.modification => 'modification',
-        NinValidationType.photoError => 'photo_error',
-        NinValidationType.bankValidation => 'bank_validation',
-        NinValidationType.vNinValidation => 'v.nin_validation',
-        NinValidationType.updateRecords => 'update_records',
-      };
+    NinValidationType.ninValidation => 'nin_validation',
+    NinValidationType.noRecord => 'no_record',
+    NinValidationType.sim => 'sim',
+    NinValidationType.modification => 'modification',
+    NinValidationType.photoError => 'photo_error',
+    NinValidationType.bankValidation => 'bank_validation',
+    NinValidationType.vNinValidation => 'v.nin_validation',
+    NinValidationType.updateRecords => 'update_records',
+  };
 
   String get label => switch (this) {
-        NinValidationType.ninValidation => 'General NIN Validation',
-        NinValidationType.noRecord => 'No Record Found',
-        NinValidationType.sim => 'SIM Validation',
-        NinValidationType.modification => 'Modification',
-        NinValidationType.photoError => 'Photo Error',
-        NinValidationType.bankValidation => 'Bank Validation',
-        NinValidationType.vNinValidation => 'V.NIN Validation',
-        NinValidationType.updateRecords => 'Update Records',
-      };
+    NinValidationType.ninValidation => 'General NIN Validation',
+    NinValidationType.noRecord => 'No Record Found',
+    NinValidationType.sim => 'SIM Validation',
+    NinValidationType.modification => 'Modification',
+    NinValidationType.photoError => 'Photo Error',
+    NinValidationType.bankValidation => 'Bank Validation',
+    NinValidationType.vNinValidation => 'V.NIN Validation',
+    NinValidationType.updateRecords => 'Update Records',
+  };
 }
 
 /// Which coarse service key (matches the backend's `ServiceKey`) the
@@ -91,22 +91,22 @@ enum VerificationService {
 extension VerificationServiceX on VerificationService {
   /// Matches `SERVICE_KEYS` in the backend's verification.service.ts.
   String get key => switch (this) {
-        VerificationService.ninSlipPremium => 'NIN_SLIP_PREMIUM',
-        VerificationService.ninSlipStandard => 'NIN_SLIP_STANDARD',
-        VerificationService.ninSlipRegular => 'NIN_SLIP_REGULAR',
-        VerificationService.ninSlipVnin => 'NIN_SLIP_VNIN',
-        VerificationService.ninPhoneSlipPremium => 'NIN_PHONE_SLIP_PREMIUM',
-        VerificationService.ninPhoneSlipStandard => 'NIN_PHONE_SLIP_STANDARD',
-        VerificationService.ninPhoneSlipRegular => 'NIN_PHONE_SLIP_REGULAR',
-        VerificationService.ninDemographic => 'NIN_DEMOGRAPHIC',
-        VerificationService.bvnSlipPremium => 'BVN_SLIP_PREMIUM',
-        VerificationService.bvnSlipStandard => 'BVN_SLIP_STANDARD',
-        VerificationService.ninDelinking => 'NIN_DELINKING',
-        VerificationService.ninValidation => 'NIN_VALIDATION',
-        VerificationService.ninPersonalization => 'NIN_PERSONALIZATION',
-        VerificationService.bvnRetrieval => 'BVN_RETRIEVAL',
-        VerificationService.ipeClearance => 'IPE_CLEARANCE',
-      };
+    VerificationService.ninSlipPremium => 'NIN_SLIP_PREMIUM',
+    VerificationService.ninSlipStandard => 'NIN_SLIP_STANDARD',
+    VerificationService.ninSlipRegular => 'NIN_SLIP_REGULAR',
+    VerificationService.ninSlipVnin => 'NIN_SLIP_VNIN',
+    VerificationService.ninPhoneSlipPremium => 'NIN_PHONE_SLIP_PREMIUM',
+    VerificationService.ninPhoneSlipStandard => 'NIN_PHONE_SLIP_STANDARD',
+    VerificationService.ninPhoneSlipRegular => 'NIN_PHONE_SLIP_REGULAR',
+    VerificationService.ninDemographic => 'NIN_DEMOGRAPHIC',
+    VerificationService.bvnSlipPremium => 'BVN_SLIP_PREMIUM',
+    VerificationService.bvnSlipStandard => 'BVN_SLIP_STANDARD',
+    VerificationService.ninDelinking => 'NIN_DELINKING',
+    VerificationService.ninValidation => 'NIN_VALIDATION',
+    VerificationService.ninPersonalization => 'NIN_PERSONALIZATION',
+    VerificationService.bvnRetrieval => 'BVN_RETRIEVAL',
+    VerificationService.ipeClearance => 'IPE_CLEARANCE',
+  };
 }
 
 // ── Result models ────────────────────────────────────────────
@@ -121,6 +121,7 @@ class SlipApiResult {
     this.balanceAfter,
     this.userData,
     this.pdfBase64,
+    this.pdfUrl,
   });
 
   final bool success;
@@ -129,6 +130,7 @@ class SlipApiResult {
   final double? balanceAfter;
   final Map<String, dynamic>? userData;
   final String? pdfBase64;
+  final String? pdfUrl;
 
   factory SlipApiResult.fromJson(Map<String, dynamic> json) {
     final data = json['data'] as Map<String, dynamic>? ?? const {};
@@ -141,8 +143,44 @@ class SlipApiResult {
           : null,
       userData: data['user_data'] as Map<String, dynamic>?,
       pdfBase64: data['pdf_base64']?.toString(),
+      pdfUrl: data['pdf_url']?.toString(),
     );
   }
+}
+
+/// A customer's own verification results remain retrievable for 24 hours.
+/// Identity fields are deliberately not included in this list; only the
+/// generated PDF (when the provider supplied one) can be retrieved.
+class VerificationHistoryItem {
+  const VerificationHistoryItem({
+    required this.reference,
+    required this.status,
+    required this.createdAt,
+    this.pdfBase64,
+    this.pdfUrl,
+  });
+
+  final String reference;
+  final String status;
+  final DateTime createdAt;
+  final String? pdfBase64;
+  final String? pdfUrl;
+
+  factory VerificationHistoryItem.fromJson(Map<String, dynamic> json) {
+    return VerificationHistoryItem(
+      reference: json['reference']?.toString() ?? '',
+      status: json['status']?.toString() ?? 'unknown',
+      createdAt:
+          DateTime.tryParse(json['created_at']?.toString() ?? '') ??
+          DateTime.now(),
+      pdfBase64: json['pdf_base64']?.toString(),
+      pdfUrl: json['pdf_url']?.toString(),
+    );
+  }
+
+  bool get hasPdf =>
+      (pdfBase64?.isNotEmpty ?? false) ||
+      (pdfUrl?.startsWith('https://') ?? false);
 }
 
 /// The result of *submitting* one of the five async services — deducts the
@@ -191,7 +229,8 @@ class AsyncStatusApiResult {
   factory AsyncStatusApiResult.fromJson(Map<String, dynamic> json) {
     final data = json['data'] as Map<String, dynamic>? ?? const {};
     return AsyncStatusApiResult(
-      ticketId: data['ticketId']?.toString() ?? data['ticket_id']?.toString() ?? '',
+      ticketId:
+          data['ticketId']?.toString() ?? data['ticket_id']?.toString() ?? '',
       status: data['status']?.toString() ?? 'pending',
       response: data['response'] as Map<String, dynamic>?,
     );
@@ -227,15 +266,43 @@ class VerificationRemote {
     }
   }
 
+  Future<List<VerificationHistoryItem>> getHistory(String service) async {
+    try {
+      final response = await _dio.get(
+        '/verification/history',
+        queryParameters: {'service': service},
+      );
+      final list = (response.data['data'] as List?) ?? const [];
+      return list
+          .whereType<Map<String, dynamic>>()
+          .map(VerificationHistoryItem.fromJson)
+          .toList();
+    } on DioException catch (e) {
+      throw ErrorHandler.handleException(e);
+    }
+  }
+
   // ---- Slip lookups (synchronous) ----
 
-  Future<SlipApiResult> ninByNin({required String nin, required SlipTier tier, required String pin}) =>
-      _postSlip(AppEndpoints.ninByNin, {'nin': nin, 'tier': tier.apiValue, 'pin': pin});
+  Future<SlipApiResult> ninByNin({
+    required String nin,
+    required SlipTier tier,
+    required String pin,
+  }) => _postSlip(AppEndpoints.ninByNin, {
+    'nin': nin,
+    'tier': tier.apiValue,
+    'pin': pin,
+  });
 
-  Future<SlipApiResult> ninByPhone(
-          {required String phone, required SlipTier tier, required String pin}) =>
-      _postSlip(
-          AppEndpoints.ninByPhone, {'phone': phone, 'tier': tier.apiValue, 'pin': pin});
+  Future<SlipApiResult> ninByPhone({
+    required String phone,
+    required SlipTier tier,
+    required String pin,
+  }) => _postSlip(AppEndpoints.ninByPhone, {
+    'phone': phone,
+    'tier': tier.apiValue,
+    'pin': pin,
+  });
 
   Future<SlipApiResult> ninByDemographic({
     required String firstname,
@@ -243,23 +310,34 @@ class VerificationRemote {
     required String dob,
     String? gender,
     required String pin,
-  }) =>
-      _postSlip(AppEndpoints.ninByDemographic, {
-        'firstname': firstname,
-        'lastname': lastname,
-        'dob': dob,
-        if (gender != null) 'gender': gender,
-        'pin': pin,
-      });
+  }) => _postSlip(AppEndpoints.ninByDemographic, {
+    'firstname': firstname,
+    'lastname': lastname,
+    'dob': dob,
+    if (gender != null) 'gender': gender,
+    'pin': pin,
+  });
 
-  Future<SlipApiResult> bvnSlip({required String bvn, required BvnTier tier, required String pin}) =>
-      _postSlip(AppEndpoints.bvnSlip, {'bvn': bvn, 'tier': tier.apiValue, 'pin': pin});
+  Future<SlipApiResult> bvnSlip({
+    required String bvn,
+    required BvnTier tier,
+    required String pin,
+  }) => _postSlip(AppEndpoints.bvnSlip, {
+    'bvn': bvn,
+    'tier': tier.apiValue,
+    'pin': pin,
+  });
 
   Future<SlipApiResult> _postSlip(
-      String endpoint, Map<String, dynamic> body) async {
+    String endpoint,
+    Map<String, dynamic> body,
+  ) async {
     try {
-      final response =
-          await _dio.post(endpoint, data: body, options: _idempotent);
+      final response = await _dio.post(
+        endpoint,
+        data: body,
+        options: _idempotent,
+      );
       return SlipApiResult.fromJson(response.data as Map<String, dynamic>);
     } on DioException catch (e) {
       throw ErrorHandler.handleException(e);
@@ -268,27 +346,39 @@ class VerificationRemote {
 
   // ---- Async services (submit + poll) ----
 
-  Future<AsyncSubmitApiResult> submitDelinking(
-          {required String nin, required String email, required String pin}) =>
-      _postAsync(AppEndpoints.ninDelinking, {'nin': nin, 'email': email, 'pin': pin});
+  Future<AsyncSubmitApiResult> submitDelinking({
+    required String nin,
+    required String email,
+    required String pin,
+  }) => _postAsync(AppEndpoints.ninDelinking, {
+    'nin': nin,
+    'email': email,
+    'pin': pin,
+  });
 
   Future<AsyncStatusApiResult> checkDelinking(String ticketId) =>
       _getAsync(AppEndpoints.ninDelinkingStatus(ticketId));
 
-  Future<AsyncSubmitApiResult> submitNinValidation(
-          {required String nin, NinValidationType? validationType, required String pin}) =>
-      _postAsync(AppEndpoints.ninValidation, {
-        'nin': nin,
-        if (validationType != null) 'validation_type': validationType.apiValue,
-        'pin': pin,
-      });
+  Future<AsyncSubmitApiResult> submitNinValidation({
+    required String nin,
+    NinValidationType? validationType,
+    required String pin,
+  }) => _postAsync(AppEndpoints.ninValidation, {
+    'nin': nin,
+    if (validationType != null) 'validation_type': validationType.apiValue,
+    'pin': pin,
+  });
 
   Future<AsyncStatusApiResult> checkNinValidation(String ticketId) =>
       _getAsync(AppEndpoints.ninValidationStatus(ticketId));
 
-  Future<AsyncSubmitApiResult> submitPersonalization(
-          {required String trackingId, required String pin}) =>
-      _postAsync(AppEndpoints.ninPersonalization, {'tracking_id': trackingId, 'pin': pin});
+  Future<AsyncSubmitApiResult> submitPersonalization({
+    required String trackingId,
+    required String pin,
+  }) => _postAsync(AppEndpoints.ninPersonalization, {
+    'tracking_id': trackingId,
+    'pin': pin,
+  });
 
   Future<AsyncStatusApiResult> checkPersonalization(String ticketId) =>
       _getAsync(AppEndpoints.ninPersonalizationStatus(ticketId));
@@ -298,31 +388,40 @@ class VerificationRemote {
     required String lastName,
     required String phoneNumber,
     required String pin,
-  }) =>
-      _postAsync(AppEndpoints.bvnRetrieval, {
-        'first_name': firstName,
-        'last_name': lastName,
-        'phone_number': phoneNumber,
-        'pin': pin,
-      });
+  }) => _postAsync(AppEndpoints.bvnRetrieval, {
+    'first_name': firstName,
+    'last_name': lastName,
+    'phone_number': phoneNumber,
+    'pin': pin,
+  });
 
   Future<AsyncStatusApiResult> checkBvnRetrieval(String ticketId) =>
       _getAsync(AppEndpoints.bvnRetrievalStatus(ticketId));
 
-  Future<AsyncSubmitApiResult> submitIpeClearance(
-          {required String trackingId, required String pin}) =>
-      _postAsync(AppEndpoints.ipeClearance, {'tracking_id': trackingId, 'pin': pin});
+  Future<AsyncSubmitApiResult> submitIpeClearance({
+    required String trackingId,
+    required String pin,
+  }) => _postAsync(AppEndpoints.ipeClearance, {
+    'tracking_id': trackingId,
+    'pin': pin,
+  });
 
   Future<AsyncStatusApiResult> checkIpeClearance(String ticketId) =>
       _getAsync(AppEndpoints.ipeClearanceStatus(ticketId));
 
   Future<AsyncSubmitApiResult> _postAsync(
-      String endpoint, Map<String, dynamic> body) async {
+    String endpoint,
+    Map<String, dynamic> body,
+  ) async {
     try {
-      final response =
-          await _dio.post(endpoint, data: body, options: _idempotent);
+      final response = await _dio.post(
+        endpoint,
+        data: body,
+        options: _idempotent,
+      );
       return AsyncSubmitApiResult.fromJson(
-          response.data as Map<String, dynamic>);
+        response.data as Map<String, dynamic>,
+      );
     } on DioException catch (e) {
       throw ErrorHandler.handleException(e);
     }
@@ -332,7 +431,8 @@ class VerificationRemote {
     try {
       final response = await _dio.get(endpoint);
       return AsyncStatusApiResult.fromJson(
-          response.data as Map<String, dynamic>);
+        response.data as Map<String, dynamic>,
+      );
     } on DioException catch (e) {
       throw ErrorHandler.handleException(e);
     }
@@ -343,8 +443,13 @@ class VerificationRemote {
 
 final verificationPricesProvider =
     FutureProvider.autoDispose<Map<String, double>>((ref) {
-  return ref.read(verificationRemoteProvider).getPrices();
-});
+      return ref.read(verificationRemoteProvider).getPrices();
+    });
+
+final verificationHistoryProvider = FutureProvider.autoDispose
+    .family<List<VerificationHistoryItem>, String>((ref, service) {
+      return ref.read(verificationRemoteProvider).getHistory(service);
+    });
 
 // Screens read the price for their service directly:
 //   final prices = ref.watch(verificationPricesProvider);
@@ -404,7 +509,8 @@ class SlipFlowNotifier extends StateNotifier<SlipFlowState> {
 
 final slipFlowProvider =
     StateNotifierProvider.autoDispose<SlipFlowNotifier, SlipFlowState>(
-        (ref) => SlipFlowNotifier());
+      (ref) => SlipFlowNotifier(),
+    );
 
 // ── Async flow: submit + poll state ──────────────────────────
 
@@ -465,8 +571,7 @@ class AsyncFlowState {
 class AsyncFlowNotifier extends StateNotifier<AsyncFlowState> {
   AsyncFlowNotifier() : super(const AsyncFlowState());
 
-  Future<bool> submit(
-      Future<AsyncSubmitApiResult> Function() call) async {
+  Future<bool> submit(Future<AsyncSubmitApiResult> Function() call) async {
     state = state.copyWith(isSubmitting: true, clearError: true);
     try {
       final result = await call();
@@ -488,7 +593,8 @@ class AsyncFlowNotifier extends StateNotifier<AsyncFlowState> {
   /// button) — the ticket is server-side authoritative, so a single check is
   /// cheap and safe to call repeatedly.
   Future<void> checkStatus(
-      Future<AsyncStatusApiResult> Function(String ticketId) call) async {
+    Future<AsyncStatusApiResult> Function(String ticketId) call,
+  ) async {
     final ticketId = state.ticketId;
     if (ticketId == null || state.isSettled) return;
     state = state.copyWith(isPolling: true, clearError: true);
@@ -509,4 +615,5 @@ class AsyncFlowNotifier extends StateNotifier<AsyncFlowState> {
 
 final asyncFlowProvider =
     StateNotifierProvider.autoDispose<AsyncFlowNotifier, AsyncFlowState>(
-        (ref) => AsyncFlowNotifier());
+      (ref) => AsyncFlowNotifier(),
+    );

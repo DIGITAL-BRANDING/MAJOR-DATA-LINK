@@ -31,7 +31,9 @@ class _NinPersonalizationScreenState
   }
 
   @override
-  Future<void> checkStatus() => ref.read(asyncFlowProvider.notifier).checkStatus(
+  Future<void> checkStatus() => ref
+      .read(asyncFlowProvider.notifier)
+      .checkStatus(
         (id) => ref.read(verificationRemoteProvider).checkPersonalization(id),
       );
 
@@ -45,8 +47,12 @@ class _NinPersonalizationScreenState
     );
     if (pin == null || !mounted) return;
 
-    final ok = await ref.read(asyncFlowProvider.notifier).submit(
-          () => ref.read(verificationRemoteProvider).submitPersonalization(
+    final ok = await ref
+        .read(asyncFlowProvider.notifier)
+        .submit(
+          () => ref
+              .read(verificationRemoteProvider)
+              .submitPersonalization(
                 trackingId: _trackingIdController.text.trim(),
                 pin: pin,
               ),
@@ -123,6 +129,8 @@ class _NinPersonalizationScreenState
                       stopPolling();
                     },
                   ),
+                const SizedBox(height: 24),
+                const VerificationHistoryCard(service: 'NIN_PERSONALIZATION'),
               ],
             ),
           ),

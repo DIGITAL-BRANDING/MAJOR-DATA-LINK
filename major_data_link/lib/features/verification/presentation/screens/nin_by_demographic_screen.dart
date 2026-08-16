@@ -18,8 +18,7 @@ class NinByDemographicScreen extends ConsumerStatefulWidget {
       _NinByDemographicScreenState();
 }
 
-class _NinByDemographicScreenState
-    extends ConsumerState<NinByDemographicScreen>
+class _NinByDemographicScreenState extends ConsumerState<NinByDemographicScreen>
     with SecureScreenMixin {
   final _firstNameController = TextEditingController();
   final _lastNameController = TextEditingController();
@@ -60,8 +59,12 @@ class _NinByDemographicScreenState
     );
     if (pin == null || !mounted) return;
 
-    await ref.read(slipFlowProvider.notifier).submit(
-          () => ref.read(verificationRemoteProvider).ninByDemographic(
+    await ref
+        .read(slipFlowProvider.notifier)
+        .submit(
+          () => ref
+              .read(verificationRemoteProvider)
+              .ninByDemographic(
                 firstname: _firstNameController.text.trim(),
                 lastname: _lastNameController.text.trim(),
                 dob: _dobController.text.trim(),
@@ -157,6 +160,8 @@ class _NinByDemographicScreenState
                   isLoading: state.isSubmitting,
                   onPressed: () => _submit(price),
                 ),
+                const SizedBox(height: 24),
+                const VerificationHistoryCard(service: 'NIN_DEMOGRAPHIC'),
               ],
             ),
           ),

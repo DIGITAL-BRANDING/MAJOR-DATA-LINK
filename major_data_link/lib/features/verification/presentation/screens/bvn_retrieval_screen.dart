@@ -15,8 +15,7 @@ import '../widgets/verification_result_cards.dart';
 class BvnRetrievalScreen extends ConsumerStatefulWidget {
   const BvnRetrievalScreen({super.key});
   @override
-  ConsumerState<BvnRetrievalScreen> createState() =>
-      _BvnRetrievalScreenState();
+  ConsumerState<BvnRetrievalScreen> createState() => _BvnRetrievalScreenState();
 }
 
 class _BvnRetrievalScreenState extends ConsumerState<BvnRetrievalScreen>
@@ -35,7 +34,9 @@ class _BvnRetrievalScreenState extends ConsumerState<BvnRetrievalScreen>
   }
 
   @override
-  Future<void> checkStatus() => ref.read(asyncFlowProvider.notifier).checkStatus(
+  Future<void> checkStatus() => ref
+      .read(asyncFlowProvider.notifier)
+      .checkStatus(
         (id) => ref.read(verificationRemoteProvider).checkBvnRetrieval(id),
       );
 
@@ -49,8 +50,12 @@ class _BvnRetrievalScreenState extends ConsumerState<BvnRetrievalScreen>
     );
     if (pin == null || !mounted) return;
 
-    final ok = await ref.read(asyncFlowProvider.notifier).submit(
-          () => ref.read(verificationRemoteProvider).submitBvnRetrieval(
+    final ok = await ref
+        .read(asyncFlowProvider.notifier)
+        .submit(
+          () => ref
+              .read(verificationRemoteProvider)
+              .submitBvnRetrieval(
                 firstName: _firstNameController.text.trim(),
                 lastName: _lastNameController.text.trim(),
                 phoneNumber: _phoneController.text.trim(),
@@ -113,7 +118,8 @@ class _BvnRetrievalScreenState extends ConsumerState<BvnRetrievalScreen>
                     FilteringTextInputFormatter.digitsOnly,
                     LengthLimitingTextInputFormatter(11),
                   ],
-                  validator: (v) => (v == null || !v.trim().isValidNigerianPhone)
+                  validator: (v) =>
+                      (v == null || !v.trim().isValidNigerianPhone)
                       ? 'Enter a valid 11-digit phone number'
                       : null,
                 ),
@@ -154,6 +160,8 @@ class _BvnRetrievalScreenState extends ConsumerState<BvnRetrievalScreen>
                       stopPolling();
                     },
                   ),
+                const SizedBox(height: 24),
+                const VerificationHistoryCard(service: 'BVN_RETRIEVAL'),
               ],
             ),
           ),

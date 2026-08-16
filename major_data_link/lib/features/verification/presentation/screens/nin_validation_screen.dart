@@ -33,7 +33,9 @@ class _NinValidationScreenState extends ConsumerState<NinValidationScreen>
   }
 
   @override
-  Future<void> checkStatus() => ref.read(asyncFlowProvider.notifier).checkStatus(
+  Future<void> checkStatus() => ref
+      .read(asyncFlowProvider.notifier)
+      .checkStatus(
         (id) => ref.read(verificationRemoteProvider).checkNinValidation(id),
       );
 
@@ -47,8 +49,12 @@ class _NinValidationScreenState extends ConsumerState<NinValidationScreen>
     );
     if (pin == null || !mounted) return;
 
-    final ok = await ref.read(asyncFlowProvider.notifier).submit(
-          () => ref.read(verificationRemoteProvider).submitNinValidation(
+    final ok = await ref
+        .read(asyncFlowProvider.notifier)
+        .submit(
+          () => ref
+              .read(verificationRemoteProvider)
+              .submitNinValidation(
                 nin: _ninController.text.trim(),
                 validationType: _type,
                 pin: pin,
@@ -111,11 +117,14 @@ class _NinValidationScreenState extends ConsumerState<NinValidationScreen>
                       borderSide: BorderSide.none,
                     ),
                     contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 14),
+                      horizontal: 16,
+                      vertical: 14,
+                    ),
                   ),
                   items: NinValidationType.values
-                      .map((t) =>
-                          DropdownMenuItem(value: t, child: Text(t.label)))
+                      .map(
+                        (t) => DropdownMenuItem(value: t, child: Text(t.label)),
+                      )
                       .toList(),
                   onChanged: locked
                       ? null
@@ -158,6 +167,8 @@ class _NinValidationScreenState extends ConsumerState<NinValidationScreen>
                       stopPolling();
                     },
                   ),
+                const SizedBox(height: 24),
+                const VerificationHistoryCard(service: 'NIN_VALIDATION'),
               ],
             ),
           ),

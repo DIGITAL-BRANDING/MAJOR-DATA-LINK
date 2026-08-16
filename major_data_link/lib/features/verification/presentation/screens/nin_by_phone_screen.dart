@@ -48,8 +48,12 @@ class _NinByPhoneScreenState extends ConsumerState<NinByPhoneScreen>
     );
     if (pin == null || !mounted) return;
 
-    await ref.read(slipFlowProvider.notifier).submit(
-          () => ref.read(verificationRemoteProvider).ninByPhone(
+    await ref
+        .read(slipFlowProvider.notifier)
+        .submit(
+          () => ref
+              .read(verificationRemoteProvider)
+              .ninByPhone(
                 phone: _phoneController.text.trim(),
                 tier: _tier,
                 pin: pin,
@@ -126,6 +130,8 @@ class _NinByPhoneScreenState extends ConsumerState<NinByPhoneScreen>
                   isLoading: state.isSubmitting,
                   onPressed: () => _submit(price),
                 ),
+                const SizedBox(height: 24),
+                VerificationHistoryCard(service: _priceKeyFor[_tier]!.key),
               ],
             ),
           ),

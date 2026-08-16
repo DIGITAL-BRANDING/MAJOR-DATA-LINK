@@ -47,12 +47,12 @@ class _NinByNinScreenState extends ConsumerState<NinByNinScreen>
     );
     if (pin == null || !mounted) return;
 
-    await ref.read(slipFlowProvider.notifier).submit(
-          () => ref.read(verificationRemoteProvider).ninByNin(
-                nin: _ninController.text.trim(),
-                tier: _tier,
-                pin: pin,
-              ),
+    await ref
+        .read(slipFlowProvider.notifier)
+        .submit(
+          () => ref
+              .read(verificationRemoteProvider)
+              .ninByNin(nin: _ninController.text.trim(), tier: _tier, pin: pin),
         );
   }
 
@@ -126,6 +126,8 @@ class _NinByNinScreenState extends ConsumerState<NinByNinScreen>
                   isLoading: state.isSubmitting,
                   onPressed: () => _submit(price),
                 ),
+                const SizedBox(height: 24),
+                VerificationHistoryCard(service: _priceKeyFor[_tier]!.key),
               ],
             ),
           ),

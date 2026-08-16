@@ -472,6 +472,12 @@ function SlipResultView({ result, message, onDone }: { result: SlipResult; messa
         </a>
       )}
 
+      {!pdfHref && (
+        <p className="mt-4 rounded-xl border border-gold-500/30 bg-gold-500/10 p-3 font-body text-sm text-ink-600">
+          The provider confirmed this request, but did not return a downloadable PDF. Keep the reference above and contact support; do not submit or pay for the request again.
+        </p>
+      )}
+
       <button onClick={onDone} className="mt-3 w-full rounded-xl border border-parchment-line py-2.5 font-body text-sm text-ink-600">
         Done
       </button>

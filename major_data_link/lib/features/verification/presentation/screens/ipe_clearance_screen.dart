@@ -14,8 +14,7 @@ import '../widgets/verification_result_cards.dart';
 class IpeClearanceScreen extends ConsumerStatefulWidget {
   const IpeClearanceScreen({super.key});
   @override
-  ConsumerState<IpeClearanceScreen> createState() =>
-      _IpeClearanceScreenState();
+  ConsumerState<IpeClearanceScreen> createState() => _IpeClearanceScreenState();
 }
 
 class _IpeClearanceScreenState extends ConsumerState<IpeClearanceScreen>
@@ -30,7 +29,9 @@ class _IpeClearanceScreenState extends ConsumerState<IpeClearanceScreen>
   }
 
   @override
-  Future<void> checkStatus() => ref.read(asyncFlowProvider.notifier).checkStatus(
+  Future<void> checkStatus() => ref
+      .read(asyncFlowProvider.notifier)
+      .checkStatus(
         (id) => ref.read(verificationRemoteProvider).checkIpeClearance(id),
       );
 
@@ -44,8 +45,12 @@ class _IpeClearanceScreenState extends ConsumerState<IpeClearanceScreen>
     );
     if (pin == null || !mounted) return;
 
-    final ok = await ref.read(asyncFlowProvider.notifier).submit(
-          () => ref.read(verificationRemoteProvider).submitIpeClearance(
+    final ok = await ref
+        .read(asyncFlowProvider.notifier)
+        .submit(
+          () => ref
+              .read(verificationRemoteProvider)
+              .submitIpeClearance(
                 trackingId: _trackingIdController.text.trim(),
                 pin: pin,
               ),
@@ -126,6 +131,8 @@ class _IpeClearanceScreenState extends ConsumerState<IpeClearanceScreen>
                       stopPolling();
                     },
                   ),
+                const SizedBox(height: 24),
+                const VerificationHistoryCard(service: 'IPE_CLEARANCE'),
               ],
             ),
           ),

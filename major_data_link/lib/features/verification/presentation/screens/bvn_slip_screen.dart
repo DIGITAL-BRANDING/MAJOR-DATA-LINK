@@ -45,12 +45,12 @@ class _BvnSlipScreenState extends ConsumerState<BvnSlipScreen>
     );
     if (pin == null || !mounted) return;
 
-    await ref.read(slipFlowProvider.notifier).submit(
-          () => ref.read(verificationRemoteProvider).bvnSlip(
-                bvn: _bvnController.text.trim(),
-                tier: _tier,
-                pin: pin,
-              ),
+    await ref
+        .read(slipFlowProvider.notifier)
+        .submit(
+          () => ref
+              .read(verificationRemoteProvider)
+              .bvnSlip(bvn: _bvnController.text.trim(), tier: _tier, pin: pin),
         );
   }
 
@@ -119,6 +119,8 @@ class _BvnSlipScreenState extends ConsumerState<BvnSlipScreen>
                   isLoading: state.isSubmitting,
                   onPressed: () => _submit(price),
                 ),
+                const SizedBox(height: 24),
+                VerificationHistoryCard(service: _priceKeyFor[_tier]!.key),
               ],
             ),
           ),

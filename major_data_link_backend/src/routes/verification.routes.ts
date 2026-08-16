@@ -98,14 +98,32 @@ verificationRoutes.get('/history', async (req, res) => {
     .map((transaction) => {
       const metadata = transaction.metadata as Record<string, unknown> | null;
       const pii = decryptTransactionPII(metadata);
+      // Older successful Techhub responses stored the provider payload under
+      // `user_data`, including its own `pdf_base64`.  Read that nested shape
+      // too, so an already-paid slip can be recovered without another call.
+      const userData = pii?.user_data as Record<string, unknown> | undefined;
+      const pdfBase64 =
+        typeof pii?.pdf_base64 === 'string' && pii.pdf_base64.trim().length > 0
+          ? pii.pdf_base64
+          : typeof userData?.pdf_base64 === 'string' && userData.pdf_base64.trim().length > 0
+            ? userData.pdf_base64
+            : null;
+      const pdfUrl =
+        typeof pii?.pdf_url === 'string' && pii.pdf_url.trim().length > 0
+          ? pii.pdf_url
+          : typeof userData?.pdf_url === 'string' && userData.pdf_url.trim().length > 0
+            ? userData.pdf_url
+            : typeof userData?.slip_url === 'string' && userData.slip_url.trim().length > 0
+              ? userData.slip_url
+              : null;
       return {
         reference: transaction.reference,
         status: transaction.status.toLowerCase(),
         created_at: transaction.createdAt.toISOString(),
         // Do not return identity details here. The PDF itself is the
         // retrievable document and the rest remains sealed in storage.
-        pdf_base64: typeof pii?.pdf_base64 === 'string' ? pii.pdf_base64 : null,
-        pdf_url: typeof pii?.pdf_url === 'string' ? pii.pdf_url : null,
+        pdf_base64: pdfBase64,
+        pdf_url: pdfUrl,
         ticket_id: typeof metadata?.ticket_id === 'string' ? metadata.ticket_id : null
       };
     });
