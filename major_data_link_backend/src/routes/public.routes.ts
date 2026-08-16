@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { getResultPinPrice, type ExamPinType } from '../services/result-pin.service.js';
 import { listVerificationPrices } from '../services/verification.service.js';
+import { getAppConfig } from '../services/app-config.service.js';
 
 export const publicRoutes = Router();
 
@@ -45,5 +46,26 @@ publicRoutes.get('/verification-prices', async (_req, res) => {
   res.json({
     status: true,
     data: prices.filter((p) => p.isActive).map((p) => ({ service: p.service, label: p.label, unit_price: p.unitPrice }))
+  });
+});
+
+/**
+ * Read by the Flutter app's splash screen on every cold start, BEFORE any
+ * auth/onboarding check - deliberately public (no requireAuth) since a
+ * signed-out user on an outdated APK must still be told to update. See the
+ * AppConfig Prisma model's doc comment for why this exists: an old client
+ * calling a purchase endpoint that now requires `pin` gets a raw, confusing
+ * ZodError instead of ever finding out it just needs to update.
+ */
+publicRoutes.get('/app-config', async (_req, res) => {
+  const config = await getAppConfig();
+  res.json({
+    status: true,
+    data: {
+      min_android_version: config.minAndroidVersion,
+      latest_android_version: config.latestAndroidVersion,
+      android_download_url: config.androidDownloadUrl,
+      update_message: config.updateMessage
+    }
   });
 });

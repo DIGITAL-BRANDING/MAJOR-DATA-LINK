@@ -5,9 +5,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../../../core/config/app_config.dart';
 import '../../../../core/config/app_endpoints.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/di/injection.dart';
+import '../../../verification/utils/slip_pdf_utils.dart';
 import '../../../../shared/widgets/pin_confirmation_sheet.dart';
 
 /// A deterministic, transaction-safe service assistant.
@@ -23,9 +25,25 @@ class MajorAiAssistantScreen extends ConsumerStatefulWidget {
 
 enum _Language { choose, hausa, english }
 
-enum _Task { choose, data, airtime, fund }
+enum _Task { choose, data, airtime, fund, generic }
 
-enum _Step { language, task, network, dataType, phone, plan, amount, review, done }
+enum _Step {
+  language,
+  task,
+  network,
+  dataType,
+  phone,
+  plan,
+  amount,
+  review,
+  // Generic config-driven flow, used by every workflow beyond data/airtime
+  // (result checker PIN, NIN/BVN verification, ...): fields are collected
+  // one at a time straight from what /assistant/workflows declares, so a
+  // new service only ever needs a backend config entry, never a new Step.
+  genericField,
+  genericReview,
+  done,
+}
 
 class _MajorAiAssistantScreenState
     extends ConsumerState<MajorAiAssistantScreen> {
@@ -42,6 +60,14 @@ class _MajorAiAssistantScreenState
   List<Map<String, dynamic>> _plans = const [];
   Map<String, dynamic>? _plan;
   bool _busy = false;
+
+  // Generic config-driven flow state (result checker, NIN/BVN verification).
+  List<Map<String, dynamic>> _allWorkflows = const [];
+  Map<String, dynamic>? _activeWorkflow;
+  final Map<String, dynamic> _collected = {};
+  int _fieldIndex = 0;
+  num? _genericPrice;
+  String? _genericTicketId;
 
   bool get _hausa => _language == _Language.hausa;
   String get _t => _hausa ? 'MAJOR Mataimaki' : 'MAJOR Assistant';
@@ -120,6 +146,8 @@ class _MajorAiAssistantScreenState
           tr('Buy Data', 'Siyan Data'),
           tr('Buy Airtime', 'Siyan Airtime'),
           tr('Fund Wallet', 'Cika Wallet'),
+          tr('Result Checker PIN', 'Result Checker PIN'),
+          tr('NIN / BVN Verification', 'NIN / BVN Verification'),
         ],
       );
     } else if (_step == _Step.task) {
@@ -181,6 +209,15 @@ class _MajorAiAssistantScreenState
       final fields = parsed?['fields'] as Map<String, dynamic>? ?? const {};
       final workflow = parsed?['workflow']?.toString();
       if (workflow != null && workflow != 'data' && workflow != 'airtime') {
+        final workflows = await _ensureWorkflows();
+        final match = workflows.cast<Map<String, dynamic>?>().firstWhere(
+              (w) => w != null && w['id'] == workflow,
+              orElse: () => null,
+            );
+        if (match != null && match['status'] == 'active') {
+          await _startGenericWorkflow(match);
+          return;
+        }
         _bot(
           tr(
             'I recognise that service, but its secure purchase workflow is not active yet. Please use its service page for now.',
@@ -366,6 +403,16 @@ class _MajorAiAssistantScreenState
           normalized.contains('i') ||
           normalized.contains('confirm'))
         await _confirmPurchase();
+      else {
+        _reset();
+      }
+    } else if (_step == _Step.genericField) {
+      await _handleGenericFieldAnswer(text, normalized);
+    } else if (_step == _Step.genericReview) {
+      if (normalized.contains('yes') ||
+          normalized.contains('eh') ||
+          normalized.contains('confirm'))
+        await _confirmGenericPurchase();
       else {
         _reset();
       }
@@ -601,6 +648,419 @@ class _MajorAiAssistantScreenState
     }
   }
 
+  // ── Generic config-driven flow ──────────────────────────────────────
+  // Drives result checker PIN + all NIN/BVN verification services from the
+  // single source of truth at GET /assistant/workflows, instead of a
+  // hardcoded Step per service. A new service becomes chat-usable purely by
+  // adding a backend config entry - see assistant-workflow.service.ts.
+
+  Future<List<Map<String, dynamic>>> _ensureWorkflows() async {
+    if (_allWorkflows.isNotEmpty) return _allWorkflows;
+    try {
+      final response =
+          await ref.read(dioClientProvider).get(AppEndpoints.assistantWorkflows);
+      _allWorkflows =
+          ((response.data['data'] ?? []) as List).cast<Map<String, dynamic>>();
+    } on DioException {
+      // Leave empty - callers fall back to the "not active yet" message.
+    }
+    return _allWorkflows;
+  }
+
+  /// Absolute URL from a server-declared path like "/api/verification/...".
+  /// AppEndpoints helpers build on AppConfig.baseUrl, which already ends in
+  /// "/api" - reusing just its origin here avoids a doubled "/api/api/...".
+  String _absoluteFor(String apiPath) {
+    final origin = Uri.parse(AppConfig.baseUrl);
+    return '${origin.scheme}://${origin.authority}$apiPath';
+  }
+
+  Future<void> _startGenericWorkflow(
+    Map<String, dynamic> workflow, {
+    Map<String, dynamic> prefill = const {},
+  }) async {
+    setState(() {
+      _task = _Task.generic;
+      _activeWorkflow = workflow;
+      _collected
+        ..clear()
+        ..addAll(prefill);
+      _fieldIndex = 0;
+      _genericPrice = null;
+      _genericTicketId = null;
+      _step = _Step.genericField;
+    });
+    await _askNextGenericField();
+  }
+
+  Future<void> _askNextGenericField() async {
+    final fields =
+        (_activeWorkflow!['fields'] as List).cast<Map<String, dynamic>>();
+    while (_fieldIndex < fields.length &&
+        _collected.containsKey(fields[_fieldIndex]['key'])) {
+      _fieldIndex++;
+    }
+    if (_fieldIndex >= fields.length) {
+      await _genericReview();
+      return;
+    }
+    final field = fields[_fieldIndex];
+    final label = tr(field['label'] as String, field['labelHa'] as String);
+    final optional = field['required'] == false;
+    final options = (field['options'] as List?)?.cast<Map<String, dynamic>>();
+    _bot(
+      optional
+          ? '$label\n${tr('(optional - reply "skip" to leave it out)', '(ba tilas ba - rubuta "skip" idan ba ka so)')}'
+          : label,
+      options: options != null
+          ? options
+              .map((o) => tr(o['label'] as String, o['labelHa'] as String))
+              .toList()
+          : const [],
+    );
+  }
+
+  Future<void> _handleGenericFieldAnswer(String raw, String normalized) async {
+    final fields =
+        (_activeWorkflow!['fields'] as List).cast<Map<String, dynamic>>();
+    final field = fields[_fieldIndex];
+    final key = field['key'] as String;
+    final input = field['input'] as String;
+    final required = field['required'] == true;
+
+    if (!required && (normalized == 'skip' || normalized == 'tsallake')) {
+      setState(() => _fieldIndex++);
+      await _askNextGenericField();
+      return;
+    }
+
+    String? error;
+    dynamic value;
+    switch (input) {
+      case 'phone':
+        {
+          final digits = raw.replaceAll(RegExp(r'\D'), '');
+          if (digits.length != 11 || !digits.startsWith('0')) {
+            error = tr('Please enter a valid 11-digit Nigerian number.',
+                'Don Allah rubuta ingantacciyar lamba mai digit 11.');
+          }
+          value = digits;
+          break;
+        }
+      case 'nin':
+        {
+          final digits = raw.replaceAll(RegExp(r'\D'), '');
+          if (digits.length != 11) {
+            error = tr('NIN must be exactly 11 digits.',
+                'NIN dole ya kasance digit 11.');
+          }
+          value = digits;
+          break;
+        }
+      case 'bvn':
+        {
+          final digits = raw.replaceAll(RegExp(r'\D'), '');
+          if (digits.length != 11) {
+            error = tr('BVN must be exactly 11 digits.',
+                'BVN dole ya kasance digit 11.');
+          }
+          value = digits;
+          break;
+        }
+      case 'email':
+        {
+          if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(raw.trim())) {
+            error = tr('Please enter a valid email address.',
+                'Don Allah rubuta ingantaccen adireshin email.');
+          }
+          value = raw.trim();
+          break;
+        }
+      case 'quantity':
+        {
+          final quantity = int.tryParse(raw.trim());
+          if (quantity == null || quantity < 1 || quantity > 10) {
+            error = tr('Enter a quantity between 1 and 10.',
+                'Rubuta adadi tsakanin 1 zuwa 10.');
+          }
+          value = quantity;
+          break;
+        }
+      case 'select':
+        {
+          final options = (field['options'] as List).cast<Map<String, dynamic>>();
+          final match = options.firstWhere(
+            (o) =>
+                normalized.contains((o['label'] as String).toLowerCase()) ||
+                normalized.contains((o['value'] as String).toLowerCase()) ||
+                normalized.contains((o['labelHa'] as String).toLowerCase()),
+            orElse: () => const {},
+          );
+          if (match.isEmpty) {
+            error = tr('Please choose one of the listed options.',
+                'Zaɓi ɗaya daga cikin zaɓuɓɓukan da aka jera.');
+          } else {
+            value = match['value'];
+          }
+          break;
+        }
+      default:
+        {
+          if (raw.trim().isEmpty) {
+            error = tr('This cannot be empty. Please try again.',
+                'Wannan ba zai iya zama fanko ba. Sake gwadawa.');
+          }
+          value = raw.trim();
+        }
+    }
+
+    if (error != null) {
+      _bot(error);
+      return;
+    }
+
+    setState(() {
+      _collected[key] = value;
+      _fieldIndex++;
+    });
+    await _askNextGenericField();
+  }
+
+  Future<void> _genericReview() async {
+    setState(() => _busy = true);
+    try {
+      final workflow = _activeWorkflow!;
+      final priceMode = workflow['priceMode'] as String;
+      num unitPrice = 0;
+      if (priceMode == 'result') {
+        final exam = (_collected['examType'] as String).toLowerCase();
+        final response = await ref
+            .read(dioClientProvider)
+            .get(AppEndpoints.resultPrice(exam));
+        final data = (response.data['data'] ?? response.data) as Map;
+        unitPrice = _number(data['unitPrice'] ?? data['unit_price']);
+      } else if (priceMode == 'verification') {
+        final template = workflow['priceServiceKeyTemplate'] as String?;
+        if (template != null) {
+          final key = template.replaceAllMapped(
+            RegExp(r'\{(\w+)\}'),
+            (m) => '${_collected[m.group(1)]}'.toUpperCase(),
+          );
+          final response = await ref
+              .read(dioClientProvider)
+              .get(AppEndpoints.verificationPrices);
+          final rows =
+              ((response.data['data'] ?? []) as List).cast<Map<String, dynamic>>();
+          final row = rows.cast<Map<String, dynamic>?>().firstWhere(
+                (r) => r != null && r['service'] == key,
+                orElse: () => null,
+              );
+          unitPrice =
+              row == null ? 0 : _number(row['unitPrice'] ?? row['unit_price']);
+        }
+      }
+      final quantity =
+          _collected['quantity'] is int ? _collected['quantity'] as int : 1;
+      final total = unitPrice * quantity;
+
+      final walletResponse =
+          await ref.read(dioClientProvider).get(AppEndpoints.walletBalance);
+      final wallet = walletResponse.data['data'] ?? walletResponse.data;
+      final balance = _number(wallet['balance'] ?? wallet['total_balance']);
+      if (total > 0 && balance < total) {
+        _bot(tr(
+          'Your wallet balance is ₦${balance.toStringAsFixed(0)}, but this needs ₦${total.toStringAsFixed(0)}. Please fund your wallet first.',
+          'Wallet ɗinka yana da ₦${balance.toStringAsFixed(0)}, amma wannan na bukatar ₦${total.toStringAsFixed(0)}. Da fatan ka cika wallet ɗin ka farko.',
+        ));
+        _reset(keepMessages: true);
+        return;
+      }
+
+      _genericPrice = total;
+      final title = tr(workflow['title'] as String, workflow['titleHa'] as String);
+      final summary = _collected.entries
+          .map((e) => '${e.key}: ${e.value}')
+          .join('\n');
+      _bot(
+        total > 0
+            ? tr(
+                'Summary: $title\n$summary\n\nPrice: ₦${total.toStringAsFixed(0)}. Wallet balance: ₦${balance.toStringAsFixed(0)}.\n\nProceed?',
+                'Takaitawa: $title\n$summary\n\nKuɗi: ₦${total.toStringAsFixed(0)}. Wallet: ₦${balance.toStringAsFixed(0)}.\n\nA ci gaba?',
+              )
+            : tr(
+                'Summary: $title\n$summary\n\nProceed?',
+                'Takaitawa: $title\n$summary\n\nA ci gaba?',
+              ),
+        options: [tr('Yes, confirm', 'Eh, tabbatar'), tr('No, start again', 'A’a, a fara kuma')],
+      );
+      setState(() => _step = _Step.genericReview);
+    } on DioException {
+      _bot(tr(
+        'I could not check pricing or your wallet right now. Please try again.',
+        'Ba a iya duba farashi ko wallet ɗinka yanzu ba. Sake gwadawa.',
+      ));
+      _reset(keepMessages: true);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _confirmGenericPurchase() async {
+    final pin = await showPinConfirmationSheet(
+      context: context,
+      ref: ref,
+      title: tr('Confirm request', 'Tabbatar da buƙata'),
+      subtitle: tr(
+        'Use your transaction PIN. Your PIN is never sent in this chat.',
+        'Yi amfani da transaction PIN. Ba a taɓa aika PIN ɗinka a chat ba.',
+      ),
+    );
+    if (pin == null) {
+      _bot(tr(
+        'Cancelled. Your wallet was not charged.',
+        'An soke. Ba a cire kuɗi daga wallet ba.',
+      ));
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      final dio = ref.read(dioClientProvider);
+      final workflow = _activeWorkflow!;
+      final isAsync = workflow['async'] == true;
+      final body = Map<String, dynamic>.from(_collected)
+        ..remove('examType')
+        ..['pin'] = pin;
+
+      if (isAsync) {
+        final endpoint = workflow['submitEndpoint'] as String;
+        final response = await dio.post(
+          _absoluteFor(endpoint),
+          data: body,
+          options: Options(headers: {'Idempotency-Key': const Uuid().v4()}),
+        );
+        final ticketId =
+            (response.data['data'] as Map?)?['ticket_id']?.toString();
+        unawaited(_audit(stage: 'submit', outcome: 'waiting', transactionRef: ticketId));
+        if (ticketId == null) {
+          _bot(tr(
+            'Your request was submitted, but I could not track its status. Please check Transactions for updates.',
+            'An aika buƙatarka, amma ban iya bin diddigin matsayinta ba. Duba Transactions don sabuntawa.',
+          ));
+          _reset(keepMessages: true);
+          return;
+        }
+        _genericTicketId = ticketId;
+        _bot(tr(
+          'Submitted! Reference: $ticketId. I will keep checking and let you know as soon as it is ready.',
+          'An aika! Reference: $ticketId. Zan cigaba da duba har sai ya shirya.',
+        ));
+        await _pollGenericTicket(workflow['statusEndpoint'] as String, ticketId);
+      } else {
+        final endpoint = (workflow['purchaseEndpoint'] as String).replaceAll(
+          ':examType',
+          (_collected['examType'] as String? ?? '').toLowerCase(),
+        );
+        final response = await dio.post(
+          _absoluteFor(endpoint),
+          data: body,
+          options: Options(headers: {'Idempotency-Key': const Uuid().v4()}),
+        );
+        final ok = response.data['status'] == true ||
+            response.data['status'] == 'success';
+        final resultData = (response.data['data'] as Map?) ?? const {};
+        unawaited(_audit(
+          stage: 'purchase',
+          outcome: ok ? 'success' : 'failed',
+          transactionRef: (response.data['data'] as Map?)?['reference']?.toString(),
+        ));
+        final resultPin = resultData['pin']?.toString();
+        final pdfBase64 = resultData['pdf_base64']?.toString();
+        if (ok && pdfBase64 != null && pdfBase64.isNotEmpty) {
+          // Deliver the provider's already-generated document immediately;
+          // do not make the customer repeat or pay for the request.
+          await SlipPdfUtils.share(
+            pdfBase64.replaceFirst(
+              RegExp(r'^data:application/pdf;base64,', caseSensitive: false),
+              '',
+            ),
+            resultData['reference']?.toString() ?? 'verification-slip',
+          );
+        }
+        _bot(
+          ok
+              ? tr(
+                  'Done! ${response.data['message'] ?? 'Your request was successful.'}${resultPin == null ? '' : '\n\nYour PIN: $resultPin'}${pdfBase64 == null || pdfBase64.isEmpty ? '' : '\n\nYour PDF has opened for saving/sharing.'}',
+                  'An gama! ${response.data['message'] ?? 'Buƙatarka ta yi nasara.'}${resultPin == null ? '' : '\n\nPIN ɗinka: $resultPin'}${pdfBase64 == null || pdfBase64.isEmpty ? '' : '\n\nAn buɗe PDF ɗinka domin a adana ko a tura shi.'}',
+                )
+              : tr(
+                  '${response.data['message'] ?? 'Request failed.'} Your wallet has not been charged for a failed request.',
+                  '${response.data['message'] ?? 'Ya gaza.'} Ba za a cire maka kuɗi ba idan ya gaza.',
+                ),
+        );
+        _reset(keepMessages: true);
+      }
+    } on DioException catch (e) {
+      unawaited(_audit(stage: 'purchase', outcome: 'failed', errorCode: 'PURCHASE_ERROR'));
+      _bot(tr(
+        e.response?.data?['message']?.toString() ?? 'Request failed. Please try again.',
+        e.response?.data?['message']?.toString() ?? 'Ya gaza. Sake gwadawa.',
+      ));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// Polls an async verification ticket from inside the chat, same status
+  /// values as the dedicated screens' asyncFlowProvider ('pending' /
+  /// 'success' / 'failed' - see checkDelinkingStatus() etc in the backend's
+  /// verification.service.ts). Chat has no persistent background task, so
+  /// this only tracks the ticket while this screen stays open; the full
+  /// result is always still visible under Transactions regardless.
+  Future<void> _pollGenericTicket(String statusTemplate, String ticketId) async {
+    final endpoint = statusTemplate.replaceAll(':ticketId', ticketId);
+    const maxAttempts = 20;
+    const interval = Duration(seconds: 6);
+    for (var attempt = 0; attempt < maxAttempts; attempt++) {
+      await Future.delayed(interval);
+      if (!mounted) return;
+      try {
+        final response =
+            await ref.read(dioClientProvider).get(_absoluteFor(endpoint));
+        final data = (response.data['data'] as Map?) ?? const {};
+        final status = data['status']?.toString().toLowerCase();
+        if (status == 'success') {
+          _bot(tr(
+            'Your request ($ticketId) is complete. Check Transactions for the full result.',
+            'Buƙatarka ($ticketId) ta shirya. Duba Transactions don cikakken sakamako.',
+          ));
+          _reset(keepMessages: true);
+          return;
+        }
+        if (status == 'failed') {
+          _bot(tr(
+            'Your request ($ticketId) could not be completed. Any charge has been refunded - check Transactions, or contact support if unsure.',
+            'Ba a iya kammala buƙatar ($ticketId) ba. An mayar da duk wani caji - duba Transactions, ko tuntuɓi support idan ba ka tabbata ba.',
+          ));
+          _reset(keepMessages: true);
+          return;
+        }
+        if (attempt == 4) {
+          _bot(tr(
+            'Still processing $ticketId… I will keep watching.',
+            'Ana ci gaba da aiwatar da $ticketId… Zan ci gaba da bibiya.',
+          ));
+        }
+      } on DioException {
+        // Transient network hiccup - keep trying on the next interval.
+      }
+    }
+    _bot(tr(
+      'This is taking longer than usual. $ticketId is still processing - check Transactions for updates, or contact support.',
+      'Wannan yana ɗaukar lokaci fiye da yadda aka saba. $ticketId har yanzu ana aiwatar da shi - duba Transactions, ko tuntuɓi support.',
+    ));
+    _reset(keepMessages: true);
+  }
+
   void _reset({bool keepMessages = false}) {
     setState(() {
       _task = _Task.choose;
@@ -610,6 +1070,11 @@ class _MajorAiAssistantScreenState
       _amount = null;
       _plan = null;
       _plans = const [];
+      _activeWorkflow = null;
+      _collected.clear();
+      _fieldIndex = 0;
+      _genericPrice = null;
+      _genericTicketId = null;
       _step = _Step.task;
     });
     if (keepMessages)
@@ -621,6 +1086,8 @@ class _MajorAiAssistantScreenState
         options: [
           tr('Buy Data', 'Siyan Data'),
           tr('Buy Airtime', 'Siyan Airtime'),
+          tr('Result Checker PIN', 'Result Checker PIN'),
+          tr('NIN / BVN Verification', 'NIN / BVN Verification'),
         ],
       );
   }

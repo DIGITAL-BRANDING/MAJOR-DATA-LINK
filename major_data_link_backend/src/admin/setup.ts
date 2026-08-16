@@ -20,6 +20,7 @@ import { servicePricingResource } from './resources/service-pricing.resource.js'
 import { couponResource } from './resources/coupon.resource.js';
 import { providerBalanceResource } from './resources/provider-balance.resource.js';
 import { referralSettingsResource } from './resources/referral-settings.resource.js';
+import { appConfigResource } from './resources/app-config.resource.js';
 import { supportTicketResource, supportTicketMessageResource } from './resources/support-ticket.resource.js';
 import { notificationBroadcastResource } from './resources/notification-broadcast.resource.js';
 
@@ -101,6 +102,7 @@ export async function buildAdminRouter() {
       couponResource,
       providerBalanceResource,
       referralSettingsResource,
+      appConfigResource,
       supportTicketResource,
       supportTicketMessageResource,
       notificationBroadcastResource,

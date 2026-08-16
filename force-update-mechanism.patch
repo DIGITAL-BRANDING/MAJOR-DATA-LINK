@@ -1,0 +1,439 @@
+diff --git a/major_data_link/lib/core/config/app_endpoints.dart b/major_data_link/lib/core/config/app_endpoints.dart
+index 2e4f325..5a30043 100644
+--- a/major_data_link/lib/core/config/app_endpoints.dart
++++ b/major_data_link/lib/core/config/app_endpoints.dart
+@@ -9,6 +9,9 @@ class AppEndpoints {
+   // Auth
+   static String get login => '$_base/auth/login';
+   static String get register => '$_base/auth/register';
++
++  // Public (no auth required)
++  static String get appConfig => '$_base/public/app-config';
+   static String get logout => '$_base/auth/logout';
+   static String get refreshToken => '$_base/auth/token/refresh';
+   static String get sendOtp => '$_base/otp/send';
+diff --git a/major_data_link/lib/core/utils/version_compare.dart b/major_data_link/lib/core/utils/version_compare.dart
+new file mode 100644
+index 0000000..3308137
+--- /dev/null
++++ b/major_data_link/lib/core/utils/version_compare.dart
+@@ -0,0 +1,29 @@
++/// Compares two version strings like "1.2.3" (ignores any "+buildNumber"
++/// suffix, since PackageInfo.version and pubspec.yaml's `version:` field
++/// both use "1.0.0+1" - only the part before "+" is a real version number).
++///
++/// Returns negative if [a] < [b], zero if equal, positive if [a] > [b].
++/// Missing/non-numeric segments are treated as 0, so "1.2" vs "1.2.0"
++/// compares equal, and a malformed string never throws.
++int compareVersions(String a, String b) {
++  List<int> parts(String v) {
++    final base = v.split('+').first;
++    return base.split('.').map((p) => int.tryParse(p) ?? 0).toList();
++  }
++
++  final partsA = parts(a);
++  final partsB = parts(b);
++  final length = partsA.length > partsB.length ? partsA.length : partsB.length;
++
++  for (var i = 0; i < length; i++) {
++    final segmentA = i < partsA.length ? partsA[i] : 0;
++    final segmentB = i < partsB.length ? partsB[i] : 0;
++    if (segmentA != segmentB) return segmentA - segmentB;
++  }
++  return 0;
++}
++
++/// True if the installed [current] version is below [minRequired].
++bool isBelowMinimumVersion(String current, String minRequired) {
++  return compareVersions(current, minRequired) < 0;
++}
+diff --git a/major_data_link/lib/features/splash/presentation/force_update_screen.dart b/major_data_link/lib/features/splash/presentation/force_update_screen.dart
+new file mode 100644
+index 0000000..a94e501
+--- /dev/null
++++ b/major_data_link/lib/features/splash/presentation/force_update_screen.dart
+@@ -0,0 +1,111 @@
++import 'package:flutter/material.dart';
++import 'package:flutter_animate/flutter_animate.dart';
++import 'package:url_launcher/url_launcher.dart';
++import '../../core/constants/app_colors.dart';
++import '../../core/constants/app_strings.dart';
++import '../widgets/kd_button.dart';
++
++/// Shown instead of the normal app when the installed version is below the
++/// backend's `min_android_version` (see AppConfig in the backend's Prisma
++/// schema for why this exists - concretely, commit a089b84 added a
++/// REQUIRED `pin` field to purchase endpoints; an old APK that never
++/// learned to send one would otherwise fail every purchase with a raw,
++/// meaningless ZodError instead of ever being told to update).
++///
++/// Deliberately has no back button, no way to dismiss, and is reached via
++/// a raw Navigator.pushReplacement from SplashScreen (not a normal
++/// go_router route) - it must not be possible to navigate past this screen
++/// without updating.
++class ForceUpdateScreen extends StatelessWidget {
++  const ForceUpdateScreen({
++    super.key,
++    required this.downloadUrl,
++    this.latestVersion,
++    this.message,
++  });
++
++  final String downloadUrl;
++  final String? latestVersion;
++  final String? message;
++
++  Future<void> _openDownload() async {
++    final uri = Uri.parse(downloadUrl);
++    await launchUrl(uri, mode: LaunchMode.externalApplication);
++  }
++
++  @override
++  Widget build(BuildContext context) {
++    return PopScope(
++      canPop: false,
++      child: Scaffold(
++        backgroundColor: AppColors.primary600,
++        body: SafeArea(
++          child: Padding(
++            padding: const EdgeInsets.symmetric(horizontal: 28),
++            child: Center(
++              child: Column(
++                mainAxisSize: MainAxisSize.min,
++                children: [
++                  Container(
++                    width: 88,
++                    height: 88,
++                    decoration: BoxDecoration(
++                      color: Colors.white.withValues(alpha: 0.15),
++                      borderRadius: BorderRadius.circular(24),
++                    ),
++                    child: const Icon(
++                      Icons.system_update_rounded,
++                      size: 40,
++                      color: Colors.white,
++                    ),
++                  ).animate().scale(curve: Curves.easeOutBack, duration: 500.ms).fadeIn(),
++
++                  const SizedBox(height: 28),
++
++                  Text(
++                    'Update required',
++                    textAlign: TextAlign.center,
++                    style: const TextStyle(
++                      color: Colors.white,
++                      fontSize: 24,
++                      fontWeight: FontWeight.w800,
++                    ),
++                  ).animate().fadeIn(delay: 150.ms),
++
++                  const SizedBox(height: 12),
++
++                  Text(
++                    message?.trim().isNotEmpty == true
++                        ? message!
++                        : 'A new version of ${AppStrings.appName} is ready'
++                            '${latestVersion != null ? ' (v$latestVersion)' : ''}. '
++                            'Please update to keep using the app - some features '
++                            'will not work correctly on this older version.',
++                    textAlign: TextAlign.center,
++                    style: TextStyle(
++                      color: Colors.white.withValues(alpha: 0.8),
++                      fontSize: 15,
++                      height: 1.5,
++                    ),
++                  ).animate().fadeIn(delay: 250.ms),
++
++                  const SizedBox(height: 36),
++
++                  SizedBox(
++                    width: double.infinity,
++                    child: KDButton(
++                      label: 'Update now',
++                      onPressed: _openDownload,
++                      backgroundColor: Colors.white,
++                      foregroundColor: AppColors.primary600,
++                    ),
++                  ).animate().fadeIn(delay: 350.ms).slideY(begin: 0.15),
++                ],
++              ),
++            ),
++          ),
++        ),
++      ),
++    );
++  }
++}
+diff --git a/major_data_link/lib/features/splash/presentation/splash_screen.dart b/major_data_link/lib/features/splash/presentation/splash_screen.dart
+index 77b9efe..71fbe4f 100644
+--- a/major_data_link/lib/features/splash/presentation/splash_screen.dart
++++ b/major_data_link/lib/features/splash/presentation/splash_screen.dart
+@@ -2,12 +2,16 @@ import 'package:flutter/material.dart';
+ import 'package:flutter_animate/flutter_animate.dart';
+ import 'package:flutter_riverpod/flutter_riverpod.dart';
+ import 'package:go_router/go_router.dart';
++import 'package:package_info_plus/package_info_plus.dart';
++import '../../../core/config/app_endpoints.dart';
+ import '../../../core/constants/app_colors.dart';
+ import '../../../core/constants/app_strings.dart';
+ import '../../../core/di/injection.dart';
+ import '../../../core/router/auth_status.dart';
+ import '../../../core/router/route_names.dart';
++import '../../../core/utils/version_compare.dart';
+ import '../../auth/presentation/providers/auth_provider.dart';
++import 'force_update_screen.dart';
+ 
+ class SplashScreen extends ConsumerStatefulWidget {
+   const SplashScreen({super.key});
+@@ -23,11 +27,60 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
+     _bootstrap();
+   }
+ 
++  /// Returns true (and navigates to ForceUpdateScreen) if this build is
++  /// below the backend's minimum required version. Returns false - meaning
++  /// "proceed normally" - both when the version check passes AND whenever
++  /// the check itself couldn't be completed (see _bootstrap's comment on
++  /// why this fails open).
++  Future<bool> _isBelowMinimumVersion() async {
++    try {
++      final packageInfo = await PackageInfo.fromPlatform();
++      final dio = ref.read(dioClientProvider);
++      final response = await dio.get(AppEndpoints.appConfig);
++      final data = response.data['data'] as Map<String, dynamic>;
++
++      final minVersion = data['min_android_version'] as String?;
++      if (minVersion == null) return false;
++
++      if (!isBelowMinimumVersion(packageInfo.version, minVersion)) {
++        return false;
++      }
++
++      if (!mounted) return true;
++      Navigator.of(context).pushReplacement(
++        MaterialPageRoute(
++          builder: (_) => ForceUpdateScreen(
++            downloadUrl: data['android_download_url'] as String? ??
++                'https://github.com/DIGITAL-BRANDING/MAJOR-DATA-LINK/releases/latest/download/MajorDataLink.apk',
++            latestVersion: data['latest_android_version'] as String?,
++            message: data['update_message'] as String?,
++          ),
++        ),
++      );
++      return true;
++    } catch (_) {
++      // No internet, backend unreachable, unexpected response shape - fail
++      // open, see _bootstrap's comment above this call.
++      return false;
++    }
++  }
++
+   Future<void> _bootstrap() async {
+     // Allow splash to display for branding purposes
+     await Future.delayed(const Duration(milliseconds: 1800));
+     if (!mounted) return;
+ 
++    // Force-update check runs first, before anything else touches auth or
++    // onboarding state - an outdated build must never be allowed to reach
++    // a screen that assumes it can send fields the backend now requires
++    // (see ForceUpdateScreen's doc comment). Deliberately fails OPEN: if
++    // this call fails for any reason (no internet, backend hiccup, a
++    // malformed response), the user proceeds normally rather than being
++    // stuck on a blank/frozen splash screen - a rare false negative here is
++    // far better than blocking every legitimate user during a network
++    // problem.
++    if (await _isBelowMinimumVersion()) return;
++
+     final secureStorage = ref.read(secureStorageProvider);
+     final onboardingDone = await secureStorage.isOnboardingComplete();
+ 
+diff --git a/major_data_link_backend/prisma/schema.prisma b/major_data_link_backend/prisma/schema.prisma
+index 1f7f0f2..0d61b1b 100644
+--- a/major_data_link_backend/prisma/schema.prisma
++++ b/major_data_link_backend/prisma/schema.prisma
+@@ -350,6 +350,29 @@ model ReferralSettings {
+   minWithdrawalKobo BigInt   @default(50000) // 50000 kobo = NGN 500
+   updatedAt         DateTime @updatedAt
+ }
++
++// Singleton (id="default", self-seeded by getAppConfig() on first read,
++// same pattern as ReferralSettings/PricingSettings above) read by every
++// client on startup via GET /api/public/app-config. Exists because of a
++// concrete incident: commit a089b84 ("Fix security pin verification")
++// added a REQUIRED `pin` field to every purchase endpoint's Zod schema on
++// the backend and to the Flutter app in the same commit - but nothing
++// stops an already-installed older APK (built before that commit, which
++// never learned to collect/send a pin at all) from continuing to call the
++// new backend indefinitely. That produced a confusing raw ZodError
++// ("path: pin, Required") with zero indication to the user that they
++// simply needed to update. minAndroidVersion lets the app refuse to
++// proceed past its splash screen when running below that version, with a
++// clear "please update" screen instead of a cryptic validation error deep
++// inside a purchase flow.
++model AppConfig {
++  id                  String   @id @default("default")
++  minAndroidVersion   String   @default("1.0.0")
++  latestAndroidVersion String  @default("1.0.0")
++  androidDownloadUrl  String   @default("https://github.com/DIGITAL-BRANDING/MAJOR-DATA-LINK/releases/latest/download/MajorDataLink.apk")
++  updateMessage       String?
++  updatedAt           DateTime @updatedAt
++}
+ // Singleton (same "default"-id pattern as ReferralSettings above) holding the
+ // GLOBAL default markup applied to any DataPlanPricing row that has no
+ // explicit sellingPriceKobo override - see defaultSellingPrice() in
+diff --git a/major_data_link_backend/src/admin/resources/app-config.resource.ts b/major_data_link_backend/src/admin/resources/app-config.resource.ts
+new file mode 100644
+index 0000000..1f1b816
+--- /dev/null
++++ b/major_data_link_backend/src/admin/resources/app-config.resource.ts
+@@ -0,0 +1,61 @@
++import { getModelByName } from '@adminjs/prisma';
++import type { ResourceWithOptions } from 'adminjs';
++import { prisma } from '../../lib/prisma.js';
++import type { AdminSessionUser } from '../auth.js';
++
++const canManageAppConfig = ({ currentAdmin }: { currentAdmin?: Record<string, unknown> }) => {
++  const admin = currentAdmin as unknown as AdminSessionUser | undefined;
++  return admin?.role === 'SUPER_ADMIN';
++};
++
++/**
++ * Singleton (id="default", self-seeded by getAppConfig() on first read) -
++ * only new/delete are disabled, same as ReferralSettings/DataPlanPricing.
++ * Restricted to SUPER_ADMIN (not FINANCE, unlike most other settings
++ * resources) because setting minAndroidVersion too high locks EVERY user
++ * on an older build out of the app at their next launch until they update -
++ * a mistake here is a full outage, not a pricing tweak.
++ */
++export const appConfigResource: ResourceWithOptions = {
++  resource: { model: getModelByName('AppConfig'), client: prisma },
++  options: {
++    id: 'AppConfig',
++    navigation: { name: 'Settings', icon: 'Smartphone' },
++    listProperties: ['minAndroidVersion', 'latestAndroidVersion', 'updatedAt'],
++    showProperties: [
++      'id',
++      'minAndroidVersion',
++      'latestAndroidVersion',
++      'androidDownloadUrl',
++      'updateMessage',
++      'updatedAt'
++    ],
++    editProperties: ['minAndroidVersion', 'latestAndroidVersion', 'androidDownloadUrl', 'updateMessage'],
++    properties: {
++      id: { isVisible: { list: false, filter: false, show: true, edit: false } },
++      minAndroidVersion: {
++        description:
++          'Any installed app version below this (comparing 1.2.3-style numbers, ignores the +buildNumber) is blocked at the splash screen with a "please update" screen until the user updates. Match this to pubspec.yaml\'s version field of the build you want to require.'
++      },
++      latestAndroidVersion: {
++        description: 'Shown to the user as "Version X is available" on the update screen. Informational only - does not itself block anyone.'
++      },
++      androidDownloadUrl: {
++        description:
++          'Where the "Update Now" button sends the user. Defaults to the GitHub "latest release" link, which always points at the newest uploaded MajorDataLink.apk without needing to change here.'
++      },
++      updateMessage: {
++        description: 'Optional custom message shown on the update screen, e.g. explaining what the update fixes. Leave empty for a generic message.'
++      },
++      updatedAt: { isVisible: { list: true, filter: false, show: true, edit: false } }
++    },
++    actions: {
++      list: { isAccessible: canManageAppConfig },
++      show: { isAccessible: canManageAppConfig },
++      edit: { isAccessible: canManageAppConfig },
++      new: { isAccessible: false },
++      delete: { isAccessible: false },
++      bulkDelete: { isAccessible: false }
++    }
++  }
++};
+diff --git a/major_data_link_backend/src/admin/setup.ts b/major_data_link_backend/src/admin/setup.ts
+index a2914dc..a9daec7 100644
+--- a/major_data_link_backend/src/admin/setup.ts
++++ b/major_data_link_backend/src/admin/setup.ts
+@@ -20,6 +20,7 @@ import { servicePricingResource } from './resources/service-pricing.resource.js'
+ import { couponResource } from './resources/coupon.resource.js';
+ import { providerBalanceResource } from './resources/provider-balance.resource.js';
+ import { referralSettingsResource } from './resources/referral-settings.resource.js';
++import { appConfigResource } from './resources/app-config.resource.js';
+ import { supportTicketResource, supportTicketMessageResource } from './resources/support-ticket.resource.js';
+ import { notificationBroadcastResource } from './resources/notification-broadcast.resource.js';
+ 
+@@ -101,6 +102,7 @@ export async function buildAdminRouter() {
+       couponResource,
+       providerBalanceResource,
+       referralSettingsResource,
++      appConfigResource,
+       supportTicketResource,
+       supportTicketMessageResource,
+       notificationBroadcastResource,
+diff --git a/major_data_link_backend/src/routes/public.routes.ts b/major_data_link_backend/src/routes/public.routes.ts
+index 5a2e6cf..9d3f485 100644
+--- a/major_data_link_backend/src/routes/public.routes.ts
++++ b/major_data_link_backend/src/routes/public.routes.ts
+@@ -1,6 +1,7 @@
+ import { Router } from 'express';
+ import { getResultPinPrice, type ExamPinType } from '../services/result-pin.service.js';
+ import { listVerificationPrices } from '../services/verification.service.js';
++import { getAppConfig } from '../services/app-config.service.js';
+ 
+ export const publicRoutes = Router();
+ 
+@@ -47,3 +48,24 @@ publicRoutes.get('/verification-prices', async (_req, res) => {
+     data: prices.filter((p) => p.isActive).map((p) => ({ service: p.service, label: p.label, unit_price: p.unitPrice }))
+   });
+ });
++
++/**
++ * Read by the Flutter app's splash screen on every cold start, BEFORE any
++ * auth/onboarding check - deliberately public (no requireAuth) since a
++ * signed-out user on an outdated APK must still be told to update. See the
++ * AppConfig Prisma model's doc comment for why this exists: an old client
++ * calling a purchase endpoint that now requires `pin` gets a raw, confusing
++ * ZodError instead of ever finding out it just needs to update.
++ */
++publicRoutes.get('/app-config', async (_req, res) => {
++  const config = await getAppConfig();
++  res.json({
++    status: true,
++    data: {
++      min_android_version: config.minAndroidVersion,
++      latest_android_version: config.latestAndroidVersion,
++      android_download_url: config.androidDownloadUrl,
++      update_message: config.updateMessage
++    }
++  });
++});
+diff --git a/major_data_link_backend/src/services/app-config.service.ts b/major_data_link_backend/src/services/app-config.service.ts
+new file mode 100644
+index 0000000..dfb1ee6
+--- /dev/null
++++ b/major_data_link_backend/src/services/app-config.service.ts
+@@ -0,0 +1,27 @@
++import { Prisma } from '@prisma/client';
++import { prisma } from '../lib/prisma.js';
++
++/**
++ * Admin-editable minimum-app-version gate - see the AppConfig AdminJS
++ * resource. Same self-seeding singleton pattern as getReferralSettings()
++ * in referral.service.ts (a plain findUnique-then-create, NOT
++ * prisma.appConfig.upsert() - upsert throws on an empty `update` object,
++ * which it would be here since a routine read must never touch an
++ * existing row).
++ */
++export async function getAppConfig() {
++  const existing = await prisma.appConfig.findUnique({ where: { id: 'default' } });
++  if (existing) return existing;
++
++  try {
++    return await prisma.appConfig.create({ data: { id: 'default' } });
++  } catch (error) {
++    // Two concurrent first-ever callers both see "no row exists" and both
++    // attempt to create it - only one create can win. Re-fetch and use
++    // whichever row actually landed rather than surfacing a spurious error.
++    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
++      return prisma.appConfig.findUniqueOrThrow({ where: { id: 'default' } });
++    }
++    throw error;
++  }
++}

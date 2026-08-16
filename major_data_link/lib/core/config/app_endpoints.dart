@@ -9,6 +9,9 @@ class AppEndpoints {
   // Auth
   static String get login => '$_base/auth/login';
   static String get register => '$_base/auth/register';
+
+  // Public (no auth required)
+  static String get appConfig => '$_base/public/app-config';
   static String get logout => '$_base/auth/logout';
   static String get refreshToken => '$_base/auth/token/refresh';
   static String get sendOtp => '$_base/otp/send';

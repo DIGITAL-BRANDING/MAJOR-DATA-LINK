@@ -350,6 +350,29 @@ model ReferralSettings {
   minWithdrawalKobo BigInt   @default(50000) // 50000 kobo = NGN 500
   updatedAt         DateTime @updatedAt
 }
+
+// Singleton (id="default", self-seeded by getAppConfig() on first read,
+// same pattern as ReferralSettings/PricingSettings above) read by every
+// client on startup via GET /api/public/app-config. Exists because of a
+// concrete incident: commit a089b84 ("Fix security pin verification")
+// added a REQUIRED `pin` field to every purchase endpoint's Zod schema on
+// the backend and to the Flutter app in the same commit - but nothing
+// stops an already-installed older APK (built before that commit, which
+// never learned to collect/send a pin at all) from continuing to call the
+// new backend indefinitely. That produced a confusing raw ZodError
+// ("path: pin, Required") with zero indication to the user that they
+// simply needed to update. minAndroidVersion lets the app refuse to
+// proceed past its splash screen when running below that version, with a
+// clear "please update" screen instead of a cryptic validation error deep
+// inside a purchase flow.
+model AppConfig {
+  id                  String   @id @default("default")
+  minAndroidVersion   String   @default("1.0.0")
+  latestAndroidVersion String  @default("1.0.0")
+  androidDownloadUrl  String   @default("https://github.com/DIGITAL-BRANDING/MAJOR-DATA-LINK/releases/latest/download/MajorDataLink.apk")
+  updateMessage       String?
+  updatedAt           DateTime @updatedAt
+}
 // Singleton (same "default"-id pattern as ReferralSettings above) holding the
 // GLOBAL default markup applied to any DataPlanPricing row that has no
 // explicit sellingPriceKobo override - see defaultSellingPrice() in

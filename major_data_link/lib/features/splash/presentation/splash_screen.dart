@@ -2,12 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:package_info_plus/package_info_plus.dart';
+import '../../../core/config/app_endpoints.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_strings.dart';
 import '../../../core/di/injection.dart';
 import '../../../core/router/auth_status.dart';
 import '../../../core/router/route_names.dart';
+import '../../../core/utils/version_compare.dart';
 import '../../auth/presentation/providers/auth_provider.dart';
+import 'force_update_screen.dart';
 
 class SplashScreen extends ConsumerStatefulWidget {
   const SplashScreen({super.key});
@@ -23,10 +27,59 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
     _bootstrap();
   }
 
+  /// Returns true (and navigates to ForceUpdateScreen) if this build is
+  /// below the backend's minimum required version. Returns false - meaning
+  /// "proceed normally" - both when the version check passes AND whenever
+  /// the check itself couldn't be completed (see _bootstrap's comment on
+  /// why this fails open).
+  Future<bool> _isBelowMinimumVersion() async {
+    try {
+      final packageInfo = await PackageInfo.fromPlatform();
+      final dio = ref.read(dioClientProvider);
+      final response = await dio.get(AppEndpoints.appConfig);
+      final data = response.data['data'] as Map<String, dynamic>;
+
+      final minVersion = data['min_android_version'] as String?;
+      if (minVersion == null) return false;
+
+      if (!isBelowMinimumVersion(packageInfo.version, minVersion)) {
+        return false;
+      }
+
+      if (!mounted) return true;
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) => ForceUpdateScreen(
+            downloadUrl: data['android_download_url'] as String? ??
+                'https://github.com/DIGITAL-BRANDING/MAJOR-DATA-LINK/releases/latest/download/MajorDataLink.apk',
+            latestVersion: data['latest_android_version'] as String?,
+            message: data['update_message'] as String?,
+          ),
+        ),
+      );
+      return true;
+    } catch (_) {
+      // No internet, backend unreachable, unexpected response shape - fail
+      // open, see _bootstrap's comment above this call.
+      return false;
+    }
+  }
+
   Future<void> _bootstrap() async {
     // Allow splash to display for branding purposes
     await Future.delayed(const Duration(milliseconds: 1800));
     if (!mounted) return;
+
+    // Force-update check runs first, before anything else touches auth or
+    // onboarding state - an outdated build must never be allowed to reach
+    // a screen that assumes it can send fields the backend now requires
+    // (see ForceUpdateScreen's doc comment). Deliberately fails OPEN: if
+    // this call fails for any reason (no internet, backend hiccup, a
+    // malformed response), the user proceeds normally rather than being
+    // stuck on a blank/frozen splash screen - a rare false negative here is
+    // far better than blocking every legitimate user during a network
+    // problem.
+    if (await _isBelowMinimumVersion()) return;
 
     final secureStorage = ref.read(secureStorageProvider);
     final onboardingDone = await secureStorage.isOnboardingComplete();
