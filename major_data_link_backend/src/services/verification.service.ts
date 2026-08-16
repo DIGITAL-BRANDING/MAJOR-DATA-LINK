@@ -148,6 +148,7 @@ export type SlipPurchaseResult = {
   reference: string;
   userData?: Record<string, unknown>;
   pdfBase64?: string;
+  pdfUrl?: string;
   balanceAfter: number;
 };
 
@@ -199,13 +200,14 @@ async function purchaseSlip(params: {
 
   if (debit.reused && debit.transaction.status !== TransactionStatus.PENDING) {
     const metadata = debit.transaction.metadata as Record<string, unknown> | null;
-    const pii = openPII<{ user_data?: Record<string, unknown>; pdf_base64?: string }>(metadata?.pii);
+    const pii = openPII<{ user_data?: Record<string, unknown>; pdf_base64?: string; pdf_url?: string }>(metadata?.pii);
     return {
       status: debit.transaction.status === TransactionStatus.SUCCESS,
       message: 'Transaction already processed',
       reference: debit.reference,
       userData: pii?.user_data,
       pdfBase64: pii?.pdf_base64,
+      pdfUrl: pii?.pdf_url,
       balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo)
     };
   }
@@ -226,7 +228,8 @@ async function purchaseSlip(params: {
           pii: mergeSealedPII(existingMetadata?.pii, {
             ...params.pii,
             user_data: provider.userData,
-            pdf_base64: provider.pdfBase64
+            pdf_base64: provider.pdfBase64,
+            pdf_url: provider.pdfUrl
           })
         } as Prisma.InputJsonValue
       }
@@ -250,6 +253,7 @@ async function purchaseSlip(params: {
       reference: debit.reference,
       userData: provider.userData,
       pdfBase64: provider.pdfBase64,
+      pdfUrl: provider.pdfUrl,
       balanceAfter: debit.balanceAfter
     };
   }

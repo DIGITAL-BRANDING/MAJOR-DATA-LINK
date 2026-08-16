@@ -36,12 +36,22 @@ export type TechhubSlipTier = 'premium' | 'standard' | 'regular' | 'vnin';
 export type TechhubBvnTier = 'premium' | 'standard';
 
 type TechhubSlipResponse = {
-  status?: string;
+  status?: string | boolean;
+  success?: boolean;
   response_code?: string;
   message?: string;
   error_code?: string;
   user_data?: Record<string, unknown>;
   pdf_base64?: string;
+  pdf_url?: string;
+  slip_url?: string;
+  data?: {
+    user_data?: Record<string, unknown>;
+    pdf_base64?: string;
+    pdf_url?: string;
+    slip_url?: string;
+    [key: string]: unknown;
+  };
 };
 
 type TechhubAsyncSubmitResponse = {
@@ -68,6 +78,7 @@ export type TechhubSlipResult = {
   message: string;
   userData?: Record<string, unknown>;
   pdfBase64?: string;
+  pdfUrl?: string;
   raw: unknown;
 };
 
@@ -173,7 +184,19 @@ export class TechhubService {
 
     const data = (await response.json().catch(() => ({}))) as TechhubSlipResponse;
 
-    if (!response.ok || data.status !== 'success') {
+    // Techhub has returned both "success" and "successful" from its
+    // dashboard/API over time.  Treat either spelling (and a boolean
+    // `success: true`) as a completed, chargeable request.  A mismatch here
+    // used to trigger a wallet refund even when Techhub had already produced
+    // and charged for a Premium slip.
+    const providerStatus = typeof data.status === 'string' ? data.status.trim().toLowerCase() : data.status;
+    const isSuccess =
+      data.success === true ||
+      providerStatus === true ||
+      providerStatus === 'success' ||
+      providerStatus === 'successful';
+
+    if (!response.ok || !isSuccess) {
       console.error(`[techhub] slip lookup failed (path=${path}, http=${response.status}):`, JSON.stringify(data));
       return {
         ok: false,
@@ -182,11 +205,19 @@ export class TechhubService {
       };
     }
 
+    const nested = data.data;
+    const pdfBase64 = data.pdf_base64 ?? nested?.pdf_base64;
+    // Some Techhub slip variants return a ready-to-download URL instead of
+    // embedding the PDF.  Preserve it for the user dashboard rather than
+    // showing a misleading success without a document.
+    const pdfUrl = data.pdf_url ?? data.slip_url ?? nested?.pdf_url ?? nested?.slip_url;
+
     return {
       ok: true,
       message: data.message ?? 'PDF generated successfully',
-      userData: data.user_data,
-      pdfBase64: data.pdf_base64,
+      userData: data.user_data ?? nested?.user_data ?? nested,
+      pdfBase64,
+      pdfUrl,
       raw: data
     };
   }

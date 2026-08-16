@@ -87,7 +87,7 @@ function keyFor(item: Item, tier = 'premium') {
 const money = (amount?: number) =>
   amount === undefined ? 'Price loading…' : `₦${amount.toLocaleString('en-NG', { maximumFractionDigits: 2 })}`;
 
-type SlipResult = { user_data?: Record<string, unknown>; pdf_base64?: string; reference: string };
+type SlipResult = { user_data?: Record<string, unknown>; pdf_base64?: string; pdf_url?: string; reference: string };
 type AsyncResult = { ticket_id: string; reference: string };
 type TicketStatus = { ticket_id: string; status: 'pending' | 'success' | 'failed'; response: Record<string, unknown> | null };
 
@@ -156,7 +156,7 @@ export default function VerificationPage({ mode }: { mode: Mode }) {
       const result = await api.post<{
         status: boolean;
         message: string;
-        data?: { reference: string; user_data?: Record<string, unknown>; pdf_base64?: string; ticket_id?: string };
+        data?: { reference: string; user_data?: Record<string, unknown>; pdf_base64?: string; pdf_url?: string; ticket_id?: string };
       }>(selected.path, data);
       if (!result.status) throw new Error(result.message);
 
@@ -168,6 +168,7 @@ export default function VerificationPage({ mode }: { mode: Mode }) {
         setSlipResult({
           user_data: result.data?.user_data,
           pdf_base64: result.data?.pdf_base64,
+          pdf_url: result.data?.pdf_url,
           reference: result.data?.reference ?? '',
         });
         setMessage(result.message || 'Done - your document is ready below.');
@@ -345,7 +346,12 @@ export default function VerificationPage({ mode }: { mode: Mode }) {
 }
 
 function SlipResultView({ result, message, onDone }: { result: SlipResult; message: string; onDone: () => void }) {
-  const pdfHref = result.pdf_base64 ? `data:application/pdf;base64,${result.pdf_base64}` : null;
+  const pdfBase64 = result.pdf_base64?.replace(/^data:application\/pdf;base64,/i, '');
+  const pdfHref = pdfBase64
+    ? `data:application/pdf;base64,${pdfBase64}`
+    : result.pdf_url?.startsWith('https://')
+      ? result.pdf_url
+      : null;
   const dataEntries = result.user_data
     ? Object.entries(result.user_data).filter(([, v]) => v !== null && v !== undefined)
     : [];
@@ -372,6 +378,8 @@ function SlipResultView({ result, message, onDone }: { result: SlipResult; messa
         <a
           href={pdfHref}
           download={`${result.reference || 'slip'}.pdf`}
+          target={pdfBase64 ? undefined : '_blank'}
+          rel={pdfBase64 ? undefined : 'noreferrer'}
           className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-gold-500 py-3 font-display font-semibold text-ink"
         >
           <Download size={16} /> Download PDF slip

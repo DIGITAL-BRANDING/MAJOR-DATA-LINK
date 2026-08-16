@@ -51,6 +51,7 @@ function slipResponse(result: Awaited<ReturnType<typeof purchaseNinByNin>>) {
       reference: result.reference,
       user_data: result.userData ?? null,
       pdf_base64: result.pdfBase64 ?? null,
+      pdf_url: result.pdfUrl ?? null,
       balance_after: result.balanceAfter
     }
   };
