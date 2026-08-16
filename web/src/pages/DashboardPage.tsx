@@ -205,19 +205,19 @@ function ServiceTile({
   return (
     <Link
       to={route}
-      className="group relative flex min-h-36 flex-col items-center justify-center rounded-2xl border border-slate-200 bg-white p-4 text-center shadow-sm transition duration-200 hover:-translate-y-1 hover:border-sky-200 hover:shadow-lg hover:shadow-sky-900/10"
+      className="service-tile group relative flex min-h-36 flex-col items-center justify-center overflow-hidden rounded-2xl p-4 text-center transition duration-200 hover:-translate-y-1"
     >
       {!implemented && (
-        <span className="absolute right-2 top-2 rounded-full bg-slate-100 px-2 py-1 font-body text-[9px] font-semibold uppercase tracking-wide text-slate-500">
+        <span className="absolute right-2 top-2 z-10 rounded-full border border-gold-400/35 bg-black/35 px-2 py-1 font-body text-[9px] font-semibold uppercase tracking-wide text-gold-200">
           Soon
         </span>
       )}
       <div
-        className={`flex h-12 w-12 items-center justify-center rounded-xl ${colors.bg} ${colors.text} transition group-hover:scale-110`}
+        className={`service-tile-icon relative z-10 flex h-12 w-12 items-center justify-center rounded-xl ${colors.bg} ${colors.text} transition group-hover:scale-110`}
       >
         <Icon size={24} />
       </div>
-      <span className="mt-3 font-body text-sm font-semibold leading-tight text-slate-900">{label}</span>
+      <span className="relative z-10 mt-3 font-body text-sm font-bold leading-tight text-[#fff7dd] drop-shadow">{label}</span>
     </Link>
   );
 }
