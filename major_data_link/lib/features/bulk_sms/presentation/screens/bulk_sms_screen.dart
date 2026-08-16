@@ -176,13 +176,13 @@ class _BulkSmsScreenState extends ConsumerState<BulkSmsScreen> {
     context.hideKeyboard();
     final state = ref.read(bulkSmsNotifierProvider);
 
-    final pinVerified = await showPinConfirmationSheet(
+    final pin = await showPinConfirmationSheet(
       context: context,
       ref: ref,
       subtitle:
           'Send SMS to ${state.recipients.length} recipient(s) — ${state.totalSmsUnits} unit(s)',
     );
-    if (!pinVerified || !mounted) return;
+    if (pin == null || !mounted) return;
 
     final success = await ref.read(bulkSmsNotifierProvider.notifier).send();
     if (!mounted) return;

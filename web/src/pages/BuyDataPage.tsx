@@ -64,13 +64,13 @@ export default function BuyDataPage() {
     if (planId) setShowPin(true);
   }
 
-  async function purchase() {
+  async function purchase(pin: string) {
     if (!planId) return;
     setShowPin(false);
     setError(null);
     setIsSubmitting(true);
     try {
-      const res = await api.post<{ status: boolean; message: string }>('/data/purchase', { network, plan_id: planId, phone });
+      const res = await api.post<{ status: boolean; message: string }>('/data/purchase', { network, plan_id: planId, phone, pin });
       if (res.status) setSuccess(res.message || 'Data delivered successfully'); else setError(res.message || 'Purchase failed');
     } catch (err) { setError(err instanceof ApiError ? err.message : 'Something went wrong. Please try again.'); } finally { setIsSubmitting(false); }
   }

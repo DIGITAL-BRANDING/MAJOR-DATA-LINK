@@ -2,46 +2,53 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_dimensions.dart';
-import '../../core/security/biometric_service.dart';
 import '../../core/security/secure_screen_mixin.dart';
 import '../../core/di/injection.dart';
-import '../../features/auth/presentation/providers/auth_provider.dart';
 import 'kd_button.dart';
 import 'kd_pin_input.dart';
 
-/// Shows the PIN confirmation sheet and returns true if PIN was verified,
-/// false if cancelled or verification failed after retries exhausted.
-Future<bool> showPinConfirmationSheet({
+/// Shows the PIN confirmation sheet and returns the verified 4-digit PIN on
+/// success, or null if cancelled or verification failed after the user gave
+/// up retrying.
+///
+/// Returns the PIN itself (not just a bool) because the backend now
+/// requires that same PIN again, directly in the purchase request body
+/// (POST /data/purchase, /airtime/purchase, etc - see requirePinConfirmation
+/// in the backend's require-pin.ts). Before that backend change, this sheet
+/// calling POST /user/pin/verify and the actual purchase call that followed
+/// it were two completely disconnected requests - nothing stopped a client
+/// from skipping this sheet entirely and calling the purchase endpoint
+/// directly with no PIN at all. Every caller of this function MUST now
+/// include the returned PIN in its purchase request, or that request will
+/// be rejected server-side.
+///
+/// No biometric shortcut here anymore, unlike this sheet's previous
+/// version - a biometric match has nothing to send the server as the
+/// verified secret (the app only ever stores a one-way HASH of the PIN
+/// locally, specifically so a plain PIN is never sitting on-device in a
+/// reversible form). Biometric unlock for the app itself is unaffected -
+/// see login_pin_unlock_screen.dart - only this money-moving-confirmation
+/// sheet requires the actual PIN to be typed, every time.
+Future<String?> showPinConfirmationSheet({
   required BuildContext context,
   required WidgetRef ref,
   String title = 'Confirm transaction',
   String subtitle = 'Enter your 4-digit PIN to continue',
-  bool allowBiometric = true,
 }) async {
-  final result = await showModalBottomSheet<bool>(
+  return showModalBottomSheet<String>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
     isDismissible: true,
-    builder: (_) => _PinConfirmationSheet(
-      title: title,
-      subtitle: subtitle,
-      allowBiometric: allowBiometric,
-    ),
+    builder: (_) => _PinConfirmationSheet(title: title, subtitle: subtitle),
   );
-  return result ?? false;
 }
 
 class _PinConfirmationSheet extends ConsumerStatefulWidget {
-  const _PinConfirmationSheet({
-    required this.title,
-    required this.subtitle,
-    required this.allowBiometric,
-  });
+  const _PinConfirmationSheet({required this.title, required this.subtitle});
 
   final String title;
   final String subtitle;
-  final bool allowBiometric;
 
   @override
   ConsumerState<_PinConfirmationSheet> createState() =>
@@ -54,33 +61,6 @@ class _PinConfirmationSheetState extends ConsumerState<_PinConfirmationSheet>
   bool _hasError = false;
   String? _errorMessage;
   Key _shakeKey = UniqueKey();
-
-  @override
-  void initState() {
-    super.initState();
-    if (widget.allowBiometric) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _tryBiometric());
-    }
-  }
-
-  Future<void> _tryBiometric() async {
-    final local = ref.read(authLocalDataSourceProvider);
-    final isEnabled = await local.isBiometricEnabled();
-    if (!isEnabled) return;
-
-    final biometricService = ref.read(biometricServiceProvider);
-    final available = await biometricService.isAvailable();
-    if (!available) return;
-
-    final result = await biometricService.authenticate(
-      title: 'Confirm transaction',
-      subtitle: 'Use biometric to authorize this purchase',
-    );
-
-    if (result == BiometricResult.success && mounted) {
-      Navigator.of(context).pop(true);
-    }
-  }
 
   Future<void> _verifyPin(String pin) async {
     setState(() {
@@ -105,7 +85,10 @@ class _PinConfirmationSheetState extends ConsumerState<_PinConfirmationSheet>
       },
       (isValid) {
         if (isValid) {
-          Navigator.of(context).pop(true);
+          // The server just independently confirmed this exact PIN is
+          // correct (via POST /user/pin/verify) - safe to hand back to the
+          // caller, who will send it again with the actual purchase.
+          Navigator.of(context).pop(pin);
         } else {
           setState(() {
             _isVerifying = false;
@@ -218,15 +201,8 @@ class _PinConfirmationSheetState extends ConsumerState<_PinConfirmationSheet>
 
             const SizedBox(height: 20),
 
-            if (widget.allowBiometric)
-              TextButton.icon(
-                onPressed: _tryBiometric,
-                icon: const Icon(Icons.fingerprint_rounded, size: 20),
-                label: const Text('Use biometric instead'),
-              ),
-
             TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
+              onPressed: () => Navigator.of(context).pop(null),
               child: Text(
                 'Cancel',
                 style: TextStyle(color: AppColors.neutral500),

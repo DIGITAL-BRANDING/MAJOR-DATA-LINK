@@ -28,6 +28,7 @@ abstract class AirtimeRepository {
     required NetworkProvider network,
     required String phone,
     required double amount,
+    required String pin,
   });
 
   Future<List<BeneficiaryEntity>> getBeneficiaries();
@@ -58,6 +59,7 @@ class AirtimeRepositoryImpl implements AirtimeRepository {
     required NetworkProvider network,
     required String phone,
     required double amount,
+    required String pin,
   }) async {
     if (!await _networkInfo.isConnected) {
       return const Left(NetworkFailure());
@@ -67,6 +69,7 @@ class AirtimeRepositoryImpl implements AirtimeRepository {
         network: network,
         phone: phone,
         amount: amount,
+        pin: pin,
       );
       if (result.success) {
         await _hive.remove('wallet_balance');

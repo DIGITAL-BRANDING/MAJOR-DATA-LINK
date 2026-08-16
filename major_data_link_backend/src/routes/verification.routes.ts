@@ -1,6 +1,7 @@
 import { Router, type Request } from 'express';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
+import { pinField, requirePinConfirmation } from '../lib/require-pin.js';
 import {
   checkBvnRetrievalStatus,
   checkDelinkingStatus,
@@ -65,7 +66,8 @@ verificationRoutes.get('/prices', async (_req, res) => {
 // ── Slip lookups (synchronous) ────────────────────────────────────
 
 verificationRoutes.post('/nin/by-nin', async (req, res) => {
-  const body = z.object({ nin: z.string().trim().length(11), tier: ninSlipTier }).parse(req.body);
+  const body = z.object({ nin: z.string().trim().length(11), tier: ninSlipTier, ...pinField }).parse(req.body);
+  await requirePinConfirmation(req.user!.id, body.pin);
   const result = await purchaseNinByNin({
     userId: req.user!.id,
     nin: body.nin,
@@ -76,7 +78,8 @@ verificationRoutes.post('/nin/by-nin', async (req, res) => {
 });
 
 verificationRoutes.post('/nin/by-phone', async (req, res) => {
-  const body = z.object({ phone: z.string().trim().length(11), tier: ninPhoneSlipTier }).parse(req.body);
+  const body = z.object({ phone: z.string().trim().length(11), tier: ninPhoneSlipTier, ...pinField }).parse(req.body);
+  await requirePinConfirmation(req.user!.id, body.pin);
   const result = await purchaseNinByPhone({
     userId: req.user!.id,
     phone: body.phone,
@@ -92,9 +95,11 @@ verificationRoutes.post('/nin/by-demographic', async (req, res) => {
       firstname: z.string().trim().min(1),
       lastname: z.string().trim().min(1),
       dob: z.string().trim().min(1),
-      gender: z.enum(['MALE', 'FEMALE']).optional()
+      gender: z.enum(['MALE', 'FEMALE']).optional(),
+      ...pinField
     })
     .parse(req.body);
+  await requirePinConfirmation(req.user!.id, body.pin);
   const result = await purchaseNinByDemographic({
     userId: req.user!.id,
     firstname: body.firstname,
@@ -107,7 +112,8 @@ verificationRoutes.post('/nin/by-demographic', async (req, res) => {
 });
 
 verificationRoutes.post('/bvn/slip', async (req, res) => {
-  const body = z.object({ bvn: z.string().trim().length(11), tier: bvnSlipTier }).parse(req.body);
+  const body = z.object({ bvn: z.string().trim().length(11), tier: bvnSlipTier, ...pinField }).parse(req.body);
+  await requirePinConfirmation(req.user!.id, body.pin);
   const result = await purchaseBvnSlip({
     userId: req.user!.id,
     bvn: body.bvn,
@@ -120,7 +126,8 @@ verificationRoutes.post('/bvn/slip', async (req, res) => {
 // ── Async services (submit + poll) ────────────────────────────────
 
 verificationRoutes.post('/delinking', async (req, res) => {
-  const body = z.object({ nin: z.string().trim().length(11), email: z.string().trim().email() }).parse(req.body);
+  const body = z.object({ nin: z.string().trim().length(11), email: z.string().trim().email(), ...pinField }).parse(req.body);
+  await requirePinConfirmation(req.user!.id, body.pin);
   const result = await submitDelinking({
     userId: req.user!.id,
     nin: body.nin,
@@ -136,7 +143,10 @@ verificationRoutes.get('/delinking/:ticketId', async (req, res) => {
 });
 
 verificationRoutes.post('/nin-validation', async (req, res) => {
-  const body = z.object({ nin: z.string().trim().length(11), validation_type: ninValidationType.optional() }).parse(req.body);
+  const body = z
+    .object({ nin: z.string().trim().length(11), validation_type: ninValidationType.optional(), ...pinField })
+    .parse(req.body);
+  await requirePinConfirmation(req.user!.id, body.pin);
   const result = await submitNinValidation({
     userId: req.user!.id,
     nin: body.nin,
@@ -152,7 +162,8 @@ verificationRoutes.get('/nin-validation/:ticketId', async (req, res) => {
 });
 
 verificationRoutes.post('/personalization', async (req, res) => {
-  const body = z.object({ tracking_id: z.string().trim().min(1).max(50) }).parse(req.body);
+  const body = z.object({ tracking_id: z.string().trim().min(1).max(50), ...pinField }).parse(req.body);
+  await requirePinConfirmation(req.user!.id, body.pin);
   const result = await submitPersonalization({
     userId: req.user!.id,
     trackingId: body.tracking_id,
@@ -171,9 +182,11 @@ verificationRoutes.post('/bvn-retrieval', async (req, res) => {
     .object({
       first_name: z.string().trim().min(1),
       last_name: z.string().trim().min(1),
-      phone_number: z.string().trim().length(11)
+      phone_number: z.string().trim().length(11),
+      ...pinField
     })
     .parse(req.body);
+  await requirePinConfirmation(req.user!.id, body.pin);
   const result = await submitBvnRetrieval({
     userId: req.user!.id,
     firstName: body.first_name,
@@ -190,7 +203,8 @@ verificationRoutes.get('/bvn-retrieval/:ticketId', async (req, res) => {
 });
 
 verificationRoutes.post('/ipe-clearance', async (req, res) => {
-  const body = z.object({ tracking_id: z.string().trim().min(1).max(20) }).parse(req.body);
+  const body = z.object({ tracking_id: z.string().trim().min(1).max(20), ...pinField }).parse(req.body);
+  await requirePinConfirmation(req.user!.id, body.pin);
   const result = await submitIpeClearance({
     userId: req.user!.id,
     trackingId: body.tracking_id,

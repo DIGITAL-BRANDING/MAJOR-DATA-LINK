@@ -25,7 +25,7 @@ export default function BuyAirtimePage() {
   const [showPin, setShowPin] = useState(false);
 
   function handleSubmit(e: FormEvent) { e.preventDefault(); setShowPin(true); }
-  async function purchase() { setShowPin(false); setError(null); setIsSubmitting(true); try { const res = await api.post<{ status: boolean; message: string }>('/airtime/purchase', { network, phone, amount: Number(amount) }); if (res.status) setSuccess(res.message || 'Airtime delivered successfully'); else setError(res.message || 'Purchase failed'); } catch (err) { setError(err instanceof ApiError ? err.message : 'Something went wrong. Please try again.'); } finally { setIsSubmitting(false); } }
+  async function purchase(pin: string) { setShowPin(false); setError(null); setIsSubmitting(true); try { const res = await api.post<{ status: boolean; message: string }>('/airtime/purchase', { network, phone, amount: Number(amount), pin }); if (res.status) setSuccess(res.message || 'Airtime delivered successfully'); else setError(res.message || 'Purchase failed'); } catch (err) { setError(err instanceof ApiError ? err.message : 'Something went wrong. Please try again.'); } finally { setIsSubmitting(false); } }
 
   if (success) {
     return (

@@ -88,16 +88,16 @@ class _BuyAirtimeScreenState extends ConsumerState<BuyAirtimeScreen> {
       return;
     }
 
-    final pinVerified = await showPinConfirmationSheet(
+    final pin = await showPinConfirmationSheet(
       context: context,
       ref: ref,
       subtitle:
           'Confirm airtime purchase of ${AppFormatters.formatAmount(state.amount)} for ${_phoneController.text}',
     );
-    if (!pinVerified || !mounted) return;
+    if (pin == null || !mounted) return;
 
     final result =
-        await ref.read(airtimeNotifierProvider.notifier).purchase(network);
+        await ref.read(airtimeNotifierProvider.notifier).purchase(network, pin: pin);
 
     if (!mounted) return;
 

@@ -37,16 +37,17 @@ class _IpeClearanceScreenState extends ConsumerState<IpeClearanceScreen>
   Future<void> _submit(double price) async {
     if (!_formKey.currentState!.validate()) return;
     context.hideKeyboard();
-    final pinVerified = await showPinConfirmationSheet(
+    final pin = await showPinConfirmationSheet(
       context: context,
       ref: ref,
       subtitle: 'Confirm IPE clearance request — ${price.toNaira}',
     );
-    if (!pinVerified || !mounted) return;
+    if (pin == null || !mounted) return;
 
     final ok = await ref.read(asyncFlowProvider.notifier).submit(
           () => ref.read(verificationRemoteProvider).submitIpeClearance(
                 trackingId: _trackingIdController.text.trim(),
+                pin: pin,
               ),
         );
     if (ok) startPolling();

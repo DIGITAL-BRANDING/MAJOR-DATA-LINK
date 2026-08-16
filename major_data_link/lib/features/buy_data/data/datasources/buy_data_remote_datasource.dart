@@ -60,6 +60,7 @@ abstract class BuyDataRemoteDataSource {
     required String planId,
     required String phone,
     required double amount,
+    required String pin,
   });
 }
 
@@ -108,6 +109,7 @@ class BuyDataRemoteDataSourceImpl implements BuyDataRemoteDataSource {
     required String planId,
     required String phone,
     required double amount,
+    required String pin,
   }) async {
     try {
       final response = await _dio.post(
@@ -117,6 +119,7 @@ class BuyDataRemoteDataSourceImpl implements BuyDataRemoteDataSource {
           'plan_id': planId,
           'phone': phone,
           'amount': amount,
+          'pin': pin,
         },
         options: Options(headers: {'Idempotency-Key': const Uuid().v4()}),
       );

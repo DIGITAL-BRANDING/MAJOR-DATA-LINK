@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { koboToNaira } from '../lib/money.js';
 import { prisma } from '../lib/prisma.js';
 import { requireAuth } from '../middleware/auth.js';
+import { pinField, requirePinConfirmation } from '../lib/require-pin.js';
 import { providerService, type ProviderPurchaseInput } from '../services/provider.service.js';
 import { debitWallet, refundWallet } from '../services/wallet.service.js';
 import { recordProviderDebit } from '../services/provider-ledger.service.js';
@@ -151,16 +152,23 @@ vtuRoutes.post('/data/purchase', async (req, res) => {
     network: z.string(),
     plan_id: z.string(),
     phone: z.string(),
-    amount: z.number().positive().optional()
+    amount: z.number().positive().optional(),
+    ...pinField
   }).parse(req.body);
+  await requirePinConfirmation(req.user!.id, body.pin);
   const plan = await providerService.getDataPlan(body.network, body.plan_id);
+
+  // Never persist the PIN - `body` is spread into Transaction.metadata below,
+  // so it's stripped out explicitly rather than trusting every future edit
+  // here to remember not to include it.
+  const { pin: _pin, ...metadataBody } = body;
 
   const result = await processProviderPurchase({
     userId: req.user!.id,
     amount: plan.amount,
     type: TransactionType.DATA_PURCHASE,
     description: `${plan.name} data purchase for ${body.phone}`,
-    metadata: { ...body, amount: plan.amount, plan_name: plan.name, validity: plan.validity },
+    metadata: { ...metadataBody, amount: plan.amount, plan_name: plan.name, validity: plan.validity },
     idempotencyKey: idempotencyKeyFrom(req),
     // What this plan cost us according to our last pricing sync
     // (DataPlanPricing.providerCostKobo) - overwritten with Alrahuz's actual
@@ -187,15 +195,19 @@ vtuRoutes.post('/airtime/purchase', async (req, res) => {
   const body = z.object({
     network: z.string(),
     phone: z.string(),
-    amount: z.number().positive()
+    amount: z.number().positive(),
+    ...pinField
   }).parse(req.body);
+  await requirePinConfirmation(req.user!.id, body.pin);
+
+  const { pin: _pin, ...metadataBody } = body;
 
   const result = await processProviderPurchase({
     userId: req.user!.id,
     amount: body.amount,
     type: TransactionType.AIRTIME_PURCHASE,
     description: `Airtime purchase for ${body.phone}`,
-    metadata: body,
+    metadata: metadataBody,
     // No `costKobo` here on purpose - unlike data plans, airtime has no
     // pricing-config table to estimate from (Alrahuz doesn't quote a fixed
     // discount rate up front). Our real cost is only knowable from Alrahuz's

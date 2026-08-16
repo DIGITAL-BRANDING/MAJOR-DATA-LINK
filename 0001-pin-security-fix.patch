@@ -1,0 +1,1449 @@
+From d0a69ef3d16c05a655253499606803fd592b776e Mon Sep 17 00:00:00 2001
+From: Claude <claude@anthropic.local>
+Date: Sun, 16 Aug 2026 07:28:14 +0000
+Subject: [PATCH] Require the transaction PIN server-side on every money-moving
+ endpoint
+
+CRITICAL security fix. Every purchase endpoint (data, airtime, result
+pins, and all 9 NIN/BVN verification endpoints) relied ENTIRELY on the
+client showing a PIN dialog before calling them - PinConfirmDialog.tsx /
+pin_confirmation_sheet.dart called POST /user/pin/verify, which genuinely
+checked the PIN, but that check was never linked to the purchase call
+that followed it. Nothing server-side stopped a request from skipping
+the dialog and hitting e.g. POST /data/purchase directly with a valid
+auth token and no PIN at all.
+
+Backend (src/lib/require-pin.ts):
+- requirePinConfirmation(userId, pin) - reuses the existing verifyPin()
+  (same rolling-window lockout already used by /user/pin/verify: 5 wrong
+  PINs locks for 30 minutes). A wrong PIN sent straight to a purchase
+  endpoint now counts against the same lockout as one entered through the
+  dialog.
+- pinField - a  zod schema fragment,
+  spread into every affected endpoint's body schema.
+- Added to all 11 money-moving endpoints: POST /data/purchase,
+  /airtime/purchase (vtu.routes.ts), /:exam/pin (result.routes.ts), and
+  all 9 in verification.routes.ts (nin/by-nin, nin/by-phone,
+  nin/by-demographic, bvn/slip, delinking, nin-validation,
+  personalization, bvn-retrieval, ipe-clearance).
+- vtu.routes.ts's two endpoints also stop spreading the raw request body
+  (which now includes ) into Transaction.metadata - the pin field is
+  stripped explicitly before that spread, so it can never end up
+  persisted in the database.
+- require-pin.test.ts (8 tests) - propagates verifyPin's INVALID_PIN /
+  PIN_LOCKED / PIN_NOT_SET untouched, pinField's validation. Full backend
+  suite: 79/79 passing.
+
+Flutter (pin_confirmation_sheet.dart + 27 call-site files):
+- showPinConfirmationSheet now returns Future<String?> (the verified PIN
+  itself) instead of Future<bool> - every caller must include it in the
+  purchase request that follows.
+- Removed the biometric shortcut from this sheet specifically - a
+  biometric match has nothing to send the server as the verified secret
+  (the app only ever stores a one-way HASH of the PIN locally, so a
+  reversible plain PIN is never sitting on-device to retrieve after
+  biometric success). Biometric app-unlock elsewhere in the app
+  (login_pin_unlock_screen.dart) is unaffected - only this
+  money-moving-confirmation sheet now always requires the PIN to be typed.
+  SecureScreenMixin (screenshot blocking while the PIN is on screen) is
+  unchanged.
+- Updated every real call site across all 4 clean-architecture layers
+  where applicable (datasource -> repository -> notifier -> screen):
+  buy_data, buy_airtime, result checker (WAEC/NECO/NABTEB, shared widget),
+  all 8 verification screens (shared verification_provider.dart covers
+  all 9 methods), and major_ai_assistant_screen.dart's chat-driven
+  purchase flow - same endpoints as the regular screens, so this backend
+  fix protects both automatically.
+- Also fixed the 6 UI-only screens with no live backend yet (cable_tv,
+  electricity, jamb, bulk_sms, recharge_card, airtime_to_cash) just to
+  keep the app compiling under the new return type - noted these don't
+  call working endpoints yet, so they weren't a live security gap.
+
+Web (PinConfirmDialog.tsx + 4 call-site files):
+- onVerified now receives the confirmed PIN string, not just a signal.
+- Updated BuyDataPage.tsx, BuyAirtimePage.tsx, VerificationPage.tsx
+  (one shared submit() handles all verification types), and
+  MajorAssistant.tsx's purchase flow.
+- Full app still type-checks and builds clean (tsc -b && vite build).
+---
+ .../screens/airtime_to_cash_screen.dart       |  4 +-
+ .../presentation/screens/bulk_sms_screen.dart |  4 +-
+ .../airtime_remote_datasource.dart            |  3 +
+ .../repositories/airtime_repository_impl.dart |  3 +
+ .../providers/airtime_provider.dart           |  3 +-
+ .../screens/buy_airtime_screen.dart           |  6 +-
+ .../buy_data_remote_datasource.dart           |  3 +
+ .../buy_data_repository_impl.dart             |  2 +
+ .../repositories/buy_data_repository.dart     |  1 +
+ .../providers/buy_data_provider.dart          |  3 +-
+ .../presentation/screens/buy_data_screen.dart | 10 ++-
+ .../presentation/screens/cable_tv_screen.dart |  4 +-
+ .../screens/electricity_screen.dart           |  4 +-
+ .../presentation/screens/jamb_screen.dart     |  4 +-
+ .../screens/recharge_card_screen.dart         |  4 +-
+ .../providers/result_checker_provider.dart    |  6 +-
+ .../presentation/screens/waec_screen.dart     |  6 +-
+ .../screens/major_ai_assistant_screen.dart    |  7 +-
+ .../providers/verification_provider.dart      | 31 ++++---
+ .../screens/bvn_retrieval_screen.dart         |  5 +-
+ .../presentation/screens/bvn_slip_screen.dart |  5 +-
+ .../screens/ipe_clearance_screen.dart         |  5 +-
+ .../screens/nin_by_demographic_screen.dart    |  5 +-
+ .../screens/nin_by_nin_screen.dart            |  5 +-
+ .../screens/nin_by_phone_screen.dart          |  5 +-
+ .../screens/nin_delinking_screen.dart         |  5 +-
+ .../screens/nin_personalization_screen.dart   |  5 +-
+ .../screens/nin_validation_screen.dart        |  5 +-
+ .../widgets/pin_confirmation_sheet.dart       | 86 +++++++------------
+ .../src/lib/__tests__/require-pin.test.ts     | 74 ++++++++++++++++
+ .../src/lib/require-pin.ts                    | 30 +++++++
+ .../src/routes/result.routes.ts               |  4 +-
+ .../src/routes/verification.routes.ts         | 32 +++++--
+ .../src/routes/vtu.routes.ts                  | 20 ++++-
+ web/src/components/MajorAssistant.tsx         |  2 +-
+ web/src/components/PinConfirmDialog.tsx       | 17 +++-
+ web/src/pages/BuyAirtimePage.tsx              |  2 +-
+ web/src/pages/BuyDataPage.tsx                 |  4 +-
+ web/src/pages/VerificationPage.tsx            | 12 +--
+ 39 files changed, 294 insertions(+), 142 deletions(-)
+ create mode 100644 major_data_link_backend/src/lib/__tests__/require-pin.test.ts
+ create mode 100644 major_data_link_backend/src/lib/require-pin.ts
+
+diff --git a/major_data_link/lib/features/airtime_to_cash/presentation/screens/airtime_to_cash_screen.dart b/major_data_link/lib/features/airtime_to_cash/presentation/screens/airtime_to_cash_screen.dart
+index b4c110d..213bdfa 100644
+--- a/major_data_link/lib/features/airtime_to_cash/presentation/screens/airtime_to_cash_screen.dart
++++ b/major_data_link/lib/features/airtime_to_cash/presentation/screens/airtime_to_cash_screen.dart
+@@ -63,12 +63,12 @@ class _AirtimeToCashScreenState extends ConsumerState<AirtimeToCashScreen> {
+     );
+     if (confirmed != true) return;
+ 
+-    final pinVerified = await showPinConfirmationSheet(
++    final pin = await showPinConfirmationSheet(
+       context: context,
+       ref: ref,
+       subtitle: 'Confirm airtime-to-cash conversion',
+     );
+-    if (!pinVerified || !mounted) return;
++    if (pin == null || !mounted) return;
+ 
+     final result = await ref.read(atcNotifierProvider.notifier).submit(network);
+     if (!mounted) return;
+diff --git a/major_data_link/lib/features/bulk_sms/presentation/screens/bulk_sms_screen.dart b/major_data_link/lib/features/bulk_sms/presentation/screens/bulk_sms_screen.dart
+index 2bcd072..b0c8436 100644
+--- a/major_data_link/lib/features/bulk_sms/presentation/screens/bulk_sms_screen.dart
++++ b/major_data_link/lib/features/bulk_sms/presentation/screens/bulk_sms_screen.dart
+@@ -176,13 +176,13 @@ class _BulkSmsScreenState extends ConsumerState<BulkSmsScreen> {
+     context.hideKeyboard();
+     final state = ref.read(bulkSmsNotifierProvider);
+ 
+-    final pinVerified = await showPinConfirmationSheet(
++    final pin = await showPinConfirmationSheet(
+       context: context,
+       ref: ref,
+       subtitle:
+           'Send SMS to ${state.recipients.length} recipient(s) — ${state.totalSmsUnits} unit(s)',
+     );
+-    if (!pinVerified || !mounted) return;
++    if (pin == null || !mounted) return;
+ 
+     final success = await ref.read(bulkSmsNotifierProvider.notifier).send();
+     if (!mounted) return;
+diff --git a/major_data_link/lib/features/buy_airtime/data/datasources/airtime_remote_datasource.dart b/major_data_link/lib/features/buy_airtime/data/datasources/airtime_remote_datasource.dart
+index 971df74..a2fdac5 100644
+--- a/major_data_link/lib/features/buy_airtime/data/datasources/airtime_remote_datasource.dart
++++ b/major_data_link/lib/features/buy_airtime/data/datasources/airtime_remote_datasource.dart
+@@ -10,6 +10,7 @@ abstract class AirtimeRemoteDataSource {
+     required NetworkProvider network,
+     required String phone,
+     required double amount,
++    required String pin,
+   });
+ }
+ 
+@@ -22,6 +23,7 @@ class AirtimeRemoteDataSourceImpl implements AirtimeRemoteDataSource {
+     required NetworkProvider network,
+     required String phone,
+     required double amount,
++    required String pin,
+   }) async {
+     try {
+       final response = await _dio.post(
+@@ -30,6 +32,7 @@ class AirtimeRemoteDataSourceImpl implements AirtimeRemoteDataSource {
+           'network': network.code,
+           'phone': phone,
+           'amount': amount,
++          'pin': pin,
+         },
+         options: Options(headers: {'Idempotency-Key': const Uuid().v4()}),
+       );
+diff --git a/major_data_link/lib/features/buy_airtime/data/repositories/airtime_repository_impl.dart b/major_data_link/lib/features/buy_airtime/data/repositories/airtime_repository_impl.dart
+index 1490a30..7825a6d 100644
+--- a/major_data_link/lib/features/buy_airtime/data/repositories/airtime_repository_impl.dart
++++ b/major_data_link/lib/features/buy_airtime/data/repositories/airtime_repository_impl.dart
+@@ -28,6 +28,7 @@ abstract class AirtimeRepository {
+     required NetworkProvider network,
+     required String phone,
+     required double amount,
++    required String pin,
+   });
+ 
+   Future<List<BeneficiaryEntity>> getBeneficiaries();
+@@ -58,6 +59,7 @@ class AirtimeRepositoryImpl implements AirtimeRepository {
+     required NetworkProvider network,
+     required String phone,
+     required double amount,
++    required String pin,
+   }) async {
+     if (!await _networkInfo.isConnected) {
+       return const Left(NetworkFailure());
+@@ -67,6 +69,7 @@ class AirtimeRepositoryImpl implements AirtimeRepository {
+         network: network,
+         phone: phone,
+         amount: amount,
++        pin: pin,
+       );
+       if (result.success) {
+         await _hive.remove('wallet_balance');
+diff --git a/major_data_link/lib/features/buy_airtime/presentation/providers/airtime_provider.dart b/major_data_link/lib/features/buy_airtime/presentation/providers/airtime_provider.dart
+index ad6d215..297d248 100644
+--- a/major_data_link/lib/features/buy_airtime/presentation/providers/airtime_provider.dart
++++ b/major_data_link/lib/features/buy_airtime/presentation/providers/airtime_provider.dart
+@@ -80,7 +80,7 @@ class AirtimeNotifier extends StateNotifier<AirtimeState> {
+ 
+   void reset() => state = const AirtimeState();
+ 
+-  Future<AirtimePurchaseResult?> purchase(NetworkProvider network) async {
++  Future<AirtimePurchaseResult?> purchase(NetworkProvider network, {required String pin}) async {
+     if (!state.canProceed) return null;
+     state = state.copyWith(isProcessing: true, clearError: true);
+ 
+@@ -89,6 +89,7 @@ class AirtimeNotifier extends StateNotifier<AirtimeState> {
+       network: network,
+       phone: state.phone,
+       amount: state.amount,
++      pin: pin,
+     );
+ 
+     return result.fold(
+diff --git a/major_data_link/lib/features/buy_airtime/presentation/screens/buy_airtime_screen.dart b/major_data_link/lib/features/buy_airtime/presentation/screens/buy_airtime_screen.dart
+index f01156b..4a1b313 100644
+--- a/major_data_link/lib/features/buy_airtime/presentation/screens/buy_airtime_screen.dart
++++ b/major_data_link/lib/features/buy_airtime/presentation/screens/buy_airtime_screen.dart
+@@ -88,16 +88,16 @@ class _BuyAirtimeScreenState extends ConsumerState<BuyAirtimeScreen> {
+       return;
+     }
+ 
+-    final pinVerified = await showPinConfirmationSheet(
++    final pin = await showPinConfirmationSheet(
+       context: context,
+       ref: ref,
+       subtitle:
+           'Confirm airtime purchase of ${AppFormatters.formatAmount(state.amount)} for ${_phoneController.text}',
+     );
+-    if (!pinVerified || !mounted) return;
++    if (pin == null || !mounted) return;
+ 
+     final result =
+-        await ref.read(airtimeNotifierProvider.notifier).purchase(network);
++        await ref.read(airtimeNotifierProvider.notifier).purchase(network, pin: pin);
+ 
+     if (!mounted) return;
+ 
+diff --git a/major_data_link/lib/features/buy_data/data/datasources/buy_data_remote_datasource.dart b/major_data_link/lib/features/buy_data/data/datasources/buy_data_remote_datasource.dart
+index 552af0d..b90c41b 100644
+--- a/major_data_link/lib/features/buy_data/data/datasources/buy_data_remote_datasource.dart
++++ b/major_data_link/lib/features/buy_data/data/datasources/buy_data_remote_datasource.dart
+@@ -60,6 +60,7 @@ abstract class BuyDataRemoteDataSource {
+     required String planId,
+     required String phone,
+     required double amount,
++    required String pin,
+   });
+ }
+ 
+@@ -108,6 +109,7 @@ class BuyDataRemoteDataSourceImpl implements BuyDataRemoteDataSource {
+     required String planId,
+     required String phone,
+     required double amount,
++    required String pin,
+   }) async {
+     try {
+       final response = await _dio.post(
+@@ -117,6 +119,7 @@ class BuyDataRemoteDataSourceImpl implements BuyDataRemoteDataSource {
+           'plan_id': planId,
+           'phone': phone,
+           'amount': amount,
++          'pin': pin,
+         },
+         options: Options(headers: {'Idempotency-Key': const Uuid().v4()}),
+       );
+diff --git a/major_data_link/lib/features/buy_data/data/repositories/buy_data_repository_impl.dart b/major_data_link/lib/features/buy_data/data/repositories/buy_data_repository_impl.dart
+index 50d9dbb..ba5ee5f 100644
+--- a/major_data_link/lib/features/buy_data/data/repositories/buy_data_repository_impl.dart
++++ b/major_data_link/lib/features/buy_data/data/repositories/buy_data_repository_impl.dart
+@@ -107,6 +107,7 @@ class BuyDataRepositoryImpl implements BuyDataRepository {
+     required NetworkProvider network,
+     required DataPlanEntity plan,
+     required String phone,
++    required String pin,
+   }) async {
+     if (!await _networkInfo.isConnected) {
+       return const Left(NetworkFailure());
+@@ -117,6 +118,7 @@ class BuyDataRepositoryImpl implements BuyDataRepository {
+         planId: plan.id,
+         phone: phone,
+         amount: plan.price,
++        pin: pin,
+       );
+ 
+       if (result.success) {
+diff --git a/major_data_link/lib/features/buy_data/domain/repositories/buy_data_repository.dart b/major_data_link/lib/features/buy_data/domain/repositories/buy_data_repository.dart
+index f38f6f8..3df49d7 100644
+--- a/major_data_link/lib/features/buy_data/domain/repositories/buy_data_repository.dart
++++ b/major_data_link/lib/features/buy_data/domain/repositories/buy_data_repository.dart
+@@ -33,6 +33,7 @@ abstract class BuyDataRepository {
+     required NetworkProvider network,
+     required DataPlanEntity plan,
+     required String phone,
++    required String pin,
+   });
+ 
+   Future<List<BeneficiaryEntity>> getBeneficiaries();
+diff --git a/major_data_link/lib/features/buy_data/presentation/providers/buy_data_provider.dart b/major_data_link/lib/features/buy_data/presentation/providers/buy_data_provider.dart
+index 369bf45..b7fda32 100644
+--- a/major_data_link/lib/features/buy_data/presentation/providers/buy_data_provider.dart
++++ b/major_data_link/lib/features/buy_data/presentation/providers/buy_data_provider.dart
+@@ -139,7 +139,7 @@ class BuyDataNotifier extends StateNotifier<BuyDataState> {
+     state = const BuyDataState();
+   }
+ 
+-  Future<DataPurchaseResult?> purchase(NetworkProvider network) async {
++  Future<DataPurchaseResult?> purchase(NetworkProvider network, {required String pin}) async {
+     if (!state.canProceed) return null;
+     state = state.copyWith(isProcessing: true, clearError: true);
+ 
+@@ -148,6 +148,7 @@ class BuyDataNotifier extends StateNotifier<BuyDataState> {
+       network: network,
+       plan: state.selectedPlan!,
+       phone: state.phone,
++      pin: pin,
+     );
+ 
+     return result.fold(
+diff --git a/major_data_link/lib/features/buy_data/presentation/screens/buy_data_screen.dart b/major_data_link/lib/features/buy_data/presentation/screens/buy_data_screen.dart
+index 059f1eb..93b1986 100644
+--- a/major_data_link/lib/features/buy_data/presentation/screens/buy_data_screen.dart
++++ b/major_data_link/lib/features/buy_data/presentation/screens/buy_data_screen.dart
+@@ -112,17 +112,19 @@ class _BuyDataScreenState extends ConsumerState<BuyDataScreen> {
+     final confirmed = await _showConfirmSheet(state.selectedPlan!, network);
+     if (confirmed != true) return;
+ 
+-    // PIN confirmation
+-    final pinVerified = await showPinConfirmationSheet(
++    // PIN confirmation - the returned pin is sent straight through to the
++    // purchase call below; the server independently re-verifies it (see
++    // require-pin.ts) before spending anything.
++    final pin = await showPinConfirmationSheet(
+       context: context,
+       ref: ref,
+       subtitle:
+           'Confirm purchase of ${state.selectedPlan!.size} for ${_phoneController.text}',
+     );
+-    if (!pinVerified || !mounted) return;
++    if (pin == null || !mounted) return;
+ 
+     final result =
+-        await ref.read(buyDataNotifierProvider.notifier).purchase(network);
++        await ref.read(buyDataNotifierProvider.notifier).purchase(network, pin: pin);
+ 
+     if (!mounted) return;
+ 
+diff --git a/major_data_link/lib/features/cable_tv/presentation/screens/cable_tv_screen.dart b/major_data_link/lib/features/cable_tv/presentation/screens/cable_tv_screen.dart
+index 4ff62c2..701d956 100644
+--- a/major_data_link/lib/features/cable_tv/presentation/screens/cable_tv_screen.dart
++++ b/major_data_link/lib/features/cable_tv/presentation/screens/cable_tv_screen.dart
+@@ -36,13 +36,13 @@ class _CableTvScreenState extends ConsumerState<CableTvScreen> {
+ 
+     if (!state.canProceed) return;
+ 
+-    final pinVerified = await showPinConfirmationSheet(
++    final pin = await showPinConfirmationSheet(
+       context: context,
+       ref: ref,
+       subtitle:
+           'Confirm ${provider.label} subscription for ${state.validationResult?.customerName ?? ""}',
+     );
+-    if (!pinVerified || !mounted) return;
++    if (pin == null || !mounted) return;
+ 
+     final result =
+         await ref.read(cableNotifierProvider.notifier).subscribe(provider);
+diff --git a/major_data_link/lib/features/electricity/presentation/screens/electricity_screen.dart b/major_data_link/lib/features/electricity/presentation/screens/electricity_screen.dart
+index 25befae..2535271 100644
+--- a/major_data_link/lib/features/electricity/presentation/screens/electricity_screen.dart
++++ b/major_data_link/lib/features/electricity/presentation/screens/electricity_screen.dart
+@@ -53,12 +53,12 @@ class _ElectricityScreenState extends ConsumerState<ElectricityScreen> {
+     );
+     if (confirmed != true) return;
+ 
+-    final pinVerified = await showPinConfirmationSheet(
++    final pin = await showPinConfirmationSheet(
+       context: context,
+       ref: ref,
+       subtitle: 'Confirm electricity payment for $disco',
+     );
+-    if (!pinVerified || !mounted) return;
++    if (pin == null || !mounted) return;
+ 
+     final result =
+         await ref.read(electricityNotifierProvider.notifier).purchase(disco);
+diff --git a/major_data_link/lib/features/jamb/presentation/screens/jamb_screen.dart b/major_data_link/lib/features/jamb/presentation/screens/jamb_screen.dart
+index 8f78b0d..6239d4a 100644
+--- a/major_data_link/lib/features/jamb/presentation/screens/jamb_screen.dart
++++ b/major_data_link/lib/features/jamb/presentation/screens/jamb_screen.dart
+@@ -51,13 +51,13 @@ class _JambScreenState extends ConsumerState<JambScreen>
+     context.hideKeyboard();
+     final state = ref.read(jambNotifierProvider);
+ 
+-    final pinVerified = await showPinConfirmationSheet(
++    final pin = await showPinConfirmationSheet(
+       context: context,
+       ref: ref,
+       subtitle:
+           'Confirm ${state.serviceType.label} — ${AppFormatters.formatAmount(state.serviceType.price)}',
+     );
+-    if (!pinVerified || !mounted) return;
++    if (pin == null || !mounted) return;
+ 
+     final result = await ref.read(jambNotifierProvider.notifier).purchase();
+     if (!mounted) return;
+diff --git a/major_data_link/lib/features/recharge_card/presentation/screens/recharge_card_screen.dart b/major_data_link/lib/features/recharge_card/presentation/screens/recharge_card_screen.dart
+index 9a2f405..0bf7b97 100644
+--- a/major_data_link/lib/features/recharge_card/presentation/screens/recharge_card_screen.dart
++++ b/major_data_link/lib/features/recharge_card/presentation/screens/recharge_card_screen.dart
+@@ -146,13 +146,13 @@ class _CardPrintingScreen extends ConsumerWidget {
+     CardPrintingState state,
+   ) async {
+     context.hideKeyboard();
+-    final pinVerified = await showPinConfirmationSheet(
++    final pin = await showPinConfirmationSheet(
+       context: context,
+       ref: ref,
+       subtitle:
+           'Confirm generation of ${state.quantity} × ${state.selectedDenomination!.label} cards',
+     );
+-    if (!pinVerified || !context.mounted) return;
++    if (pin == null || !context.mounted) return;
+ 
+     final result =
+         await ref.read(notifierProvider.notifier).generate();
+diff --git a/major_data_link/lib/features/result_checker/presentation/providers/result_checker_provider.dart b/major_data_link/lib/features/result_checker/presentation/providers/result_checker_provider.dart
+index 84eeb17..549a325 100644
+--- a/major_data_link/lib/features/result_checker/presentation/providers/result_checker_provider.dart
++++ b/major_data_link/lib/features/result_checker/presentation/providers/result_checker_provider.dart
+@@ -100,6 +100,7 @@ class _ResultCheckerRemote {
+   Future<ResultCheckerResult> purchasePin({
+     required ExamType examType,
+     required int quantity,
++    required String pin,
+   }) async {
+     try {
+       final endpoint = switch (examType) {
+@@ -109,7 +110,7 @@ class _ResultCheckerRemote {
+       };
+       final response = await _dio.post(
+         endpoint,
+-        data: {'quantity': quantity, 'exam_type': examType.label},
++        data: {'quantity': quantity, 'exam_type': examType.label, 'pin': pin},
+         options: Options(headers: {'Idempotency-Key': const Uuid().v4()}),
+       );
+       return ResultCheckerResult.fromJson(
+@@ -183,13 +184,14 @@ class ResultCheckerNotifier extends StateNotifier<ResultCheckerState> {
+   void setQuantity(int qty) =>
+       state = state.copyWith(quantity: qty.clamp(1, 10));
+ 
+-  Future<ResultCheckerResult?> purchasePin() async {
++  Future<ResultCheckerResult?> purchasePin({required String pin}) async {
+     state = state.copyWith(isProcessing: true, clearError: true);
+     try {
+       final ds = _ref.read(resultCheckerRemoteProvider);
+       final result = await ds.purchasePin(
+         examType: _examType,
+         quantity: state.quantity,
++        pin: pin,
+       );
+       if (result.success) {
+         await _ref.read(hiveStorageProvider).remove('wallet_balance');
+diff --git a/major_data_link/lib/features/result_checker/presentation/screens/waec_screen.dart b/major_data_link/lib/features/result_checker/presentation/screens/waec_screen.dart
+index c46a5cb..88f8284 100644
+--- a/major_data_link/lib/features/result_checker/presentation/screens/waec_screen.dart
++++ b/major_data_link/lib/features/result_checker/presentation/screens/waec_screen.dart
+@@ -29,15 +29,15 @@ class ResultCheckerScreen extends ConsumerWidget {
+     ResultCheckerState state,
+   ) async {
+     context.hideKeyboard();
+-    final pinVerified = await showPinConfirmationSheet(
++    final pin = await showPinConfirmationSheet(
+       context: context,
+       ref: ref,
+       subtitle:
+           'Confirm purchase of ${state.quantity} ${examType.label} scratch card(s)',
+     );
+-    if (!pinVerified || !context.mounted) return;
++    if (pin == null || !context.mounted) return;
+ 
+-    final result = await ref.read(notifierProvider.notifier).purchasePin();
++    final result = await ref.read(notifierProvider.notifier).purchasePin(pin: pin);
+     if (!context.mounted) return;
+ 
+     if (result != null && result.success) {
+diff --git a/major_data_link/lib/features/support/presentation/screens/major_ai_assistant_screen.dart b/major_data_link/lib/features/support/presentation/screens/major_ai_assistant_screen.dart
+index 17c6d70..dff2396 100644
+--- a/major_data_link/lib/features/support/presentation/screens/major_ai_assistant_screen.dart
++++ b/major_data_link/lib/features/support/presentation/screens/major_ai_assistant_screen.dart
+@@ -446,7 +446,7 @@ class _MajorAiAssistantScreenState
+   }
+ 
+   Future<void> _confirmPurchase() async {
+-    final confirmed = await showPinConfirmationSheet(
++    final pin = await showPinConfirmationSheet(
+       context: context,
+       ref: ref,
+       title: tr('Confirm purchase', 'Tabbatar da siya'),
+@@ -455,7 +455,7 @@ class _MajorAiAssistantScreenState
+         'Yi amfani da transaction PIN. Ba a taɓa aika PIN ɗinka a chat ba.',
+       ),
+     );
+-    if (!confirmed) {
++    if (pin == null) {
+       _bot(
+         tr(
+           'Purchase cancelled. Your wallet was not charged.',
+@@ -477,8 +477,9 @@ class _MajorAiAssistantScreenState
+                 'plan_id': '${_plan!['id'] ?? _plan!['plan_id']}',
+                 'phone': _phone,
+                 'amount': _amount,
++                'pin': pin,
+               }
+-            : {'network': _network, 'phone': _phone, 'amount': _amount},
++            : {'network': _network, 'phone': _phone, 'amount': _amount, 'pin': pin},
+         options: Options(headers: {'Idempotency-Key': const Uuid().v4()}),
+       );
+       final ok =
+diff --git a/major_data_link/lib/features/verification/presentation/providers/verification_provider.dart b/major_data_link/lib/features/verification/presentation/providers/verification_provider.dart
+index d014288..8069f8a 100644
+--- a/major_data_link/lib/features/verification/presentation/providers/verification_provider.dart
++++ b/major_data_link/lib/features/verification/presentation/providers/verification_provider.dart
+@@ -229,29 +229,31 @@ class VerificationRemote {
+ 
+   // ---- Slip lookups (synchronous) ----
+ 
+-  Future<SlipApiResult> ninByNin({required String nin, required SlipTier tier}) =>
+-      _postSlip(AppEndpoints.ninByNin, {'nin': nin, 'tier': tier.apiValue});
++  Future<SlipApiResult> ninByNin({required String nin, required SlipTier tier, required String pin}) =>
++      _postSlip(AppEndpoints.ninByNin, {'nin': nin, 'tier': tier.apiValue, 'pin': pin});
+ 
+   Future<SlipApiResult> ninByPhone(
+-          {required String phone, required SlipTier tier}) =>
++          {required String phone, required SlipTier tier, required String pin}) =>
+       _postSlip(
+-          AppEndpoints.ninByPhone, {'phone': phone, 'tier': tier.apiValue});
++          AppEndpoints.ninByPhone, {'phone': phone, 'tier': tier.apiValue, 'pin': pin});
+ 
+   Future<SlipApiResult> ninByDemographic({
+     required String firstname,
+     required String lastname,
+     required String dob,
+     String? gender,
++    required String pin,
+   }) =>
+       _postSlip(AppEndpoints.ninByDemographic, {
+         'firstname': firstname,
+         'lastname': lastname,
+         'dob': dob,
+         if (gender != null) 'gender': gender,
++        'pin': pin,
+       });
+ 
+-  Future<SlipApiResult> bvnSlip({required String bvn, required BvnTier tier}) =>
+-      _postSlip(AppEndpoints.bvnSlip, {'bvn': bvn, 'tier': tier.apiValue});
++  Future<SlipApiResult> bvnSlip({required String bvn, required BvnTier tier, required String pin}) =>
++      _postSlip(AppEndpoints.bvnSlip, {'bvn': bvn, 'tier': tier.apiValue, 'pin': pin});
+ 
+   Future<SlipApiResult> _postSlip(
+       String endpoint, Map<String, dynamic> body) async {
+@@ -267,25 +269,26 @@ class VerificationRemote {
+   // ---- Async services (submit + poll) ----
+ 
+   Future<AsyncSubmitApiResult> submitDelinking(
+-          {required String nin, required String email}) =>
+-      _postAsync(AppEndpoints.ninDelinking, {'nin': nin, 'email': email});
++          {required String nin, required String email, required String pin}) =>
++      _postAsync(AppEndpoints.ninDelinking, {'nin': nin, 'email': email, 'pin': pin});
+ 
+   Future<AsyncStatusApiResult> checkDelinking(String ticketId) =>
+       _getAsync(AppEndpoints.ninDelinkingStatus(ticketId));
+ 
+   Future<AsyncSubmitApiResult> submitNinValidation(
+-          {required String nin, NinValidationType? validationType}) =>
++          {required String nin, NinValidationType? validationType, required String pin}) =>
+       _postAsync(AppEndpoints.ninValidation, {
+         'nin': nin,
+         if (validationType != null) 'validation_type': validationType.apiValue,
++        'pin': pin,
+       });
+ 
+   Future<AsyncStatusApiResult> checkNinValidation(String ticketId) =>
+       _getAsync(AppEndpoints.ninValidationStatus(ticketId));
+ 
+   Future<AsyncSubmitApiResult> submitPersonalization(
+-          {required String trackingId}) =>
+-      _postAsync(AppEndpoints.ninPersonalization, {'tracking_id': trackingId});
++          {required String trackingId, required String pin}) =>
++      _postAsync(AppEndpoints.ninPersonalization, {'tracking_id': trackingId, 'pin': pin});
+ 
+   Future<AsyncStatusApiResult> checkPersonalization(String ticketId) =>
+       _getAsync(AppEndpoints.ninPersonalizationStatus(ticketId));
+@@ -294,19 +297,21 @@ class VerificationRemote {
+     required String firstName,
+     required String lastName,
+     required String phoneNumber,
++    required String pin,
+   }) =>
+       _postAsync(AppEndpoints.bvnRetrieval, {
+         'first_name': firstName,
+         'last_name': lastName,
+         'phone_number': phoneNumber,
++        'pin': pin,
+       });
+ 
+   Future<AsyncStatusApiResult> checkBvnRetrieval(String ticketId) =>
+       _getAsync(AppEndpoints.bvnRetrievalStatus(ticketId));
+ 
+   Future<AsyncSubmitApiResult> submitIpeClearance(
+-          {required String trackingId}) =>
+-      _postAsync(AppEndpoints.ipeClearance, {'tracking_id': trackingId});
++          {required String trackingId, required String pin}) =>
++      _postAsync(AppEndpoints.ipeClearance, {'tracking_id': trackingId, 'pin': pin});
+ 
+   Future<AsyncStatusApiResult> checkIpeClearance(String ticketId) =>
+       _getAsync(AppEndpoints.ipeClearanceStatus(ticketId));
+diff --git a/major_data_link/lib/features/verification/presentation/screens/bvn_retrieval_screen.dart b/major_data_link/lib/features/verification/presentation/screens/bvn_retrieval_screen.dart
+index 6216aac..84f82a4 100644
+--- a/major_data_link/lib/features/verification/presentation/screens/bvn_retrieval_screen.dart
++++ b/major_data_link/lib/features/verification/presentation/screens/bvn_retrieval_screen.dart
+@@ -42,18 +42,19 @@ class _BvnRetrievalScreenState extends ConsumerState<BvnRetrievalScreen>
+   Future<void> _submit(double price) async {
+     if (!_formKey.currentState!.validate()) return;
+     context.hideKeyboard();
+-    final pinVerified = await showPinConfirmationSheet(
++    final pin = await showPinConfirmationSheet(
+       context: context,
+       ref: ref,
+       subtitle: 'Confirm BVN retrieval request — ${price.toNaira}',
+     );
+-    if (!pinVerified || !mounted) return;
++    if (pin == null || !mounted) return;
+ 
+     final ok = await ref.read(asyncFlowProvider.notifier).submit(
+           () => ref.read(verificationRemoteProvider).submitBvnRetrieval(
+                 firstName: _firstNameController.text.trim(),
+                 lastName: _lastNameController.text.trim(),
+                 phoneNumber: _phoneController.text.trim(),
++                pin: pin,
+               ),
+         );
+     if (ok) startPolling();
+diff --git a/major_data_link/lib/features/verification/presentation/screens/bvn_slip_screen.dart b/major_data_link/lib/features/verification/presentation/screens/bvn_slip_screen.dart
+index ef2e1db..a506580 100644
+--- a/major_data_link/lib/features/verification/presentation/screens/bvn_slip_screen.dart
++++ b/major_data_link/lib/features/verification/presentation/screens/bvn_slip_screen.dart
+@@ -38,17 +38,18 @@ class _BvnSlipScreenState extends ConsumerState<BvnSlipScreen>
+   Future<void> _submit(double price) async {
+     if (!_formKey.currentState!.validate()) return;
+     context.hideKeyboard();
+-    final pinVerified = await showPinConfirmationSheet(
++    final pin = await showPinConfirmationSheet(
+       context: context,
+       ref: ref,
+       subtitle: 'Confirm ${_tier.label} BVN slip lookup — ${price.toNaira}',
+     );
+-    if (!pinVerified || !mounted) return;
++    if (pin == null || !mounted) return;
+ 
+     await ref.read(slipFlowProvider.notifier).submit(
+           () => ref.read(verificationRemoteProvider).bvnSlip(
+                 bvn: _bvnController.text.trim(),
+                 tier: _tier,
++                pin: pin,
+               ),
+         );
+   }
+diff --git a/major_data_link/lib/features/verification/presentation/screens/ipe_clearance_screen.dart b/major_data_link/lib/features/verification/presentation/screens/ipe_clearance_screen.dart
+index e475671..cc895a0 100644
+--- a/major_data_link/lib/features/verification/presentation/screens/ipe_clearance_screen.dart
++++ b/major_data_link/lib/features/verification/presentation/screens/ipe_clearance_screen.dart
+@@ -37,16 +37,17 @@ class _IpeClearanceScreenState extends ConsumerState<IpeClearanceScreen>
+   Future<void> _submit(double price) async {
+     if (!_formKey.currentState!.validate()) return;
+     context.hideKeyboard();
+-    final pinVerified = await showPinConfirmationSheet(
++    final pin = await showPinConfirmationSheet(
+       context: context,
+       ref: ref,
+       subtitle: 'Confirm IPE clearance request — ${price.toNaira}',
+     );
+-    if (!pinVerified || !mounted) return;
++    if (pin == null || !mounted) return;
+ 
+     final ok = await ref.read(asyncFlowProvider.notifier).submit(
+           () => ref.read(verificationRemoteProvider).submitIpeClearance(
+                 trackingId: _trackingIdController.text.trim(),
++                pin: pin,
+               ),
+         );
+     if (ok) startPolling();
+diff --git a/major_data_link/lib/features/verification/presentation/screens/nin_by_demographic_screen.dart b/major_data_link/lib/features/verification/presentation/screens/nin_by_demographic_screen.dart
+index 973a97e..e88e163 100644
+--- a/major_data_link/lib/features/verification/presentation/screens/nin_by_demographic_screen.dart
++++ b/major_data_link/lib/features/verification/presentation/screens/nin_by_demographic_screen.dart
+@@ -53,12 +53,12 @@ class _NinByDemographicScreenState
+   Future<void> _submit(double price) async {
+     if (!_formKey.currentState!.validate()) return;
+     context.hideKeyboard();
+-    final pinVerified = await showPinConfirmationSheet(
++    final pin = await showPinConfirmationSheet(
+       context: context,
+       ref: ref,
+       subtitle: 'Confirm NIN lookup by demographic details — ${price.toNaira}',
+     );
+-    if (!pinVerified || !mounted) return;
++    if (pin == null || !mounted) return;
+ 
+     await ref.read(slipFlowProvider.notifier).submit(
+           () => ref.read(verificationRemoteProvider).ninByDemographic(
+@@ -66,6 +66,7 @@ class _NinByDemographicScreenState
+                 lastname: _lastNameController.text.trim(),
+                 dob: _dobController.text.trim(),
+                 gender: _gender,
++                pin: pin,
+               ),
+         );
+   }
+diff --git a/major_data_link/lib/features/verification/presentation/screens/nin_by_nin_screen.dart b/major_data_link/lib/features/verification/presentation/screens/nin_by_nin_screen.dart
+index 9b62022..9ab8845 100644
+--- a/major_data_link/lib/features/verification/presentation/screens/nin_by_nin_screen.dart
++++ b/major_data_link/lib/features/verification/presentation/screens/nin_by_nin_screen.dart
+@@ -40,17 +40,18 @@ class _NinByNinScreenState extends ConsumerState<NinByNinScreen>
+   Future<void> _submit(double price) async {
+     if (!_formKey.currentState!.validate()) return;
+     context.hideKeyboard();
+-    final pinVerified = await showPinConfirmationSheet(
++    final pin = await showPinConfirmationSheet(
+       context: context,
+       ref: ref,
+       subtitle: 'Confirm ${_tier.label} NIN slip lookup — ${price.toNaira}',
+     );
+-    if (!pinVerified || !mounted) return;
++    if (pin == null || !mounted) return;
+ 
+     await ref.read(slipFlowProvider.notifier).submit(
+           () => ref.read(verificationRemoteProvider).ninByNin(
+                 nin: _ninController.text.trim(),
+                 tier: _tier,
++                pin: pin,
+               ),
+         );
+   }
+diff --git a/major_data_link/lib/features/verification/presentation/screens/nin_by_phone_screen.dart b/major_data_link/lib/features/verification/presentation/screens/nin_by_phone_screen.dart
+index c6ea0ae..08524aa 100644
+--- a/major_data_link/lib/features/verification/presentation/screens/nin_by_phone_screen.dart
++++ b/major_data_link/lib/features/verification/presentation/screens/nin_by_phone_screen.dart
+@@ -41,17 +41,18 @@ class _NinByPhoneScreenState extends ConsumerState<NinByPhoneScreen>
+   Future<void> _submit(double price) async {
+     if (!_formKey.currentState!.validate()) return;
+     context.hideKeyboard();
+-    final pinVerified = await showPinConfirmationSheet(
++    final pin = await showPinConfirmationSheet(
+       context: context,
+       ref: ref,
+       subtitle: 'Confirm ${_tier.label} NIN slip lookup — ${price.toNaira}',
+     );
+-    if (!pinVerified || !mounted) return;
++    if (pin == null || !mounted) return;
+ 
+     await ref.read(slipFlowProvider.notifier).submit(
+           () => ref.read(verificationRemoteProvider).ninByPhone(
+                 phone: _phoneController.text.trim(),
+                 tier: _tier,
++                pin: pin,
+               ),
+         );
+   }
+diff --git a/major_data_link/lib/features/verification/presentation/screens/nin_delinking_screen.dart b/major_data_link/lib/features/verification/presentation/screens/nin_delinking_screen.dart
+index ece81a6..bc3afe3 100644
+--- a/major_data_link/lib/features/verification/presentation/screens/nin_delinking_screen.dart
++++ b/major_data_link/lib/features/verification/presentation/screens/nin_delinking_screen.dart
+@@ -40,17 +40,18 @@ class _NinDelinkingScreenState extends ConsumerState<NinDelinkingScreen>
+   Future<void> _submit(double price) async {
+     if (!_formKey.currentState!.validate()) return;
+     context.hideKeyboard();
+-    final pinVerified = await showPinConfirmationSheet(
++    final pin = await showPinConfirmationSheet(
+       context: context,
+       ref: ref,
+       subtitle: 'Confirm NIN delinking request — ${price.toNaira}',
+     );
+-    if (!pinVerified || !mounted) return;
++    if (pin == null || !mounted) return;
+ 
+     final ok = await ref.read(asyncFlowProvider.notifier).submit(
+           () => ref.read(verificationRemoteProvider).submitDelinking(
+                 nin: _ninController.text.trim(),
+                 email: _emailController.text.trim(),
++                pin: pin,
+               ),
+         );
+     if (ok) startPolling();
+diff --git a/major_data_link/lib/features/verification/presentation/screens/nin_personalization_screen.dart b/major_data_link/lib/features/verification/presentation/screens/nin_personalization_screen.dart
+index 74b7276..22293e1 100644
+--- a/major_data_link/lib/features/verification/presentation/screens/nin_personalization_screen.dart
++++ b/major_data_link/lib/features/verification/presentation/screens/nin_personalization_screen.dart
+@@ -38,16 +38,17 @@ class _NinPersonalizationScreenState
+   Future<void> _submit(double price) async {
+     if (!_formKey.currentState!.validate()) return;
+     context.hideKeyboard();
+-    final pinVerified = await showPinConfirmationSheet(
++    final pin = await showPinConfirmationSheet(
+       context: context,
+       ref: ref,
+       subtitle: 'Confirm NIN personalization request — ${price.toNaira}',
+     );
+-    if (!pinVerified || !mounted) return;
++    if (pin == null || !mounted) return;
+ 
+     final ok = await ref.read(asyncFlowProvider.notifier).submit(
+           () => ref.read(verificationRemoteProvider).submitPersonalization(
+                 trackingId: _trackingIdController.text.trim(),
++                pin: pin,
+               ),
+         );
+     if (ok) startPolling();
+diff --git a/major_data_link/lib/features/verification/presentation/screens/nin_validation_screen.dart b/major_data_link/lib/features/verification/presentation/screens/nin_validation_screen.dart
+index 72262fe..854fad3 100644
+--- a/major_data_link/lib/features/verification/presentation/screens/nin_validation_screen.dart
++++ b/major_data_link/lib/features/verification/presentation/screens/nin_validation_screen.dart
+@@ -40,17 +40,18 @@ class _NinValidationScreenState extends ConsumerState<NinValidationScreen>
+   Future<void> _submit(double price) async {
+     if (!_formKey.currentState!.validate()) return;
+     context.hideKeyboard();
+-    final pinVerified = await showPinConfirmationSheet(
++    final pin = await showPinConfirmationSheet(
+       context: context,
+       ref: ref,
+       subtitle: 'Confirm NIN validation (${_type.label}) — ${price.toNaira}',
+     );
+-    if (!pinVerified || !mounted) return;
++    if (pin == null || !mounted) return;
+ 
+     final ok = await ref.read(asyncFlowProvider.notifier).submit(
+           () => ref.read(verificationRemoteProvider).submitNinValidation(
+                 nin: _ninController.text.trim(),
+                 validationType: _type,
++                pin: pin,
+               ),
+         );
+     if (ok) startPolling();
+diff --git a/major_data_link/lib/shared/widgets/pin_confirmation_sheet.dart b/major_data_link/lib/shared/widgets/pin_confirmation_sheet.dart
+index 2e69605..3bb6812 100644
+--- a/major_data_link/lib/shared/widgets/pin_confirmation_sheet.dart
++++ b/major_data_link/lib/shared/widgets/pin_confirmation_sheet.dart
+@@ -2,46 +2,53 @@ import 'package:flutter/material.dart';
+ import 'package:flutter_riverpod/flutter_riverpod.dart';
+ import '../../core/constants/app_colors.dart';
+ import '../../core/constants/app_dimensions.dart';
+-import '../../core/security/biometric_service.dart';
+ import '../../core/security/secure_screen_mixin.dart';
+ import '../../core/di/injection.dart';
+-import '../../features/auth/presentation/providers/auth_provider.dart';
+ import 'kd_button.dart';
+ import 'kd_pin_input.dart';
+ 
+-/// Shows the PIN confirmation sheet and returns true if PIN was verified,
+-/// false if cancelled or verification failed after retries exhausted.
+-Future<bool> showPinConfirmationSheet({
++/// Shows the PIN confirmation sheet and returns the verified 4-digit PIN on
++/// success, or null if cancelled or verification failed after the user gave
++/// up retrying.
++///
++/// Returns the PIN itself (not just a bool) because the backend now
++/// requires that same PIN again, directly in the purchase request body
++/// (POST /data/purchase, /airtime/purchase, etc - see requirePinConfirmation
++/// in the backend's require-pin.ts). Before that backend change, this sheet
++/// calling POST /user/pin/verify and the actual purchase call that followed
++/// it were two completely disconnected requests - nothing stopped a client
++/// from skipping this sheet entirely and calling the purchase endpoint
++/// directly with no PIN at all. Every caller of this function MUST now
++/// include the returned PIN in its purchase request, or that request will
++/// be rejected server-side.
++///
++/// No biometric shortcut here anymore, unlike this sheet's previous
++/// version - a biometric match has nothing to send the server as the
++/// verified secret (the app only ever stores a one-way HASH of the PIN
++/// locally, specifically so a plain PIN is never sitting on-device in a
++/// reversible form). Biometric unlock for the app itself is unaffected -
++/// see login_pin_unlock_screen.dart - only this money-moving-confirmation
++/// sheet requires the actual PIN to be typed, every time.
++Future<String?> showPinConfirmationSheet({
+   required BuildContext context,
+   required WidgetRef ref,
+   String title = 'Confirm transaction',
+   String subtitle = 'Enter your 4-digit PIN to continue',
+-  bool allowBiometric = true,
+ }) async {
+-  final result = await showModalBottomSheet<bool>(
++  return showModalBottomSheet<String>(
+     context: context,
+     isScrollControlled: true,
+     useSafeArea: true,
+     isDismissible: true,
+-    builder: (_) => _PinConfirmationSheet(
+-      title: title,
+-      subtitle: subtitle,
+-      allowBiometric: allowBiometric,
+-    ),
++    builder: (_) => _PinConfirmationSheet(title: title, subtitle: subtitle),
+   );
+-  return result ?? false;
+ }
+ 
+ class _PinConfirmationSheet extends ConsumerStatefulWidget {
+-  const _PinConfirmationSheet({
+-    required this.title,
+-    required this.subtitle,
+-    required this.allowBiometric,
+-  });
++  const _PinConfirmationSheet({required this.title, required this.subtitle});
+ 
+   final String title;
+   final String subtitle;
+-  final bool allowBiometric;
+ 
+   @override
+   ConsumerState<_PinConfirmationSheet> createState() =>
+@@ -55,33 +62,6 @@ class _PinConfirmationSheetState extends ConsumerState<_PinConfirmationSheet>
+   String? _errorMessage;
+   Key _shakeKey = UniqueKey();
+ 
+-  @override
+-  void initState() {
+-    super.initState();
+-    if (widget.allowBiometric) {
+-      WidgetsBinding.instance.addPostFrameCallback((_) => _tryBiometric());
+-    }
+-  }
+-
+-  Future<void> _tryBiometric() async {
+-    final local = ref.read(authLocalDataSourceProvider);
+-    final isEnabled = await local.isBiometricEnabled();
+-    if (!isEnabled) return;
+-
+-    final biometricService = ref.read(biometricServiceProvider);
+-    final available = await biometricService.isAvailable();
+-    if (!available) return;
+-
+-    final result = await biometricService.authenticate(
+-      title: 'Confirm transaction',
+-      subtitle: 'Use biometric to authorize this purchase',
+-    );
+-
+-    if (result == BiometricResult.success && mounted) {
+-      Navigator.of(context).pop(true);
+-    }
+-  }
+-
+   Future<void> _verifyPin(String pin) async {
+     setState(() {
+       _isVerifying = true;
+@@ -105,7 +85,10 @@ class _PinConfirmationSheetState extends ConsumerState<_PinConfirmationSheet>
+       },
+       (isValid) {
+         if (isValid) {
+-          Navigator.of(context).pop(true);
++          // The server just independently confirmed this exact PIN is
++          // correct (via POST /user/pin/verify) - safe to hand back to the
++          // caller, who will send it again with the actual purchase.
++          Navigator.of(context).pop(pin);
+         } else {
+           setState(() {
+             _isVerifying = false;
+@@ -218,15 +201,8 @@ class _PinConfirmationSheetState extends ConsumerState<_PinConfirmationSheet>
+ 
+             const SizedBox(height: 20),
+ 
+-            if (widget.allowBiometric)
+-              TextButton.icon(
+-                onPressed: _tryBiometric,
+-                icon: const Icon(Icons.fingerprint_rounded, size: 20),
+-                label: const Text('Use biometric instead'),
+-              ),
+-
+             TextButton(
+-              onPressed: () => Navigator.of(context).pop(false),
++              onPressed: () => Navigator.of(context).pop(null),
+               child: Text(
+                 'Cancel',
+                 style: TextStyle(color: AppColors.neutral500),
+diff --git a/major_data_link_backend/src/lib/__tests__/require-pin.test.ts b/major_data_link_backend/src/lib/__tests__/require-pin.test.ts
+new file mode 100644
+index 0000000..b223fc4
+--- /dev/null
++++ b/major_data_link_backend/src/lib/__tests__/require-pin.test.ts
+@@ -0,0 +1,74 @@
++import { describe, expect, it, vi } from 'vitest';
++import { z } from 'zod';
++
++/**
++ * Tests requirePinConfirmation - the fix for the vulnerability where every
++ * money-moving endpoint (data/airtime/result-pin/verification purchases)
++ * relied ENTIRELY on the client showing a PIN dialog before calling them,
++ * with nothing server-side actually requiring or checking a PIN. See the
++ * doc-comment on requirePinConfirmation in require-pin.ts for the full
++ * story - this file just proves the fix's two failure modes are handled
++ * (wrong PIN, locked account) and that a correct PIN passes through
++ * cleanly to the same verifyPin() used everywhere else in the app.
++ */
++
++const verifyPin = vi.fn();
++vi.mock('../../services/wallet.service.js', () => ({ verifyPin: (...args: unknown[]) => verifyPin(...args) }));
++
++const { requirePinConfirmation, pinField } = await import('../require-pin.js');
++
++describe('requirePinConfirmation', () => {
++  it('delegates straight to verifyPin with the same userId/pin, and resolves on success', async () => {
++    verifyPin.mockResolvedValue(true);
++
++    await expect(requirePinConfirmation('user-1', '1234')).resolves.toBeUndefined();
++    expect(verifyPin).toHaveBeenCalledWith('user-1', '1234');
++  });
++
++  it('propagates verifyPin\'s INVALID_PIN error untouched, so a purchase never proceeds on a wrong PIN', async () => {
++    const error = Object.assign(new Error('Invalid transaction PIN'), { statusCode: 401, code: 'INVALID_PIN' });
++    verifyPin.mockRejectedValue(error);
++
++    await expect(requirePinConfirmation('user-1', '0000')).rejects.toMatchObject({ code: 'INVALID_PIN' });
++  });
++
++  it('propagates verifyPin\'s PIN_LOCKED error - a locked account cannot be worked around by calling a purchase endpoint directly', async () => {
++    const error = Object.assign(new Error('PIN is temporarily locked'), { statusCode: 423, code: 'PIN_LOCKED' });
++    verifyPin.mockRejectedValue(error);
++
++    await expect(requirePinConfirmation('user-1', '1234')).rejects.toMatchObject({ code: 'PIN_LOCKED' });
++  });
++
++  it('propagates PIN_NOT_SET for a user who never configured a transaction PIN', async () => {
++    const error = Object.assign(new Error('Transaction PIN has not been set'), { statusCode: 400, code: 'PIN_NOT_SET' });
++    verifyPin.mockRejectedValue(error);
++
++    await expect(requirePinConfirmation('user-1', '1234')).rejects.toMatchObject({ code: 'PIN_NOT_SET' });
++  });
++});
++
++describe('pinField', () => {
++  it('rejects a body with no pin at all', () => {
++    const schema = z.object({ amount: z.number(), ...pinField });
++    const result = schema.safeParse({ amount: 100 });
++    expect(result.success).toBe(false);
++  });
++
++  it('rejects a pin that is not exactly 4 digits', () => {
++    const schema = z.object({ ...pinField });
++    expect(schema.safeParse({ pin: '123' }).success).toBe(false);
++    expect(schema.safeParse({ pin: '12345' }).success).toBe(false);
++  });
++
++  it('accepts a 4-character pin', () => {
++    const schema = z.object({ ...pinField });
++    expect(schema.safeParse({ pin: '1234' }).success).toBe(true);
++  });
++
++  it('trims surrounding whitespace before length-checking', () => {
++    const schema = z.object({ ...pinField });
++    const result = schema.safeParse({ pin: ' 1234 ' });
++    expect(result.success).toBe(true);
++    if (result.success) expect(result.data.pin).toBe('1234');
++  });
++});
+diff --git a/major_data_link_backend/src/lib/require-pin.ts b/major_data_link_backend/src/lib/require-pin.ts
+new file mode 100644
+index 0000000..ccea3bc
+--- /dev/null
++++ b/major_data_link_backend/src/lib/require-pin.ts
+@@ -0,0 +1,30 @@
++import { z } from 'zod';
++import { verifyPin } from '../services/wallet.service.js';
++
++/**
++ * The REAL authorization boundary for every money-moving purchase endpoint
++ * (data, airtime, result pins, NIN/BVN verification, etc).
++ *
++ * Before this existed, PinConfirmDialog.tsx / pin_confirmation_sheet.dart
++ * were the ONLY thing standing between a request and a debit - they call
++ * POST /user/pin/verify, which genuinely checks the PIN against the
++ * database, but that check was never linked to the purchase call that
++ * followed it. Nothing stopped a request from skipping the dialog
++ * entirely and hitting e.g. POST /data/purchase directly with a valid
++ * auth token and no PIN at all - the client-side dialog was UX, not
++ * security. Every purchase route must now parse `pin` with `pinField`
++ * below and call this function BEFORE spending anything.
++ *
++ * Reuses verifyPin()'s existing rolling-window lockout (5 wrong PINs locks
++ * for 30 minutes, same counter POST /user/pin/verify already uses) - a
++ * wrong PIN submitted straight to a purchase endpoint counts against the
++ * same lockout as one submitted through the dialog, exactly as it should.
++ */
++export async function requirePinConfirmation(userId: string, pin: string): Promise<void> {
++  await verifyPin(userId, pin);
++}
++
++/** Spread into every money-moving endpoint's z.object({ ... }) body schema. */
++export const pinField = {
++  pin: z.string().trim().length(4, 'A valid 4-digit transaction PIN is required')
++};
+diff --git a/major_data_link_backend/src/routes/result.routes.ts b/major_data_link_backend/src/routes/result.routes.ts
+index dee57f4..a235ba0 100644
+--- a/major_data_link_backend/src/routes/result.routes.ts
++++ b/major_data_link_backend/src/routes/result.routes.ts
+@@ -1,6 +1,7 @@
+ ﻿import { Router, type Request } from 'express';
+ import { z } from 'zod';
+ import { requireAuth } from '../middleware/auth.js';
++import { pinField, requirePinConfirmation } from '../lib/require-pin.js';
+ import { getResultPinPrice, listResultPinPrices, purchaseResultPin, type ExamPinType } from '../services/result-pin.service.js';
+ 
+ export const resultRoutes = Router();
+@@ -29,7 +30,8 @@ resultRoutes.get('/:exam/price', async (req, res) => {
+ });
+ 
+ resultRoutes.post('/:exam/pin', async (req, res) => {
+-  const body = z.object({ quantity: z.coerce.number().int().min(1).max(10) }).parse(req.body);
++  const body = z.object({ quantity: z.coerce.number().int().min(1).max(10), ...pinField }).parse(req.body);
++  await requirePinConfirmation(req.user!.id, body.pin);
+   const result = await purchaseResultPin({
+     userId: req.user!.id,
+     examType: parseExam(req.params.exam),
+diff --git a/major_data_link_backend/src/routes/verification.routes.ts b/major_data_link_backend/src/routes/verification.routes.ts
+index b1cfa92..e22b198 100644
+--- a/major_data_link_backend/src/routes/verification.routes.ts
++++ b/major_data_link_backend/src/routes/verification.routes.ts
+@@ -1,6 +1,7 @@
+ import { Router, type Request } from 'express';
+ import { z } from 'zod';
+ import { requireAuth } from '../middleware/auth.js';
++import { pinField, requirePinConfirmation } from '../lib/require-pin.js';
+ import {
+   checkBvnRetrievalStatus,
+   checkDelinkingStatus,
+@@ -65,7 +66,8 @@ verificationRoutes.get('/prices', async (_req, res) => {
+ // ── Slip lookups (synchronous) ────────────────────────────────────
+ 
+ verificationRoutes.post('/nin/by-nin', async (req, res) => {
+-  const body = z.object({ nin: z.string().trim().length(11), tier: ninSlipTier }).parse(req.body);
++  const body = z.object({ nin: z.string().trim().length(11), tier: ninSlipTier, ...pinField }).parse(req.body);
++  await requirePinConfirmation(req.user!.id, body.pin);
+   const result = await purchaseNinByNin({
+     userId: req.user!.id,
+     nin: body.nin,
+@@ -76,7 +78,8 @@ verificationRoutes.post('/nin/by-nin', async (req, res) => {
+ });
+ 
+ verificationRoutes.post('/nin/by-phone', async (req, res) => {
+-  const body = z.object({ phone: z.string().trim().length(11), tier: ninPhoneSlipTier }).parse(req.body);
++  const body = z.object({ phone: z.string().trim().length(11), tier: ninPhoneSlipTier, ...pinField }).parse(req.body);
++  await requirePinConfirmation(req.user!.id, body.pin);
+   const result = await purchaseNinByPhone({
+     userId: req.user!.id,
+     phone: body.phone,
+@@ -92,9 +95,11 @@ verificationRoutes.post('/nin/by-demographic', async (req, res) => {
+       firstname: z.string().trim().min(1),
+       lastname: z.string().trim().min(1),
+       dob: z.string().trim().min(1),
+-      gender: z.enum(['MALE', 'FEMALE']).optional()
++      gender: z.enum(['MALE', 'FEMALE']).optional(),
++      ...pinField
+     })
+     .parse(req.body);
++  await requirePinConfirmation(req.user!.id, body.pin);
+   const result = await purchaseNinByDemographic({
+     userId: req.user!.id,
+     firstname: body.firstname,
+@@ -107,7 +112,8 @@ verificationRoutes.post('/nin/by-demographic', async (req, res) => {
+ });
+ 
+ verificationRoutes.post('/bvn/slip', async (req, res) => {
+-  const body = z.object({ bvn: z.string().trim().length(11), tier: bvnSlipTier }).parse(req.body);
++  const body = z.object({ bvn: z.string().trim().length(11), tier: bvnSlipTier, ...pinField }).parse(req.body);
++  await requirePinConfirmation(req.user!.id, body.pin);
+   const result = await purchaseBvnSlip({
+     userId: req.user!.id,
+     bvn: body.bvn,
+@@ -120,7 +126,8 @@ verificationRoutes.post('/bvn/slip', async (req, res) => {
+ // ── Async services (submit + poll) ────────────────────────────────
+ 
+ verificationRoutes.post('/delinking', async (req, res) => {
+-  const body = z.object({ nin: z.string().trim().length(11), email: z.string().trim().email() }).parse(req.body);
++  const body = z.object({ nin: z.string().trim().length(11), email: z.string().trim().email(), ...pinField }).parse(req.body);
++  await requirePinConfirmation(req.user!.id, body.pin);
+   const result = await submitDelinking({
+     userId: req.user!.id,
+     nin: body.nin,
+@@ -136,7 +143,10 @@ verificationRoutes.get('/delinking/:ticketId', async (req, res) => {
+ });
+ 
+ verificationRoutes.post('/nin-validation', async (req, res) => {
+-  const body = z.object({ nin: z.string().trim().length(11), validation_type: ninValidationType.optional() }).parse(req.body);
++  const body = z
++    .object({ nin: z.string().trim().length(11), validation_type: ninValidationType.optional(), ...pinField })
++    .parse(req.body);
++  await requirePinConfirmation(req.user!.id, body.pin);
+   const result = await submitNinValidation({
+     userId: req.user!.id,
+     nin: body.nin,
+@@ -152,7 +162,8 @@ verificationRoutes.get('/nin-validation/:ticketId', async (req, res) => {
+ });
+ 
+ verificationRoutes.post('/personalization', async (req, res) => {
+-  const body = z.object({ tracking_id: z.string().trim().min(1).max(50) }).parse(req.body);
++  const body = z.object({ tracking_id: z.string().trim().min(1).max(50), ...pinField }).parse(req.body);
++  await requirePinConfirmation(req.user!.id, body.pin);
+   const result = await submitPersonalization({
+     userId: req.user!.id,
+     trackingId: body.tracking_id,
+@@ -171,9 +182,11 @@ verificationRoutes.post('/bvn-retrieval', async (req, res) => {
+     .object({
+       first_name: z.string().trim().min(1),
+       last_name: z.string().trim().min(1),
+-      phone_number: z.string().trim().length(11)
++      phone_number: z.string().trim().length(11),
++      ...pinField
+     })
+     .parse(req.body);
++  await requirePinConfirmation(req.user!.id, body.pin);
+   const result = await submitBvnRetrieval({
+     userId: req.user!.id,
+     firstName: body.first_name,
+@@ -190,7 +203,8 @@ verificationRoutes.get('/bvn-retrieval/:ticketId', async (req, res) => {
+ });
+ 
+ verificationRoutes.post('/ipe-clearance', async (req, res) => {
+-  const body = z.object({ tracking_id: z.string().trim().min(1).max(20) }).parse(req.body);
++  const body = z.object({ tracking_id: z.string().trim().min(1).max(20), ...pinField }).parse(req.body);
++  await requirePinConfirmation(req.user!.id, body.pin);
+   const result = await submitIpeClearance({
+     userId: req.user!.id,
+     trackingId: body.tracking_id,
+diff --git a/major_data_link_backend/src/routes/vtu.routes.ts b/major_data_link_backend/src/routes/vtu.routes.ts
+index 360578a..bb8d7f1 100644
+--- a/major_data_link_backend/src/routes/vtu.routes.ts
++++ b/major_data_link_backend/src/routes/vtu.routes.ts
+@@ -4,6 +4,7 @@ import { z } from 'zod';
+ import { koboToNaira } from '../lib/money.js';
+ import { prisma } from '../lib/prisma.js';
+ import { requireAuth } from '../middleware/auth.js';
++import { pinField, requirePinConfirmation } from '../lib/require-pin.js';
+ import { providerService, type ProviderPurchaseInput } from '../services/provider.service.js';
+ import { debitWallet, refundWallet } from '../services/wallet.service.js';
+ import { recordProviderDebit } from '../services/provider-ledger.service.js';
+@@ -151,16 +152,23 @@ vtuRoutes.post('/data/purchase', async (req, res) => {
+     network: z.string(),
+     plan_id: z.string(),
+     phone: z.string(),
+-    amount: z.number().positive().optional()
++    amount: z.number().positive().optional(),
++    ...pinField
+   }).parse(req.body);
++  await requirePinConfirmation(req.user!.id, body.pin);
+   const plan = await providerService.getDataPlan(body.network, body.plan_id);
+ 
++  // Never persist the PIN - `body` is spread into Transaction.metadata below,
++  // so it's stripped out explicitly rather than trusting every future edit
++  // here to remember not to include it.
++  const { pin: _pin, ...metadataBody } = body;
++
+   const result = await processProviderPurchase({
+     userId: req.user!.id,
+     amount: plan.amount,
+     type: TransactionType.DATA_PURCHASE,
+     description: `${plan.name} data purchase for ${body.phone}`,
+-    metadata: { ...body, amount: plan.amount, plan_name: plan.name, validity: plan.validity },
++    metadata: { ...metadataBody, amount: plan.amount, plan_name: plan.name, validity: plan.validity },
+     idempotencyKey: idempotencyKeyFrom(req),
+     // What this plan cost us according to our last pricing sync
+     // (DataPlanPricing.providerCostKobo) - overwritten with Alrahuz's actual
+@@ -187,15 +195,19 @@ vtuRoutes.post('/airtime/purchase', async (req, res) => {
+   const body = z.object({
+     network: z.string(),
+     phone: z.string(),
+-    amount: z.number().positive()
++    amount: z.number().positive(),
++    ...pinField
+   }).parse(req.body);
++  await requirePinConfirmation(req.user!.id, body.pin);
++
++  const { pin: _pin, ...metadataBody } = body;
+ 
+   const result = await processProviderPurchase({
+     userId: req.user!.id,
+     amount: body.amount,
+     type: TransactionType.AIRTIME_PURCHASE,
+     description: `Airtime purchase for ${body.phone}`,
+-    metadata: body,
++    metadata: metadataBody,
+     // No `costKobo` here on purpose - unlike data plans, airtime has no
+     // pricing-config table to estimate from (Alrahuz doesn't quote a fixed
+     // discount rate up front). Our real cost is only knowable from Alrahuz's
+diff --git a/web/src/components/MajorAssistant.tsx b/web/src/components/MajorAssistant.tsx
+index c72a800..e99a5f3 100644
+--- a/web/src/components/MajorAssistant.tsx
++++ b/web/src/components/MajorAssistant.tsx
+@@ -57,6 +57,6 @@ export default function MajorAssistant() {
+   async function handoff(reason: string) { try { const result = await api.post<{data?: {ticket_id?: string}}>('/assistant/fallback', { reason, stage }); add({ text: tr(`I’ve connected this to human support. Ticket: ${result.data?.ticket_id ?? 'created'}.`, `Na haɗa wannan da human support. Ticket: ${result.data?.ticket_id ?? 'an ƙirƙira'}.`) }); } catch { add({ text: tr('Support handoff is temporarily unavailable. Please open Support from your account menu.', 'Ba a samu support handoff yanzu ba. Buɗe Support daga account menu.') }); } }
+   async function review(selectedPlan: Plan | null, price: number) { try { const wallet = await api.get<{balance?: number; data?: {balance?:number}}>('/wallet/balance'); const balance = Number(wallet.balance ?? wallet.data?.balance ?? 0); if (balance < price) { add({ text: tr(`Your wallet balance is ₦${balance.toLocaleString()}, but this needs ₦${price.toLocaleString()}. Fund wallet first.`, `Wallet ɗinka yana da ₦${balance.toLocaleString()}, amma wannan na bukatar ₦${price.toLocaleString()}. Cika wallet farko.`) }); reset(); return; } const item = task === 'data' ? (selectedPlan?.name ?? selectedPlan?.size ?? 'data') : tr('airtime','airtime'); add({ text: tr(`Summary: ${item} on ${network} for ${phone} — ₦${price.toLocaleString()}. Wallet: ₦${balance.toLocaleString()}. Proceed?`, `Takaitawa: ${item} na ${network} zuwa ${phone} — ₦${price.toLocaleString()}. Wallet: ₦${balance.toLocaleString()}. A ci gaba?`), options: [tr('Yes, confirm','Eh, tabbatar'), tr('No, start again','A’a, a fara kuma')] }); } catch { add({ text: tr('I could not check your wallet. I can connect you to support.', 'Ba a iya duba wallet ba. Zan haɗa ka da support.'), options: [tr('Talk to support','Yi magana da support')] }); } }
+   async function audit(event: { stage: string; outcome: 'started'|'waiting'|'success'|'failed'|'fallback'|'cancelled'; error_code?: string; transaction_ref?: string }) { try { await api.post('/assistant/events', { intent: task, ...event }); } catch { /* observability must never block a customer */ } }
+-  async function purchase() { setPinOpen(false); setBusy(true); try { const res = task === 'data' ? await api.post<{status:boolean;message?:string;data?:{reference?:string}}>('/data/purchase',{network,plan_id:plan?.id ?? plan?.plan_id,phone,amount}) : await api.post<{status:boolean;message?:string;data?:{reference?:string}}>('/airtime/purchase',{network,phone,amount}); void audit({ stage: 'purchase', outcome: res.status ? 'success' : 'failed', transaction_ref: res.data?.reference }); add({ text: res.status ? tr(res.message ?? 'Purchase complete.', res.message ?? 'An gama siya.') : tr(res.message ?? 'Purchase failed.', res.message ?? 'Siyan ta gaza.') }); } catch (error) { void audit({ stage: 'purchase', outcome: 'failed', error_code: error instanceof ApiError ? error.code : 'PURCHASE_ERROR' }); add({ text: error instanceof ApiError ? error.message : tr('Purchase failed. Please try again.','Siyan ta gaza. Sake gwadawa.') }); } finally { setBusy(false); reset(); } }
++  async function purchase(pin: string) { setPinOpen(false); setBusy(true); try { const res = task === 'data' ? await api.post<{status:boolean;message?:string;data?:{reference?:string}}>('/data/purchase',{network,plan_id:plan?.id ?? plan?.plan_id,phone,amount,pin}) : await api.post<{status:boolean;message?:string;data?:{reference?:string}}>('/airtime/purchase',{network,phone,amount,pin}); void audit({ stage: 'purchase', outcome: res.status ? 'success' : 'failed', transaction_ref: res.data?.reference }); add({ text: res.status ? tr(res.message ?? 'Purchase complete.', res.message ?? 'An gama siya.') : tr(res.message ?? 'Purchase failed.', res.message ?? 'Siyan ta gaza.') }); } catch (error) { void audit({ stage: 'purchase', outcome: 'failed', error_code: error instanceof ApiError ? error.code : 'PURCHASE_ERROR' }); add({ text: error instanceof ApiError ? error.message : tr('Purchase failed. Please try again.','Siyan ta gaza. Sake gwadawa.') }); } finally { setBusy(false); reset(); } }
+   return <><button aria-label="Open MAJOR AI Assistant" onPointerDown={moveFab} onClick={()=>setOpen(true)} style={{ left: fabPosition.x, top: fabPosition.y, touchAction: 'none' }} className="fixed z-[60] flex items-center gap-2 rounded-full bg-brand-600 px-4 py-3 text-sm font-bold text-white shadow-2xl shadow-brand-900/40 transition hover:scale-105"><Sparkles size={18} className="animate-pulse"/> AI Help</button>{open && <section className="fixed bottom-4 right-4 z-50 flex h-[min(680px,calc(100vh-32px))] w-[min(410px,calc(100vw-32px))] flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl"><header className="flex items-center justify-between bg-brand-700 px-4 py-4 text-white"><div className="flex items-center gap-2"><Bot/><div><b>MAJOR AI Assistant</b><p className="text-xs text-white/75">Secure service guide</p></div></div><button onClick={()=>setOpen(false)} aria-label="Close assistant"><X/></button></header><div className="bg-brand-50 px-4 py-2 text-center text-[11px] text-brand-800">No external AI • PIN is never typed in chat</div><div className="flex-1 space-y-3 overflow-y-auto p-4">{messages.map((m,i)=><div key={i} className={m.user?'ml-10 text-right':'mr-6'}><div className={`inline-block whitespace-pre-line rounded-2xl px-3 py-2 text-sm ${m.user?'bg-brand-600 text-white':'bg-slate-100 text-slate-800'}`}>{m.text}</div>{m.options && <div className="mt-2 flex flex-wrap gap-2">{m.options.map(o=><button key={o} onClick={()=>answer(o)} className="rounded-full border border-brand-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-50">{o}</button>)}</div>}</div>)}</div>{busy && <div className="h-1 animate-pulse bg-brand-500"/>}<form onSubmit={e=>{e.preventDefault();answer(text)}} className="flex gap-2 border-t p-3"><button type="button" aria-label="Speak" onClick={startVoice} className={`rounded-xl p-2 ${listening?'bg-rose-100 text-rose-700':'bg-brand-50 text-brand-700'}`}>{listening ? '●' : '🎙️'}</button><input ref={inputRef} autoComplete="tel" inputMode={stage === 'phone' ? 'tel' : stage === 'amount' ? 'decimal' : 'text'} value={text} onChange={e=>setText(e.target.value)} placeholder={stage === 'phone' ? tr('Enter phone number…','Rubuta lambar waya…') : tr('Type your reply…','Rubuta amsarka…')} className="min-w-0 flex-1 rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500"/><button disabled={busy} className="rounded-xl bg-brand-600 p-2 text-white disabled:opacity-50"><Send size={18}/></button></form></section>}<PinConfirmDialog open={pinOpen} onClose={()=>setPinOpen(false)} onVerified={purchase}/></>;
+ }
+diff --git a/web/src/components/PinConfirmDialog.tsx b/web/src/components/PinConfirmDialog.tsx
+index 8992b64..6e2ce4a 100644
+--- a/web/src/components/PinConfirmDialog.tsx
++++ b/web/src/components/PinConfirmDialog.tsx
+@@ -6,6 +6,17 @@ type Mode = 'verify' | 'create' | 'confirm-create';
+ 
+ /**
+  * The 4-digit transaction PIN dialog shown before any spend goes through.
++ * `onVerified` receives the confirmed PIN itself (not just a "success"
++ * signal) - the backend now requires that same PIN again, directly in the
++ * purchase request body (POST /data/purchase, /airtime/purchase, etc - see
++ * requirePinConfirmation in the backend's require-pin.ts). Before that
++ * backend change, this dialog calling POST /user/pin/verify and the actual
++ * purchase call that followed it were two completely disconnected
++ * requests - nothing stopped a client from skipping this dialog entirely
++ * and calling a purchase endpoint directly with no PIN at all. Every
++ * caller of this component MUST now include the PIN `onVerified` gives it
++ * in its purchase request, or that request will be rejected server-side.
++ *
+  * Handles three cases, driven by what the backend reports from
+  * /api/user/pin/verify (see verifyPin() in wallet.service.ts):
+  *  - Has a PIN already -> plain "enter PIN to confirm".
+@@ -21,7 +32,7 @@ export function PinConfirmDialog({
+ }: {
+   open: boolean;
+   onClose: () => void;
+-  onVerified: () => void;
++  onVerified: (pin: string) => void;
+ }) {
+   const [mode, setMode] = useState<Mode>('verify');
+   const [pin, setPin] = useState('');
+@@ -54,7 +65,7 @@ export function PinConfirmDialog({
+       setError('');
+       try {
+         await api.post('/user/pin/verify', { pin: value });
+-        onVerified();
++        onVerified(value);
+       } catch (err) {
+         if (err instanceof ApiError && err.code === 'PIN_NOT_SET') {
+           setMode('create');
+@@ -82,7 +93,7 @@ export function PinConfirmDialog({
+       setError('');
+       try {
+         await api.post('/user/pin/set', { pin: value });
+-        onVerified();
++        onVerified(value);
+       } catch (err) {
+         setError(err instanceof ApiError ? err.message : 'Could not set your PIN. Try again.');
+         setPin('');
+diff --git a/web/src/pages/BuyAirtimePage.tsx b/web/src/pages/BuyAirtimePage.tsx
+index d5af6e8..92f7fd0 100644
+--- a/web/src/pages/BuyAirtimePage.tsx
++++ b/web/src/pages/BuyAirtimePage.tsx
+@@ -25,7 +25,7 @@ export default function BuyAirtimePage() {
+   const [showPin, setShowPin] = useState(false);
+ 
+   function handleSubmit(e: FormEvent) { e.preventDefault(); setShowPin(true); }
+-  async function purchase() { setShowPin(false); setError(null); setIsSubmitting(true); try { const res = await api.post<{ status: boolean; message: string }>('/airtime/purchase', { network, phone, amount: Number(amount) }); if (res.status) setSuccess(res.message || 'Airtime delivered successfully'); else setError(res.message || 'Purchase failed'); } catch (err) { setError(err instanceof ApiError ? err.message : 'Something went wrong. Please try again.'); } finally { setIsSubmitting(false); } }
++  async function purchase(pin: string) { setShowPin(false); setError(null); setIsSubmitting(true); try { const res = await api.post<{ status: boolean; message: string }>('/airtime/purchase', { network, phone, amount: Number(amount), pin }); if (res.status) setSuccess(res.message || 'Airtime delivered successfully'); else setError(res.message || 'Purchase failed'); } catch (err) { setError(err instanceof ApiError ? err.message : 'Something went wrong. Please try again.'); } finally { setIsSubmitting(false); } }
+ 
+   if (success) {
+     return (
+diff --git a/web/src/pages/BuyDataPage.tsx b/web/src/pages/BuyDataPage.tsx
+index 3671c26..7c26fba 100644
+--- a/web/src/pages/BuyDataPage.tsx
++++ b/web/src/pages/BuyDataPage.tsx
+@@ -64,13 +64,13 @@ export default function BuyDataPage() {
+     if (planId) setShowPin(true);
+   }
+ 
+-  async function purchase() {
++  async function purchase(pin: string) {
+     if (!planId) return;
+     setShowPin(false);
+     setError(null);
+     setIsSubmitting(true);
+     try {
+-      const res = await api.post<{ status: boolean; message: string }>('/data/purchase', { network, plan_id: planId, phone });
++      const res = await api.post<{ status: boolean; message: string }>('/data/purchase', { network, plan_id: planId, phone, pin });
+       if (res.status) setSuccess(res.message || 'Data delivered successfully'); else setError(res.message || 'Purchase failed');
+     } catch (err) { setError(err instanceof ApiError ? err.message : 'Something went wrong. Please try again.'); } finally { setIsSubmitting(false); }
+   }
+diff --git a/web/src/pages/VerificationPage.tsx b/web/src/pages/VerificationPage.tsx
+index 7744564..152b4f3 100644
+--- a/web/src/pages/VerificationPage.tsx
++++ b/web/src/pages/VerificationPage.tsx
+@@ -98,7 +98,7 @@ export default function VerificationPage({ mode }: { mode: Mode }) {
+   const [selected, setSelected] = useState<Item | null>(null);
+   const [values, setValues] = useState<Record<string, string>>({});
+   const [tier, setTier] = useState('premium');
+-  const [pin, setPin] = useState(false);
++  const [showPin, setShowPin] = useState(false);
+   const [consent, setConsent] = useState(false);
+   const [busy, setBusy] = useState(false);
+   const [message, setMessage] = useState('');
+@@ -146,13 +146,13 @@ export default function VerificationPage({ mode }: { mode: Mode }) {
+     setMessage('');
+   }
+ 
+-  async function submit() {
++  async function submit(pin: string) {
+     if (!selected) return;
+-    setPin(false);
++    setShowPin(false);
+     setBusy(true);
+     setMessage('');
+     try {
+-      const data = { ...values, ...(selected.tiers ? { tier } : {}) };
++      const data = { ...values, ...(selected.tiers ? { tier } : {}), pin };
+       const result = await api.post<{
+         status: boolean;
+         message: string;
+@@ -202,7 +202,7 @@ export default function VerificationPage({ mode }: { mode: Mode }) {
+ 
+   function prepare(event: FormEvent) {
+     event.preventDefault();
+-    setPin(true);
++    setShowPin(true);
+   }
+ 
+   return (
+@@ -353,7 +353,7 @@ export default function VerificationPage({ mode }: { mode: Mode }) {
+         )}
+       </div>
+ 
+-      <PinConfirmDialog open={pin} onClose={() => setPin(false)} onVerified={submit} />
++      <PinConfirmDialog open={showPin} onClose={() => setShowPin(false)} onVerified={submit} />
+       <ModificationConsent open={consent} onClose={() => setConsent(false)} onAgree={agreed} />
+     </AppShell>
+   );
+-- 
+2.43.0
+

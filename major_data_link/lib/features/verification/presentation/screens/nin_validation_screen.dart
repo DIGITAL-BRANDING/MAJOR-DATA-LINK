@@ -40,17 +40,18 @@ class _NinValidationScreenState extends ConsumerState<NinValidationScreen>
   Future<void> _submit(double price) async {
     if (!_formKey.currentState!.validate()) return;
     context.hideKeyboard();
-    final pinVerified = await showPinConfirmationSheet(
+    final pin = await showPinConfirmationSheet(
       context: context,
       ref: ref,
       subtitle: 'Confirm NIN validation (${_type.label}) — ${price.toNaira}',
     );
-    if (!pinVerified || !mounted) return;
+    if (pin == null || !mounted) return;
 
     final ok = await ref.read(asyncFlowProvider.notifier).submit(
           () => ref.read(verificationRemoteProvider).submitNinValidation(
                 nin: _ninController.text.trim(),
                 validationType: _type,
+                pin: pin,
               ),
         );
     if (ok) startPolling();

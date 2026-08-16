@@ -33,6 +33,7 @@ abstract class BuyDataRepository {
     required NetworkProvider network,
     required DataPlanEntity plan,
     required String phone,
+    required String pin,
   });
 
   Future<List<BeneficiaryEntity>> getBeneficiaries();

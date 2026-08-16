@@ -107,6 +107,7 @@ class BuyDataRepositoryImpl implements BuyDataRepository {
     required NetworkProvider network,
     required DataPlanEntity plan,
     required String phone,
+    required String pin,
   }) async {
     if (!await _networkInfo.isConnected) {
       return const Left(NetworkFailure());
@@ -117,6 +118,7 @@ class BuyDataRepositoryImpl implements BuyDataRepository {
         planId: plan.id,
         phone: phone,
         amount: plan.price,
+        pin: pin,
       );
 
       if (result.success) {

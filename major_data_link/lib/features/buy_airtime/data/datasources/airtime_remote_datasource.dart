@@ -10,6 +10,7 @@ abstract class AirtimeRemoteDataSource {
     required NetworkProvider network,
     required String phone,
     required double amount,
+    required String pin,
   });
 }
 
@@ -22,6 +23,7 @@ class AirtimeRemoteDataSourceImpl implements AirtimeRemoteDataSource {
     required NetworkProvider network,
     required String phone,
     required double amount,
+    required String pin,
   }) async {
     try {
       final response = await _dio.post(
@@ -30,6 +32,7 @@ class AirtimeRemoteDataSourceImpl implements AirtimeRemoteDataSource {
           'network': network.code,
           'phone': phone,
           'amount': amount,
+          'pin': pin,
         },
         options: Options(headers: {'Idempotency-Key': const Uuid().v4()}),
       );

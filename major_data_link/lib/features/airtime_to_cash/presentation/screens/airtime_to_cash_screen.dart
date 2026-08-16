@@ -63,12 +63,12 @@ class _AirtimeToCashScreenState extends ConsumerState<AirtimeToCashScreen> {
     );
     if (confirmed != true) return;
 
-    final pinVerified = await showPinConfirmationSheet(
+    final pin = await showPinConfirmationSheet(
       context: context,
       ref: ref,
       subtitle: 'Confirm airtime-to-cash conversion',
     );
-    if (!pinVerified || !mounted) return;
+    if (pin == null || !mounted) return;
 
     final result = await ref.read(atcNotifierProvider.notifier).submit(network);
     if (!mounted) return;

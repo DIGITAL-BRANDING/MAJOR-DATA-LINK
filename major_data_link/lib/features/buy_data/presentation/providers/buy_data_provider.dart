@@ -139,7 +139,7 @@ class BuyDataNotifier extends StateNotifier<BuyDataState> {
     state = const BuyDataState();
   }
 
-  Future<DataPurchaseResult?> purchase(NetworkProvider network) async {
+  Future<DataPurchaseResult?> purchase(NetworkProvider network, {required String pin}) async {
     if (!state.canProceed) return null;
     state = state.copyWith(isProcessing: true, clearError: true);
 
@@ -148,6 +148,7 @@ class BuyDataNotifier extends StateNotifier<BuyDataState> {
       network: network,
       plan: state.selectedPlan!,
       phone: state.phone,
+      pin: pin,
     );
 
     return result.fold(

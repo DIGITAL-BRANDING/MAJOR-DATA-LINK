@@ -146,13 +146,13 @@ class _CardPrintingScreen extends ConsumerWidget {
     CardPrintingState state,
   ) async {
     context.hideKeyboard();
-    final pinVerified = await showPinConfirmationSheet(
+    final pin = await showPinConfirmationSheet(
       context: context,
       ref: ref,
       subtitle:
           'Confirm generation of ${state.quantity} × ${state.selectedDenomination!.label} cards',
     );
-    if (!pinVerified || !context.mounted) return;
+    if (pin == null || !context.mounted) return;
 
     final result =
         await ref.read(notifierProvider.notifier).generate();

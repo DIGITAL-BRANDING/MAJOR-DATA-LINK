@@ -1,6 +1,7 @@
 ﻿import { Router, type Request } from 'express';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
+import { pinField, requirePinConfirmation } from '../lib/require-pin.js';
 import { getResultPinPrice, listResultPinPrices, purchaseResultPin, type ExamPinType } from '../services/result-pin.service.js';
 
 export const resultRoutes = Router();
@@ -29,7 +30,8 @@ resultRoutes.get('/:exam/price', async (req, res) => {
 });
 
 resultRoutes.post('/:exam/pin', async (req, res) => {
-  const body = z.object({ quantity: z.coerce.number().int().min(1).max(10) }).parse(req.body);
+  const body = z.object({ quantity: z.coerce.number().int().min(1).max(10), ...pinField }).parse(req.body);
+  await requirePinConfirmation(req.user!.id, body.pin);
   const result = await purchaseResultPin({
     userId: req.user!.id,
     examType: parseExam(req.params.exam),

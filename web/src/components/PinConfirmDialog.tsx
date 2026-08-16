@@ -6,6 +6,17 @@ type Mode = 'verify' | 'create' | 'confirm-create';
 
 /**
  * The 4-digit transaction PIN dialog shown before any spend goes through.
+ * `onVerified` receives the confirmed PIN itself (not just a "success"
+ * signal) - the backend now requires that same PIN again, directly in the
+ * purchase request body (POST /data/purchase, /airtime/purchase, etc - see
+ * requirePinConfirmation in the backend's require-pin.ts). Before that
+ * backend change, this dialog calling POST /user/pin/verify and the actual
+ * purchase call that followed it were two completely disconnected
+ * requests - nothing stopped a client from skipping this dialog entirely
+ * and calling a purchase endpoint directly with no PIN at all. Every
+ * caller of this component MUST now include the PIN `onVerified` gives it
+ * in its purchase request, or that request will be rejected server-side.
+ *
  * Handles three cases, driven by what the backend reports from
  * /api/user/pin/verify (see verifyPin() in wallet.service.ts):
  *  - Has a PIN already -> plain "enter PIN to confirm".
@@ -21,7 +32,7 @@ export function PinConfirmDialog({
 }: {
   open: boolean;
   onClose: () => void;
-  onVerified: () => void;
+  onVerified: (pin: string) => void;
 }) {
   const [mode, setMode] = useState<Mode>('verify');
   const [pin, setPin] = useState('');
@@ -54,7 +65,7 @@ export function PinConfirmDialog({
       setError('');
       try {
         await api.post('/user/pin/verify', { pin: value });
-        onVerified();
+        onVerified(value);
       } catch (err) {
         if (err instanceof ApiError && err.code === 'PIN_NOT_SET') {
           setMode('create');
@@ -82,7 +93,7 @@ export function PinConfirmDialog({
       setError('');
       try {
         await api.post('/user/pin/set', { pin: value });
-        onVerified();
+        onVerified(value);
       } catch (err) {
         setError(err instanceof ApiError ? err.message : 'Could not set your PIN. Try again.');
         setPin('');

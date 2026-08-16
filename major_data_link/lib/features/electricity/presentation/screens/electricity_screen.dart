@@ -53,12 +53,12 @@ class _ElectricityScreenState extends ConsumerState<ElectricityScreen> {
     );
     if (confirmed != true) return;
 
-    final pinVerified = await showPinConfirmationSheet(
+    final pin = await showPinConfirmationSheet(
       context: context,
       ref: ref,
       subtitle: 'Confirm electricity payment for $disco',
     );
-    if (!pinVerified || !mounted) return;
+    if (pin == null || !mounted) return;
 
     final result =
         await ref.read(electricityNotifierProvider.notifier).purchase(disco);

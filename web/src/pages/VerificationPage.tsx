@@ -98,7 +98,7 @@ export default function VerificationPage({ mode }: { mode: Mode }) {
   const [selected, setSelected] = useState<Item | null>(null);
   const [values, setValues] = useState<Record<string, string>>({});
   const [tier, setTier] = useState('premium');
-  const [pin, setPin] = useState(false);
+  const [showPin, setShowPin] = useState(false);
   const [consent, setConsent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
@@ -146,13 +146,13 @@ export default function VerificationPage({ mode }: { mode: Mode }) {
     setMessage('');
   }
 
-  async function submit() {
+  async function submit(pin: string) {
     if (!selected) return;
-    setPin(false);
+    setShowPin(false);
     setBusy(true);
     setMessage('');
     try {
-      const data = { ...values, ...(selected.tiers ? { tier } : {}) };
+      const data = { ...values, ...(selected.tiers ? { tier } : {}), pin };
       const result = await api.post<{
         status: boolean;
         message: string;
@@ -202,7 +202,7 @@ export default function VerificationPage({ mode }: { mode: Mode }) {
 
   function prepare(event: FormEvent) {
     event.preventDefault();
-    setPin(true);
+    setShowPin(true);
   }
 
   return (
@@ -338,7 +338,7 @@ export default function VerificationPage({ mode }: { mode: Mode }) {
         )}
       </div>
 
-      <PinConfirmDialog open={pin} onClose={() => setPin(false)} onVerified={submit} />
+      <PinConfirmDialog open={showPin} onClose={() => setShowPin(false)} onVerified={submit} />
       <ModificationConsent open={consent} onClose={() => setConsent(false)} onAgree={agreed} />
     </AppShell>
   );

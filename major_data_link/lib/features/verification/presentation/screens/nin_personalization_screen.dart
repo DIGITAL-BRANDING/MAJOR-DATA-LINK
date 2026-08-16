@@ -38,16 +38,17 @@ class _NinPersonalizationScreenState
   Future<void> _submit(double price) async {
     if (!_formKey.currentState!.validate()) return;
     context.hideKeyboard();
-    final pinVerified = await showPinConfirmationSheet(
+    final pin = await showPinConfirmationSheet(
       context: context,
       ref: ref,
       subtitle: 'Confirm NIN personalization request — ${price.toNaira}',
     );
-    if (!pinVerified || !mounted) return;
+    if (pin == null || !mounted) return;
 
     final ok = await ref.read(asyncFlowProvider.notifier).submit(
           () => ref.read(verificationRemoteProvider).submitPersonalization(
                 trackingId: _trackingIdController.text.trim(),
+                pin: pin,
               ),
         );
     if (ok) startPolling();

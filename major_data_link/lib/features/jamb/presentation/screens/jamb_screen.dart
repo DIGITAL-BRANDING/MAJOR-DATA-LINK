@@ -51,13 +51,13 @@ class _JambScreenState extends ConsumerState<JambScreen>
     context.hideKeyboard();
     final state = ref.read(jambNotifierProvider);
 
-    final pinVerified = await showPinConfirmationSheet(
+    final pin = await showPinConfirmationSheet(
       context: context,
       ref: ref,
       subtitle:
           'Confirm ${state.serviceType.label} — ${AppFormatters.formatAmount(state.serviceType.price)}',
     );
-    if (!pinVerified || !mounted) return;
+    if (pin == null || !mounted) return;
 
     final result = await ref.read(jambNotifierProvider.notifier).purchase();
     if (!mounted) return;

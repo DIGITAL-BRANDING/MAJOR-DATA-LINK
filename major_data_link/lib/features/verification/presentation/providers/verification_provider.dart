@@ -229,29 +229,31 @@ class VerificationRemote {
 
   // ---- Slip lookups (synchronous) ----
 
-  Future<SlipApiResult> ninByNin({required String nin, required SlipTier tier}) =>
-      _postSlip(AppEndpoints.ninByNin, {'nin': nin, 'tier': tier.apiValue});
+  Future<SlipApiResult> ninByNin({required String nin, required SlipTier tier, required String pin}) =>
+      _postSlip(AppEndpoints.ninByNin, {'nin': nin, 'tier': tier.apiValue, 'pin': pin});
 
   Future<SlipApiResult> ninByPhone(
-          {required String phone, required SlipTier tier}) =>
+          {required String phone, required SlipTier tier, required String pin}) =>
       _postSlip(
-          AppEndpoints.ninByPhone, {'phone': phone, 'tier': tier.apiValue});
+          AppEndpoints.ninByPhone, {'phone': phone, 'tier': tier.apiValue, 'pin': pin});
 
   Future<SlipApiResult> ninByDemographic({
     required String firstname,
     required String lastname,
     required String dob,
     String? gender,
+    required String pin,
   }) =>
       _postSlip(AppEndpoints.ninByDemographic, {
         'firstname': firstname,
         'lastname': lastname,
         'dob': dob,
         if (gender != null) 'gender': gender,
+        'pin': pin,
       });
 
-  Future<SlipApiResult> bvnSlip({required String bvn, required BvnTier tier}) =>
-      _postSlip(AppEndpoints.bvnSlip, {'bvn': bvn, 'tier': tier.apiValue});
+  Future<SlipApiResult> bvnSlip({required String bvn, required BvnTier tier, required String pin}) =>
+      _postSlip(AppEndpoints.bvnSlip, {'bvn': bvn, 'tier': tier.apiValue, 'pin': pin});
 
   Future<SlipApiResult> _postSlip(
       String endpoint, Map<String, dynamic> body) async {
@@ -267,25 +269,26 @@ class VerificationRemote {
   // ---- Async services (submit + poll) ----
 
   Future<AsyncSubmitApiResult> submitDelinking(
-          {required String nin, required String email}) =>
-      _postAsync(AppEndpoints.ninDelinking, {'nin': nin, 'email': email});
+          {required String nin, required String email, required String pin}) =>
+      _postAsync(AppEndpoints.ninDelinking, {'nin': nin, 'email': email, 'pin': pin});
 
   Future<AsyncStatusApiResult> checkDelinking(String ticketId) =>
       _getAsync(AppEndpoints.ninDelinkingStatus(ticketId));
 
   Future<AsyncSubmitApiResult> submitNinValidation(
-          {required String nin, NinValidationType? validationType}) =>
+          {required String nin, NinValidationType? validationType, required String pin}) =>
       _postAsync(AppEndpoints.ninValidation, {
         'nin': nin,
         if (validationType != null) 'validation_type': validationType.apiValue,
+        'pin': pin,
       });
 
   Future<AsyncStatusApiResult> checkNinValidation(String ticketId) =>
       _getAsync(AppEndpoints.ninValidationStatus(ticketId));
 
   Future<AsyncSubmitApiResult> submitPersonalization(
-          {required String trackingId}) =>
-      _postAsync(AppEndpoints.ninPersonalization, {'tracking_id': trackingId});
+          {required String trackingId, required String pin}) =>
+      _postAsync(AppEndpoints.ninPersonalization, {'tracking_id': trackingId, 'pin': pin});
 
   Future<AsyncStatusApiResult> checkPersonalization(String ticketId) =>
       _getAsync(AppEndpoints.ninPersonalizationStatus(ticketId));
@@ -294,19 +297,21 @@ class VerificationRemote {
     required String firstName,
     required String lastName,
     required String phoneNumber,
+    required String pin,
   }) =>
       _postAsync(AppEndpoints.bvnRetrieval, {
         'first_name': firstName,
         'last_name': lastName,
         'phone_number': phoneNumber,
+        'pin': pin,
       });
 
   Future<AsyncStatusApiResult> checkBvnRetrieval(String ticketId) =>
       _getAsync(AppEndpoints.bvnRetrievalStatus(ticketId));
 
   Future<AsyncSubmitApiResult> submitIpeClearance(
-          {required String trackingId}) =>
-      _postAsync(AppEndpoints.ipeClearance, {'tracking_id': trackingId});
+          {required String trackingId, required String pin}) =>
+      _postAsync(AppEndpoints.ipeClearance, {'tracking_id': trackingId, 'pin': pin});
 
   Future<AsyncStatusApiResult> checkIpeClearance(String ticketId) =>
       _getAsync(AppEndpoints.ipeClearanceStatus(ticketId));

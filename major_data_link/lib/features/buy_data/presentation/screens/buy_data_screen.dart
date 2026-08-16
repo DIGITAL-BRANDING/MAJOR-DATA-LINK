@@ -112,17 +112,19 @@ class _BuyDataScreenState extends ConsumerState<BuyDataScreen> {
     final confirmed = await _showConfirmSheet(state.selectedPlan!, network);
     if (confirmed != true) return;
 
-    // PIN confirmation
-    final pinVerified = await showPinConfirmationSheet(
+    // PIN confirmation - the returned pin is sent straight through to the
+    // purchase call below; the server independently re-verifies it (see
+    // require-pin.ts) before spending anything.
+    final pin = await showPinConfirmationSheet(
       context: context,
       ref: ref,
       subtitle:
           'Confirm purchase of ${state.selectedPlan!.size} for ${_phoneController.text}',
     );
-    if (!pinVerified || !mounted) return;
+    if (pin == null || !mounted) return;
 
     final result =
-        await ref.read(buyDataNotifierProvider.notifier).purchase(network);
+        await ref.read(buyDataNotifierProvider.notifier).purchase(network, pin: pin);
 
     if (!mounted) return;
 

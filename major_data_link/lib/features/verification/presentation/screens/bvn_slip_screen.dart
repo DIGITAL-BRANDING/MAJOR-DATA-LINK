@@ -38,17 +38,18 @@ class _BvnSlipScreenState extends ConsumerState<BvnSlipScreen>
   Future<void> _submit(double price) async {
     if (!_formKey.currentState!.validate()) return;
     context.hideKeyboard();
-    final pinVerified = await showPinConfirmationSheet(
+    final pin = await showPinConfirmationSheet(
       context: context,
       ref: ref,
       subtitle: 'Confirm ${_tier.label} BVN slip lookup — ${price.toNaira}',
     );
-    if (!pinVerified || !mounted) return;
+    if (pin == null || !mounted) return;
 
     await ref.read(slipFlowProvider.notifier).submit(
           () => ref.read(verificationRemoteProvider).bvnSlip(
                 bvn: _bvnController.text.trim(),
                 tier: _tier,
+                pin: pin,
               ),
         );
   }

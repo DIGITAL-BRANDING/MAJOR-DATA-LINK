@@ -29,15 +29,15 @@ class ResultCheckerScreen extends ConsumerWidget {
     ResultCheckerState state,
   ) async {
     context.hideKeyboard();
-    final pinVerified = await showPinConfirmationSheet(
+    final pin = await showPinConfirmationSheet(
       context: context,
       ref: ref,
       subtitle:
           'Confirm purchase of ${state.quantity} ${examType.label} scratch card(s)',
     );
-    if (!pinVerified || !context.mounted) return;
+    if (pin == null || !context.mounted) return;
 
-    final result = await ref.read(notifierProvider.notifier).purchasePin();
+    final result = await ref.read(notifierProvider.notifier).purchasePin(pin: pin);
     if (!context.mounted) return;
 
     if (result != null && result.success) {

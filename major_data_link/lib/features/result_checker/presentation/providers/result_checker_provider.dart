@@ -100,6 +100,7 @@ class _ResultCheckerRemote {
   Future<ResultCheckerResult> purchasePin({
     required ExamType examType,
     required int quantity,
+    required String pin,
   }) async {
     try {
       final endpoint = switch (examType) {
@@ -109,7 +110,7 @@ class _ResultCheckerRemote {
       };
       final response = await _dio.post(
         endpoint,
-        data: {'quantity': quantity, 'exam_type': examType.label},
+        data: {'quantity': quantity, 'exam_type': examType.label, 'pin': pin},
         options: Options(headers: {'Idempotency-Key': const Uuid().v4()}),
       );
       return ResultCheckerResult.fromJson(
@@ -183,13 +184,14 @@ class ResultCheckerNotifier extends StateNotifier<ResultCheckerState> {
   void setQuantity(int qty) =>
       state = state.copyWith(quantity: qty.clamp(1, 10));
 
-  Future<ResultCheckerResult?> purchasePin() async {
+  Future<ResultCheckerResult?> purchasePin({required String pin}) async {
     state = state.copyWith(isProcessing: true, clearError: true);
     try {
       final ds = _ref.read(resultCheckerRemoteProvider);
       final result = await ds.purchasePin(
         examType: _examType,
         quantity: state.quantity,
+        pin: pin,
       );
       if (result.success) {
         await _ref.read(hiveStorageProvider).remove('wallet_balance');

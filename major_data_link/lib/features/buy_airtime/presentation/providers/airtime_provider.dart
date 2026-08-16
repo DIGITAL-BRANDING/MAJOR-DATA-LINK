@@ -80,7 +80,7 @@ class AirtimeNotifier extends StateNotifier<AirtimeState> {
 
   void reset() => state = const AirtimeState();
 
-  Future<AirtimePurchaseResult?> purchase(NetworkProvider network) async {
+  Future<AirtimePurchaseResult?> purchase(NetworkProvider network, {required String pin}) async {
     if (!state.canProceed) return null;
     state = state.copyWith(isProcessing: true, clearError: true);
 
@@ -89,6 +89,7 @@ class AirtimeNotifier extends StateNotifier<AirtimeState> {
       network: network,
       phone: state.phone,
       amount: state.amount,
+      pin: pin,
     );
 
     return result.fold(

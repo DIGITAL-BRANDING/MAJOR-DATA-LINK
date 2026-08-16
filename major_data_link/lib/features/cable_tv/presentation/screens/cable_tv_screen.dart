@@ -36,13 +36,13 @@ class _CableTvScreenState extends ConsumerState<CableTvScreen> {
 
     if (!state.canProceed) return;
 
-    final pinVerified = await showPinConfirmationSheet(
+    final pin = await showPinConfirmationSheet(
       context: context,
       ref: ref,
       subtitle:
           'Confirm ${provider.label} subscription for ${state.validationResult?.customerName ?? ""}',
     );
-    if (!pinVerified || !mounted) return;
+    if (pin == null || !mounted) return;
 
     final result =
         await ref.read(cableNotifierProvider.notifier).subscribe(provider);

@@ -53,12 +53,12 @@ class _NinByDemographicScreenState
   Future<void> _submit(double price) async {
     if (!_formKey.currentState!.validate()) return;
     context.hideKeyboard();
-    final pinVerified = await showPinConfirmationSheet(
+    final pin = await showPinConfirmationSheet(
       context: context,
       ref: ref,
       subtitle: 'Confirm NIN lookup by demographic details — ${price.toNaira}',
     );
-    if (!pinVerified || !mounted) return;
+    if (pin == null || !mounted) return;
 
     await ref.read(slipFlowProvider.notifier).submit(
           () => ref.read(verificationRemoteProvider).ninByDemographic(
@@ -66,6 +66,7 @@ class _NinByDemographicScreenState
                 lastname: _lastNameController.text.trim(),
                 dob: _dobController.text.trim(),
                 gender: _gender,
+                pin: pin,
               ),
         );
   }

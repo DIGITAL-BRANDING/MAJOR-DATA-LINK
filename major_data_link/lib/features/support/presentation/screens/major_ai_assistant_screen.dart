@@ -470,7 +470,7 @@ class _MajorAiAssistantScreenState
   }
 
   Future<void> _confirmPurchase() async {
-    final confirmed = await showPinConfirmationSheet(
+    final pin = await showPinConfirmationSheet(
       context: context,
       ref: ref,
       title: tr('Confirm purchase', 'Tabbatar da siya'),
@@ -479,7 +479,7 @@ class _MajorAiAssistantScreenState
         'Yi amfani da transaction PIN. Ba a taɓa aika PIN ɗinka a chat ba.',
       ),
     );
-    if (!confirmed) {
+    if (pin == null) {
       _bot(
         tr(
           'Purchase cancelled. Your wallet was not charged.',
@@ -501,8 +501,9 @@ class _MajorAiAssistantScreenState
                 'plan_id': '${_plan!['id'] ?? _plan!['plan_id']}',
                 'phone': _phone,
                 'amount': _amount,
+                'pin': pin,
               }
-            : {'network': _network, 'phone': _phone, 'amount': _amount},
+            : {'network': _network, 'phone': _phone, 'amount': _amount, 'pin': pin},
         options: Options(headers: {'Idempotency-Key': const Uuid().v4()}),
       );
       final ok =
