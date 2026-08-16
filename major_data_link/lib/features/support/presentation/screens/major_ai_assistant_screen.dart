@@ -105,7 +105,11 @@ class _MajorAiAssistantScreenState
     setState(() => _messages.add(_Message(text, true, const [])));
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scroll.hasClients) {
-        _scroll.animateTo(_scroll.position.maxScrollExtent, duration: const Duration(milliseconds: 220), curve: Curves.easeOut);
+        _scroll.animateTo(
+          _scroll.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOut,
+        );
       }
     });
   }
@@ -116,15 +120,51 @@ class _MajorAiAssistantScreenState
     _input.clear();
     _user(text);
     final normalized = text.toLowerCase();
-    if (_step == _Step.task && RegExp(r'(fund|top ?up|wallet|cika wallet|saka kudi|add money|deposit)').hasMatch(normalized)) {
-      setState(() { _task = _Task.fund; _step = _Step.amount; });
-      _bot(tr('How much would you like to add to your wallet?', 'Nawa kake so ka saka a wallet ɗinka?'));
+    if (_step == _Step.task &&
+        RegExp(
+          r'(fund|top ?up|wallet|cika wallet|saka kudi|add money|deposit)',
+        ).hasMatch(normalized)) {
+      setState(() {
+        _task = _Task.fund;
+        _step = _Step.amount;
+      });
+      _bot(
+        tr(
+          'How much would you like to add to your wallet?',
+          'Nawa kake so ka saka a wallet ɗinka?',
+        ),
+      );
       return;
     }
     final mentionedNetwork = _parseNetwork(normalized);
-    if (mentionedNetwork != null && _network != null && mentionedNetwork != _network && _step != _Step.language && _step != _Step.task) {
-      setState(() { _network = mentionedNetwork; _dataType = null; _plans = const []; _plan = null; _step = _task == _Task.data ? _Step.dataType : _Step.phone; });
-      _bot(tr('Okay, I changed the network to $mentionedNetwork. Let us continue.', 'To, na canza network zuwa $mentionedNetwork. Mu ci gaba.'), options: _task == _Task.data ? const ['Corporate', 'Data Share', 'Gifting', 'SME', 'SME 2', 'Data Coupon'] : const []);
+    if (mentionedNetwork != null &&
+        _network != null &&
+        mentionedNetwork != _network &&
+        _step != _Step.language &&
+        _step != _Step.task) {
+      setState(() {
+        _network = mentionedNetwork;
+        _dataType = null;
+        _plans = const [];
+        _plan = null;
+        _step = _task == _Task.data ? _Step.dataType : _Step.phone;
+      });
+      _bot(
+        tr(
+          'Okay, I changed the network to $mentionedNetwork. Let us continue.',
+          'To, na canza network zuwa $mentionedNetwork. Mu ci gaba.',
+        ),
+        options: _task == _Task.data
+            ? const [
+                'Corporate',
+                'Data Share',
+                'Gifting',
+                'SME',
+                'SME 2',
+                'Data Coupon',
+              ]
+            : const [],
+      );
       return;
     }
     if (RegExp(
@@ -211,9 +251,9 @@ class _MajorAiAssistantScreenState
       if (workflow != null && workflow != 'data' && workflow != 'airtime') {
         final workflows = await _ensureWorkflows();
         final match = workflows.cast<Map<String, dynamic>?>().firstWhere(
-              (w) => w != null && w['id'] == workflow,
-              orElse: () => null,
-            );
+          (w) => w != null && w['id'] == workflow,
+          orElse: () => null,
+        );
         if (match != null && match['status'] == 'active') {
           await _startGenericWorkflow(match);
           return;
@@ -252,8 +292,24 @@ class _MajorAiAssistantScreenState
       }
       final dataType = fields['data_type']?.toString();
       if (isData && dataType == null) {
-        setState(() { _network = network; _step = _Step.dataType; });
-        _bot(tr('Which data type: Corporate, Data Share, Gifting, SME, SME 2 or Data Coupon?', 'Wanne nau’in Data: Corporate, Data Share, Gifting, SME, SME 2 ko Data Coupon?'), options: const ['Corporate', 'Data Share', 'Gifting', 'SME', 'SME 2', 'Data Coupon']);
+        setState(() {
+          _network = network;
+          _step = _Step.dataType;
+        });
+        _bot(
+          tr(
+            'Which data type: Corporate, Data Share, Gifting, SME, SME 2 or Data Coupon?',
+            'Wanne nau’in Data: Corporate, Data Share, Gifting, SME, SME 2 ko Data Coupon?',
+          ),
+          options: const [
+            'Corporate',
+            'Data Share',
+            'Gifting',
+            'SME',
+            'SME 2',
+            'Data Coupon',
+          ],
+        );
         return;
       }
       if (phone == null) {
@@ -308,7 +364,20 @@ class _MajorAiAssistantScreenState
         _step = _task == _Task.data ? _Step.dataType : _Step.phone;
       });
       if (_task == _Task.data) {
-        _bot(tr('Which data type: Corporate, Data Share, Gifting, SME, SME 2 or Data Coupon?', 'Wanne nau’in Data: Corporate, Data Share, Gifting, SME, SME 2 ko Data Coupon?'), options: const ['Corporate', 'Data Share', 'Gifting', 'SME', 'SME 2', 'Data Coupon']);
+        _bot(
+          tr(
+            'Which data type: Corporate, Data Share, Gifting, SME, SME 2 or Data Coupon?',
+            'Wanne nau’in Data: Corporate, Data Share, Gifting, SME, SME 2 ko Data Coupon?',
+          ),
+          options: const [
+            'Corporate',
+            'Data Share',
+            'Gifting',
+            'SME',
+            'SME 2',
+            'Data Coupon',
+          ],
+        );
         return;
       }
       _bot(
@@ -318,10 +387,38 @@ class _MajorAiAssistantScreenState
         ),
       );
     } else if (_step == _Step.dataType) {
-      final dataType = normalized.contains('corporate') ? 'CORPORATE' : normalized.contains('share') ? 'DATA SHARE' : normalized.contains('gift') ? 'GIFTING' : (normalized.contains('sme 2') || normalized.contains('sme2')) ? 'SME2' : normalized.contains('coupon') ? 'DATA COUPON' : normalized.contains('sme') ? 'SME' : null;
-      if (dataType == null) { _bot(tr('Please choose one of the data types.', 'Zaɓi ɗaya daga cikin nau’in Data.')); return; }
-      setState(() { _dataType = dataType; _step = _Step.phone; });
-      _bot(tr('Enter the Nigerian phone number to receive it.', 'Rubuta lambar Najeriya da za a tura mata.'));
+      final dataType = normalized.contains('corporate')
+          ? 'CORPORATE'
+          : normalized.contains('share')
+          ? 'DATA SHARE'
+          : normalized.contains('gift')
+          ? 'GIFTING'
+          : (normalized.contains('sme 2') || normalized.contains('sme2'))
+          ? 'SME2'
+          : normalized.contains('coupon')
+          ? 'DATA COUPON'
+          : normalized.contains('sme')
+          ? 'SME'
+          : null;
+      if (dataType == null) {
+        _bot(
+          tr(
+            'Please choose one of the data types.',
+            'Zaɓi ɗaya daga cikin nau’in Data.',
+          ),
+        );
+        return;
+      }
+      setState(() {
+        _dataType = dataType;
+        _step = _Step.phone;
+      });
+      _bot(
+        tr(
+          'Enter the Nigerian phone number to receive it.',
+          'Rubuta lambar Najeriya da za a tura mata.',
+        ),
+      );
     } else if (_step == _Step.phone) {
       final phone = text.replaceAll(RegExp(r'\D'), '');
       if (phone.length != 11 || !phone.startsWith('0')) {
@@ -350,8 +447,10 @@ class _MajorAiAssistantScreenState
       final cleaned = normalized.replaceAll(RegExp(r'[^a-z0-9.]'), '');
       final chosen = _plans
           .where(
-            (p) =>
-                '${p['name']} ${p['size']} ${p['price'] ?? p['amount']}'.toLowerCase().replaceAll(RegExp(r'[^a-z0-9.]'), '').contains(cleaned),
+            (p) => '${p['name']} ${p['size']} ${p['price'] ?? p['amount']}'
+                .toLowerCase()
+                .replaceAll(RegExp(r'[^a-z0-9.]'), '')
+                .contains(cleaned),
           )
           .toList();
       final plan = chosen.isNotEmpty
@@ -384,8 +483,20 @@ class _MajorAiAssistantScreenState
         return;
       }
       if (_task == _Task.fund) {
-        _bot(tr('I will open the secure wallet funding page. Enter card or bank details only there; never send them in this chat.', 'Zan buɗe secure wallet funding page. Shigar da bayanan card ko banki a can kawai; kada ka turo su a chat.'), options: [tr('Continue to funding', 'Ci gaba zuwa funding'), tr('Start again', 'Fara kuma')]);
-        setState(() { _amount = amount; _step = _Step.review; });
+        _bot(
+          tr(
+            'I will open the secure wallet funding page. Enter card or bank details only there; never send them in this chat.',
+            'Zan buɗe secure wallet funding page. Shigar da bayanan card ko banki a can kawai; kada ka turo su a chat.',
+          ),
+          options: [
+            tr('Continue to funding', 'Ci gaba zuwa funding'),
+            tr('Start again', 'Fara kuma'),
+          ],
+        );
+        setState(() {
+          _amount = amount;
+          _step = _Step.review;
+        });
         return;
       }
       setState(() {
@@ -394,7 +505,8 @@ class _MajorAiAssistantScreenState
       });
       await _review();
     } else if (_step == _Step.review) {
-      if (_task == _Task.fund && RegExp(r'(continue|ci gaba|yes|eh|confirm)').hasMatch(normalized)) {
+      if (_task == _Task.fund &&
+          RegExp(r'(continue|ci gaba|yes|eh|confirm)').hasMatch(normalized)) {
         Navigator.of(context).pushNamed('/fund-wallet');
         return;
       }
@@ -550,7 +662,12 @@ class _MajorAiAssistantScreenState
                 'amount': _amount,
                 'pin': pin,
               }
-            : {'network': _network, 'phone': _phone, 'amount': _amount, 'pin': pin},
+            : {
+                'network': _network,
+                'phone': _phone,
+                'amount': _amount,
+                'pin': pin,
+              },
         options: Options(headers: {'Idempotency-Key': const Uuid().v4()}),
       );
       final ok =
@@ -657,10 +774,11 @@ class _MajorAiAssistantScreenState
   Future<List<Map<String, dynamic>>> _ensureWorkflows() async {
     if (_allWorkflows.isNotEmpty) return _allWorkflows;
     try {
-      final response =
-          await ref.read(dioClientProvider).get(AppEndpoints.assistantWorkflows);
-      _allWorkflows =
-          ((response.data['data'] ?? []) as List).cast<Map<String, dynamic>>();
+      final response = await ref
+          .read(dioClientProvider)
+          .get(AppEndpoints.assistantWorkflows);
+      _allWorkflows = ((response.data['data'] ?? []) as List)
+          .cast<Map<String, dynamic>>();
     } on DioException {
       // Leave empty - callers fall back to the "not active yet" message.
     }
@@ -694,8 +812,8 @@ class _MajorAiAssistantScreenState
   }
 
   Future<void> _askNextGenericField() async {
-    final fields =
-        (_activeWorkflow!['fields'] as List).cast<Map<String, dynamic>>();
+    final fields = (_activeWorkflow!['fields'] as List)
+        .cast<Map<String, dynamic>>();
     while (_fieldIndex < fields.length &&
         _collected.containsKey(fields[_fieldIndex]['key'])) {
       _fieldIndex++;
@@ -714,15 +832,15 @@ class _MajorAiAssistantScreenState
           : label,
       options: options != null
           ? options
-              .map((o) => tr(o['label'] as String, o['labelHa'] as String))
-              .toList()
+                .map((o) => tr(o['label'] as String, o['labelHa'] as String))
+                .toList()
           : const [],
     );
   }
 
   Future<void> _handleGenericFieldAnswer(String raw, String normalized) async {
-    final fields =
-        (_activeWorkflow!['fields'] as List).cast<Map<String, dynamic>>();
+    final fields = (_activeWorkflow!['fields'] as List)
+        .cast<Map<String, dynamic>>();
     final field = fields[_fieldIndex];
     final key = field['key'] as String;
     final input = field['input'] as String;
@@ -741,8 +859,10 @@ class _MajorAiAssistantScreenState
         {
           final digits = raw.replaceAll(RegExp(r'\D'), '');
           if (digits.length != 11 || !digits.startsWith('0')) {
-            error = tr('Please enter a valid 11-digit Nigerian number.',
-                'Don Allah rubuta ingantacciyar lamba mai digit 11.');
+            error = tr(
+              'Please enter a valid 11-digit Nigerian number.',
+              'Don Allah rubuta ingantacciyar lamba mai digit 11.',
+            );
           }
           value = digits;
           break;
@@ -751,8 +871,10 @@ class _MajorAiAssistantScreenState
         {
           final digits = raw.replaceAll(RegExp(r'\D'), '');
           if (digits.length != 11) {
-            error = tr('NIN must be exactly 11 digits.',
-                'NIN dole ya kasance digit 11.');
+            error = tr(
+              'NIN must be exactly 11 digits.',
+              'NIN dole ya kasance digit 11.',
+            );
           }
           value = digits;
           break;
@@ -761,8 +883,10 @@ class _MajorAiAssistantScreenState
         {
           final digits = raw.replaceAll(RegExp(r'\D'), '');
           if (digits.length != 11) {
-            error = tr('BVN must be exactly 11 digits.',
-                'BVN dole ya kasance digit 11.');
+            error = tr(
+              'BVN must be exactly 11 digits.',
+              'BVN dole ya kasance digit 11.',
+            );
           }
           value = digits;
           break;
@@ -770,8 +894,10 @@ class _MajorAiAssistantScreenState
       case 'email':
         {
           if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(raw.trim())) {
-            error = tr('Please enter a valid email address.',
-                'Don Allah rubuta ingantaccen adireshin email.');
+            error = tr(
+              'Please enter a valid email address.',
+              'Don Allah rubuta ingantaccen adireshin email.',
+            );
           }
           value = raw.trim();
           break;
@@ -780,15 +906,18 @@ class _MajorAiAssistantScreenState
         {
           final quantity = int.tryParse(raw.trim());
           if (quantity == null || quantity < 1 || quantity > 10) {
-            error = tr('Enter a quantity between 1 and 10.',
-                'Rubuta adadi tsakanin 1 zuwa 10.');
+            error = tr(
+              'Enter a quantity between 1 and 10.',
+              'Rubuta adadi tsakanin 1 zuwa 10.',
+            );
           }
           value = quantity;
           break;
         }
       case 'select':
         {
-          final options = (field['options'] as List).cast<Map<String, dynamic>>();
+          final options = (field['options'] as List)
+              .cast<Map<String, dynamic>>();
           final match = options.firstWhere(
             (o) =>
                 normalized.contains((o['label'] as String).toLowerCase()) ||
@@ -797,8 +926,10 @@ class _MajorAiAssistantScreenState
             orElse: () => const {},
           );
           if (match.isEmpty) {
-            error = tr('Please choose one of the listed options.',
-                'Zaɓi ɗaya daga cikin zaɓuɓɓukan da aka jera.');
+            error = tr(
+              'Please choose one of the listed options.',
+              'Zaɓi ɗaya daga cikin zaɓuɓɓukan da aka jera.',
+            );
           } else {
             value = match['value'];
           }
@@ -807,8 +938,10 @@ class _MajorAiAssistantScreenState
       default:
         {
           if (raw.trim().isEmpty) {
-            error = tr('This cannot be empty. Please try again.',
-                'Wannan ba zai iya zama fanko ba. Sake gwadawa.');
+            error = tr(
+              'This cannot be empty. Please try again.',
+              'Wannan ba zai iya zama fanko ba. Sake gwadawa.',
+            );
           }
           value = raw.trim();
         }
@@ -849,35 +982,43 @@ class _MajorAiAssistantScreenState
           final response = await ref
               .read(dioClientProvider)
               .get(AppEndpoints.verificationPrices);
-          final rows =
-              ((response.data['data'] ?? []) as List).cast<Map<String, dynamic>>();
+          final rows = ((response.data['data'] ?? []) as List)
+              .cast<Map<String, dynamic>>();
           final row = rows.cast<Map<String, dynamic>?>().firstWhere(
-                (r) => r != null && r['service'] == key,
-                orElse: () => null,
-              );
-          unitPrice =
-              row == null ? 0 : _number(row['unitPrice'] ?? row['unit_price']);
+            (r) => r != null && r['service'] == key,
+            orElse: () => null,
+          );
+          unitPrice = row == null
+              ? 0
+              : _number(row['unitPrice'] ?? row['unit_price']);
         }
       }
-      final quantity =
-          _collected['quantity'] is int ? _collected['quantity'] as int : 1;
+      final quantity = _collected['quantity'] is int
+          ? _collected['quantity'] as int
+          : 1;
       final total = unitPrice * quantity;
 
-      final walletResponse =
-          await ref.read(dioClientProvider).get(AppEndpoints.walletBalance);
+      final walletResponse = await ref
+          .read(dioClientProvider)
+          .get(AppEndpoints.walletBalance);
       final wallet = walletResponse.data['data'] ?? walletResponse.data;
       final balance = _number(wallet['balance'] ?? wallet['total_balance']);
       if (total > 0 && balance < total) {
-        _bot(tr(
-          'Your wallet balance is ₦${balance.toStringAsFixed(0)}, but this needs ₦${total.toStringAsFixed(0)}. Please fund your wallet first.',
-          'Wallet ɗinka yana da ₦${balance.toStringAsFixed(0)}, amma wannan na bukatar ₦${total.toStringAsFixed(0)}. Da fatan ka cika wallet ɗin ka farko.',
-        ));
+        _bot(
+          tr(
+            'Your wallet balance is ₦${balance.toStringAsFixed(0)}, but this needs ₦${total.toStringAsFixed(0)}. Please fund your wallet first.',
+            'Wallet ɗinka yana da ₦${balance.toStringAsFixed(0)}, amma wannan na bukatar ₦${total.toStringAsFixed(0)}. Da fatan ka cika wallet ɗin ka farko.',
+          ),
+        );
         _reset(keepMessages: true);
         return;
       }
 
       _genericPrice = total;
-      final title = tr(workflow['title'] as String, workflow['titleHa'] as String);
+      final title = tr(
+        workflow['title'] as String,
+        workflow['titleHa'] as String,
+      );
       final summary = _collected.entries
           .map((e) => '${e.key}: ${e.value}')
           .join('\n');
@@ -891,14 +1032,19 @@ class _MajorAiAssistantScreenState
                 'Summary: $title\n$summary\n\nProceed?',
                 'Takaitawa: $title\n$summary\n\nA ci gaba?',
               ),
-        options: [tr('Yes, confirm', 'Eh, tabbatar'), tr('No, start again', 'A’a, a fara kuma')],
+        options: [
+          tr('Yes, confirm', 'Eh, tabbatar'),
+          tr('No, start again', 'A’a, a fara kuma'),
+        ],
       );
       setState(() => _step = _Step.genericReview);
     } on DioException {
-      _bot(tr(
-        'I could not check pricing or your wallet right now. Please try again.',
-        'Ba a iya duba farashi ko wallet ɗinka yanzu ba. Sake gwadawa.',
-      ));
+      _bot(
+        tr(
+          'I could not check pricing or your wallet right now. Please try again.',
+          'Ba a iya duba farashi ko wallet ɗinka yanzu ba. Sake gwadawa.',
+        ),
+      );
       _reset(keepMessages: true);
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -916,10 +1062,12 @@ class _MajorAiAssistantScreenState
       ),
     );
     if (pin == null) {
-      _bot(tr(
-        'Cancelled. Your wallet was not charged.',
-        'An soke. Ba a cire kuɗi daga wallet ba.',
-      ));
+      _bot(
+        tr(
+          'Cancelled. Your wallet was not charged.',
+          'An soke. Ba a cire kuɗi daga wallet ba.',
+        ),
+      );
       return;
     }
     setState(() => _busy = true);
@@ -938,23 +1086,32 @@ class _MajorAiAssistantScreenState
           data: body,
           options: Options(headers: {'Idempotency-Key': const Uuid().v4()}),
         );
-        final ticketId =
-            (response.data['data'] as Map?)?['ticket_id']?.toString();
-        unawaited(_audit(stage: 'submit', outcome: 'waiting', transactionRef: ticketId));
+        final ticketId = (response.data['data'] as Map?)?['ticket_id']
+            ?.toString();
+        unawaited(
+          _audit(stage: 'submit', outcome: 'waiting', transactionRef: ticketId),
+        );
         if (ticketId == null) {
-          _bot(tr(
-            'Your request was submitted, but I could not track its status. Please check Transactions for updates.',
-            'An aika buƙatarka, amma ban iya bin diddigin matsayinta ba. Duba Transactions don sabuntawa.',
-          ));
+          _bot(
+            tr(
+              'Your request was submitted, but I could not track its status. Please check Transactions for updates.',
+              'An aika buƙatarka, amma ban iya bin diddigin matsayinta ba. Duba Transactions don sabuntawa.',
+            ),
+          );
           _reset(keepMessages: true);
           return;
         }
         _genericTicketId = ticketId;
-        _bot(tr(
-          'Submitted! Reference: $ticketId. I will keep checking and let you know as soon as it is ready.',
-          'An aika! Reference: $ticketId. Zan cigaba da duba har sai ya shirya.',
-        ));
-        await _pollGenericTicket(workflow['statusEndpoint'] as String, ticketId);
+        _bot(
+          tr(
+            'Submitted! Reference: $ticketId. I will keep checking and let you know as soon as it is ready.',
+            'An aika! Reference: $ticketId. Zan cigaba da duba har sai ya shirya.',
+          ),
+        );
+        await _pollGenericTicket(
+          workflow['statusEndpoint'] as String,
+          ticketId,
+        );
       } else {
         final endpoint = (workflow['purchaseEndpoint'] as String).replaceAll(
           ':examType',
@@ -965,14 +1122,18 @@ class _MajorAiAssistantScreenState
           data: body,
           options: Options(headers: {'Idempotency-Key': const Uuid().v4()}),
         );
-        final ok = response.data['status'] == true ||
+        final ok =
+            response.data['status'] == true ||
             response.data['status'] == 'success';
         final resultData = (response.data['data'] as Map?) ?? const {};
-        unawaited(_audit(
-          stage: 'purchase',
-          outcome: ok ? 'success' : 'failed',
-          transactionRef: (response.data['data'] as Map?)?['reference']?.toString(),
-        ));
+        unawaited(
+          _audit(
+            stage: 'purchase',
+            outcome: ok ? 'success' : 'failed',
+            transactionRef: (response.data['data'] as Map?)?['reference']
+                ?.toString(),
+          ),
+        );
         final resultPin = resultData['pin']?.toString();
         final pdfBase64 = resultData['pdf_base64']?.toString();
         if (ok && pdfBase64 != null && pdfBase64.isNotEmpty) {
@@ -1000,11 +1161,20 @@ class _MajorAiAssistantScreenState
         _reset(keepMessages: true);
       }
     } on DioException catch (e) {
-      unawaited(_audit(stage: 'purchase', outcome: 'failed', errorCode: 'PURCHASE_ERROR'));
-      _bot(tr(
-        e.response?.data?['message']?.toString() ?? 'Request failed. Please try again.',
-        e.response?.data?['message']?.toString() ?? 'Ya gaza. Sake gwadawa.',
-      ));
+      unawaited(
+        _audit(
+          stage: 'purchase',
+          outcome: 'failed',
+          errorCode: 'PURCHASE_ERROR',
+        ),
+      );
+      _bot(
+        tr(
+          e.response?.data?['message']?.toString() ??
+              'Request failed. Please try again.',
+          e.response?.data?['message']?.toString() ?? 'Ya gaza. Sake gwadawa.',
+        ),
+      );
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -1016,7 +1186,10 @@ class _MajorAiAssistantScreenState
   /// verification.service.ts). Chat has no persistent background task, so
   /// this only tracks the ticket while this screen stays open; the full
   /// result is always still visible under Transactions regardless.
-  Future<void> _pollGenericTicket(String statusTemplate, String ticketId) async {
+  Future<void> _pollGenericTicket(
+    String statusTemplate,
+    String ticketId,
+  ) async {
     final endpoint = statusTemplate.replaceAll(':ticketId', ticketId);
     const maxAttempts = 20;
     const interval = Duration(seconds: 6);
@@ -1024,40 +1197,49 @@ class _MajorAiAssistantScreenState
       await Future.delayed(interval);
       if (!mounted) return;
       try {
-        final response =
-            await ref.read(dioClientProvider).get(_absoluteFor(endpoint));
+        final response = await ref
+            .read(dioClientProvider)
+            .get(_absoluteFor(endpoint));
         final data = (response.data['data'] as Map?) ?? const {};
         final status = data['status']?.toString().toLowerCase();
         if (status == 'success') {
-          _bot(tr(
-            'Your request ($ticketId) is complete. Check Transactions for the full result.',
-            'Buƙatarka ($ticketId) ta shirya. Duba Transactions don cikakken sakamako.',
-          ));
+          _bot(
+            tr(
+              'Your request ($ticketId) is complete. Check Transactions for the full result.',
+              'Buƙatarka ($ticketId) ta shirya. Duba Transactions don cikakken sakamako.',
+            ),
+          );
           _reset(keepMessages: true);
           return;
         }
         if (status == 'failed') {
-          _bot(tr(
-            'Your request ($ticketId) could not be completed. Any charge has been refunded - check Transactions, or contact support if unsure.',
-            'Ba a iya kammala buƙatar ($ticketId) ba. An mayar da duk wani caji - duba Transactions, ko tuntuɓi support idan ba ka tabbata ba.',
-          ));
+          _bot(
+            tr(
+              'Your request ($ticketId) could not be completed. Any charge has been refunded - check Transactions, or contact support if unsure.',
+              'Ba a iya kammala buƙatar ($ticketId) ba. An mayar da duk wani caji - duba Transactions, ko tuntuɓi support idan ba ka tabbata ba.',
+            ),
+          );
           _reset(keepMessages: true);
           return;
         }
         if (attempt == 4) {
-          _bot(tr(
-            'Still processing $ticketId… I will keep watching.',
-            'Ana ci gaba da aiwatar da $ticketId… Zan ci gaba da bibiya.',
-          ));
+          _bot(
+            tr(
+              'Still processing $ticketId… I will keep watching.',
+              'Ana ci gaba da aiwatar da $ticketId… Zan ci gaba da bibiya.',
+            ),
+          );
         }
       } on DioException {
         // Transient network hiccup - keep trying on the next interval.
       }
     }
-    _bot(tr(
-      'This is taking longer than usual. $ticketId is still processing - check Transactions for updates, or contact support.',
-      'Wannan yana ɗaukar lokaci fiye da yadda aka saba. $ticketId har yanzu ana aiwatar da shi - duba Transactions, ko tuntuɓi support.',
-    ));
+    _bot(
+      tr(
+        'This is taking longer than usual. $ticketId is still processing - check Transactions for updates, or contact support.',
+        'Wannan yana ɗaukar lokaci fiye da yadda aka saba. $ticketId har yanzu ana aiwatar da shi - duba Transactions, ko tuntuɓi support.',
+      ),
+    );
     _reset(keepMessages: true);
   }
 
