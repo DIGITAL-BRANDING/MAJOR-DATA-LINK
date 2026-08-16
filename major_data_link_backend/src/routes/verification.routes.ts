@@ -1,13 +1,16 @@
 import { Router, type Request } from 'express';
 import { z } from 'zod';
+import { TransactionType } from '@prisma/client';
 import { requireAuth } from '../middleware/auth.js';
 import { pinField, requirePinConfirmation } from '../lib/require-pin.js';
+import { prisma } from '../lib/prisma.js';
 import {
   checkBvnRetrievalStatus,
   checkDelinkingStatus,
   checkIpeClearanceStatus,
   checkNinValidationStatus,
   checkPersonalizationStatus,
+  decryptTransactionPII,
   listVerificationPrices,
   purchaseBvnSlip,
   purchaseNinByDemographic,
@@ -62,6 +65,53 @@ function slipResponse(result: Awaited<ReturnType<typeof purchaseNinByNin>>) {
 verificationRoutes.get('/prices', async (_req, res) => {
   const prices = await listVerificationPrices();
   res.json({ status: true, data: prices });
+});
+
+// A customer can retrieve a verification result for 24 hours without
+// submitting (or paying for) the same request again.  PDFs are stored in the
+// transaction's sealed PII; only the transaction owner can receive them.
+verificationRoutes.get('/history', async (req, res) => {
+  const service = z.string().trim().min(1).max(60).parse(req.query.service);
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const transactions = await prisma.transaction.findMany({
+    where: {
+      userId: req.user!.id,
+      createdAt: { gte: since },
+      type: {
+        in: [
+          TransactionType.NIN_VERIFICATION,
+          TransactionType.BVN_VERIFICATION,
+          TransactionType.IDENTITY_SERVICE_REQUEST
+        ]
+      }
+    },
+    orderBy: { createdAt: 'desc' },
+    take: 50
+  });
+
+  const data = transactions
+    .filter((transaction) => {
+      const metadata = transaction.metadata as Record<string, unknown> | null;
+      return metadata?.service === service;
+    })
+    .slice(0, 10)
+    .map((transaction) => {
+      const metadata = transaction.metadata as Record<string, unknown> | null;
+      const pii = decryptTransactionPII(metadata);
+      return {
+        reference: transaction.reference,
+        status: transaction.status.toLowerCase(),
+        created_at: transaction.createdAt.toISOString(),
+        // Do not return identity details here. The PDF itself is the
+        // retrievable document and the rest remains sealed in storage.
+        pdf_base64: typeof pii?.pdf_base64 === 'string' ? pii.pdf_base64 : null,
+        pdf_url: typeof pii?.pdf_url === 'string' ? pii.pdf_url : null,
+        ticket_id: typeof metadata?.ticket_id === 'string' ? metadata.ticket_id : null
+      };
+    });
+
+  res.set('Cache-Control', 'no-store');
+  res.json({ status: true, data });
 });
 
 // ── Slip lookups (synchronous) ────────────────────────────────────

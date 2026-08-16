@@ -90,6 +90,14 @@ const money = (amount?: number) =>
 type SlipResult = { user_data?: Record<string, unknown>; pdf_base64?: string; pdf_url?: string; reference: string };
 type AsyncResult = { ticket_id: string; reference: string };
 type TicketStatus = { ticket_id: string; status: 'pending' | 'success' | 'failed'; response: Record<string, unknown> | null };
+type VerificationHistory = {
+  reference: string;
+  status: string;
+  created_at: string;
+  pdf_base64: string | null;
+  pdf_url: string | null;
+  ticket_id: string | null;
+};
 
 export default function VerificationPage({ mode }: { mode: Mode }) {
   const nav = useNavigate();
@@ -107,6 +115,8 @@ export default function VerificationPage({ mode }: { mode: Mode }) {
   const [asyncResult, setAsyncResult] = useState<AsyncResult | null>(null);
   const [ticketStatus, setTicketStatus] = useState<TicketStatus | null>(null);
   const [polling, setPolling] = useState(false);
+  const [history, setHistory] = useState<VerificationHistory[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
 
   useEffect(() => {
     api
@@ -119,6 +129,30 @@ export default function VerificationPage({ mode }: { mode: Mode }) {
   }, []);
 
   const selectedPrice = useMemo(() => (selected ? prices[keyFor(selected, tier)] : undefined), [selected, tier, prices]);
+  const selectedServiceKey = selected ? keyFor(selected, tier) : '';
+
+  useEffect(() => {
+    if (!selectedServiceKey) {
+      setHistory([]);
+      return;
+    }
+    let active = true;
+    setLoadingHistory(true);
+    api
+      .get<{ status: boolean; data: VerificationHistory[] }>(`/verification/history?service=${encodeURIComponent(selectedServiceKey)}`)
+      .then((result) => {
+        if (active) setHistory(result.data ?? []);
+      })
+      .catch(() => {
+        if (active) setHistory([]);
+      })
+      .finally(() => {
+        if (active) setLoadingHistory(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [selectedServiceKey]);
 
   function choose(item: Item) {
     if (item.id === 'modification') {
@@ -335,6 +369,8 @@ export default function VerificationPage({ mode }: { mode: Mode }) {
                 }}
               />
             )}
+
+            <VerificationHistoryView history={history} loading={loadingHistory} />
           </section>
         )}
       </div>
@@ -342,6 +378,56 @@ export default function VerificationPage({ mode }: { mode: Mode }) {
       <PinConfirmDialog open={showPin} onClose={() => setShowPin(false)} onVerified={submit} />
       <ModificationConsent open={consent} onClose={() => setConsent(false)} onAgree={agreed} />
     </AppShell>
+  );
+}
+
+function VerificationHistoryView({ history, loading }: { history: VerificationHistory[]; loading: boolean }) {
+  return (
+    <section className="mt-8 border-t border-parchment-line pt-5">
+      <div className="flex items-baseline justify-between gap-3">
+        <h3 className="font-display text-base font-bold text-ink">Recent requests</h3>
+        <span className="font-body text-xs text-ink-600">Available for 24 hours</span>
+      </div>
+      {loading ? (
+        <p className="mt-3 font-body text-sm text-ink-600">Loading recent requests…</p>
+      ) : history.length === 0 ? (
+        <p className="mt-3 rounded-xl border border-dashed border-parchment-line px-4 py-4 font-body text-sm text-ink-600">
+          No request for this service in the last 24 hours.
+        </p>
+      ) : (
+        <div className="mt-3 divide-y divide-parchment-line overflow-hidden rounded-xl border border-parchment-line bg-cream">
+          {history.map((entry) => {
+            const base64 = entry.pdf_base64?.replace(/^data:application\/pdf;base64,/i, '');
+            const href = base64
+              ? `data:application/pdf;base64,${base64}`
+              : entry.pdf_url?.startsWith('https://')
+                ? entry.pdf_url
+                : null;
+            return (
+              <div key={entry.reference} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+                <div>
+                  <p className="font-mono text-xs font-semibold text-ink">{entry.reference}</p>
+                  <p className="mt-1 font-body text-xs text-ink-600">{new Date(entry.created_at).toLocaleString()}</p>
+                </div>
+                {href ? (
+                  <a
+                    href={href}
+                    download={`${entry.reference}.pdf`}
+                    target={base64 ? undefined : '_blank'}
+                    rel={base64 ? undefined : 'noreferrer'}
+                    className="flex items-center gap-2 rounded-lg bg-gold-500 px-3 py-2 font-body text-xs font-bold text-ink"
+                  >
+                    <Download size={14} /> Retrieve PDF
+                  </a>
+                ) : (
+                  <span className="font-body text-xs font-semibold capitalize text-ink-600">{entry.status}</span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
   );
 }
 
