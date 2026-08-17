@@ -15,8 +15,10 @@ import PrivacyRedirect from './pages/PrivacyRedirect';
 import ResultPinPage from './pages/ResultPinPage';
 import ResultCheckersPage from './pages/ResultCheckersPage';
 import VerificationPage from './pages/VerificationPage';
+import NinModificationPage from './pages/NinModificationPage';
 import FundWalletPage from './pages/FundWalletPage';
 import PaymentCallbackPage from './pages/PaymentCallbackPage';
+import DeliveriesPage from './pages/DeliveriesPage';
 
 function ProtectedRoute({ children }: { children: ReactNode }) {
   const { user, isLoading, mustChangePassword } = useAuth();
@@ -54,9 +56,11 @@ export default function App() {
           <Route path="/neco-result" element={<ProtectedRoute><ResultPinPage exam="NECO" /></ProtectedRoute>} />
           <Route path="/nabteb-result" element={<ProtectedRoute><ResultPinPage exam="NABTEB" /></ProtectedRoute>} />
           <Route path="/nin-services" element={<ProtectedRoute><VerificationPage mode="nin" /></ProtectedRoute>} />
+          <Route path="/nin-modification" element={<ProtectedRoute><NinModificationPage /></ProtectedRoute>} />
           <Route path="/bvn-services" element={<ProtectedRoute><VerificationPage mode="bvn" /></ProtectedRoute>} />
           <Route path="/terms" element={<PrivacyRedirect page="terms" />} />
           <Route path="/fund-wallet" element={<ProtectedRoute><FundWalletPage /></ProtectedRoute>} />
+          <Route path="/deliveries" element={<ProtectedRoute><DeliveriesPage /></ProtectedRoute>} />
           <Route path="/payment/callback" element={<ProtectedRoute><PaymentCallbackPage /></ProtectedRoute>} />
           <Route path="/set-new-password" element={<ProtectedRoute><SetNewPasswordPage /></ProtectedRoute>} />
           <Route

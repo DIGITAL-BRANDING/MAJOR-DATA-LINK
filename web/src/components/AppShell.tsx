@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
-import { Bell, ChevronDown, Fingerprint, IdCard, LayoutDashboard, LogOut, Menu, ReceiptText, Smartphone, WalletCards, Wifi, X } from 'lucide-react';
+import { Bell, ChevronDown, Fingerprint, IdCard, LayoutDashboard, LogOut, Menu, PackageOpen, ReceiptText, Smartphone, WalletCards, Wifi, X } from 'lucide-react';
 import Logo from './Logo';
 import { useAuth } from '../lib/auth';
 import { api } from '../lib/api';
@@ -13,6 +13,7 @@ const groups = [
   { label: 'NIN Services', icon: IdCard, items: [['All NIN Services', '/nin-services']] },
   { label: 'BVN Services', icon: Fingerprint, items: [['All BVN Services', '/bvn-services']] },
   { label: 'Result Checkers', icon: ReceiptText, items: [['WAEC / NECO / NABTEB', '/result-checkers']] },
+  { label: 'My Deliveries', icon: PackageOpen, items: [['Download my files', '/deliveries']] },
 ] as const;
 
 function Sidebar({ close }: { close?: () => void }) {

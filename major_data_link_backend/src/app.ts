@@ -33,9 +33,11 @@ import { publicRoutes } from './routes/public.routes.js';
 import { transactionRoutes } from './routes/transaction.routes.js';
 import { userRoutes } from './routes/user.routes.js';
 import { verificationRoutes } from './routes/verification.routes.js';
+import { ninModificationRoutes } from './routes/nin-modification.routes.js';
 import { vtuRoutes } from './routes/vtu.routes.js';
 import { walletRoutes } from './routes/wallet.routes.js';
 import { webhookRoutes } from './routes/webhook.routes.js';
+import { deliveryRoutes } from './routes/delivery.routes.js';
 
 const ADMIN_ROOT_PATH = '/admin';
 
@@ -172,11 +174,13 @@ export function createApp() {
   app.use('/api/wallet', walletRoutes);
   app.use('/api/kyc', kycRoutes);
   app.use('/api/notifications', notificationRoutes);
+  app.use('/api/deliveries', deliveryRoutes);
   app.use('/api/referral', referralRoutes);
   app.use('/api/support', supportRoutes);
   app.use('/api/result', resultRoutes);
   app.use('/api/public', publicRoutes);
   app.use('/api/verification', verificationRoutes);
+  app.use('/api/nin-modification', ninModificationRoutes);
   app.use('/api', vtuRoutes);
   app.use('/api/transactions', transactionRoutes);
 

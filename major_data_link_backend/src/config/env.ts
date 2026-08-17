@@ -153,6 +153,9 @@ const EnvSchema = z.object({
   // one with: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
   PII_ENCRYPTION_KEY: z.string().min(16).default('dev-only-insecure-pii-key-change-me'),
   SUPABASE_JWT_SECRET: z.string().optional()
+  ,SUPABASE_URL: z.string().url().optional()
+  ,SUPABASE_SERVICE_ROLE_KEY: z.string().min(1).optional()
+  ,SUPABASE_STORAGE_BUCKET: z.string().default('user-deliveries')
 });
 
 // Parse environment variables with enhanced error handling

@@ -2,6 +2,7 @@ import { getModelByName } from '@adminjs/prisma';
 import type { ResourceWithOptions } from 'adminjs';
 import { prisma } from '../../lib/prisma.js';
 import { decryptTransactionPII } from '../../services/verification.service.js';
+import { completeModification } from '../../services/nin-modification.service.js';
 import { refundWallet } from '../../services/wallet.service.js';
 import { logAdminAction } from '../audit.js';
 import type { AdminSessionUser } from '../auth.js';
@@ -57,6 +58,13 @@ export const transactionResource: ResourceWithOptions = {
           const admin = currentAdmin as unknown as AdminSessionUser | undefined;
           if (!admin || admin.role === 'SUPPORT') return false;
           const status = record?.params?.status;
+          // A NIN Modification request sits PENDING (awaiting manual
+          // processing on techhubltd.co, see nin-modification.service.ts)
+          // until an admin either completes it or rejects it - unlike every
+          // other transaction type, where PENDING means "still in flight,
+          // don't touch it", so this is the one type reverse() also allows
+          // from PENDING.
+          if (status === 'PENDING') return record?.params?.type === 'NIN_MODIFICATION';
           return status === 'SUCCESS' || status === 'FAILED';
         },
         handler: async (request, response, context) => {
@@ -136,6 +144,74 @@ export const transactionResource: ResourceWithOptions = {
             notice: pii
               ? { message: `Decrypted: ${JSON.stringify(pii)}`, type: 'success' }
               : { message: 'No PII found on this transaction, or it failed to decrypt.', type: 'error' }
+          };
+        }
+      },
+      // Marks a manually-processed NIN Modification request done once the
+      // admin has re-keyed it on techhubltd.co and it went through - no
+      // wallet movement, the customer paid at submit time. Rejecting instead
+      // uses the "reverse" action above (its guard was extended to allow
+      // this from PENDING for NIN_MODIFICATION rows specifically).
+      completeModification: {
+        actionType: 'record',
+        icon: 'CheckCircle',
+        guard: 'Mark this NIN Modification request as completed? Only do this after it has actually gone through on techhubltd.co.',
+        isAccessible: ({ currentAdmin, record }) => {
+          const admin = currentAdmin as unknown as AdminSessionUser | undefined;
+          if (!admin || admin.role === 'SUPPORT') return false;
+          return record?.params?.type === 'NIN_MODIFICATION' && record?.params?.status === 'PENDING';
+        },
+        handler: async (request, response, context) => {
+          const { record, currentAdmin } = context;
+          const admin = currentAdmin as unknown as AdminSessionUser | undefined;
+          if (!record || !admin) {
+            throw new Error('Missing record or admin context');
+          }
+
+          try {
+            await completeModification({ transactionId: record.params.id as string });
+
+            await logAdminAction({
+              adminId: admin.id,
+              action: 'COMPLETE_NIN_MODIFICATION',
+              targetType: 'Transaction',
+              targetId: record.params.id as string,
+              metadata: { reference: record.params.reference }
+            });
+
+            return {
+              record: record.toJSON(currentAdmin),
+              notice: { message: 'Marked as completed.', type: 'success' }
+            };
+          } catch (error) {
+            return {
+              record: record.toJSON(currentAdmin),
+              notice: {
+                message: error instanceof Error ? error.message : 'Could not mark this as completed',
+                type: 'error'
+              }
+            };
+          }
+        }
+      },
+      // Opens the generated submission PDF - same SUPER_ADMIN-only,
+      // audit-logged posture as viewPii above (see src/admin/nin-modification.ts),
+      // but streams the real PDF instead of dumping raw JSON into a notice.
+      downloadModificationPdf: {
+        actionType: 'record',
+        icon: 'Download',
+        isAccessible: ({ currentAdmin, record }) => {
+          const admin = currentAdmin as unknown as AdminSessionUser | undefined;
+          return admin?.role === 'SUPER_ADMIN' && record?.params?.type === 'NIN_MODIFICATION';
+        },
+        handler: async (request, response, context) => {
+          const { record, currentAdmin } = context;
+          if (!record) {
+            throw new Error('Missing record');
+          }
+          return {
+            record: record.toJSON(currentAdmin),
+            redirectUrl: `/admin/nin-modification/${record.params.id as string}/pdf`
           };
         }
       }

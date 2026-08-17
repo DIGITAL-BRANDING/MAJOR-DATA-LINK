@@ -18,7 +18,6 @@ import {
 import AppShell from '../components/AppShell';
 import { api, ApiError } from '../lib/api';
 import { PinConfirmDialog } from '../components/PinConfirmDialog';
-import { ModificationConsent } from '../components/ModificationConsent';
 
 type Mode = 'nin' | 'bvn';
 type Item = {
@@ -107,7 +106,6 @@ export default function VerificationPage({ mode }: { mode: Mode }) {
   const [values, setValues] = useState<Record<string, string>>({});
   const [tier, setTier] = useState('premium');
   const [showPin, setShowPin] = useState(false);
-  const [consent, setConsent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [prices, setPrices] = useState<Record<string, number>>({});
@@ -156,7 +154,7 @@ export default function VerificationPage({ mode }: { mode: Mode }) {
 
   function choose(item: Item) {
     if (item.id === 'modification') {
-      setConsent(true);
+      nav('/nin-modification');
       return;
     }
     resetResult();
@@ -164,13 +162,6 @@ export default function VerificationPage({ mode }: { mode: Mode }) {
     setTier('premium');
     setValues({});
     setMessage('');
-  }
-
-  function agreed() {
-    setConsent(false);
-    resetResult();
-    setSelected(nin.find((item) => item.id === 'modification')!);
-    setValues({ validation_type: 'modification' });
   }
 
   function resetResult() {
@@ -280,7 +271,9 @@ export default function VerificationPage({ mode }: { mode: Mode }) {
                     <Icon size={26} />
                   </span>
                   <span className="mt-3 font-body text-sm font-semibold text-white">{item.label}</span>
-                  <span className="mt-1 font-body text-sm font-bold text-[#ffe9a3]">{money(from)}</span>
+                  <span className="mt-1 font-body text-sm font-bold text-[#ffe9a3]">
+                    {item.id === 'modification' ? 'From ₦5,000' : money(from)}
+                  </span>
                 </button>
               );
             })}
@@ -376,7 +369,6 @@ export default function VerificationPage({ mode }: { mode: Mode }) {
       </div>
 
       <PinConfirmDialog open={showPin} onClose={() => setShowPin(false)} onVerified={submit} />
-      <ModificationConsent open={consent} onClose={() => setConsent(false)} onAgree={agreed} />
     </AppShell>
   );
 }

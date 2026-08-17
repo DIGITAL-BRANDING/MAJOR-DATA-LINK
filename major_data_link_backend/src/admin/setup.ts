@@ -10,6 +10,7 @@ import { registerBulkPricingRoutes } from './bulk-pricing.js';
 import { registerCompanyWalletRoutes } from './company-wallet.js';
 import { registerProviderLedgerRoutes } from './provider-ledger.js';
 import { registerUserWalletRoutes } from './user-wallet.js';
+import { registerNinModificationRoutes } from './nin-modification.js';
 import { componentLoader, Components } from './component-loader.js';
 import { userResource } from './resources/user.resource.js';
 import { transactionResource } from './resources/transaction.resource.js';
@@ -23,6 +24,7 @@ import { referralSettingsResource } from './resources/referral-settings.resource
 import { appConfigResource } from './resources/app-config.resource.js';
 import { supportTicketResource, supportTicketMessageResource } from './resources/support-ticket.resource.js';
 import { notificationBroadcastResource } from './resources/notification-broadcast.resource.js';
+import { registerUserDeliveryRoutes } from './user-deliveries.js';
 
 AdminJS.registerAdapter({ Database, Resource });
 
@@ -165,6 +167,8 @@ export async function buildAdminRouter() {
   registerCompanyWalletRoutes(router);
   registerProviderLedgerRoutes(router);
   registerUserWalletRoutes(router);
+  registerNinModificationRoutes(router);
+  registerUserDeliveryRoutes(router);
 
   return { admin, router };
 }

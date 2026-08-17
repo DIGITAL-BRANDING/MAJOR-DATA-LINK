@@ -8,10 +8,20 @@ import { listServicePricesForAdmin, updateServicePrice } from '../services/resul
 import { listVerificationPricesForAdmin } from '../services/verification.service.js';
 import { logAdminAction } from '../admin/audit.js';
 import { requireAppAdmin, requireFinanceAdmin } from '../middleware/admin-auth.js';
+import { createUserDelivery } from '../services/user-delivery.service.js';
+import { notifyUser } from '../services/notification.service.js';
 
 export const adminApiRoutes = Router();
 
 adminApiRoutes.use(requireAppAdmin);
+
+adminApiRoutes.post('/user-deliveries', requireFinanceAdmin, async (req, res) => {
+  const body = z.object({ user_id: z.string().min(1), title: z.string().trim().min(1).max(120), description: z.string().max(500).optional(), file_name: z.string().min(1).max(180), mime_type: z.enum(['application/pdf', 'image/png', 'image/jpeg', 'text/plain']), file_base64: z.string().min(1), reference: z.string().max(120).optional() }).parse(req.body);
+  const delivery = await createUserDelivery({ userId: body.user_id, adminId: req.admin!.id, title: body.title, description: body.description, fileName: body.file_name, mimeType: body.mime_type, base64: body.file_base64, reference: body.reference });
+  await notifyUser({ userId: body.user_id, type: 'SYSTEM', title: body.title, body: 'A file has been delivered to your dashboard. Open Deliveries to download it.', data: { delivery_id: delivery.id } });
+  await logAdminAction({ adminId: req.admin!.id, action: 'CREATE_USER_DELIVERY', targetType: 'UserDelivery', targetId: delivery.id, metadata: { userId: delivery.userId, fileName: delivery.fileName, reference: delivery.reference } });
+  res.status(201).json({ status: true, data: { id: delivery.id, user_id: delivery.userId, title: delivery.title, file_name: delivery.fileName, created_at: delivery.createdAt.toISOString() } });
+});
 
 function routeParam(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value ?? '';

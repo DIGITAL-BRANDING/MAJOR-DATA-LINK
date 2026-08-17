@@ -51,6 +51,14 @@ enum TransactionType {
   NIN_VERIFICATION
   BVN_VERIFICATION
   IDENTITY_SERVICE_REQUEST
+  /// A submitted NIN Modification request (Update Name, Phone, DOB, Address,
+  /// Name & DOB, or Name & Phone). Techhub has no API for this yet, so unlike
+  /// every other identity service above, nothing is called automatically at
+  /// submit time - the transaction is debited and stays PENDING until an
+  /// admin manually re-keys the same data on techhubltd.co and marks it
+  /// SUCCESS (via the "Complete modification" admin action) or FAILED (via
+  /// the existing "reverse", which refunds). See nin-modification.service.ts.
+  NIN_MODIFICATION
   /// The credit-back entry refundWallet() creates - distinct from the
   /// original debit's own type (e.g. a reversed DATA_PURCHASE gets a REFUND
   /// entry, not a second DATA_PURCHASE). See relatedTransactionId above.
@@ -154,6 +162,24 @@ model User {
   deviceTokens         DeviceToken[]
   notifications        Notification[]
   assistantAuditEvents  AssistantAuditEvent[]
+  deliveries            UserDelivery[]
+}
+
+model UserDelivery {
+  id          String   @id @default(uuid())
+  userId      String
+  title       String
+  description String?
+  fileName    String
+  mimeType    String
+  filePath    String   @unique
+  fileSize    Int
+  reference   String?
+  createdByAdminId String
+  createdAt   DateTime @default(now())
+  user        User @relation(fields: [userId], references: [id])
+  createdByAdmin AdminUser @relation(fields: [createdByAdminId], references: [id])
+  @@index([userId, createdAt])
 }
 
 model AssistantAuditEvent {
@@ -566,6 +592,7 @@ model AdminUser {
   updatedAt    DateTime        @updatedAt
   auditLogs    AdminAuditLog[]
   sentBroadcasts NotificationBroadcast[]
+  deliveries UserDelivery[]
 }
 
 model AdminAuditLog {

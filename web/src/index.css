@@ -133,6 +133,39 @@ select:focus-visible, textarea:focus-visible {
 .premium-subnav button:hover { color: #fff5cf; background: rgba(212, 175, 55, .14); }
 .premium-logout { border-top: 1px solid rgba(244, 194, 58, .2); color: #ffb09a; }
 .premium-logout:hover { background: rgba(220, 75, 45, .13); color: #ffd0c4; }
+
+/* Premium surfaces used by service pages and shared containers.  The
+   selectors intentionally require a rounded card + border so form inputs
+   and status messages retain their semantic light/error colours. */
+main .rounded-2xl.border-parchment-line.bg-parchment,
+main .rounded-xl.border-parchment-line.bg-parchment,
+main .rounded-2xl.border.border-parchment-line.bg-parchment,
+main .rounded-xl.border.border-parchment-line.bg-parchment {
+  border-color: rgba(212, 175, 55, .42) !important;
+  background: linear-gradient(145deg, #171106 0%, #2b1c05 55%, #4a3208 100%) !important;
+  color: #fff4c9;
+  box-shadow: 0 12px 30px rgba(28, 17, 2, .16), inset 0 1px 0 rgba(255, 220, 112, .12);
+}
+
+main .rounded-2xl.border-parchment-line.bg-parchment h1,
+main .rounded-2xl.border-parchment-line.bg-parchment h2,
+main .rounded-2xl.border-parchment-line.bg-parchment h3,
+main .rounded-xl.border-parchment-line.bg-parchment h1,
+main .rounded-xl.border-parchment-line.bg-parchment h2,
+main .rounded-xl.border-parchment-line.bg-parchment h3 {
+  color: #fff4c9;
+}
+
+main .rounded-2xl.border-parchment-line.bg-parchment .text-ink-600,
+main .rounded-xl.border-parchment-line.bg-parchment .text-ink-600 {
+  color: #ead9a1;
+}
+
+main .rounded-2xl.border-parchment-line.bg-parchment:hover,
+main .rounded-xl.border-parchment-line.bg-parchment:hover {
+  border-color: rgba(255, 211, 78, .78) !important;
+  box-shadow: 0 16px 34px rgba(28, 17, 2, .24), 0 0 0 1px rgba(255, 211, 78, .18);
+}
 @media (prefers-reduced-motion: reduce) {
   .ticker-track { animation: none; }
 }
