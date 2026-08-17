@@ -148,17 +148,17 @@ export default function DashboardPage() {
             No transactions yet — your top-ups will show up here.
           </p>
         ) : (
-          <div className="mt-3 divide-y divide-parchment-line rounded-xl border border-parchment-line bg-parchment">
+          <div className="premium-activity mt-3 divide-y rounded-xl border">
             {transactions.map((t) => (
-              <div key={t.id} className="flex items-center justify-between px-4 py-3">
+              <div key={t.id} className="premium-activity-row flex items-center justify-between px-4 py-3">
                 <div>
-                  <p className="font-body text-sm font-medium text-ink">{t.description}</p>
-                  <p className="font-mono text-xs text-ink-600">
+                  <p className="premium-activity-title font-body text-sm font-medium">{t.description}</p>
+                  <p className="premium-activity-date font-mono text-xs">
                     {new Date(t.created_at).toLocaleString()}
                   </p>
                 </div>
                 <div className="text-right">
-                  <p className="font-mono text-sm font-semibold text-ink">
+                  <p className="premium-activity-amount font-mono text-sm font-semibold">
                     ₦{t.amount.toLocaleString()}
                   </p>
                   <StatusBadge status={t.status} />
@@ -224,12 +224,12 @@ function ServiceTile({
 
 function StatusBadge({ status }: { status: string }) {
   const styles: Record<string, string> = {
-    success: 'text-success-600',
-    pending: 'text-gold-600',
-    failed: 'text-ember-600',
+    success: 'text-emerald-300',
+    pending: 'text-yellow-200',
+    failed: 'text-rose-300',
   };
   return (
-    <span className={`font-mono text-[10px] uppercase ${styles[status] ?? 'text-ink-600'}`}>
+    <span className={`font-mono text-[10px] uppercase ${styles[status] ?? 'text-cream'}`}>
       {status}
     </span>
   );

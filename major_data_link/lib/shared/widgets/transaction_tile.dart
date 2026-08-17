@@ -16,6 +16,7 @@ enum TransactionType {
   recharge,
   waec,
   neco,
+  nabteb,
   jamb,
   sms,
 }
@@ -160,6 +161,7 @@ class _TxIcon extends StatelessWidget {
         return Icons.sim_card_rounded;
       case TransactionType.waec:
       case TransactionType.neco:
+      case TransactionType.nabteb:
       case TransactionType.jamb:
         return Icons.school_rounded;
       case TransactionType.sms:

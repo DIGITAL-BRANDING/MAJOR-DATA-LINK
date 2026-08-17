@@ -134,6 +134,32 @@ select:focus-visible, textarea:focus-visible {
 .premium-logout { border-top: 1px solid rgba(244, 194, 58, .2); color: #ffb09a; }
 .premium-logout:hover { background: rgba(220, 75, 45, .13); color: #ffd0c4; }
 
+.premium-activity {
+  overflow: hidden;
+  border-color: rgba(242, 194, 61, .7);
+  background: linear-gradient(135deg, #130d03 0%, #2e1d03 55%, #4a3107 100%);
+  box-shadow: 0 15px 32px rgba(25, 14, 0, .28), inset 0 1px rgba(255, 223, 126, .14);
+}
+.premium-activity-row { border-color: rgba(245, 208, 101, .55); }
+.premium-activity-title { color: #fff4c9; text-shadow: 0 1px 2px #000; }
+.premium-activity-date { color: #ffd86a; }
+.premium-activity-amount { color: #ffe69a; }
+
+/* Legacy page cards which still use the original light utility classes. */
+main .bg-white.rounded-xl,
+main .bg-white.rounded-2xl,
+main .bg-cream.rounded-xl.border,
+main .bg-cream.rounded-2xl.border {
+  border-color: rgba(212, 175, 55, .42) !important;
+  background: linear-gradient(145deg, #171106, #302004 62%, #4b3309) !important;
+  color: #fff4c9;
+  box-shadow: 0 12px 28px rgba(26, 15, 1, .17), inset 0 1px rgba(255, 221, 117, .12);
+}
+main .bg-white.rounded-xl .text-ink,
+main .bg-white.rounded-2xl .text-ink,
+main .bg-cream.rounded-xl.border .text-ink,
+main .bg-cream.rounded-2xl.border .text-ink { color: #fff4c9; }
+
 /* Premium surfaces used by service pages and shared containers.  The
    selectors intentionally require a rounded card + border so form inputs
    and status messages retain their semantic light/error colours. */

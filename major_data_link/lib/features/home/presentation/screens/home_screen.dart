@@ -437,7 +437,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       case TxType.neco:
         return TransactionType.neco;
       case TxType.nabteb:
-        return TransactionType.waec;
+        return TransactionType.nabteb;
       case TxType.jamb:
         return TransactionType.jamb;
       case TxType.sms:
