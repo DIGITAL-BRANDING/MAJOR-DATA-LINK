@@ -27,6 +27,12 @@ const quickLinks: QuickLink[] = [
     icon: 'Search'
   },
   {
+    label: 'User Deliveries',
+    description: 'Upload a manual PDF, image or token file for one customer',
+    href: `${ADMIN_ROOT_PATH}/user-deliveries`,
+    icon: 'Upload'
+  },
+  {
     label: 'Company Wallet',
     description: 'Revenue, provider cost & net profit by service',
     href: `${ADMIN_ROOT_PATH}/company-wallet`,
@@ -74,12 +80,6 @@ const quickLinks: QuickLink[] = [
     description: 'Broadcast messages to users',
     resourceId: 'NotificationBroadcast',
     icon: 'Bell'
-  },
-  {
-    label: 'User Deliveries',
-    description: 'Upload a manual PDF, image or token file for one customer',
-    href: `${ADMIN_ROOT_PATH}/user-deliveries`,
-    icon: 'Upload'
   },
   { label: 'Admin Users', description: 'Admin accounts & roles', resourceId: 'AdminUser', icon: 'Shield' },
   { label: 'Audit Log', description: 'Admin activity history', resourceId: 'AdminAuditLog', icon: 'FileText' }
