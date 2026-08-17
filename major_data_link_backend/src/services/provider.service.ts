@@ -360,9 +360,13 @@ export class ProviderService {
       headers: this.headers(),
       body: JSON.stringify({
         exam_name: this.examId(input.examType),
-        quantity: input.quantity,
-        'request-id': input.reference,
-        request_id: input.reference
+        // Alrahuz's /exam/ endpoint validates its payload more strictly than
+        // its data/airtime endpoints. Its documented schema has only these
+        // two fields; sending our otherwise-useful request-id aliases makes
+        // NECO requests fail with HTTP 400 on strict provider deployments.
+        // Our own debitWallet idempotency key/reference already prevents a
+        // duplicate local purchase, so no provider-side extra field is needed.
+        quantity: input.quantity
       })
     });
 
