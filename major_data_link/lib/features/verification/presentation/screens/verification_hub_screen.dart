@@ -65,20 +65,27 @@ class VerificationHubScreen extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(item.label,
-                            style: context.textTheme.titleSmall
-                                ?.copyWith(fontWeight: FontWeight.w700)),
+                        Text(
+                          item.label,
+                          style: context.textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
                         const SizedBox(height: 2),
                         Text(
                           item.description,
                           style: const TextStyle(
-                              fontSize: 12, color: AppColors.neutral500),
+                            fontSize: 12,
+                            color: AppColors.neutral500,
+                          ),
                         ),
                       ],
                     ),
                   ),
-                  const Icon(Icons.chevron_right_rounded,
-                      color: AppColors.neutral400),
+                  const Icon(
+                    Icons.chevron_right_rounded,
+                    color: AppColors.neutral400,
+                  ),
                 ],
               ),
             );
@@ -132,6 +139,12 @@ const _ninHubItems = [
     color: AppColors.warning600,
     route: RouteNames.ninPersonalization,
   ),
+  _HubItem(
+    label: 'NIN Modification',
+    description: 'Submit a manual request to update NIN details',
+    icon: Icons.edit_note_rounded,
+    route: RouteNames.ninModification,
+  ),
   VerificationHubItem(
     label: 'IPE Clearance',
     description: 'Submit a tracking ID for IPE clearance',
@@ -161,17 +174,13 @@ const _bvnHubItems = [
 class NinServicesHubScreen extends StatelessWidget {
   const NinServicesHubScreen({super.key});
   @override
-  Widget build(BuildContext context) => const VerificationHubScreen(
-        title: 'NIN Services',
-        items: _ninHubItems,
-      );
+  Widget build(BuildContext context) =>
+      const VerificationHubScreen(title: 'NIN Services', items: _ninHubItems);
 }
 
 class BvnServicesHubScreen extends StatelessWidget {
   const BvnServicesHubScreen({super.key});
   @override
-  Widget build(BuildContext context) => const VerificationHubScreen(
-        title: 'BVN Services',
-        items: _bvnHubItems,
-      );
+  Widget build(BuildContext context) =>
+      const VerificationHubScreen(title: 'BVN Services', items: _bvnHubItems);
 }

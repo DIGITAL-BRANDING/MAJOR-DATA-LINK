@@ -55,7 +55,10 @@ android {
     defaultConfig {
         applicationId "com.majordatalink.app"
         minSdkVersion flutter.minSdkVersion
-        targetSdk 35
+        // Google Play requires Android 16 / API 36 for new submissions and
+        // updates from 31 August 2026. compileSdk is already 36 above; the
+        // target must match it for Play Console compliance.
+        targetSdk 36
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
         multiDexEnabled true

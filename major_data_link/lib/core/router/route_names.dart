@@ -52,6 +52,8 @@ abstract class RouteNames {
   static const ninValidation = '/home/services/nin/validation';
   static const ninPersonalization = '/home/services/nin/personalization';
   static const ipeClearance = '/home/services/nin/ipe-clearance';
+  static const ninModification = '/home/services/nin/modification';
+  static const deliveries = '/home/dashboard/deliveries';
   static const bvnServices = '/home/services/bvn';
   static const bvnSlip = '/home/services/bvn/slip';
   static const bvnRetrieval = '/home/services/bvn/retrieval';

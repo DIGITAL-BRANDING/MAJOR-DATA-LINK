@@ -104,6 +104,13 @@ class AppEndpoints {
       '$_base/verification/ipe-clearance/$ticketId';
   static String get jambPin => '$_base/jamb/pin';
   static String get jambChange => '$_base/jamb/change-institution';
+  static String get deliveryList => '$_base/deliveries';
+  static String deliveryDownload(String id) => '$_base/deliveries/$id/download';
+  static String get ninModificationTypes => '$_base/nin-modification/types';
+  static String get ninModificationPrices => '$_base/nin-modification/prices';
+  static String get ninModificationHistory => '$_base/nin-modification/history';
+  static String ninModificationSubmit(String type) =>
+      '$_base/nin-modification/$type/submit';
 
   // Bulk SMS
   static String get sendBulkSms => '$_base/sms/send';

@@ -62,6 +62,8 @@ import '../../features/verification/presentation/screens/nin_personalization_scr
 import '../../features/verification/presentation/screens/ipe_clearance_screen.dart';
 import '../../features/verification/presentation/screens/bvn_slip_screen.dart';
 import '../../features/verification/presentation/screens/bvn_retrieval_screen.dart';
+import '../../features/verification/presentation/screens/nin_modification_screen.dart';
+import '../../features/deliveries/presentation/screens/deliveries_screen.dart';
 import '../di/injection.dart';
 
 // ── Auth state ────────────────────────────────────────────
@@ -160,6 +162,10 @@ final routerProvider = Provider<GoRouter>((ref) {
                     builder: (_, __) => const NotificationsScreen(),
                   ),
                   GoRoute(
+                    path: 'deliveries',
+                    builder: (_, __) => const DeliveriesScreen(),
+                  ),
+                  GoRoute(
                     path: 'wallet',
                     builder: (_, __) => const WalletScreen(),
                     routes: [
@@ -253,6 +259,10 @@ final routerProvider = Provider<GoRouter>((ref) {
                       GoRoute(
                         path: 'ipe-clearance',
                         builder: (_, __) => const IpeClearanceScreen(),
+                      ),
+                      GoRoute(
+                        path: 'modification',
+                        builder: (_, __) => const NinModificationScreen(),
                       ),
                     ],
                   ),
