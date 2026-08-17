@@ -1,0 +1,278 @@
+From 6bb1511f8377781989bb5cca61893e6a70143051 Mon Sep 17 00:00:00 2001
+From: Claude <claude@anthropic.local>
+Date: Sun, 16 Aug 2026 15:02:51 +0000
+Subject: [PATCH] Fix word-boundary matching bugs in the assistant intent
+ parser
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+parseAssistantIntent() used a plain normalized.includes(intent) to match
+workflow trigger phrases against the customer's message - the same class
+of bug already fixed in the informational assistant's classifier
+(assistant.service.ts). Short intent triggers misfired on ordinary words
+that merely contain them as a substring fragment:
+- 'nin' (NIN slip lookup) matched inside "training"
+- 'data' (data purchase) matched inside "database"
+- worst case: ipe_clearance's trigger was hand-written as 'ipe ' (with a
+  literal trailing space) as an incomplete boundary workaround - this
+  still matched inside "swipe " or "recipe ", while ALSO failing to
+  match "ipe" typed as the very last word of a message with nothing
+  after it (no trailing space to match against at all).
+
+Fix - phraseMatches() in assistant-workflow.service.ts:
+- Unicode-aware boundary matching ((?<![\p{L}\p{N}])phrase(?![\p{L}\p{N}]))
+  rather than \b, since \b only understands ASCII word characters and
+  would misbehave around Hausa letters like ƙ/ɗ/ɓ that may appear in
+  future intent phrases.
+- Replaces the workflow-matching .includes() call, and ipe_clearance's
+  intent list drops the 'ipe ' trailing-space hack in favor of a clean
+  'ipe' now that boundaries are handled properly on both sides.
+- Also applied \b to the adjacent dataType regex (corporate/coupon/share/
+  gift/sme detection), which had the same unbounded-substring shape -
+  'corporate' could misfire inside "incorporated".
+
+Testing (76 new tests, assistant-workflow.service.test.ts):
+- phraseMatches() unit tests for the boundary logic itself.
+- Regression tests reproducing each historical false positive above
+  ("training", "database", "swipe", "recipe") alongside confirmation
+  that real requests - including the fixed 'ipe' typed alone - still work.
+- A mechanically-generated self-consistency audit: every single intent
+  phrase across all 14 workflows in the catalog, sent alone, must resolve
+  back to the workflow that owns it - same permanent-regression-guard
+  pattern used for the informational assistant's own classifier audit.
+  Also a duplicate-phrase-across-workflows check.
+- Full backend suite: 155/155 passing.
+---
+ .../assistant-workflow.service.test.ts        | 145 ++++++++++++++++++
+ .../services/assistant-workflow.service.ts    |  46 +++++-
+ 2 files changed, 188 insertions(+), 3 deletions(-)
+ create mode 100644 major_data_link_backend/src/services/__tests__/assistant-workflow.service.test.ts
+
+diff --git a/major_data_link_backend/src/services/__tests__/assistant-workflow.service.test.ts b/major_data_link_backend/src/services/__tests__/assistant-workflow.service.test.ts
+new file mode 100644
+index 0000000..2dc27d5
+--- /dev/null
++++ b/major_data_link_backend/src/services/__tests__/assistant-workflow.service.test.ts
+@@ -0,0 +1,145 @@
++import { describe, expect, it } from 'vitest';
++import { assistantWorkflows, parseAssistantIntent, phraseMatches } from '../assistant-workflow.service.js';
++
++/**
++ * Tests parseAssistantIntent - specifically the word-boundary matching fix
++ * for the bug where a plain `.includes()` let short intent triggers
++ * misfire on ordinary words that merely happen to contain them as a
++ * substring ('nin' inside "training", 'data' inside "database", and the
++ * worst case: ipe_clearance's old 'ipe ' trigger - a hand-rolled trailing-
++ * space "boundary" that still matched inside "swipe " / "recipe " while
++ * ALSO failing to match "ipe" typed as the last word of a message with no
++ * trailing space at all).
++ */
++
++describe('phraseMatches', () => {
++  it('does not match a short phrase buried inside an unrelated longer word', () => {
++    expect(phraseMatches('i need training on this app', 'nin')).toBe(false);
++    expect(phraseMatches('what is in the database', 'data')).toBe(false);
++    expect(phraseMatches('please swipe to confirm', 'ipe')).toBe(false);
++    expect(phraseMatches('what is your favourite recipe', 'ipe')).toBe(false);
++  });
++
++  it('matches a phrase that stands alone as a whole word', () => {
++    expect(phraseMatches('check my nin please', 'nin')).toBe(true);
++    expect(phraseMatches('i want to buy data', 'data')).toBe(true);
++    expect(phraseMatches('ipe clearance abeg', 'ipe')).toBe(true);
++  });
++
++  it('matches when the phrase is the entire message with nothing else around it', () => {
++    expect(phraseMatches('ipe', 'ipe')).toBe(true);
++    expect(phraseMatches('nin', 'nin')).toBe(true);
++  });
++
++  it('matches multi-word phrases as a unit, respecting boundaries on both ends', () => {
++    expect(phraseMatches('i want to check my bvn slip now', 'bvn slip')).toBe(true);
++    expect(phraseMatches('my bvn slippers are gone', 'bvn slip')).toBe(false);
++  });
++
++  it('is punctuation-tolerant at the boundary (a comma/period still counts as a boundary)', () => {
++    expect(phraseMatches('nin, please', 'nin')).toBe(true);
++    expect(phraseMatches('i want data.', 'data')).toBe(true);
++  });
++});
++
++describe('parseAssistantIntent - the historical false positives this fix addresses', () => {
++  it('does not start a NIN lookup because the message merely says "training"', () => {
++    expect(parseAssistantIntent('I need training on how to use this app').workflow).toBeUndefined();
++  });
++
++  it('does not start a data purchase because the message only mentions a "database"', () => {
++    expect(parseAssistantIntent('where is the database stored').workflow).toBeUndefined();
++  });
++
++  it('does not start IPE clearance because the message says "swipe"', () => {
++    expect(parseAssistantIntent('let me swipe to confirm this payment').workflow).toBeUndefined();
++  });
++
++  it('does not start IPE clearance because the message mentions a "recipe"', () => {
++    expect(parseAssistantIntent('do you have a recipe for jollof rice').workflow).toBeUndefined();
++  });
++
++  it('DOES start IPE clearance for "ipe" typed alone with no trailing space (the old bug missed this entirely)', () => {
++    expect(parseAssistantIntent('ipe').workflow).toBe('ipe_clearance');
++  });
++
++  it('DOES start IPE clearance for a natural request', () => {
++    expect(parseAssistantIntent('I need ipe clearance').workflow).toBe('ipe_clearance');
++  });
++});
++
++describe('parseAssistantIntent - real requests still work', () => {
++  it('recognizes a plain NIN slip request', () => {
++    expect(parseAssistantIntent('check my nin').workflow).toBe('nin_by_nin');
++  });
++
++  it('recognizes a plain BVN slip request', () => {
++    expect(parseAssistantIntent('fetch bvn').workflow).toBe('bvn_slip');
++  });
++
++  it('recognizes data purchase requests in English and Hausa', () => {
++    expect(parseAssistantIntent('I want to buy data').workflow).toBe('data');
++    expect(parseAssistantIntent('sayi min data').workflow).toBe('data');
++  });
++
++  it('still prefers the more specific NIN workflow over the generic catch-all', () => {
++    expect(parseAssistantIntent('nin by phone please').workflow).toBe('nin_by_phone');
++    expect(parseAssistantIntent('find my bvn').workflow).toBe('bvn_retrieval');
++  });
++
++  it('extracts network, phone, and amount together without the phone digits leaking into amount', () => {
++    const result = parseAssistantIntent('recharge 500 airtime for 08012345678 on mtn');
++    expect(result.workflow).toBe('airtime');
++    expect(result.fields.network).toBe('MTN');
++    expect(result.fields.phone).toBe('08012345678');
++    expect(result.fields.amount).toBe(500);
++  });
++
++  it('recognizes a data size (1GB) as a data request even without the word "data"', () => {
++    expect(parseAssistantIntent('sayi min 1GB for 08012345678').workflow).toBe('data');
++  });
++
++  it('does not mistake "incorporated" for the CORPORATE data type', () => {
++    const result = parseAssistantIntent('MAJOR DATA-LINK is a registered incorporated business');
++    expect(result.fields.data_type).toBeUndefined();
++  });
++
++  it('recognizes an explicit CORPORATE data type request', () => {
++    const result = parseAssistantIntent('buy corporate data for 08012345678');
++    expect(result.fields.data_type).toBe('CORPORATE');
++  });
++});
++
++describe('assistantWorkflows catalog self-consistency (mechanical regression guard)', () => {
++  // Mirrors the same kind of audit built for the informational assistant's
++  // classifier: every single intent phrase declared in assistantWorkflows,
++  // sent alone as if it were the entire message, must resolve back to the
++  // workflow that owns it. This automatically catches ambiguity introduced
++  // by any future intent phrase addition/edit (a duplicate phrase across
++  // two workflows, or a short phrase that's a substring of a longer one
++  // belonging to a DIFFERENT, earlier-ordered workflow) without a human
++  // having to re-audit the whole catalog by hand every time.
++  for (const workflow of assistantWorkflows) {
++    for (const intent of workflow.intents) {
++      const trimmed = intent.trim();
++      if (!trimmed) continue; // guards against a stray '' entry ever being added
++      it(`"${trimmed}" resolves to workflow "${workflow.id}"`, () => {
++        expect(parseAssistantIntent(trimmed).workflow).toBe(workflow.id);
++      });
++    }
++  }
++});
++
++describe('assistantWorkflows catalog - no exact duplicate intent phrases across workflows', () => {
++  it('every intent phrase is declared by exactly one workflow', () => {
++    const owners = new Map<string, string[]>();
++    for (const workflow of assistantWorkflows) {
++      for (const intent of workflow.intents) {
++        const key = intent.trim().toLowerCase();
++        owners.set(key, [...(owners.get(key) ?? []), workflow.id]);
++      }
++    }
++    const duplicates = [...owners.entries()].filter(([, ids]) => ids.length > 1);
++    expect(duplicates).toEqual([]);
++  });
++});
+diff --git a/major_data_link_backend/src/services/assistant-workflow.service.ts b/major_data_link_backend/src/services/assistant-workflow.service.ts
+index 6030773..134aa59 100644
+--- a/major_data_link_backend/src/services/assistant-workflow.service.ts
++++ b/major_data_link_backend/src/services/assistant-workflow.service.ts
+@@ -174,7 +174,7 @@ export const assistantWorkflows: AssistantWorkflow[] = [
+   },
+   {
+     id: 'ipe_clearance', title: 'IPE Clearance', titleHa: 'IPE Clearance',
+-    intents: ['ipe clearance', 'ipe '],
++    intents: ['ipe clearance', 'ipe'],
+     fields: [{ key: 'tracking_id', label: 'Tracking ID', labelHa: 'Tracking ID', required: true, input: 'text' }],
+     submitEndpoint: '/api/verification/ipe-clearance', statusEndpoint: '/api/verification/ipe-clearance/:ticketId', async: true, priceMode: 'verification', priceServiceKeyTemplate: 'IPE_CLEARANCE', status: 'active'
+   },
+@@ -193,9 +193,37 @@ export const assistantWorkflows: AssistantWorkflow[] = [
+   }
+ ];
+ 
++/**
++ * Whether `phrase` appears in `normalized` as a whole word/phrase, not
++ * merely as a fragment buried inside some longer, unrelated word.
++ *
++ * The workflow matching below used to do a plain `normalized.includes(intent)`,
++ * which let short intent triggers misfire constantly - 'nin' (the NIN slip
++ * lookup trigger) matched inside the ordinary English word "training";
++ * 'data' matched inside "database"; and worst of all, ipe_clearance's
++ * intent list used to write its trigger as 'ipe ' (with a literal trailing
++ * space) as an incomplete hand-rolled boundary workaround - which still
++ * matched inside "swipe " or "recipe " (both contain the literal substring
++ * "ipe "), while ALSO failing to match "ipe" typed as the very last word of
++ * a message with nothing after it (no trailing space to match against).
++ *
++ * Uses Unicode-aware boundaries (\p{L}/\p{N} lookaround) rather than \b,
++ * since \b only understands ASCII word characters and would misbehave
++ * around Hausa letters like ƙ/ɗ/ɓ that may appear in future intent phrases.
++ */
++export function phraseMatches(normalized: string, phrase: string): boolean {
++  const trimmed = phrase.trim();
++  if (!trimmed) return false;
++  const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
++  const regex = new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, 'u');
++  return regex.test(normalized);
++}
++
+ export function parseAssistantIntent(message: string) {
+   const normalized = message.toLowerCase().replace(/\s+/g, ' ').trim();
+-  let workflow = assistantWorkflows.find((item) => item.intents.some((intent) => normalized.includes(intent)));
++  let workflow = assistantWorkflows.find((item) =>
++    item.intents.some((intent) => phraseMatches(normalized, intent))
++  );
+   // Restrict separators inside a phone number to spaces/hyphens. Using \D*
+   // here would let a number such as "500 zuwa 080..." begin at the zero in
+   // 500 and swallow the recipient number as one malformed phone.
+@@ -204,7 +232,19 @@ export function parseAssistantIntent(message: string) {
+   const phone = digits?.startsWith('234') ? `0${digits.slice(3)}` : digits;
+   const network = /\bmtn\b/.test(normalized) ? 'MTN' : /\bairtel\b/.test(normalized) ? 'AIRTEL' : /\bglo\b/.test(normalized) ? 'GLO' : /(?:9mobile|nine mobile|etisalat)/.test(normalized) ? '9MOBILE' : undefined;
+   const dataSize = normalized.match(/\b\d+(?:\.\d+)?\s*(?:gb|mb)\b/i)?.[0].replace(/\s+/g, '').toUpperCase();
+-  const dataType = /data\s*coupon|coupon/.test(normalized) ? 'DATA COUPON' : /corporate/.test(normalized) ? 'CORPORATE' : /data\s*share|share/.test(normalized) ? 'DATA SHARE' : /gifting|gift/.test(normalized) ? 'GIFTING' : /sme\s*2|sme2/.test(normalized) ? 'SME2' : /\bsme\b/.test(normalized) ? 'SME' : undefined;
++  const dataType = /\bdata\s*coupon\b|\bcoupon\b/.test(normalized)
++    ? 'DATA COUPON'
++    : /\bcorporate\b/.test(normalized)
++      ? 'CORPORATE'
++      : /\bdata\s*share\b|\bshare\b/.test(normalized)
++        ? 'DATA SHARE'
++        : /\bgifting\b|\bgift\b/.test(normalized)
++          ? 'GIFTING'
++          : /\bsme\s*2\b|\bsme2\b/.test(normalized)
++            ? 'SME2'
++            : /\bsme\b/.test(normalized)
++              ? 'SME'
++              : undefined;
+   // A size such as 1GB is an unambiguous data request even when the customer
+   // uses only Hausa/English purchase words and never says the word "data".
+   if (!workflow && dataSize) workflow = assistantWorkflows.find((item) => item.id === 'data');
+-- 
+2.43.0
+

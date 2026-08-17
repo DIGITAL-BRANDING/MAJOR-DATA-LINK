@@ -174,7 +174,7 @@ export const assistantWorkflows: AssistantWorkflow[] = [
   },
   {
     id: 'ipe_clearance', title: 'IPE Clearance', titleHa: 'IPE Clearance',
-    intents: ['ipe clearance', 'ipe '],
+    intents: ['ipe clearance', 'ipe'],
     fields: [{ key: 'tracking_id', label: 'Tracking ID', labelHa: 'Tracking ID', required: true, input: 'text' }],
     submitEndpoint: '/api/verification/ipe-clearance', statusEndpoint: '/api/verification/ipe-clearance/:ticketId', async: true, priceMode: 'verification', priceServiceKeyTemplate: 'IPE_CLEARANCE', status: 'active'
   },
@@ -193,9 +193,37 @@ export const assistantWorkflows: AssistantWorkflow[] = [
   }
 ];
 
+/**
+ * Whether `phrase` appears in `normalized` as a whole word/phrase, not
+ * merely as a fragment buried inside some longer, unrelated word.
+ *
+ * The workflow matching below used to do a plain `normalized.includes(intent)`,
+ * which let short intent triggers misfire constantly - 'nin' (the NIN slip
+ * lookup trigger) matched inside the ordinary English word "training";
+ * 'data' matched inside "database"; and worst of all, ipe_clearance's
+ * intent list used to write its trigger as 'ipe ' (with a literal trailing
+ * space) as an incomplete hand-rolled boundary workaround - which still
+ * matched inside "swipe " or "recipe " (both contain the literal substring
+ * "ipe "), while ALSO failing to match "ipe" typed as the very last word of
+ * a message with nothing after it (no trailing space to match against).
+ *
+ * Uses Unicode-aware boundaries (\p{L}/\p{N} lookaround) rather than \b,
+ * since \b only understands ASCII word characters and would misbehave
+ * around Hausa letters like ƙ/ɗ/ɓ that may appear in future intent phrases.
+ */
+export function phraseMatches(normalized: string, phrase: string): boolean {
+  const trimmed = phrase.trim();
+  if (!trimmed) return false;
+  const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const regex = new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, 'u');
+  return regex.test(normalized);
+}
+
 export function parseAssistantIntent(message: string) {
   const normalized = message.toLowerCase().replace(/\s+/g, ' ').trim();
-  let workflow = assistantWorkflows.find((item) => item.intents.some((intent) => normalized.includes(intent)));
+  let workflow = assistantWorkflows.find((item) =>
+    item.intents.some((intent) => phraseMatches(normalized, intent))
+  );
   // Restrict separators inside a phone number to spaces/hyphens. Using \D*
   // here would let a number such as "500 zuwa 080..." begin at the zero in
   // 500 and swallow the recipient number as one malformed phone.
@@ -204,7 +232,19 @@ export function parseAssistantIntent(message: string) {
   const phone = digits?.startsWith('234') ? `0${digits.slice(3)}` : digits;
   const network = /\bmtn\b/.test(normalized) ? 'MTN' : /\bairtel\b/.test(normalized) ? 'AIRTEL' : /\bglo\b/.test(normalized) ? 'GLO' : /(?:9mobile|nine mobile|etisalat)/.test(normalized) ? '9MOBILE' : undefined;
   const dataSize = normalized.match(/\b\d+(?:\.\d+)?\s*(?:gb|mb)\b/i)?.[0].replace(/\s+/g, '').toUpperCase();
-  const dataType = /data\s*coupon|coupon/.test(normalized) ? 'DATA COUPON' : /corporate/.test(normalized) ? 'CORPORATE' : /data\s*share|share/.test(normalized) ? 'DATA SHARE' : /gifting|gift/.test(normalized) ? 'GIFTING' : /sme\s*2|sme2/.test(normalized) ? 'SME2' : /\bsme\b/.test(normalized) ? 'SME' : undefined;
+  const dataType = /\bdata\s*coupon\b|\bcoupon\b/.test(normalized)
+    ? 'DATA COUPON'
+    : /\bcorporate\b/.test(normalized)
+      ? 'CORPORATE'
+      : /\bdata\s*share\b|\bshare\b/.test(normalized)
+        ? 'DATA SHARE'
+        : /\bgifting\b|\bgift\b/.test(normalized)
+          ? 'GIFTING'
+          : /\bsme\s*2\b|\bsme2\b/.test(normalized)
+            ? 'SME2'
+            : /\bsme\b/.test(normalized)
+              ? 'SME'
+              : undefined;
   // A size such as 1GB is an unambiguous data request even when the customer
   // uses only Hausa/English purchase words and never says the word "data".
   if (!workflow && dataSize) workflow = assistantWorkflows.find((item) => item.id === 'data');
