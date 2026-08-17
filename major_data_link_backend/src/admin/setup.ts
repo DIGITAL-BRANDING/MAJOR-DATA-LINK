@@ -24,6 +24,7 @@ import { referralSettingsResource } from './resources/referral-settings.resource
 import { appConfigResource } from './resources/app-config.resource.js';
 import { supportTicketResource, supportTicketMessageResource } from './resources/support-ticket.resource.js';
 import { notificationBroadcastResource } from './resources/notification-broadcast.resource.js';
+import { userDeliveryResource } from './resources/user-delivery.resource.js';
 import { registerUserDeliveryRoutes } from './user-deliveries.js';
 
 AdminJS.registerAdapter({ Database, Resource });
@@ -108,6 +109,7 @@ export async function buildAdminRouter() {
       supportTicketResource,
       supportTicketMessageResource,
       notificationBroadcastResource,
+      userDeliveryResource,
       adminUserResource,
       adminAuditLogResource
     ]

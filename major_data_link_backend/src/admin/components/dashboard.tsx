@@ -75,6 +75,12 @@ const quickLinks: QuickLink[] = [
     resourceId: 'NotificationBroadcast',
     icon: 'Bell'
   },
+  {
+    label: 'User Deliveries',
+    description: 'Upload a manual PDF, image or token file for one customer',
+    href: `${ADMIN_ROOT_PATH}/user-deliveries`,
+    icon: 'Upload'
+  },
   { label: 'Admin Users', description: 'Admin accounts & roles', resourceId: 'AdminUser', icon: 'Shield' },
   { label: 'Audit Log', description: 'Admin activity history', resourceId: 'AdminAuditLog', icon: 'FileText' }
 ];
