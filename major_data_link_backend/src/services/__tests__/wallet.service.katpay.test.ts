@@ -79,6 +79,8 @@ describe('creditDirectDepositByAccountNumber', () => {
     expect(transaction.userId).toBe('user-1');
     expect(transaction.status).toBe('SUCCESS');
     expect(transaction.provider).toBe('katpay');
+    expect(transaction.providerRef).toBe('katpay:virtual-account:KATPAY-REF-1');
+    expect(transaction.reference).not.toBe('KATPAY-REF-1');
 
     const user = await prisma.user.findUniqueOrThrow({ where: { id: 'user-1' } });
     // Default WALLET_FUNDING_FEE_PERCENT is 2%, so ₦5,000 funding incurs ₦100.

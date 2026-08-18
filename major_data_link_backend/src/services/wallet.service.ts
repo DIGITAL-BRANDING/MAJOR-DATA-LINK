@@ -432,6 +432,22 @@ export async function creditDirectDepositByAccountNumber(params: {
     );
   }
 
+  // KatPay's transaction/reference value belongs to the payment provider.  It
+  // is not safe to use as this application's globally-unique ledger reference:
+  // an older transaction can legitimately already have the same text (for
+  // example a name-and-account narration).  Keep it as the provider reference
+  // and give our ledger entry a reference we own instead.
+  const providerRef = `katpay:virtual-account:${params.reference}`;
+  const existing = await prisma.transaction.findFirst({
+    where: {
+      userId: user.id,
+      provider: 'katpay',
+      providerRef,
+      type: TransactionType.WALLET_FUNDING
+    }
+  });
+  if (existing) return existing;
+
   try {
     const { transaction, finalBalanceKobo } = await prisma.$transaction(async (tx) => {
       const before = await tx.user.findUniqueOrThrow({ where: { id: user.id } });
@@ -450,8 +466,8 @@ export async function creditDirectDepositByAccountNumber(params: {
           balanceBeforeKobo: before.walletBalanceKobo,
           balanceAfterKobo: after.walletBalanceKobo,
           provider: 'katpay',
-          providerRef: params.reference,
-          reference: params.reference,
+          providerRef,
+          reference: `KATPAY-VA-${nanoid()}`,
           description: `Wallet funded via direct bank transfer (${params.channel})`,
           metadata: { channel: params.channel, accountNumber: params.accountNumber }
         }
@@ -484,7 +500,18 @@ export async function creditDirectDepositByAccountNumber(params: {
     return { ...transaction, balanceAfterKobo: finalBalanceKobo };
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-      return prisma.transaction.findUniqueOrThrow({ where: { reference: params.reference } });
+      // A concurrent redelivery may win the provider-reference unique index
+      // between the lookup above and this create. It has already credited the
+      // wallet atomically, so return it without a second credit/notification.
+      const redelivered = await prisma.transaction.findFirst({
+        where: {
+          userId: user.id,
+          provider: 'katpay',
+          providerRef,
+          type: TransactionType.WALLET_FUNDING
+        }
+      });
+      if (redelivered) return redelivered;
     }
     throw error;
   }

@@ -279,6 +279,10 @@ model Transaction {
 
   @@index([userId, createdAt])
   @@unique([userId, idempotencyKey])
+  // Provider event IDs are idempotency keys. Together these prevent two
+  // concurrent deliveries of the same KatPay bank-transfer event from
+  // crediting a wallet twice, while allowing app-owned `reference` values.
+  @@unique([provider, providerRef])
   // Powers company-wallet.service.ts's profit-by-type breakdown and the
   // per-user wallet summary on the admin User page - both filter by
   // status/type and aggregate over a date range.
