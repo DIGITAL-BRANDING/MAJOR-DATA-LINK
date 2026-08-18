@@ -98,6 +98,7 @@ export default function DashboardPage() {
         <div className="mt-1 font-display text-4xl font-bold text-cream">
           {wallet ? `₦${wallet.balance.toLocaleString()}` : '···'}
         </div>
+        <p className="mt-1 font-body text-[11px] text-cream/55">Transaction fee: 2%</p>
 
         {wallet?.virtual_account_number ? (
           <div className="mt-5 flex items-center justify-between rounded-lg border border-ink-line bg-ink-soft px-4 py-3">

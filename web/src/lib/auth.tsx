@@ -19,6 +19,8 @@ type AuthResponse = {
     refresh_token: string;
     user: AppUser;
     requires_password_change?: boolean;
+    requires_pin_setup?: boolean;
+    requires_login_pin_setup?: boolean;
   };
 };
 
@@ -26,6 +28,8 @@ type AuthContextValue = {
   user: AppUser | null;
   isLoading: boolean;
   mustChangePassword: boolean;
+  requiresLoginPinSetup: boolean;
+  requiresTransactionPinSetup: boolean;
   login: (identifier: string, password: string, loginPin?: string) => Promise<void>;
   register: (input: {
     full_name: string;
@@ -44,14 +48,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AppUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [mustChangePassword, setMustChangePassword] = useState(false);
+  const [requiresLoginPinSetup, setRequiresLoginPinSetup] = useState(false);
+  const [requiresTransactionPinSetup, setRequiresTransactionPinSetup] = useState(false);
 
   async function refreshUser() {
     try {
-      const res = await api.get<{ status: boolean; data: AppUser & { requires_password_change?: boolean } }>(
+      const res = await api.get<{ status: boolean; data: AppUser & { requires_password_change?: boolean; requires_pin_setup?: boolean; requires_login_pin_setup?: boolean } }>(
         '/auth/me'
       );
       setUser(res.data);
       setMustChangePassword(!!res.data.requires_password_change);
+      setRequiresLoginPinSetup(!!res.data.requires_login_pin_setup);
+      setRequiresTransactionPinSetup(!!res.data.requires_pin_setup);
     } catch {
       clearTokens();
       setUser(null);
@@ -78,6 +86,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setTokens(res.data.access_token, res.data.refresh_token);
       setUser(res.data.user);
       setMustChangePassword(!!res.data.requires_password_change);
+      setRequiresLoginPinSetup(!!res.data.requires_login_pin_setup);
+      setRequiresTransactionPinSetup(!!res.data.requires_pin_setup);
     } catch (err) {
       // LOGIN_PIN_REQUIRED means the password was correct but this account
       // has a 6-digit login PIN set - the caller (LoginPage) shows a PIN
@@ -97,17 +107,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setTokens(res.data.access_token, res.data.refresh_token);
     setUser(res.data.user);
     setMustChangePassword(!!res.data.requires_password_change);
+    setRequiresLoginPinSetup(!!res.data.requires_login_pin_setup);
+    setRequiresTransactionPinSetup(!!res.data.requires_pin_setup);
   }
 
   function logout() {
     clearTokens();
     setUser(null);
     setMustChangePassword(false);
+    setRequiresLoginPinSetup(false);
+    setRequiresTransactionPinSetup(false);
   }
 
   return (
     <AuthContext.Provider
-      value={{ user, isLoading, mustChangePassword, login, register, logout, refreshUser }}
+      value={{ user, isLoading, mustChangePassword, requiresLoginPinSetup, requiresTransactionPinSetup, login, register, logout, refreshUser }}
     >
       {children}
     </AuthContext.Provider>

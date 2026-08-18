@@ -20,9 +20,11 @@ import FundWalletPage from './pages/FundWalletPage';
 import PaymentCallbackPage from './pages/PaymentCallbackPage';
 import DeliveriesPage from './pages/DeliveriesPage';
 import ReceiptPage from './pages/ReceiptPage';
+import ReferralPage from './pages/ReferralPage';
+import PinSetupPage from './pages/PinSetupPage';
 
 function ProtectedRoute({ children }: { children: ReactNode }) {
-  const { user, isLoading, mustChangePassword } = useAuth();
+  const { user, isLoading, mustChangePassword, requiresLoginPinSetup, requiresTransactionPinSetup } = useAuth();
   const location = useLocation();
   if (isLoading) {
     return (
@@ -38,6 +40,9 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
   // check, so there's no way to navigate around it.
   if (mustChangePassword && location.pathname !== '/set-new-password') {
     return <Navigate to="/set-new-password" replace />;
+  }
+  if ((requiresLoginPinSetup || requiresTransactionPinSetup) && location.pathname !== '/setup-pins') {
+    return <Navigate to="/setup-pins" replace />;
   }
   return <>{children}</>;
 }
@@ -63,6 +68,8 @@ export default function App() {
           <Route path="/fund-wallet" element={<ProtectedRoute><FundWalletPage /></ProtectedRoute>} />
           <Route path="/deliveries" element={<ProtectedRoute><DeliveriesPage /></ProtectedRoute>} />
           <Route path="/receipt/:id" element={<ProtectedRoute><ReceiptPage /></ProtectedRoute>} />
+          <Route path="/referrals" element={<ProtectedRoute><ReferralPage /></ProtectedRoute>} />
+          <Route path="/setup-pins" element={<ProtectedRoute><PinSetupPage /></ProtectedRoute>} />
           <Route path="/payment/callback" element={<ProtectedRoute><PaymentCallbackPage /></ProtectedRoute>} />
           <Route path="/set-new-password" element={<ProtectedRoute><SetNewPasswordPage /></ProtectedRoute>} />
           <Route

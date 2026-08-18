@@ -372,7 +372,7 @@ model SupportTicketMessage {
 model ReferralSettings {
   id                String   @id @default("default")
   isEnabled         Boolean  @default(true)
-  commissionRate    Float    @default(0.02) // 0.02 = 2%
+  commissionRate    Float    @default(0.01) // 0.01 = 1%
   minWithdrawalKobo BigInt   @default(50000) // 50000 kobo = NGN 500
   updatedAt         DateTime @updatedAt
 }
