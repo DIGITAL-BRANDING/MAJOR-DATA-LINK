@@ -140,11 +140,18 @@ Future<void> unregisterDeviceForLogout(Ref ref) async {
 class FcmService {
   FcmService(this._ref);
   final Ref _ref;
+  bool _initialized = false;
 
   static final FlutterLocalNotificationsPlugin _localNotifications =
       FlutterLocalNotificationsPlugin();
 
   Future<void> initialize() async {
+    // Auth state can change more than once during a normal session (PIN setup,
+    // unlock, biometric unlock). Do not add duplicate FCM listeners or repeat
+    // local-notification setup each time it happens.
+    if (_initialized) return;
+    _initialized = true;
+
     // Request permissions
     final messaging = FirebaseMessaging.instance;
     await messaging.requestPermission(alert: true, badge: true, sound: true);
@@ -273,4 +280,3 @@ final notificationsProvider =
     >((ref) {
       return NotificationsNotifier(ref);
     });
-
