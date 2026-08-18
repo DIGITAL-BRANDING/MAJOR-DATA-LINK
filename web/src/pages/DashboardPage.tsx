@@ -75,10 +75,10 @@ export default function DashboardPage() {
             rel="noreferrer"
             aria-label="Join our WhatsApp group"
             title="Join WhatsApp group"
-            className="flex h-7 items-center gap-1 rounded-full border border-emerald-400/35 bg-emerald-500/15 px-2 text-[10px] font-semibold text-emerald-200 transition hover:bg-emerald-500/25"
+            className="flex h-9 items-center gap-1.5 rounded-full border border-emerald-300 bg-emerald-500 px-3 text-xs font-bold text-white shadow-lg shadow-emerald-950/30 transition hover:bg-emerald-400"
           >
             <MessageCircle size={13} />
-            <span className="hidden sm:inline">Join group</span>
+            <span>Join group</span>
           </a>
           <a
             href={whatsappLink('Hello MAJOR DATA-LINK, I need support.')}
@@ -86,10 +86,10 @@ export default function DashboardPage() {
             rel="noreferrer"
             aria-label="Contact support"
             title="Contact support"
-            className="flex h-7 items-center gap-1 rounded-full border border-gold-400/35 bg-gold-500/15 px-2 text-[10px] font-semibold text-gold-200 transition hover:bg-gold-500/25"
+            className="flex h-9 items-center gap-1.5 rounded-full border border-gold-300 bg-gold-400 px-3 text-xs font-bold text-ink shadow-lg shadow-black/30 transition hover:bg-gold-300"
           >
             <Headset size={13} />
-            <span className="hidden sm:inline">Support</span>
+            <span>Support</span>
           </a>
         </div>
         <span className="block font-mono text-xs uppercase tracking-widest text-gold-500/70">
@@ -122,7 +122,7 @@ export default function DashboardPage() {
             <Wallet size={15} className="shrink-0 text-gold-500/70" />
             <span className="font-body text-xs text-cream/60">
               {wallet?.virtual_account_funding_paused
-                ? 'Account transfers are paused for maintenance — fund via card from Buy Data / Buy Airtime instead.'
+                ? 'Click the button below to continue funding your wallet using Exact Transfer/Card'
                 : 'Your dedicated account number is being set up — check back shortly, or fund via card from Buy Data / Buy Airtime.'}
             </span>
           </div>
