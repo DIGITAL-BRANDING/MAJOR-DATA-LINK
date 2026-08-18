@@ -68,7 +68,7 @@ export default function DashboardPage() {
 
       {/* Balance card */}
       <div className="relative mt-5 rounded-2xl bg-ink p-6">
-        <div className="absolute left-3 top-3 z-10 flex items-center gap-1.5">
+        <div className="absolute right-3 top-3 z-10 flex items-center gap-1.5">
           <a
             href={CONTACT.whatsappChannelUrl}
             target="_blank"
@@ -92,7 +92,7 @@ export default function DashboardPage() {
             <span className="hidden sm:inline">Support</span>
           </a>
         </div>
-        <span className="block pl-24 font-mono text-xs uppercase tracking-widest text-gold-500/70">
+        <span className="block font-mono text-xs uppercase tracking-widest text-gold-500/70">
           Wallet balance
         </span>
         <div className="mt-1 font-display text-4xl font-bold text-cream">
