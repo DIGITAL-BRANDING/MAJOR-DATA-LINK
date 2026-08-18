@@ -124,6 +124,13 @@ webhookRoutes.post('/paystack', async (req, res) => {
  * but currently no-ops — nothing in this app consumes them yet.
  */
 webhookRoutes.post('/katpay', async (req, res) => {
+  // Keep this first line deliberately cheap and non-sensitive: it tells us
+  // whether KatPay is reaching Railway at all before signature/payload checks.
+  console.log('[katpay-webhook] received', {
+    contentType: req.header('content-type') ?? null,
+    hasSignature: Boolean(req.header('x-katpay-signature')),
+    hasTimestamp: Boolean(req.header('x-katpay-timestamp'))
+  });
   const signature = req.header('x-katpay-signature');
   const timestamp = req.header('x-katpay-timestamp');
   const secret = env.KATPAY_WEBHOOK_SECRET ?? env.KATPAY_SECRET_KEY;
@@ -204,10 +211,14 @@ webhookRoutes.post('/katpay', async (req, res) => {
   // documented pay-with-transfer callback uses `event`. Supporting both is
   // essential: otherwise completed dynamic transfers are acknowledged (200)
   // but never credited.
-  const eventType = (event.event_type ?? event.event) as string | undefined;
+  const eventTypeRaw = event.event_type ?? event.event;
+  const eventType = typeof eventTypeRaw === 'string' ? eventTypeRaw.trim().toLowerCase() : undefined;
 
   try {
-    if (eventType === 'virtual_account.payment_received') {
+    // KatPay documents both names for a successful static-account deposit.
+    // Some merchant accounts receive `transaction.completed` instead of the
+    // more specific virtual-account event, so both must credit the same way.
+    if (eventType === 'virtual_account.payment_received' || eventType === 'transaction.completed') {
       const transaction = event.data?.transaction ?? {};
       const virtualAccount = event.data?.virtual_account ?? {};
       const orderStatus = normalizeKatpayStatus(transaction.order_status);
@@ -215,12 +226,25 @@ webhookRoutes.post('/katpay', async (req, res) => {
       // side) would otherwise cause a silent, permanent match failure below,
       // since `findFirst({ where: { virtualAccountNumber } })` is an exact
       // string match with no normalization of its own.
-      const accountNumber = (virtualAccount.account_number as string | undefined)?.trim();
-      const reference = (transaction.reference ?? transaction.order_no) as string | undefined;
+      // KatPay's examples use strings, but real bank/webhook serializers may
+      // emit account numbers and references as numbers. Normalizing before
+      // trimming avoids a runtime TypeError that previously prevented credit.
+      const rawAccountNumber =
+        virtualAccount.account_number ??
+        virtualAccount.accountNumber ??
+        event.data?.customer?.account_number;
+      const accountNumber = rawAccountNumber == null ? undefined : String(rawAccountNumber).trim();
+      const rawReference =
+        transaction.reference ??
+        transaction.order_no ??
+        transaction.orderNo ??
+        transaction.id;
+      const reference = rawReference == null ? undefined : String(rawReference).trim();
+      const rawAmountCents = transaction.order_amount_cents ?? transaction.amount_cents;
       const amountKobo =
-        transaction.order_amount_cents != null
-          ? BigInt(transaction.order_amount_cents)
-          : BigInt(Math.round(Number(transaction.order_amount ?? 0) * 100));
+        rawAmountCents != null
+          ? BigInt(Math.round(Number(rawAmountCents)))
+          : BigInt(Math.round(Number(transaction.order_amount ?? transaction.amount ?? 0) * 100));
 
       console.log(
         '[katpay-webhook] virtual_account.payment_received',
