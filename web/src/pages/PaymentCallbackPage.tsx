@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { CheckCircle2, XCircle, Loader2 } from 'lucide-react';
+import { CheckCircle2, XCircle, Loader2, ReceiptText } from 'lucide-react';
 import AppShell from '../components/AppShell';
 import { api, ApiError } from '../lib/api';
+import { findTransactionIdByReference } from '../lib/receipt';
 
 /**
  * Where Paystack redirects back to after a card payment (see
@@ -15,6 +16,7 @@ export default function PaymentCallbackPage() {
   const [params] = useSearchParams();
   const [state, setState] = useState<'checking' | 'success' | 'failed'>('checking');
   const [message, setMessage] = useState('');
+  const [receiptId, setReceiptId] = useState<string | null>(null);
 
   useEffect(() => {
     const reference = params.get('reference') ?? params.get('trxref');
@@ -30,6 +32,7 @@ export default function PaymentCallbackPage() {
         if (res.status) {
           setState('success');
           setMessage(res.message || 'Your wallet has been funded.');
+          findTransactionIdByReference(reference).then(setReceiptId);
         } else {
           setState('failed');
           setMessage(res.message || 'Payment was not successful.');
@@ -66,12 +69,22 @@ export default function PaymentCallbackPage() {
             <p className="max-w-xs font-body text-sm text-ink-600">{message}</p>
           </>
         )}
-        <Link
-          to="/dashboard"
-          className="mt-2 rounded-lg bg-gold-500 px-5 py-2.5 font-display text-sm font-semibold text-ink transition hover:bg-gold-400"
-        >
-          Back to dashboard
-        </Link>
+        <div className="mt-2 flex gap-3">
+          {receiptId && (
+            <Link
+              to={`/receipt/${receiptId}`}
+              className="flex items-center gap-1.5 rounded-lg border border-gold-500/50 px-5 py-2.5 font-body text-sm font-semibold text-gold-700 transition hover:bg-gold-50"
+            >
+              <ReceiptText size={15} /> View receipt
+            </Link>
+          )}
+          <Link
+            to="/dashboard"
+            className="rounded-lg bg-gold-500 px-5 py-2.5 font-display text-sm font-semibold text-ink transition hover:bg-gold-400"
+          >
+            Back to dashboard
+          </Link>
+        </div>
       </div>
     </AppShell>
   );

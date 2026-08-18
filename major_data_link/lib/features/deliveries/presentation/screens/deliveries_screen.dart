@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../../core/config/app_endpoints.dart';
-import '../../../../core/network/dio_client.dart';
+import '../../../../core/di/injection.dart';
 
 class DeliveriesScreen extends ConsumerStatefulWidget {
   const DeliveriesScreen({super.key});
@@ -27,7 +27,9 @@ class _DeliveriesScreenState extends ConsumerState<DeliveriesScreen> {
       _error = null;
     });
     try {
-      final r = await ref.read(dioProvider).get(AppEndpoints.deliveryList);
+      final r = await ref
+          .read(dioClientProvider)
+          .get(AppEndpoints.deliveryList);
       setState(
         () => _items = List<Map<String, dynamic>>.from(r.data['data'] ?? []),
       );
@@ -45,7 +47,7 @@ class _DeliveriesScreenState extends ConsumerState<DeliveriesScreen> {
   Future<void> _download(String id) async {
     try {
       final r = await ref
-          .read(dioProvider)
+          .read(dioClientProvider)
           .get(AppEndpoints.deliveryDownload(id));
       final url = Uri.tryParse(r.data['data']?['url']?.toString() ?? '');
       if (url == null ||

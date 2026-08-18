@@ -97,12 +97,14 @@ abstract class AppColors {
   static const Color lightDivider = Color(0xFFE9E1C8);
 
   // ── Dark Mode Surfaces ────────────────────────────────────
-  static const Color darkBackground = Color(0xFF1A1508);
-  static const Color darkSurface = Color(0xFF241D0D);
-  static const Color darkSurfaceVariant = Color(0xFF2E2610);
-  static const Color darkCardSurface = Color(0xFF261F0F);
-  static const Color darkDivider = Color(0xFF3A2F16);
-  static const Color darkNavBar = Color(0xFF15110A);
+  // Near-black surfaces keep the gold accents crisp and prevent the UI from
+  // reading as brown on OLED and lower-quality displays.
+  static const Color darkBackground = Color(0xFF0B0B0B);
+  static const Color darkSurface = Color(0xFF141414);
+  static const Color darkSurfaceVariant = Color(0xFF211C10);
+  static const Color darkCardSurface = Color(0xFF181611);
+  static const Color darkDivider = Color(0xFF3A301A);
+  static const Color darkNavBar = Color(0xFF080808);
 
   // ── Wallet Card Gradient ───────────────────────────────────
   static const Color walletGradientStart = Color(0xFFD4AF37);
@@ -157,6 +159,6 @@ abstract class AppColors {
   static const LinearGradient darkCardGradient = LinearGradient(
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
-    colors: [Color(0xFF2E2610), Color(0xFF1A1508)],
+    colors: [Color(0xFF211C10), Color(0xFF0B0B0B)],
   );
 }

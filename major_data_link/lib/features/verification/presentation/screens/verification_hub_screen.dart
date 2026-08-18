@@ -139,10 +139,11 @@ const _ninHubItems = [
     color: AppColors.warning600,
     route: RouteNames.ninPersonalization,
   ),
-  _HubItem(
+  VerificationHubItem(
     label: 'NIN Modification',
     description: 'Submit a manual request to update NIN details',
     icon: Icons.edit_note_rounded,
+    color: AppColors.primary600,
     route: RouteNames.ninModification,
   ),
   VerificationHubItem(

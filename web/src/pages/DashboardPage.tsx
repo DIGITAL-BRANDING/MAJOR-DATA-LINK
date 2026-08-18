@@ -1,16 +1,26 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Copy, Check, Wallet, Sparkles, PlusCircle } from 'lucide-react';
+import {
+  Copy,
+  Check,
+  Wallet,
+  Sparkles,
+  PlusCircle,
+  MessageCircle,
+  Headset,
+} from 'lucide-react';
 import AppShell from '../components/AppShell';
 import { useAuth } from '../lib/auth';
 import { api } from '../lib/api';
 import { SERVICES, TINT_CLASSES } from '../lib/services';
+import { CONTACT, whatsappLink } from '../lib/contact';
 
 type WalletBalance = {
   balance: number;
   currency: string;
   virtual_account_number: string | null;
   virtual_account_bank: string | null;
+  virtual_account_funding_paused?: boolean;
 };
 
 type Transaction = {
@@ -57,8 +67,32 @@ export default function DashboardPage() {
       </h1>
 
       {/* Balance card */}
-      <div className="mt-5 rounded-2xl bg-ink p-6">
-        <span className="font-mono text-xs uppercase tracking-widest text-gold-500/70">
+      <div className="relative mt-5 rounded-2xl bg-ink p-6">
+        <div className="absolute left-3 top-3 z-10 flex items-center gap-1.5">
+          <a
+            href={CONTACT.whatsappChannelUrl}
+            target="_blank"
+            rel="noreferrer"
+            aria-label="Join our WhatsApp group"
+            title="Join WhatsApp group"
+            className="flex h-7 items-center gap-1 rounded-full border border-emerald-400/35 bg-emerald-500/15 px-2 text-[10px] font-semibold text-emerald-200 transition hover:bg-emerald-500/25"
+          >
+            <MessageCircle size={13} />
+            <span className="hidden sm:inline">Join group</span>
+          </a>
+          <a
+            href={whatsappLink('Hello MAJOR DATA-LINK, I need support.')}
+            target="_blank"
+            rel="noreferrer"
+            aria-label="Contact support"
+            title="Contact support"
+            className="flex h-7 items-center gap-1 rounded-full border border-gold-400/35 bg-gold-500/15 px-2 text-[10px] font-semibold text-gold-200 transition hover:bg-gold-500/25"
+          >
+            <Headset size={13} />
+            <span className="hidden sm:inline">Support</span>
+          </a>
+        </div>
+        <span className="block pl-24 font-mono text-xs uppercase tracking-widest text-gold-500/70">
           Wallet balance
         </span>
         <div className="mt-1 font-display text-4xl font-bold text-cream">
@@ -87,8 +121,9 @@ export default function DashboardPage() {
           <div className="mt-5 flex items-center gap-2 rounded-lg border border-ink-line bg-ink-soft px-4 py-3">
             <Wallet size={15} className="shrink-0 text-gold-500/70" />
             <span className="font-body text-xs text-cream/60">
-              Your dedicated account number is being set up — check back shortly, or fund via
-              card from Buy Data / Buy Airtime.
+              {wallet?.virtual_account_funding_paused
+                ? 'Account transfers are paused for maintenance — fund via card from Buy Data / Buy Airtime instead.'
+                : 'Your dedicated account number is being set up — check back shortly, or fund via card from Buy Data / Buy Airtime.'}
             </span>
           </div>
         )}
@@ -150,7 +185,11 @@ export default function DashboardPage() {
         ) : (
           <div className="premium-activity mt-3 divide-y rounded-xl border">
             {transactions.map((t) => (
-              <div key={t.id} className="premium-activity-row flex items-center justify-between px-4 py-3">
+              <Link
+                key={t.id}
+                to={`/receipt/${t.id}`}
+                className="premium-activity-row flex items-center justify-between px-4 py-3 transition hover:bg-parchment/40"
+              >
                 <div>
                   <p className="premium-activity-title font-body text-sm font-medium">{t.description}</p>
                   <p className="premium-activity-date font-mono text-xs">
@@ -163,7 +202,7 @@ export default function DashboardPage() {
                   </p>
                   <StatusBadge status={t.status} />
                 </div>
-              </div>
+              </Link>
             ))}
           </div>
         )}

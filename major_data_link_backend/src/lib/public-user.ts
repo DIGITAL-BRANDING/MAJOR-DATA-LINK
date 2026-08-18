@@ -1,3 +1,4 @@
+import { env } from '../config/env.js';
 import { prisma } from './prisma.js';
 import { koboToNaira } from './money.js';
 
@@ -31,8 +32,15 @@ export async function publicUser(user: Awaited<ReturnType<typeof prisma.user.fin
     kyc_status: user.kycStatus.toLowerCase(),
     email_verified: user.emailVerified,
     phone_verified: user.phoneVerified,
-    virtual_account_number: user.virtualAccountNumber,
-    virtual_account_bank: user.virtualAccountBank,
+    // VIRTUAL_ACCOUNT_FUNDING_ENABLED=false hides these from every client
+    // (Flutter app + web) without a redeploy - see the comment on that env
+    // var. The Flutter app already treats a null account number as a normal
+    // "not provisioned yet" state (wallet_screen.dart / fund_wallet_screen.dart
+    // both null-check it), so this is a safe value to hand it, not a new case
+    // it has to learn to handle.
+    virtual_account_number: env.VIRTUAL_ACCOUNT_FUNDING_ENABLED ? user.virtualAccountNumber : null,
+    virtual_account_bank: env.VIRTUAL_ACCOUNT_FUNDING_ENABLED ? user.virtualAccountBank : null,
+    virtual_account_funding_paused: env.VIRTUAL_ACCOUNT_FUNDING_ENABLED ? undefined : true,
     is_admin: !!admin,
     admin_role: admin?.role ?? null,
     created_at: user.createdAt.toISOString()

@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { env } from '../config/env.js';
 import { requireAuth } from '../middleware/auth.js';
 import { getKycStatus, verifyBvnAndActivateWallet } from '../services/kyc.service.js';
 // Bank list comes from whichever gateway PAYMENT_PROVIDER currently points at,
@@ -19,8 +20,12 @@ kycRoutes.get('/status', async (req, res) => {
       kyc_failure_reason: status.kycFailureReason,
       bvn_last4: status.bvnLast4,
       bvn_verified_at: status.bvnVerifiedAt,
-      virtual_account_number: status.virtualAccountNumber,
-      virtual_account_bank: status.virtualAccountBank
+      // See VIRTUAL_ACCOUNT_FUNDING_ENABLED in env.ts - hides the account
+      // number from every surface while the KatPay webhook crediting bug is
+      // being fixed, without a redeploy.
+      virtual_account_number: env.VIRTUAL_ACCOUNT_FUNDING_ENABLED ? status.virtualAccountNumber : null,
+      virtual_account_bank: env.VIRTUAL_ACCOUNT_FUNDING_ENABLED ? status.virtualAccountBank : null,
+      virtual_account_funding_paused: env.VIRTUAL_ACCOUNT_FUNDING_ENABLED ? undefined : true
     }
   });
 });
@@ -55,8 +60,9 @@ kycRoutes.post('/bvn', async (req, res) => {
     message: 'Wallet activated successfully',
     data: {
       kyc_status: result.kycStatus.toLowerCase(),
-      virtual_account_number: result.virtualAccountNumber,
-      virtual_account_bank: result.virtualAccountBank
+      virtual_account_number: env.VIRTUAL_ACCOUNT_FUNDING_ENABLED ? result.virtualAccountNumber : null,
+      virtual_account_bank: env.VIRTUAL_ACCOUNT_FUNDING_ENABLED ? result.virtualAccountBank : null,
+      virtual_account_funding_paused: env.VIRTUAL_ACCOUNT_FUNDING_ENABLED ? undefined : true
     }
   });
 });

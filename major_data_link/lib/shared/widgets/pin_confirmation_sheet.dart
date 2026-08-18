@@ -4,6 +4,7 @@ import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_dimensions.dart';
 import '../../core/security/secure_screen_mixin.dart';
 import '../../core/di/injection.dart';
+import '../../features/auth/presentation/providers/auth_provider.dart';
 import 'kd_button.dart';
 import 'kd_pin_input.dart';
 

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
+import { env } from '../config/env.js';
 import { prisma } from '../lib/prisma.js';
 import { koboToNaira } from '../lib/money.js';
 import { requireAuth } from '../middleware/auth.js';
@@ -23,7 +24,10 @@ walletRoutes.get('/balance', async (req, res) => {
 
   // Covers users created before this feature existed, and anyone whose
   // signup-time attempt failed transiently. No-ops instantly if already provisioned.
-  if (!user.virtualAccountNumber) {
+  // Skipped entirely while VIRTUAL_ACCOUNT_FUNDING_ENABLED=false - no point
+  // provisioning new accounts (or spending an API call on KatPay/Paystack) for
+  // a number we're about to hide from the response anyway. See env.ts.
+  if (!user.virtualAccountNumber && env.VIRTUAL_ACCOUNT_FUNDING_ENABLED) {
     await provisionInstantVirtualAccount(user.id);
     user = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id } });
   }
@@ -31,15 +35,16 @@ walletRoutes.get('/balance', async (req, res) => {
   res.json({
     balance: koboToNaira(user.walletBalanceKobo),
     currency: 'NGN',
-    virtual_account_number: user.virtualAccountNumber,
-    virtual_account_bank: user.virtualAccountBank
+    virtual_account_number: env.VIRTUAL_ACCOUNT_FUNDING_ENABLED ? user.virtualAccountNumber : null,
+    virtual_account_bank: env.VIRTUAL_ACCOUNT_FUNDING_ENABLED ? user.virtualAccountBank : null,
+    virtual_account_funding_paused: env.VIRTUAL_ACCOUNT_FUNDING_ENABLED ? undefined : true
   });
 });
 
 walletRoutes.get('/virtual-account', async (req, res) => {
   let user = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id } });
 
-  if (!user.virtualAccountNumber) {
+  if (!user.virtualAccountNumber && env.VIRTUAL_ACCOUNT_FUNDING_ENABLED) {
     await provisionInstantVirtualAccount(user.id);
     user = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id } });
   }
@@ -47,8 +52,9 @@ walletRoutes.get('/virtual-account', async (req, res) => {
   res.json({
     balance: koboToNaira(user.walletBalanceKobo),
     currency: 'NGN',
-    virtual_account_number: user.virtualAccountNumber,
-    virtual_account_bank: user.virtualAccountBank
+    virtual_account_number: env.VIRTUAL_ACCOUNT_FUNDING_ENABLED ? user.virtualAccountNumber : null,
+    virtual_account_bank: env.VIRTUAL_ACCOUNT_FUNDING_ENABLED ? user.virtualAccountBank : null,
+    virtual_account_funding_paused: env.VIRTUAL_ACCOUNT_FUNDING_ENABLED ? undefined : true
   });
 });
 

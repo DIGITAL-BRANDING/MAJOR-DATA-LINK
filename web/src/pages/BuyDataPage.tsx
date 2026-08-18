@@ -1,8 +1,9 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, CheckCircle2 } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { ArrowLeft, CheckCircle2, ReceiptText } from 'lucide-react';
 import AppShell from '../components/AppShell';
 import { api, ApiError } from '../lib/api';
+import { findLatestTransactionId } from '../lib/receipt';
 import { PinConfirmDialog } from '../components/PinConfirmDialog';
 
 const NETWORKS = [
@@ -30,6 +31,7 @@ export default function BuyDataPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [receiptId, setReceiptId] = useState<string | null>(null);
   const [showPin, setShowPin] = useState(false);
 
   // Reload categories whenever network changes
@@ -71,7 +73,10 @@ export default function BuyDataPage() {
     setIsSubmitting(true);
     try {
       const res = await api.post<{ status: boolean; message: string }>('/data/purchase', { network, plan_id: planId, phone, pin });
-      if (res.status) setSuccess(res.message || 'Data delivered successfully'); else setError(res.message || 'Purchase failed');
+      if (res.status) {
+        setSuccess(res.message || 'Data delivered successfully');
+        findLatestTransactionId().then(setReceiptId);
+      } else setError(res.message || 'Purchase failed');
     } catch (err) { setError(err instanceof ApiError ? err.message : 'Something went wrong. Please try again.'); } finally { setIsSubmitting(false); }
   }
 
@@ -85,9 +90,18 @@ export default function BuyDataPage() {
           <h1 className="font-display text-xl font-bold text-ink">Data delivered</h1>
           <p className="max-w-xs font-body text-sm text-ink-600">{success}</p>
           <div className="mt-2 flex gap-3">
+            {receiptId && (
+              <Link
+                to={`/receipt/${receiptId}`}
+                className="flex items-center gap-1.5 rounded-lg border border-gold-500/50 px-5 py-2.5 font-body text-sm font-semibold text-gold-700 transition hover:bg-gold-50"
+              >
+                <ReceiptText size={15} /> View receipt
+              </Link>
+            )}
             <button
               onClick={() => {
                 setSuccess(null);
+                setReceiptId(null);
                 setPhone('');
                 setPlanId(null);
               }}

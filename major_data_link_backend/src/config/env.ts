@@ -133,6 +133,20 @@ const EnvSchema = z.object({
     .default('true')
     .transform((value) => value.toLowerCase() !== 'false' && value !== '0'),
 
+  // Kill switch for the KatPay virtual-account webhook crediting bug (Aug 2026 -
+  // some deposits into a user's permanent VA aren't landing in their wallet
+  // balance). Set to 'false' in Railway to instantly stop showing/provisioning
+  // virtual account numbers on every surface (app + web) while that's being
+  // fixed, without a redeploy. Does NOT touch existing users' stored
+  // virtualAccountNumber or any KatPay-side account - purely hides it from API
+  // responses (see lib/public-user.ts and wallet.routes.ts) so nobody funds into
+  // an account that currently might not get credited. Flip back to 'true' (or
+  // unset - defaults true) once the webhook fix is confirmed working.
+  VIRTUAL_ACCOUNT_FUNDING_ENABLED: z
+    .string()
+    .default('true')
+    .transform((value) => value.toLowerCase() !== 'false' && value !== '0'),
+
   ADMIN_SESSION_SECRET: z.string().min(16).default('dev-only-insecure-admin-secret-change-me'),
 
   // WhatsApp Cloud API (Meta Business Platform) - lets a user buy data by chatting

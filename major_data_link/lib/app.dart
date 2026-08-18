@@ -5,7 +5,9 @@ import 'core/router/app_router.dart';
 import 'core/theme/app_theme.dart';
 
 // ── Theme mode provider ────────────────────────────────────
-final themeModeProvider = StateProvider<ThemeMode>((_) => ThemeMode.system);
+// The product default is a premium black-and-gold experience. Users may
+// still switch to the light theme from Settings when they prefer it.
+final themeModeProvider = StateProvider<ThemeMode>((_) => ThemeMode.dark);
 
 class MajorDataLinkApp extends ConsumerWidget {
   const MajorDataLinkApp({super.key});
@@ -25,9 +27,7 @@ class MajorDataLinkApp extends ConsumerWidget {
           debugShowCheckedModeBanner: false,
 
           // ── Themes ────────────────────────────────────────
-          theme: AppTheme.light.copyWith(
-            extensions: [KDThemeExtension.light],
-          ),
+          theme: AppTheme.light.copyWith(extensions: [KDThemeExtension.light]),
           darkTheme: AppTheme.dark.copyWith(
             extensions: [KDThemeExtension.dark],
           ),

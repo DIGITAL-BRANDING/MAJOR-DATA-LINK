@@ -297,6 +297,19 @@ webhookRoutes.post('/katpay', async (req, res) => {
           // webhook delivery or the /fund/verify fallback will resolve it.
         }
       }
+    } else {
+      // Anything else - including a real KatPay event whose exact name doesn't
+      // match either branch above (typos, an undocumented alias, or a payload
+      // shaped differently than the docs suggest) - falls through to here
+      // completely silently otherwise: KatPay gets its 200 OK, sees the delivery
+      // as successful, and never retries, while the deposit is never credited and
+      // nothing in the logs ever points at why. Logging the FULL raw event the
+      // first time an unrecognized one arrives is the only way to catch that
+      // class of bug instead of chasing it blind from a user complaint alone.
+      console.warn(
+        '[katpay-webhook] unrecognized event_type/event - not credited',
+        JSON.stringify({ eventType: eventType ?? null, event })
+      );
     }
   } catch (error) {
     console.error('[katpay-webhook] failed to process event', eventType, error);
