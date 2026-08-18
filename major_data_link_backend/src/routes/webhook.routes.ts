@@ -27,6 +27,18 @@ function normalizeKatpayStatus(value: unknown): string | undefined {
 
 export const webhookRoutes = Router();
 
+// Public, non-sensitive connectivity check for KatPay's dashboard setup.
+// KatPay only POSTs signed events; this GET makes it possible to verify the
+// exact Railway URL in a browser before waiting for a real bank transfer.
+webhookRoutes.get('/katpay', (_req, res) => {
+  res.json({
+    status: true,
+    webhook: 'katpay',
+    ready: Boolean(env.KATPAY_WEBHOOK_SECRET ?? env.KATPAY_SECRET_KEY),
+    message: 'POST signed KatPay events to this path'
+  });
+});
+
 /**
  * Paystack webhook. Mounted in app.ts with express.raw() (NOT express.json()) ahead of
  * the global JSON parser, because the signature is computed over the exact raw request
