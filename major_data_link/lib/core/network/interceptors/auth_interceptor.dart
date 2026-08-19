@@ -5,7 +5,11 @@ import '../../utils/logger.dart';
 import '../token_refresh_coordinator.dart';
 
 class AuthInterceptor extends Interceptor {
-  AuthInterceptor(this._storage, this._refreshCoordinator, this._onSessionExpired);
+  AuthInterceptor(
+    this._storage,
+    this._refreshCoordinator,
+    this._onSessionExpired,
+  );
 
   final SecureStorageService _storage;
   final TokenRefreshCoordinator _refreshCoordinator;
@@ -23,6 +27,12 @@ class AuthInterceptor extends Interceptor {
     RequestInterceptorHandler handler,
   ) async {
     appLogger.api(options.method, options.path);
+
+    // Public boot-time calls and the logout revocation request must not wait
+    // for (or trigger) an access-token refresh.
+    if (options.extra['skipAuth'] == true) {
+      return handler.next(options);
+    }
 
     // Proactively refresh before the token actually expires — this is what
     // keeps a user logged in across the full refresh-token lifetime instead
@@ -55,7 +65,9 @@ class AuthInterceptor extends Interceptor {
     // (server-side revocation, clock skew between device and server). Only
     // ever retries once per request to avoid a loop.
     if (err.response?.statusCode == 401 && !alreadyRetried && !isAuthEndpoint) {
-      appLogger.w('Got 401, attempting one token refresh + retry: ${err.requestOptions.path}');
+      appLogger.w(
+        'Got 401, attempting one token refresh + retry: ${err.requestOptions.path}',
+      );
       final refreshed = await _refreshCoordinator.forceRefresh();
 
       if (refreshed) {

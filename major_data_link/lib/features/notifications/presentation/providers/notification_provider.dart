@@ -27,6 +27,8 @@ class AppNotification {
     required this.date,
     this.type,
     this.isRead = false,
+    this.imageKey,
+    this.showAsPopup = false,
   });
 
   final String id;
@@ -35,6 +37,8 @@ class AppNotification {
   final DateTime date;
   final String? type;
   final bool isRead;
+  final String? imageKey;
+  final bool showAsPopup;
 
   factory AppNotification.fromJson(Map<String, dynamic> json) {
     return AppNotification(
@@ -51,6 +55,8 @@ class AppNotification {
           json['is_read'] == true ||
           json['isRead'] == true ||
           json['read'] == true,
+      imageKey: json['image_key']?.toString() ?? json['imageKey']?.toString(),
+      showAsPopup: json['show_as_popup'] == true || json['showAsPopup'] == true,
     );
   }
 
@@ -62,6 +68,8 @@ class AppNotification {
       date: date,
       type: type,
       isRead: isRead ?? this.isRead,
+      imageKey: imageKey,
+      showAsPopup: showAsPopup,
     );
   }
 }

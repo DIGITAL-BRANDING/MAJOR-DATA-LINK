@@ -8,9 +8,10 @@ import '../../../../core/router/route_names.dart';
 import '../../../../core/utils/extensions.dart';
 import '../../../../core/utils/formatters.dart';
 import '../../../../shared/widgets/banner_slider.dart';
-import '../../../../shared/widgets/kd_button.dart';
 import '../../../../shared/widgets/kd_card.dart';
 import '../../../../shared/widgets/kd_shimmer.dart';
+import '../../../../shared/widgets/promo_illustration.dart';
+import '../../../../shared/widgets/promo_popup_dialog.dart';
 import '../../../../shared/widgets/quick_action_grid.dart';
 import '../../../../shared/widgets/transaction_tile.dart';
 import '../../../../shared/widgets/wallet_card.dart';
@@ -39,14 +40,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
     final notifications =
         notificationsAsync.valueOrNull ?? const <AppNotification>[];
+    // Only notices the admin explicitly flagged "show as popup" when they
+    // composed the broadcast (NotificationBroadcast.showAsPopup on the
+    // backend) auto-show here - everything else (including plain
+    // admin_broadcast/promo/system notifications without that flag) stays
+    // list-only, opened the normal way from the notifications screen.
     final notice = notifications.cast<AppNotification?>().firstWhere((item) {
       if (item == null ||
           item.isRead ||
           _shownWelcomeNoticeIds.contains(item.id)) {
         return false;
       }
-      final type = item.type?.toLowerCase();
-      return type == 'admin_broadcast' || type == 'promo' || type == 'system';
+      return item.showAsPopup;
     }, orElse: () => null);
 
     final title = notice?.title.isNotEmpty == true
@@ -65,43 +70,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
-      await showDialog<void>(
-        context: context,
-        barrierDismissible: false,
-        builder: (dialogContext) => AlertDialog(
-          insetPadding: const EdgeInsets.symmetric(
-            horizontal: 22,
-            vertical: 24,
-          ),
-          titlePadding: const EdgeInsets.fromLTRB(24, 24, 24, 8),
-          contentPadding: const EdgeInsets.fromLTRB(24, 0, 24, 12),
-          actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-          title: Text(title),
-          content: ConstrainedBox(
-            constraints: const BoxConstraints(maxHeight: 420),
-            child: SingleChildScrollView(
-              child: Text(
-                body,
-                style: Theme.of(
-                  dialogContext,
-                ).textTheme.bodyMedium?.copyWith(height: 1.45),
-              ),
-            ),
-          ),
-          actions: [
-            SizedBox(
-              width: double.infinity,
-              child: KDButton(
-                label: 'Okay',
-                onPressed: () => Navigator.of(dialogContext).pop(),
-                gradient: AppColors.primaryGradient,
-              ),
-            ),
-          ],
-        ),
+      await PromoPopupDialog.show(
+        context,
+        title: title,
+        body: body,
+        illustration: PromoIllustration.fromKey(notice?.imageKey),
+        onRead: () {
+          if (notice != null) {
+            ref.read(notificationsProvider.notifier).markRead([notice.id]);
+          }
+        },
       );
-      if (!mounted || notice == null) return;
-      await ref.read(notificationsProvider.notifier).markRead([notice.id]);
     });
   }
 
@@ -140,82 +119,124 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Top bar: greeting + notifications
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: AppDimensions.screenPaddingH,
-                    vertical: 12,
+                // Premium gold-to-black header: top bar + wallet card share
+                // one continuous background so the wallet card's own gold
+                // gradient (see WalletCard/AppColors.walletGradient) reads
+                // as part of the same block rather than a card floating on
+                // a plain page - the rest of the screen (quick actions,
+                // transactions) stays on the regular light background below.
+                Container(
+                  decoration: const BoxDecoration(
+                    gradient: AppColors.premiumGradient,
                   ),
-                  child: Row(
+                  padding: const EdgeInsets.only(bottom: 20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      CircleAvatar(
-                        radius: 22,
-                        backgroundColor: AppColors.primary100,
-                        child: Text(
-                          user?.initials ?? 'KD',
-                          style: TextStyle(
-                            color: AppColors.primary700,
-                            fontWeight: FontWeight.w700,
-                          ),
+                      // Top bar: greeting + notifications
+                      Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: AppDimensions.screenPaddingH,
+                          vertical: 12,
                         ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                        child: Row(
                           children: [
-                            Text(
-                              greeting,
-                              style: context.textTheme.bodySmall?.copyWith(
-                                color: AppColors.neutral500,
+                            CircleAvatar(
+                              radius: 22,
+                              backgroundColor: AppColors.primary400,
+                              child: Text(
+                                user?.initials ?? 'KD',
+                                style: const TextStyle(
+                                  color: AppColors.neutral950,
+                                  fontWeight: FontWeight.w700,
+                                ),
                               ),
                             ),
-                            Text(
-                              user?.firstName.isNotEmpty == true
-                                  ? user!.firstName
-                                  : 'there',
-                              style: context.textTheme.titleMedium?.copyWith(
-                                fontWeight: FontWeight.w700,
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    greeting,
+                                    style: context.textTheme.bodySmall
+                                        ?.copyWith(
+                                          color: Colors.white.withValues(
+                                            alpha: 0.7,
+                                          ),
+                                        ),
+                                  ),
+                                  Text(
+                                    user?.firstName.isNotEmpty == true
+                                        ? user!.firstName
+                                        : 'there',
+                                    style: context.textTheme.titleMedium
+                                        ?.copyWith(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
                               ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
+                            ),
+                            KDIconButton(
+                              icon: Icons.notifications_outlined,
+                              badge: unreadCount,
+                              backgroundColor: Colors.white.withValues(
+                                alpha: 0.12,
+                              ),
+                              iconColor: Colors.white,
+                              onPressed: () =>
+                                  context.push(RouteNames.notifications),
                             ),
                           ],
                         ),
                       ),
-                      KDIconButton(
-                        icon: Icons.notifications_outlined,
-                        badge: unreadCount,
-                        onPressed: () => context.push(RouteNames.notifications),
+
+                      const SizedBox(height: 8),
+
+                      // Wallet card
+                      Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: AppDimensions.screenPaddingH,
+                        ),
+                        child: walletState.when(
+                          loading: () => const WalletCardShimmer(),
+                          error: (_, __) => WalletCard(
+                            balance: 0,
+                            name: user?.fullName ?? '',
+                            accountNumber:
+                                user?.virtualAccountNumber ?? '----------',
+                            isBalanceHidden: balanceHidden,
+                            onToggleBalance: () =>
+                                ref
+                                        .read(
+                                          balanceVisibilityProvider.notifier,
+                                        )
+                                        .state =
+                                    !balanceHidden,
+                            onFund: () => context.push(RouteNames.fundWallet),
+                          ),
+                          data: (wallet) => WalletCard(
+                            balance: wallet.totalBalance,
+                            name: user?.fullName ?? '',
+                            accountNumber:
+                                wallet.virtualAccountNumber ?? '----------',
+                            isBalanceHidden: balanceHidden,
+                            onToggleBalance: () =>
+                                ref
+                                        .read(
+                                          balanceVisibilityProvider.notifier,
+                                        )
+                                        .state =
+                                    !balanceHidden,
+                            onFund: () => context.push(RouteNames.fundWallet),
+                          ),
+                        ),
                       ),
                     ],
-                  ),
-                ),
-
-                const SizedBox(height: 8),
-
-                // Wallet card
-                walletState.when(
-                  loading: () => const WalletCardShimmer(),
-                  error: (_, __) => WalletCard(
-                    balance: 0,
-                    name: user?.fullName ?? '',
-                    accountNumber: user?.virtualAccountNumber ?? '----------',
-                    isBalanceHidden: balanceHidden,
-                    onToggleBalance: () =>
-                        ref.read(balanceVisibilityProvider.notifier).state =
-                            !balanceHidden,
-                    onFund: () => context.push(RouteNames.fundWallet),
-                  ),
-                  data: (wallet) => WalletCard(
-                    balance: wallet.totalBalance,
-                    name: user?.fullName ?? '',
-                    accountNumber: wallet.virtualAccountNumber ?? '----------',
-                    isBalanceHidden: balanceHidden,
-                    onToggleBalance: () =>
-                        ref.read(balanceVisibilityProvider.notifier).state =
-                            !balanceHidden,
-                    onFund: () => context.push(RouteNames.fundWallet),
                   ),
                 ),
 

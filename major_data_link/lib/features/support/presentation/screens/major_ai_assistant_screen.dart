@@ -60,6 +60,11 @@ class _MajorAiAssistantScreenState
   List<Map<String, dynamic>> _plans = const [];
   Map<String, dynamic>? _plan;
   bool _busy = false;
+  // Set when the customer's own wording already named a size ("MTN 1GB
+  // data..."), so _loadPlans() can skip straight to review instead of
+  // re-asking them to pick from the list they already answered once.
+  // Cleared the first time _loadPlans() consumes it.
+  String? _pendingDataSize;
 
   // Generic config-driven flow state (result checker, NIN/BVN verification).
   List<Map<String, dynamic>> _allWorkflows = const [];
@@ -173,6 +178,36 @@ class _MajorAiAssistantScreenState
       await _fallback('Customer requested human support');
       return;
     }
+    // "Why did my transaction fail?" - answered directly, from any step,
+    // with a safe explanation built from GET /assistant/last-transaction
+    // (which deliberately never returns provider/technical details - see
+    // that endpoint's doc-comment in assistant.routes.ts). Checked before
+    // the step machine below so it works whether the customer asks this
+    // right at the greeting or in the middle of an unrelated purchase.
+    if (RegExp(
+      r'(why.*(fail|failed|not work|didn.?t work)|transaction.*(fail|status)|'
+      r'me\s*yasa.*(gaza|kasa|bai\s*yi\s*ba|bai\s*shiga\s*ba)|ban\s*samu\s*ba|'
+      r'ban\s*same\s*ba)',
+    ).hasMatch(normalized)) {
+      await _explainLastTransaction();
+      return;
+    }
+    // A longer message that mentions a phone number or a data size (e.g.
+    // "MTN, my number is 08012345678, I need 1GB") carries more than the
+    // single value the current step is narrowly waiting for - re-run the
+    // full NLU parse used on the very first message instead of making the
+    // customer answer one field at a time. Only fires for the "single
+    // slot" steps and only when the message actually looks richer than a
+    // plain one-word answer, so a bare "MTN" or "500" at its own step
+    // still resolves instantly without an extra network round trip.
+    if ((_step == _Step.network ||
+            _step == _Step.dataType ||
+            _step == _Step.phone ||
+            _step == _Step.amount) &&
+        _looksRich(normalized) &&
+        await _tryRichAnswer(text, normalized)) {
+      return;
+    }
     if (_step == _Step.language) {
       setState(() {
         _language = normalized.contains('hausa')
@@ -274,10 +309,12 @@ class _MajorAiAssistantScreenState
       final network = fields['network']?.toString();
       final phone = fields['phone']?.toString();
       final amount = _number(fields['amount']);
+      final dataSize = fields['data_size']?.toString();
       setState(() {
         _task = isData ? _Task.data : _Task.airtime;
         _network = network;
         _phone = phone;
+        if (dataSize != null && dataSize.isNotEmpty) _pendingDataSize = dataSize;
       });
       if (network == null) {
         setState(() => _step = _Step.network);
@@ -387,19 +424,7 @@ class _MajorAiAssistantScreenState
         ),
       );
     } else if (_step == _Step.dataType) {
-      final dataType = normalized.contains('corporate')
-          ? 'CORPORATE'
-          : normalized.contains('share')
-          ? 'DATA SHARE'
-          : normalized.contains('gift')
-          ? 'GIFTING'
-          : (normalized.contains('sme 2') || normalized.contains('sme2'))
-          ? 'SME2'
-          : normalized.contains('coupon')
-          ? 'DATA COUPON'
-          : normalized.contains('sme')
-          ? 'SME'
-          : null;
+      final dataType = _parseDataType(normalized);
       if (dataType == null) {
         _bot(
           tr(
@@ -445,29 +470,56 @@ class _MajorAiAssistantScreenState
         );
     } else if (_step == _Step.plan) {
       final cleaned = normalized.replaceAll(RegExp(r'[^a-z0-9.]'), '');
-      final chosen = _plans
-          .where(
-            (p) => '${p['name']} ${p['size']} ${p['price'] ?? p['amount']}'
-                .toLowerCase()
-                .replaceAll(RegExp(r'[^a-z0-9.]'), '')
-                .contains(cleaned),
-          )
-          .toList();
-      final plan = chosen.isNotEmpty
-          ? chosen.first
-          : (_plans.length == 1 ? _plans.first : null);
+      Map<String, dynamic>? plan;
+
+      // "Which one is cheapest/simplest?" - a genuine, common question
+      // (this is exactly what prompted this fix), answered directly
+      // instead of asking the customer to name a specific plan. _plans is
+      // already sorted cheapest-first by _loadPlans(), so this is just the
+      // first entry.
+      if (RegExp(
+        r'(cheap|lowest|affordable|simple|easiest|best|rahusa|sauki|mafi)',
+      ).hasMatch(normalized)) {
+        plan = _plans.isNotEmpty ? _plans.first : null;
+      }
+
+      // Exact match against a tapped button's label - this is how a real
+      // button tap always resolves, since _answer() receives that label
+      // back verbatim.
+      plan ??= _plans.cast<Map<String, dynamic>?>().firstWhere(
+        (p) =>
+            p != null &&
+            _planLabel(p).toLowerCase().replaceAll(RegExp(r'[^a-z0-9.]'), '') == cleaned,
+        orElse: () => null,
+      );
+
+      // Free-typed text ("1GB", "the 500 naira one") - looser match against
+      // the plan's name/size, or an exact price match.
+      plan ??= _plans.cast<Map<String, dynamic>?>().firstWhere((p) {
+        if (p == null) return false;
+        final haystack = '${p['name'] ?? ''} ${p['size'] ?? ''}'
+            .toLowerCase()
+            .replaceAll(RegExp(r'[^a-z0-9.]'), '');
+        if (haystack.isNotEmpty && haystack.contains(cleaned)) return true;
+        final price = _number(p['price'] ?? p['amount']);
+        return price > 0 &&
+            text.replaceAll(RegExp(r'[^0-9]'), '') == price.round().toString();
+      }, orElse: () => null);
+
+      plan ??= _plans.length == 1 ? _plans.first : null;
       if (plan == null) {
         _bot(
           tr(
-            'Choose one of the listed plans.',
-            'Zaɓi ɗaya daga cikin plan ɗin da aka jera.',
+            'I could not match that to a plan - please tap one of the buttons above, or tell me the size (e.g. "1GB") or say "cheapest".',
+            'Ban gane ba - da fatan ka danna ɗaya daga maɓallan da ke sama, ko ka faɗa girman (misali "1GB") ko ka ce "mafi rahusa".',
           ),
         );
         return;
       }
+      final chosenPlan = plan;
       setState(() {
-        _plan = plan;
-        _amount = _number(plan['price'] ?? plan['amount']);
+        _plan = chosenPlan;
+        _amount = _number(chosenPlan['price'] ?? chosenPlan['amount']);
         _step = _Step.review;
       });
       await _review();
@@ -532,11 +584,226 @@ class _MajorAiAssistantScreenState
   }
 
   String? _parseNetwork(String value) {
-    if (value.contains('mtn')) return 'MTN';
-    if (value.contains('airtel')) return 'AIRTEL';
-    if (value.contains('glo')) return 'GLO';
-    if (value.contains('9') || value.contains('nine')) return '9MOBILE';
+    if (RegExp(r'\bmtn\b').hasMatch(value)) return 'MTN';
+    if (RegExp(r'\bairtel\b').hasMatch(value)) return 'AIRTEL';
+    if (RegExp(r'\bglo\b').hasMatch(value)) return 'GLO';
+    if (RegExp(r'\b9\s*mobile\b|\bnine\s*mobile\b|\betisalat\b').hasMatch(value)) return '9MOBILE';
     return null;
+  }
+
+  /// Same word-boundary safety as the backend's dataType detection
+  /// (see phraseMatches() in assistant-workflow.service.ts) - a plain
+  /// .contains('share') or .contains('gift') would misfire on ordinary
+  /// words that merely contain those letters as a substring (e.g. a typo
+  /// like "giftting", or "shared" already worked, but this also protects
+  /// against less obvious future collisions).
+  String? _parseDataType(String value) {
+    if (RegExp(r'\bcorporate\b').hasMatch(value)) return 'CORPORATE';
+    if (RegExp(r'\bshare\b|\bdata\s*share\b').hasMatch(value)) return 'DATA SHARE';
+    if (RegExp(r'\bgift(ing)?\b').hasMatch(value)) return 'GIFTING';
+    if (RegExp(r'\bsme\s*2\b|\bsme2\b').hasMatch(value)) return 'SME2';
+    if (RegExp(r'\bcoupon\b').hasMatch(value)) return 'DATA COUPON';
+    if (RegExp(r'\bsme\b').hasMatch(value)) return 'SME';
+    return null;
+  }
+
+  /// Whether a message plausibly carries MORE than the single value the
+  /// current step is narrowly waiting for (a phone number, or a data size
+  /// like "1GB"), making it worth a full re-parse via _tryRichAnswer
+  /// instead of just failing/re-asking the one thing this step alone knows
+  /// how to read. Deliberately cheap and local (no network call) so a
+  /// plain one-word answer ("MTN", "500") never pays for an extra HTTP
+  /// round trip it doesn't need.
+  bool _looksRich(String normalized) {
+    final hasPhone = RegExp(r'\b0\d{10}\b').hasMatch(normalized);
+    final hasSize = RegExp(r'\b\d+(\.\d+)?\s*(gb|mb)\b').hasMatch(normalized);
+    return hasPhone || hasSize;
+  }
+
+  /// Re-runs the same NLU parse used on the very first message, mid-flow,
+  /// so a customer who pastes a full sentence ("MTN, my number is
+  /// 08012345678, I need 1GB") doesn't have to answer network, then phone,
+  /// then plan one at a time - everything the message actually contains is
+  /// absorbed at once and the conversation jumps to the furthest step that
+  /// information resolves. Returns false (having sent nothing, changed
+  /// nothing) if the parse found nothing new beyond what was already
+  /// known, so the caller falls through to normal single-step handling.
+  Future<bool> _tryRichAnswer(String text, String normalized) async {
+    if (_task != _Task.data && _task != _Task.airtime) return false;
+
+    final parsed = await _parseIntent(text);
+    final fields = (parsed?['fields'] as Map<String, dynamic>?) ?? {};
+    final network = fields['network']?.toString() ?? _parseNetwork(normalized);
+    final phone = fields['phone']?.toString();
+    final size = fields['data_size']?.toString();
+    final dataType = fields['data_type']?.toString() ?? _parseDataType(normalized);
+    final amount = _number(fields['amount']);
+
+    final newNetwork = network != null && network != _network;
+    final newPhone = phone != null && phone.length == 11 && phone != _phone;
+    final newSize = size != null && size.isNotEmpty;
+    final newDataType = dataType != null && dataType != _dataType;
+    final newAmount = _task == _Task.airtime && amount >= 50 && amount != _amount;
+    final newFieldCount = [newNetwork, newPhone, newSize, newDataType, newAmount]
+        .where((found) => found)
+        .length;
+    // A single new field is exactly what the current step already asks
+    // for - let its own handler take it rather than duplicating that path
+    // here.
+    if (newFieldCount < 2) return false;
+
+    setState(() {
+      if (newNetwork) {
+        _network = network;
+        _dataType = null;
+        _plans = const [];
+        _plan = null;
+      }
+      if (newDataType) _dataType = dataType;
+      if (newPhone) _phone = phone;
+      if (newSize) _pendingDataSize = size;
+      if (newAmount) _amount = amount;
+    });
+
+    if (_task == _Task.airtime) {
+      if (_network != null && _phone != null && _amount != null && _amount! >= 50) {
+        setState(() => _step = _Step.review);
+        await _review();
+      } else if (_network != null && _phone != null) {
+        setState(() => _step = _Step.amount);
+        _bot(
+          tr(
+            'How much airtime should I buy? (e.g. 500)',
+            'Nawa zan saya na airtime? (misali 500)',
+          ),
+        );
+      } else if (_network != null) {
+        setState(() => _step = _Step.phone);
+        _bot(
+          tr(
+            'Enter the Nigerian phone number to receive it.',
+            'Rubuta lambar Najeriya da za a tura mata.',
+          ),
+        );
+      } else {
+        return false;
+      }
+      return true;
+    }
+
+    // data
+    if (_network == null) return false;
+    if (_dataType == null) {
+      setState(() => _step = _Step.dataType);
+      _bot(
+        tr(
+          'Which data type: Corporate, Data Share, Gifting, SME, SME 2 or Data Coupon?',
+          'Wanne nau’in Data: Corporate, Data Share, Gifting, SME, SME 2 ko Data Coupon?',
+        ),
+        options: const [
+          'Corporate',
+          'Data Share',
+          'Gifting',
+          'SME',
+          'SME 2',
+          'Data Coupon',
+        ],
+      );
+      return true;
+    }
+    if (_phone == null) {
+      setState(() => _step = _Step.phone);
+      _bot(
+        tr(
+          'Enter the Nigerian phone number to receive it.',
+          'Rubuta lambar Najeriya da za a tura mata.',
+        ),
+      );
+      return true;
+    }
+    setState(() => _step = _Step.plan);
+    await _loadPlans();
+    return true;
+  }
+
+  /// "Why did my transaction fail?" - fetches GET /assistant/last-transaction
+  /// (never exposes provider/technical detail - see that endpoint's
+  /// doc-comment) and turns the status into a plain, honest, customer-safe
+  /// explanation. Never shows a raw error code or provider message.
+  Future<void> _explainLastTransaction() async {
+    setState(() => _busy = true);
+    try {
+      final response = await ref
+          .read(dioClientProvider)
+          .get(AppEndpoints.assistantLastTransaction);
+      final data = (response.data['data'] as Map?)?.cast<String, dynamic>();
+      if (data == null || data['found'] != true) {
+        _bot(
+          tr(
+            "You don't have any transactions yet.",
+            'Ba ka da wata transaction tukuna.',
+          ),
+        );
+        return;
+      }
+      final status = data['status']?.toString() ?? '';
+      final description = data['description']?.toString() ?? tr('your last transaction', 'transaction ɗinka na ƙarshe');
+      final amount = _number(data['amount']);
+      final amountText = '₦${amount.toStringAsFixed(0)}';
+
+      switch (status) {
+        case 'success':
+          _bot(
+            tr(
+              '$description ($amountText) was successful.',
+              '$description ($amountText) ta yi nasara.',
+            ),
+          );
+          break;
+        case 'pending':
+          _bot(
+            tr(
+              '$description ($amountText) is still processing. This usually finishes within a few minutes - if it has taken longer, tap below to talk to a human.',
+              '$description ($amountText) tana ci gaba da aiki. Yawanci takan ƙare cikin ƴan mintuna - idan ta ɗauki lokaci mai tsawo, danna ƙasa don magana da mutum.',
+            ),
+            options: [tr('Talk to a human', 'Magana da mutum')],
+          );
+          break;
+        case 'failed':
+          _bot(
+            tr(
+              '$description ($amountText) did not go through. If your wallet was debited, it should be refunded automatically - if you do not see that reflected, let us connect you to support.',
+              '$description ($amountText) bata yi nasara ba. Idan an cire kuɗi daga wallet ɗinka, ya kamata a mayar maka kai tsaye - idan ba ka gani ba, bari mu haɗa ka da support.',
+            ),
+            options: [tr('Talk to a human', 'Magana da mutum')],
+          );
+          break;
+        case 'reversed':
+          _bot(
+            tr(
+              '$description ($amountText) did not go through, and was refunded back to your wallet.',
+              '$description ($amountText) bata yi nasara ba, kuma an mayar da kuɗin zuwa wallet ɗinka.',
+            ),
+          );
+          break;
+        default:
+          _bot(
+            tr(
+              '$description ($amountText) - status: $status.',
+              '$description ($amountText) - matsayi: $status.',
+            ),
+          );
+      }
+    } on DioException {
+      _bot(
+        tr(
+          'I could not check your last transaction right now. Please try again shortly.',
+          'Ban iya duba transaction ɗinka na ƙarshe yanzu ba. Sake gwadawa ba da daɗewa ba.',
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   Future<Map<String, dynamic>?> _parseIntent(String message) async {
@@ -553,6 +820,22 @@ class _MajorAiAssistantScreenState
   double _number(dynamic value) =>
       value is num ? value.toDouble() : double.tryParse('$value') ?? 0;
 
+  /// Builds the label shown on a plan's button (and used as the message
+  /// this returns when tapped, matched exactly in the `_Step.plan` handler
+  /// below) - name, price, and validity together, e.g.
+  /// "1GB - 30 Days — ₦500 (30 days)". Validity was previously missing
+  /// entirely from this screen (the web assistant has the same gap, fixed
+  /// alongside this) even though the backend has always returned it.
+  String _planLabel(Map<String, dynamic> plan) {
+    final name = plan['name']?.toString() ?? plan['size']?.toString() ?? '';
+    final price = _number(plan['price'] ?? plan['amount']);
+    final validity = plan['validity']?.toString();
+    final validityPart = (validity != null && validity.isNotEmpty && validity != 'Validity varies')
+        ? ' ($validity)'
+        : '';
+    return '$name — ₦${price.toStringAsFixed(0)}$validityPart';
+  }
+
   Future<void> _loadPlans() async {
     setState(() => _busy = true);
     try {
@@ -563,18 +846,69 @@ class _MajorAiAssistantScreenState
             queryParameters: _dataType == null ? null : {'category': _dataType},
           );
       final raw = (response.data['data'] ?? response.data) as List<dynamic>;
-      _plans = raw.cast<Map<String, dynamic>>().toList();
-      final list = _plans
-          .map(
-            (p) =>
-                '${p['name'] ?? p['size']} — ₦${_number(p['price'] ?? p['amount']).toStringAsFixed(0)}',
-          )
-          .join('\n');
+      // Cheapest first, so "which is the cheapest/simplest" is answered
+      // just by looking at the top of the list - and _Step.plan below can
+      // auto-pick this same first entry when the customer asks for it
+      // directly instead of naming a specific plan.
+      _plans = raw.cast<Map<String, dynamic>>().toList()
+        ..sort(
+          (a, b) => _number(a['price'] ?? a['amount'])
+              .compareTo(_number(b['price'] ?? b['amount'])),
+        );
+      if (_plans.isEmpty) {
+        _bot(
+          tr(
+            'No plans are available for this network/category right now. Please try a different data type.',
+            'Babu plans a wannan network/category yanzu. Gwada wani nau\'in data.',
+          ),
+          options: const [
+            'Corporate',
+            'Data Share',
+            'Gifting',
+            'SME',
+            'SME 2',
+            'Data Coupon',
+          ],
+        );
+        setState(() => _step = _Step.dataType);
+        return;
+      }
+
+      // The customer already told us a size in their own words ("MTN 1GB
+      // data...") - if exactly one plan matches it, skip straight to
+      // review instead of making them pick the same thing again from a
+      // list. Consumed (cleared) either way, so it never lingers and
+      // silently auto-picks something on a LATER, unrelated plan list.
+      final sizeHint = _pendingDataSize;
+      _pendingDataSize = null;
+      if (sizeHint != null) {
+        final cleanedHint = sizeHint.toLowerCase().replaceAll(RegExp(r'[^a-z0-9.]'), '');
+        final matches = _plans.where((p) {
+          final haystack = '${p['name'] ?? ''} ${p['size'] ?? ''}'
+              .toLowerCase()
+              .replaceAll(RegExp(r'[^a-z0-9.]'), '');
+          return haystack.contains(cleanedHint);
+        }).toList();
+        if (matches.length == 1) {
+          setState(() {
+            _plan = matches.first;
+            _amount = _number(matches.first['price'] ?? matches.first['amount']);
+            _step = _Step.review;
+          });
+          await _review();
+          return;
+        }
+        // Multiple plans matched (different data types for the same size,
+        // e.g. SME 1GB vs Corporate 1GB) - fall through to the full list
+        // below rather than guessing which one they meant.
+      }
+
       _bot(
         tr(
-          'Which data plan do you want? Reply with its size, for example “1GB”.\n\n$list',
-          'Wanne data plan kake so? Amsa da girman data, misali “1GB”.\n\n$list',
+          'Which data plan do you want? Tap one below, or just tell me - for example "the cheapest one".\n\n(${_plans.length} plans, cheapest first)',
+          'Wanne data plan kake so? Danna ɗaya a ƙasa, ko faɗa mini kai tsaye - misali "mafi rahusa".\n\n(${_plans.length} plans, mafi rahusa da farko)',
         ),
+        options: _plans.map(_planLabel).toList(),
       );
     } on DioException {
       _bot(
@@ -606,7 +940,7 @@ class _MajorAiAssistantScreenState
         return;
       }
       final item = _task == _Task.data
-          ? '${_plan!['name'] ?? _plan!['size']}'
+          ? _planLabel(_plan!)
           : tr('airtime', 'airtime');
       _bot(
         tr(
@@ -1252,6 +1586,7 @@ class _MajorAiAssistantScreenState
       _amount = null;
       _plan = null;
       _plans = const [];
+      _pendingDataSize = null;
       _activeWorkflow = null;
       _collected.clear();
       _fieldIndex = 0;

@@ -1,4 +1,8 @@
+import 'dart:async';
+
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -36,7 +40,14 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
     try {
       final packageInfo = await PackageInfo.fromPlatform();
       final dio = ref.read(dioClientProvider);
-      final response = await dio.get(AppEndpoints.appConfig);
+      // The public version check gets one short attempt only. It must never
+      // keep a customer on splash while an unavailable server retries.
+      final response = await dio
+          .get(
+            AppEndpoints.appConfig,
+            options: Options(extra: {'skipAuth': true, 'skipRetry': true}),
+          )
+          .timeout(const Duration(seconds: 4));
       final data = response.data['data'] as Map<String, dynamic>;
 
       final minVersion = data['min_android_version'] as String?;
@@ -50,7 +61,8 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
           builder: (_) => ForceUpdateScreen(
-            downloadUrl: data['android_download_url'] as String? ??
+            downloadUrl:
+                data['android_download_url'] as String? ??
                 'https://github.com/DIGITAL-BRANDING/MAJOR-DATA-LINK/releases/latest/download/MajorDataLink.apk',
             latestVersion: data['latest_android_version'] as String?,
             message: data['update_message'] as String?,
@@ -66,20 +78,45 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
   }
 
   Future<void> _bootstrap() async {
-    // Allow splash to display for branding purposes
-    await Future.delayed(const Duration(milliseconds: 1800));
-    if (!mounted) return;
+    // Force-update check and the session check are independent of each
+    // other - neither needs the other's result to start - so they're
+    // kicked off together and awaited together instead of one after the
+    // other. Combined with the shorter timeouts in AppConfig, this is what
+    // brings worst-case boot time down from "two sequential ~130s-worst-case
+    // network calls" to roughly one.
+    //
+    // Reading authNotifierProvider here (rather than later, after the
+    // version check resolves) is what actually starts _checkSession() at
+    // the same moment as the version check - its constructor fires that
+    // call immediately - so both requests are genuinely in flight together,
+    // not just awaited together after the fact.
+    final authNotifier = ref.read(authNotifierProvider.notifier);
 
-    // Force-update check runs first, before anything else touches auth or
-    // onboarding state - an outdated build must never be allowed to reach
-    // a screen that assumes it can send fields the backend now requires
-    // (see ForceUpdateScreen's doc comment). Deliberately fails OPEN: if
-    // this call fails for any reason (no internet, backend hiccup, a
-    // malformed response), the user proceeds normally rather than being
-    // stuck on a blank/frozen splash screen - a rare false negative here is
-    // far better than blocking every legitimate user during a network
-    // problem.
-    if (await _isBelowMinimumVersion()) return;
+    // All three are *started* here, before anything is awaited - that's
+    // what makes them run concurrently. (Deliberately not passed to
+    // Future.wait: mixing a Future<bool> with two Future<void>s there would
+    // need Dart to unify their type parameter, which is unnecessary risk
+    // for zero benefit over just awaiting each variable in turn below.)
+    final versionCheck = _isBelowMinimumVersion();
+    final sessionCheck = authNotifier.ready;
+    // The 1800ms floor keeps the branding visible for a moment even on a
+    // fast connection where the real work finishes in a blink - but unlike
+    // before, it no longer ADDS to slow-network wait time, since it runs
+    // alongside the real work rather than before it.
+    final splashFloor = Future<void>.delayed(
+      const Duration(milliseconds: 1800),
+    );
+
+    final blockedByForceUpdate = await versionCheck;
+    try {
+      await sessionCheck.timeout(const Duration(seconds: 4));
+    } on TimeoutException {
+      // Continue through the normal auth-status routing below. A network
+      // profile request must not make startup feel frozen.
+    }
+    await splashFloor;
+    if (!mounted) return;
+    if (blockedByForceUpdate) return;
 
     final secureStorage = ref.read(secureStorageProvider);
     final onboardingDone = await secureStorage.isOnboardingComplete();
@@ -88,16 +125,6 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
       if (mounted) context.go(RouteNames.onboarding);
       return;
     }
-
-    // Check auth session
-    final authNotifier = ref.read(authNotifierProvider.notifier);
-    // Wait for the initial _checkSession() (kicked off when authNotifierProvider
-    // was first read - possibly just now) to fully resolve. Reading `state`
-    // any earlier would almost always see the pre-check default instead of
-    // the real status - which is exactly how a PIN-locked session used to
-    // slip through as if it were freshly unauthenticated.
-    await authNotifier.ready;
-    if (!mounted) return;
 
     final status = ref.read(authNotifierProvider).status;
     switch (status) {
@@ -131,92 +158,88 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.primary600,
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              AppColors.primary700,
-              AppColors.primary500,
-              AppColors.secondary600,
-            ],
-          ),
-        ),
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              // ── Logo mark ─────────────────────────────────
-              Container(
-                    width: 112,
-                    height: 112,
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(28),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.15),
-                          blurRadius: 30,
-                          offset: const Offset(0, 12),
-                        ),
-                      ],
-                    ),
-                    clipBehavior: Clip.antiAlias,
-                    child: Padding(
-                      padding: const EdgeInsets.all(6),
-                      child: Image.asset(
-                        'assets/icon/logo.png',
-                        fit: BoxFit.contain,
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle.light.copyWith(
+        statusBarColor: Colors.transparent,
+        systemNavigationBarColor: AppColors.neutral950,
+      ),
+      child: Scaffold(
+        backgroundColor: AppColors.neutral950,
+        body: Container(
+          decoration: const BoxDecoration(gradient: AppColors.premiumGradient),
+          child: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                // ── Logo mark ─────────────────────────────────
+                Container(
+                      width: 112,
+                      height: 112,
+                      decoration: BoxDecoration(
+                        color: AppColors.neutral50,
+                        borderRadius: BorderRadius.circular(28),
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppColors.primary400.withValues(alpha: 0.35),
+                            blurRadius: 36,
+                            spreadRadius: 2,
+                          ),
+                        ],
                       ),
-                    ),
-                  )
-                  .animate()
-                  .scale(
-                    begin: const Offset(0.5, 0.5),
-                    duration: 600.ms,
-                    curve: Curves.easeOutBack,
-                  )
-                  .fadeIn(duration: 400.ms),
+                      clipBehavior: Clip.antiAlias,
+                      child: Padding(
+                        padding: const EdgeInsets.all(6),
+                        child: Image.asset(
+                          'assets/icon/logo.png',
+                          fit: BoxFit.contain,
+                        ),
+                      ),
+                    )
+                    .animate()
+                    .scale(
+                      begin: const Offset(0.5, 0.5),
+                      duration: 600.ms,
+                      curve: Curves.easeOutBack,
+                    )
+                    .fadeIn(duration: 400.ms),
 
-              const SizedBox(height: 24),
+                const SizedBox(height: 24),
 
-              Text(
-                AppStrings.appName,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 26,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: -0.5,
-                ),
-              ).animate().fadeIn(delay: 300.ms).slideY(begin: 0.3),
-
-              const SizedBox(height: 8),
-
-              Text(
-                AppStrings.appTagline,
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.8),
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                ),
-              ).animate().fadeIn(delay: 450.ms),
-
-              const SizedBox(height: 64),
-
-              SizedBox(
-                width: 28,
-                height: 28,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2.5,
-                  valueColor: AlwaysStoppedAnimation(
-                    Colors.white.withValues(alpha: 0.8),
+                Text(
+                  AppStrings.appName,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 26,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.5,
                   ),
-                ),
-              ).animate().fadeIn(delay: 600.ms),
-            ],
+                ).animate().fadeIn(delay: 300.ms).slideY(begin: 0.3),
+
+                const SizedBox(height: 8),
+
+                Text(
+                  AppStrings.appTagline,
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.8),
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ).animate().fadeIn(delay: 450.ms),
+
+                const SizedBox(height: 64),
+
+                SizedBox(
+                  width: 28,
+                  height: 28,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2.5,
+                    valueColor: AlwaysStoppedAnimation(
+                      Colors.white.withValues(alpha: 0.8),
+                    ),
+                  ),
+                ).animate().fadeIn(delay: 600.ms),
+              ],
+            ),
           ),
         ),
       ),

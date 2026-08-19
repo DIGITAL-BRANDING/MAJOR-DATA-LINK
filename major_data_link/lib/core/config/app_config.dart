@@ -39,14 +39,22 @@ class AppConfig {
     }
   }
 
-  // â”€â”€ Timeouts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  static const Duration connectTimeout = Duration(seconds: 30);
-  static const Duration receiveTimeout = Duration(seconds: 30);
-  static const Duration sendTimeout = Duration(seconds: 30);
+  // ── Timeouts ────────────────────────────────────────────────
+  // Previously 30s each with up to 3 retries at 2s/4s/8s backoff - on a
+  // single endpoint that keeps timing out, that compounded to roughly
+  // 30 + 32 + 34 + 38 = ~134 seconds worst case, and the app's own boot
+  // sequence (splash) chains at least two such calls back to back. Trimmed
+  // down so a genuinely dead connection fails fast instead of leaving the
+  // user staring at a spinner for over a minute - see retry_interceptor.dart
+  // for the matching backoff change, and splash_screen.dart for making the
+  // two boot-time calls run concurrently instead of sequentially.
+  static const Duration connectTimeout = Duration(seconds: 12);
+  static const Duration receiveTimeout = Duration(seconds: 15);
+  static const Duration sendTimeout = Duration(seconds: 15);
 
-  // â”€â”€ Retry â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  static const int maxRetries = 3;
-  static const Duration retryDelay = Duration(seconds: 2);
+  // ── Retry ───────────────────────────────────────────────────
+  static const int maxRetries = 2;
+  static const Duration retryDelay = Duration(seconds: 1);
 
   // â”€â”€ Token â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   static const Duration tokenRefreshBuffer = Duration(minutes: 5);

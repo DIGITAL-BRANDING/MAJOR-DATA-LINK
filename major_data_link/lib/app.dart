@@ -5,13 +5,21 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'core/router/app_router.dart';
 import 'core/theme/app_theme.dart';
+import 'core/di/injection.dart';
 import 'features/auth/presentation/providers/auth_provider.dart';
 import 'features/notifications/presentation/providers/notification_provider.dart';
 
 // ── Theme mode provider ────────────────────────────────────
 // The product default is a premium black-and-gold experience. Users may
 // still switch to the light theme from Settings when they prefer it.
-final themeModeProvider = StateProvider<ThemeMode>((_) => ThemeMode.dark);
+final themeModeProvider = StateProvider<ThemeMode>((ref) {
+  final prefersDark =
+      ref
+          .read(hiveStorageProvider)
+          .getSetting<bool>('dark_mode', defaultValue: true) ??
+      true;
+  return prefersDark ? ThemeMode.dark : ThemeMode.light;
+});
 
 class MajorDataLinkApp extends ConsumerStatefulWidget {
   const MajorDataLinkApp({super.key});

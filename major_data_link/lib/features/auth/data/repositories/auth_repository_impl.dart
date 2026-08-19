@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dartz/dartz.dart';
 import '../../../../core/error/error_handler.dart';
 import '../../../../core/error/exceptions.dart';
@@ -222,18 +224,36 @@ class AuthRepositoryImpl implements AuthRepository {
 
   @override
   Future<Either<Failure, void>> logout() async {
+    // Local session clear happens first and is awaited - this is what the
+    // rest of the app treats as "logged out" (AuthNotifier.logout() reads
+    // this method's completion to flip its own state and navigate to
+    // login). Telling the backend is a courtesy notification, not something
+    // the user should ever wait on: it's fired in the background and its
+    // outcome is deliberately ignored, since there is nothing left to do
+    // differently either way - the tokens are already gone locally by the
+    // time it resolves, successfully or not. Previously the remote call was
+    // awaited FIRST, which meant the local clear (and therefore the entire
+    // logout as far as the UI was concerned) couldn't complete until that
+    // network round trip did - up to roughly 40 seconds on a slow or dead
+    // connection with no loading indicator shown while it happened.
+    // Capture before clearing secure storage. The backend needs this value to
+    // revoke the server-side refresh-token session.
+    final refreshToken = await _local.getRefreshToken();
+    await _local.clearSession();
+    _refreshCoordinator.invalidatePendingRefreshes();
+    if (refreshToken != null && refreshToken.isNotEmpty) {
+      unawaited(_notifyServerOfLogout(refreshToken));
+    }
+    return const Right(null);
+  }
+
+  Future<void> _notifyServerOfLogout(String refreshToken) async {
     try {
       if (await _networkInfo.isConnected) {
-        await _remote.logout();
+        await _remote.logout(refreshToken: refreshToken);
       }
-      await _local.clearSession();
-      _refreshCoordinator.invalidatePendingRefreshes();
-      return const Right(null);
-    } catch (e) {
-      // Always clear local session even if remote call fails
-      await _local.clearSession();
-      _refreshCoordinator.invalidatePendingRefreshes();
-      return const Right(null);
+    } catch (_) {
+      // Nothing to do - the local session is already cleared regardless.
     }
   }
 

@@ -162,6 +162,7 @@ class AppEndpoints {
   static String get assistantBeneficiaries => '$_base/assistant/beneficiaries';
   static String get assistantEvents => '$_base/assistant/events';
   static String get assistantFallback => '$_base/assistant/fallback';
+  static String get assistantLastTransaction => '$_base/assistant/last-transaction';
 
   // App config
   static String get appSettings => '$_base/app/settings';

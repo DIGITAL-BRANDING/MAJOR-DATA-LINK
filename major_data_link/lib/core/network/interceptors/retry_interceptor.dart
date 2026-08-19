@@ -14,6 +14,10 @@ class RetryInterceptor extends Interceptor {
   ) async {
     final attempt = err.requestOptions.extra['_retry_attempt'] as int? ?? 0;
 
+    if (err.requestOptions.extra['skipRetry'] == true) {
+      return handler.next(err);
+    }
+
     // Only retry on network errors and 5xx, not auth/validation errors
     if (!_shouldRetry(err) || attempt >= AppConfig.maxRetries) {
       return handler.next(err);
@@ -23,8 +27,8 @@ class RetryInterceptor extends Interceptor {
       'Retrying request (${attempt + 1}/${AppConfig.maxRetries}): ${err.requestOptions.path}',
     );
 
-    // Exponential backoff: 2s, 4s, 8s
-    final delay = Duration(seconds: (2 << attempt).clamp(1, 16));
+    // Exponential backoff from AppConfig.retryDelay: 1s, 2s, 4s, ...
+    final delay = AppConfig.retryDelay * (1 << attempt);
     await Future.delayed(delay);
 
     try {

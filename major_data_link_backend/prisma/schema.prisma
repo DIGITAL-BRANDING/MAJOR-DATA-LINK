@@ -555,6 +555,18 @@ model Notification {
   isRead      Boolean           @default(false)
   readAt      DateTime?
   broadcastId String?
+  /// Which preset illustration (see PROMO_ILLUSTRATIONS in
+  /// notification.service.ts and the matching Dart enum in
+  /// promo_illustration.dart) to show alongside this notification. Null =
+  /// no illustration, renders as a plain text notification.
+  imageKey    String?
+  /// If true, the app shows this as a full-screen promotional dialog the
+  /// next time it launches (once, until dismissed) rather than only
+  /// appearing in the notification list - see PromoPopupDialog on the
+  /// Flutter side. Copied from NotificationBroadcast.showAsPopup at
+  /// fan-out time so it's independently controllable per recipient later
+  /// if that's ever needed (e.g. re-showing to just one user).
+  showAsPopup Boolean           @default(false)
   createdAt   DateTime          @default(now())
   user        User              @relation(fields: [userId], references: [id])
   broadcast   NotificationBroadcast? @relation(fields: [broadcastId], references: [id])
@@ -577,6 +589,10 @@ model NotificationBroadcast {
   body             String
   audience         NotificationAudience  @default(ALL_USERS)
   targetUserIds    Json?
+  /// See the matching field on Notification above - carried through to
+  /// every fanned-out per-user row by fanOutBroadcast().
+  imageKey         String?
+  showAsPopup      Boolean               @default(false)
   recipientCount   Int                   @default(0)
   createdAt        DateTime              @default(now())
   notifications    Notification[]

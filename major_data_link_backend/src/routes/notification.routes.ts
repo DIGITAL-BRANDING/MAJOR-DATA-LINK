@@ -31,6 +31,8 @@ notificationRoutes.get('/', async (req, res) => {
       type: n.type.toLowerCase(),
       is_read: n.isRead,
       data: n.data,
+      image_key: n.imageKey,
+      show_as_popup: n.showAsPopup,
       created_at: n.createdAt.toISOString()
     }))
   });

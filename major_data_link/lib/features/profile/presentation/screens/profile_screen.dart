@@ -147,6 +147,13 @@ class ProfileScreen extends ConsumerWidget {
                       subtitle: 'Transaction and app alerts',
                       onTap: () => context.push(RouteNames.notifications),
                     ),
+                    const Divider(height: 1, indent: 72),
+                    _ProfileTile(
+                      icon: Icons.palette_outlined,
+                      title: AppStrings.settings,
+                      subtitle: 'Appearance, notifications and preferences',
+                      onTap: () => context.push(RouteNames.settings),
+                    ),
                   ],
                 ),
               ),
@@ -222,35 +229,35 @@ class ProfileScreen extends ConsumerWidget {
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
         child: SingleChildScrollView(
           child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Balance Codes',
-              style: context.textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            const SizedBox(height: 12),
-            ...rows.map(
-              (row) => ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: Text(
-                  row.$1,
-                  style: const TextStyle(fontWeight: FontWeight.w700),
-                ),
-                trailing: TextButton.icon(
-                  onPressed: () async {
-                    await Clipboard.setData(ClipboardData(text: row.$2));
-                    if (context.mounted)
-                      context.showSnackBar('Copied ${row.$2}');
-                  },
-                  icon: const Icon(Icons.copy_rounded, size: 16),
-                  label: Text(row.$2),
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Balance Codes',
+                style: context.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w800,
                 ),
               ),
-            ),
-          ],
+              const SizedBox(height: 12),
+              ...rows.map(
+                (row) => ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(
+                    row.$1,
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  trailing: TextButton.icon(
+                    onPressed: () async {
+                      await Clipboard.setData(ClipboardData(text: row.$2));
+                      if (context.mounted)
+                        context.showSnackBar('Copied ${row.$2}');
+                    },
+                    icon: const Icon(Icons.copy_rounded, size: 16),
+                    label: Text(row.$2),
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -260,34 +267,56 @@ class ProfileScreen extends ConsumerWidget {
   static Future<void> _openWhatsApp(String phone) async {
     final digits = phone.replaceAll(RegExp(r'\D'), '');
     await launchUrl(
-      Uri.parse('https://wa.me/$digits?text=Hello%20MAJOR%20DATA-LINK%20Support'),
+      Uri.parse(
+        'https://wa.me/$digits?text=Hello%20MAJOR%20DATA-LINK%20Support',
+      ),
       mode: LaunchMode.externalApplication,
     );
   }
 
   static void _confirmSignOut(BuildContext context, WidgetRef ref) {
+    var isLoggingOut = false;
     showDialog<void>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Sign out'),
-        content: const Text('Are you sure you want to sign out?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () async {
-              Navigator.of(ctx).pop();
-              await ref.read(authNotifierProvider.notifier).logout();
-              if (context.mounted) context.go(RouteNames.login);
-            },
-            child: const Text(
-              'Sign out',
-              style: TextStyle(color: AppColors.error500),
-            ),
-          ),
-        ],
+      barrierDismissible: true,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          return AlertDialog(
+            title: const Text('Sign out'),
+            content: const Text('Are you sure you want to sign out?'),
+            actions: [
+              TextButton(
+                onPressed: isLoggingOut ? null : () => Navigator.of(ctx).pop(),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: isLoggingOut
+                    ? null
+                    : () async {
+                        setDialogState(() => isLoggingOut = true);
+                        await ref.read(authNotifierProvider.notifier).logout();
+                        if (ctx.mounted) Navigator.of(ctx).pop();
+                        if (context.mounted) context.go(RouteNames.login);
+                      },
+                child: isLoggingOut
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation(
+                            AppColors.error500,
+                          ),
+                        ),
+                      )
+                    : const Text(
+                        'Sign out',
+                        style: TextStyle(color: AppColors.error500),
+                      ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -301,54 +330,54 @@ class ProfileScreen extends ConsumerWidget {
         padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
         child: SingleChildScrollView(
           child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Manage your account',
-              style: Theme.of(
-                sheetContext,
-              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
-            ),
-            const SizedBox(height: 20),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.pause_circle_outline_rounded),
-              title: const Text(
-                'Deactivate account',
-                style: TextStyle(fontWeight: FontWeight.w700),
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Manage your account',
+                style: Theme.of(
+                  sheetContext,
+                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
               ),
-              subtitle: const Text(
-                'Temporarily disables login. Contact support any time to reactivate — your data and wallet stay intact.',
+              const SizedBox(height: 20),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.pause_circle_outline_rounded),
+                title: const Text(
+                  'Deactivate account',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
+                subtitle: const Text(
+                  'Temporarily disables login. Contact support any time to reactivate — your data and wallet stay intact.',
+                ),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  _confirmAccountAction(context, ref, isDelete: false);
+                },
               ),
-              onTap: () {
-                Navigator.of(sheetContext).pop();
-                _confirmAccountAction(context, ref, isDelete: false);
-              },
-            ),
-            const Divider(height: 24),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(
-                Icons.delete_forever_rounded,
-                color: AppColors.error500,
-              ),
-              title: const Text(
-                'Delete account',
-                style: TextStyle(
-                  fontWeight: FontWeight.w700,
+              const Divider(height: 24),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(
+                  Icons.delete_forever_rounded,
                   color: AppColors.error500,
                 ),
+                title: const Text(
+                  'Delete account',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.error500,
+                  ),
+                ),
+                subtitle: const Text(
+                  'Permanently removes your personal details. Your wallet must be empty first, and this cannot be undone.',
+                ),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  _confirmAccountAction(context, ref, isDelete: true);
+                },
               ),
-              subtitle: const Text(
-                'Permanently removes your personal details. Your wallet must be empty first, and this cannot be undone.',
-              ),
-              onTap: () {
-                Navigator.of(sheetContext).pop();
-                _confirmAccountAction(context, ref, isDelete: true);
-              },
-            ),
-          ],
+            ],
           ),
         ),
       ),
@@ -648,73 +677,72 @@ class _CredentialConfirmSheetState extends State<_CredentialConfirmSheet> {
       ),
       child: SingleChildScrollView(
         child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            widget.isDelete ? 'Confirm deletion' : 'Confirm deactivation',
-            textAlign: TextAlign.center,
-            style: Theme.of(
-              context,
-            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            _usePassword
-                ? 'Enter your account password to continue.'
-                : 'Enter your transaction PIN to continue.',
-            textAlign: TextAlign.center,
-            style: const TextStyle(color: AppColors.neutral500),
-          ),
-          const SizedBox(height: 24),
-          if (_usePassword)
-            TextField(
-              controller: _passwordController,
-              obscureText: _obscurePassword,
-              autofocus: true,
-              decoration: InputDecoration(
-                labelText: 'Password',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(AppDimensions.radiusMD),
-                ),
-                suffixIcon: IconButton(
-                  icon: Icon(
-                    _obscurePassword
-                        ? Icons.visibility_outlined
-                        : Icons.visibility_off_outlined,
-                  ),
-                  onPressed: () =>
-                      setState(() => _obscurePassword = !_obscurePassword),
-                ),
-              ),
-              onSubmitted: (value) => Navigator.of(context).pop(value),
-            )
-          else
-            Center(
-              child: KDPinInput(
-                length: 4,
-                onCompleted: (pin) => Navigator.of(context).pop(pin),
-              ),
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              widget.isDelete ? 'Confirm deletion' : 'Confirm deactivation',
+              textAlign: TextAlign.center,
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
             ),
-          const SizedBox(height: 16),
-          TextButton(
-            onPressed: () => setState(() => _usePassword = !_usePassword),
-            child: Text(
+            const SizedBox(height: 8),
+            Text(
               _usePassword
-                  ? 'Use transaction PIN instead'
-                  : "Haven't set a PIN? Use password instead",
+                  ? 'Enter your account password to continue.'
+                  : 'Enter your transaction PIN to continue.',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: AppColors.neutral500),
             ),
-          ),
-          if (_usePassword)
-            FilledButton(
-              onPressed: () =>
-                  Navigator.of(context).pop(_passwordController.text),
-              child: const Text('Confirm'),
+            const SizedBox(height: 24),
+            if (_usePassword)
+              TextField(
+                controller: _passwordController,
+                obscureText: _obscurePassword,
+                autofocus: true,
+                decoration: InputDecoration(
+                  labelText: 'Password',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(AppDimensions.radiusMD),
+                  ),
+                  suffixIcon: IconButton(
+                    icon: Icon(
+                      _obscurePassword
+                          ? Icons.visibility_outlined
+                          : Icons.visibility_off_outlined,
+                    ),
+                    onPressed: () =>
+                        setState(() => _obscurePassword = !_obscurePassword),
+                  ),
+                ),
+                onSubmitted: (value) => Navigator.of(context).pop(value),
+              )
+            else
+              Center(
+                child: KDPinInput(
+                  length: 4,
+                  onCompleted: (pin) => Navigator.of(context).pop(pin),
+                ),
+              ),
+            const SizedBox(height: 16),
+            TextButton(
+              onPressed: () => setState(() => _usePassword = !_usePassword),
+              child: Text(
+                _usePassword
+                    ? 'Use transaction PIN instead'
+                    : "Haven't set a PIN? Use password instead",
+              ),
             ),
-        ],
+            if (_usePassword)
+              FilledButton(
+                onPressed: () =>
+                    Navigator.of(context).pop(_passwordController.text),
+                child: const Text('Confirm'),
+              ),
+          ],
         ),
       ),
     );
   }
 }
-

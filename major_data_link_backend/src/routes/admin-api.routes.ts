@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { dataPlanPricingService } from '../services/data-plan-pricing.service.js';
 import { providerService } from '../services/provider.service.js';
-import { sendAdminBroadcast } from '../services/notification.service.js';
+import { PROMO_ILLUSTRATIONS, sendAdminBroadcast } from '../services/notification.service.js';
 import { listServicePricesForAdmin, updateServicePrice } from '../services/result-pin.service.js';
 import { listVerificationPricesForAdmin } from '../services/verification.service.js';
 import { logAdminAction } from '../admin/audit.js';
@@ -143,7 +143,9 @@ adminApiRoutes.post('/notifications/broadcast', requireFinanceAdmin, async (req,
     body: z.string().trim().min(1).max(1000),
     audience: z.enum(['ALL_USERS', 'SPECIFIC_USERS', 'KYC_VERIFIED_ONLY']).default('ALL_USERS'),
     user_ids: z.array(z.string()).optional(),
-    type: z.enum(['TRANSACTION', 'WALLET', 'KYC', 'PROMO', 'ADMIN_BROADCAST', 'SYSTEM']).optional()
+    type: z.enum(['TRANSACTION', 'WALLET', 'KYC', 'PROMO', 'ADMIN_BROADCAST', 'SYSTEM']).optional(),
+    image_key: z.enum(PROMO_ILLUSTRATIONS.map((i) => i.value) as [string, ...string[]]).optional(),
+    show_as_popup: z.boolean().optional()
   }).parse(req.body);
 
   const broadcast = await sendAdminBroadcast({
@@ -152,7 +154,9 @@ adminApiRoutes.post('/notifications/broadcast', requireFinanceAdmin, async (req,
     body: body.body,
     audience: body.audience,
     userIds: body.user_ids,
-    type: body.type
+    type: body.type,
+    imageKey: body.image_key,
+    showAsPopup: body.show_as_popup
   });
 
   await logAdminAction({

@@ -143,6 +143,15 @@ abstract class AppColors {
     colors: [primary500, secondary500],
   );
 
+  /// Gold-to-black - the "premium" look used on the splash screen, reused
+  /// on the home screen's header section (avatar/greeting + wallet card).
+  static const LinearGradient premiumGradient = LinearGradient(
+    begin: Alignment.topCenter,
+    end: Alignment.bottomCenter,
+    colors: [primary700, primary900, neutral950],
+    stops: [0.0, 0.55, 1.0],
+  );
+
   static const LinearGradient walletGradient = LinearGradient(
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,

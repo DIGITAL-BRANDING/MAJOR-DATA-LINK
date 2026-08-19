@@ -1,7 +1,7 @@
 import { getModelByName } from '@adminjs/prisma';
 import type { ResourceWithOptions } from 'adminjs';
 import { prisma } from '../../lib/prisma.js';
-import { fanOutBroadcast } from '../../services/notification.service.js';
+import { fanOutBroadcast, PROMO_ILLUSTRATIONS } from '../../services/notification.service.js';
 import { logAdminAction } from '../audit.js';
 import type { AdminSessionUser } from '../auth.js';
 
@@ -15,7 +15,7 @@ export const notificationBroadcastResource: ResourceWithOptions = {
   options: {
     id: 'NotificationBroadcast',
     navigation: { name: 'Communication', icon: 'Bell' },
-    listProperties: ['title', 'audience', 'recipientCount', 'createdByAdmin', 'createdAt'],
+    listProperties: ['title', 'audience', 'showAsPopup', 'recipientCount', 'createdByAdmin', 'createdAt'],
     showProperties: [
       'id',
       'title',
@@ -23,6 +23,8 @@ export const notificationBroadcastResource: ResourceWithOptions = {
       'type',
       'audience',
       'targetUserIds',
+      'imageKey',
+      'showAsPopup',
       'recipientCount',
       'createdByAdmin',
       'createdAt'
@@ -31,8 +33,8 @@ export const notificationBroadcastResource: ResourceWithOptions = {
     // broadcast is a historical record of what went out and to how many people,
     // so it's never edited or deleted after the fact (mirrors Transaction's
     // append-only design).
-    editProperties: ['title', 'body', 'type', 'audience', 'targetUserIds'],
-    filterProperties: ['audience', 'createdByAdmin', 'createdAt'],
+    editProperties: ['title', 'body', 'type', 'audience', 'targetUserIds', 'imageKey', 'showAsPopup'],
+    filterProperties: ['audience', 'showAsPopup', 'createdByAdmin', 'createdAt'],
     properties: {
       title: { description: 'Shown as the push/notification title, e.g. "Data prices updated".' },
       body: { description: 'The message body users will see in-app and in the push notification.' },
@@ -47,6 +49,15 @@ export const notificationBroadcastResource: ResourceWithOptions = {
         type: 'string',
         description: 'Only used when Audience is "Specific users". Comma-separated list of User IDs.',
         isVisible: { list: false, filter: false, show: true, edit: true }
+      },
+      imageKey: {
+        description:
+          'Optional illustration for the popup style below. Leave unset for a plain text notification.',
+        availableValues: PROMO_ILLUSTRATIONS.map((i) => ({ value: i.value, label: i.label }))
+      },
+      showAsPopup: {
+        description:
+          'ON: shows as a full-screen promotional dialog the next time each recipient opens the app (in addition to the notification list). OFF: appears in the notification list only.'
       },
       recipientCount: { isDisabled: true },
       createdByAdmin: { isVisible: { list: true, filter: true, show: true, edit: false } }
@@ -81,7 +92,14 @@ export const notificationBroadcastResource: ResourceWithOptions = {
         },
         after: async (response: any) => {
           const record = response.record;
-          if (record?.params?.id && !record.errors) {
+          // AdminJS always serializes `errors` as an object. An empty object is
+          // truthy in JavaScript, so `!record.errors` was *always* false and
+          // this fan-out never ran for broadcasts created through AdminJS.
+          // The Flutter admin route calls sendAdminBroadcast directly, which
+          // is why it worked while this dashboard did not.
+          const hasValidationErrors =
+            Boolean(record?.baseError) || Object.keys(record?.errors ?? {}).length > 0;
+          if (record?.params?.id && !hasValidationErrors) {
             const broadcast = await fanOutBroadcast(record.params.id as string);
 
             await logAdminAction({

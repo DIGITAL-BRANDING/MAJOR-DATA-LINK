@@ -6,6 +6,8 @@ import '../../../../core/utils/extensions.dart';
 import '../../../../core/utils/formatters.dart';
 import '../../../../shared/widgets/kd_card.dart';
 import '../../../../shared/widgets/kd_shimmer.dart';
+import '../../../../shared/widgets/promo_illustration.dart';
+import '../../../../shared/widgets/promo_popup_dialog.dart';
 import '../providers/notification_provider.dart';
 
 class NotificationsScreen extends ConsumerWidget {
@@ -22,6 +24,21 @@ class NotificationsScreen extends ConsumerWidget {
       ]);
     }
     if (!context.mounted) return;
+
+    // Matches how home_screen.dart auto-shows these on launch - opening one
+    // by hand from the list should look the same as when it popped up on
+    // its own, not fall back to the plain bottom sheet below.
+    if (notification.showAsPopup) {
+      await PromoPopupDialog.show(
+        context,
+        title: notification.title,
+        body: notification.body,
+        illustration: PromoIllustration.fromKey(notification.imageKey),
+        onRead: () {},
+      );
+      return;
+    }
+
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,

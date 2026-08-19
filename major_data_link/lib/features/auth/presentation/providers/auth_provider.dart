@@ -485,6 +485,14 @@ class AuthNotifier extends StateNotifier<AuthState> {
     return result;
   }
 
+  /// Resolves almost immediately - AuthRepositoryImpl.logout() clears the
+  /// local session (fast, on-device) before returning and only notifies the
+  /// backend afterwards, in the background, rather than making this wait on
+  /// a network round trip. See that method's doc comment for why: this used
+  /// to be gated behind the remote call and could take up to ~40 seconds on
+  /// a slow or dead connection, with no loading indicator shown while it
+  /// happened - exactly the "press sign out and the app just sits there"
+  /// symptom this fixes.
   Future<void> logout() async {
     await _ref.read(logoutUseCaseProvider).call();
     _invalidateUserScopedProviders();

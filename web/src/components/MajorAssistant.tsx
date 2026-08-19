@@ -16,6 +16,25 @@ type Workflow = { id: string; title: string; titleHa: string; fields: WorkflowFi
 type SpeechRecognitionLike = { lang: string; interimResults: boolean; onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null; onerror: (() => void) | null; onend: (() => void) | null; start: () => void; stop: () => void };
 type SpeechWindow = Window & { SpeechRecognition?: new () => SpeechRecognitionLike; webkitSpeechRecognition?: new () => SpeechRecognitionLike };
 const networks = ['MTN', 'AIRTEL', 'GLO', '9MOBILE'];
+// Word-boundary safe (unlike a plain .includes(), which let 'corporate'
+// misfire inside "incorporated" etc - same bug class already fixed on the
+// backend's assistant-workflow.service.ts).
+function parseDataType(lower: string): string {
+  if (/\bcorporate\b/.test(lower)) return 'CORPORATE';
+  if (/\bshare\b|\bdata\s*share\b/.test(lower)) return 'DATA SHARE';
+  if (/\bgift(ing)?\b/.test(lower)) return 'GIFTING';
+  if (/\bsme\s*2\b|\bsme2\b/.test(lower)) return 'SME2';
+  if (/\bcoupon\b/.test(lower)) return 'DATA COUPON';
+  if (/\bsme\b/.test(lower)) return 'SME';
+  return '';
+}
+function planLabel(p: Plan): string {
+  const name = p.name ?? p.size ?? '';
+  const price = Number(p.price ?? p.amount ?? 0);
+  const validity = (p as { validity?: string }).validity;
+  const validityPart = validity && validity !== 'Validity varies' ? ` (${validity})` : '';
+  return `${name} — ₦${price.toLocaleString()}${validityPart}`;
+}
 
 export default function MajorAssistant() {
   const [open, setOpen] = useState(false); const [language, setLanguage] = useState<Language>('choose'); const [task, setTask] = useState<Task>('choose'); const [stage, setStage] = useState<'language'|'task'|'network'|'dataType'|'phone'|'plan'|'amount'|'review'|'genericField'|'genericReview'|'done'>('language');
@@ -29,6 +48,32 @@ export default function MajorAssistant() {
   const add = (message: Message) => setMessages(prev => [...prev, message]);
   function startVoice() { const Recognition = (window as SpeechWindow).SpeechRecognition ?? (window as SpeechWindow).webkitSpeechRecognition; if (!Recognition) { add({ text: tr('Voice input is not supported in this browser. You can type instead.', 'Wannan browser bai goyi bayan voice input ba. Rubuta saƙonka.') }); return; } const recognition = new Recognition(); recognition.lang = ha ? 'ha-NG' : 'en-NG'; recognition.interimResults = false; recognition.onresult = (event) => { const spoken = event.results[0][0].transcript; setText(spoken); void answer(spoken); }; recognition.onerror = () => setListening(false); recognition.onend = () => setListening(false); setListening(true); recognition.start(); }
   const reset = () => { setTask('choose'); setNetwork(''); setDataType(''); setPhone(''); setPlan(null); setPlans([]); setAmount(0); setActiveWorkflow(null); setCollected({}); setFieldIndex(0); setStage('task'); add({ text: tr('What else can I help you with?', 'Me kuma zan taimaka maka da shi?'), options: [tr('Buy Data','Siyan Data'), tr('Buy Airtime','Siyan Airtime'), tr('Result Checker PIN','Result Checker PIN'), tr('NIN / BVN Verification','NIN / BVN Verification')] }); };
+  // "Why did my transaction fail?" - a safe, non-technical explanation
+  // built from GET /assistant/last-transaction, which deliberately never
+  // returns provider/technical detail (see that endpoint's doc-comment in
+  // the backend's assistant.routes.ts). Checked at the top of answer(), so
+  // it works from any stage, not just at the initial greeting.
+  async function explainLastTransaction() {
+    setBusy(true);
+    try {
+      const res = await api.get<{ data?: { found?: boolean; status?: string; description?: string; amount?: number } }>('/assistant/last-transaction');
+      const data = res.data;
+      if (!data?.found) { add({ text: tr("You don't have any transactions yet.", 'Ba ka da wata transaction tukuna.') }); return; }
+      const amountText = `₦${Number(data.amount ?? 0).toLocaleString()}`;
+      const description = data.description ?? tr('your last transaction', 'transaction ɗinka na ƙarshe');
+      if (data.status === 'success') {
+        add({ text: tr(`${description} (${amountText}) was successful.`, `${description} (${amountText}) ta yi nasara.`) });
+      } else if (data.status === 'pending') {
+        add({ text: tr(`${description} (${amountText}) is still processing. This usually finishes within a few minutes - if it has taken longer, tap below to talk to a human.`, `${description} (${amountText}) tana ci gaba da aiki. Yawanci takan ƙare cikin ƴan mintuna - idan ta ɗauki lokaci mai tsawo, danna ƙasa don magana da mutum.`), options: [tr('Talk to a human', 'Magana da mutum')] });
+      } else if (data.status === 'failed') {
+        add({ text: tr(`${description} (${amountText}) did not go through. If your wallet was debited, it should be refunded automatically - if you do not see that reflected, let us connect you to support.`, `${description} (${amountText}) bata yi nasara ba. Idan an cire kuɗi daga wallet ɗinka, ya kamata a mayar maka kai tsaye - idan ba ka gani ba, bari mu haɗa ka da support.`), options: [tr('Talk to a human', 'Magana da mutum')] });
+      } else if (data.status === 'reversed') {
+        add({ text: tr(`${description} (${amountText}) did not go through, and was refunded back to your wallet.`, `${description} (${amountText}) bata yi nasara ba, kuma an mayar da kuɗin zuwa wallet ɗinka.`) });
+      } else {
+        add({ text: tr(`${description} (${amountText}) - status: ${data.status}.`, `${description} (${amountText}) - matsayi: ${data.status}.`) });
+      }
+    } catch { add({ text: tr('I could not check your last transaction right now. Please try again shortly.', 'Ban iya duba transaction ɗinka na ƙarshe yanzu ba. Sake gwadawa ba da daɗewa ba.') }); } finally { setBusy(false); }
+  }
   async function ensureWorkflows(): Promise<Workflow[]> { if (workflows.length) return workflows; try { const res = await api.get<{ data?: Workflow[] }>('/assistant/workflows'); const list = res.data ?? []; setWorkflows(list); return list; } catch { return []; } }
   // Server-declared paths already include the "/api" prefix that api.get/post
   // add themselves (see lib/api.ts's `${API_BASE}/api${path}`), so strip it.
@@ -36,7 +81,8 @@ export default function MajorAssistant() {
   async function answer(raw: string) {
     const value = raw.trim(); if (!value || busy) return; setText(''); add({ text: value, user: true }); const lower = value.toLowerCase();
     if (/(human|support|agent|live chat|ma'aikaci|mutum)/.test(lower)) { await handoff('Customer requested human support'); return; }
-    const mentionedNetwork = networks.find((item) => lower.includes(item.toLowerCase()));
+    if (/(why.*(fail|failed|not work|didn.?t work)|transaction.*(fail|status)|me\s*yasa.*(gaza|kasa|bai\s*yi\s*ba|bai\s*shiga\s*ba)|ban\s*samu\s*ba|ban\s*same\s*ba)/.test(lower)) { await explainLastTransaction(); return; }
+    const mentionedNetwork = networks.find((item) => new RegExp(`(?<![a-z0-9])${item.toLowerCase()}(?![a-z0-9])`).test(lower));
     if (mentionedNetwork && network && mentionedNetwork !== network && stage !== 'language' && stage !== 'task') { setNetwork(mentionedNetwork); setDataType(''); setPlans([]); setPlan(null); setStage(task === 'data' ? 'dataType' : 'phone'); add({ text: tr(`Okay, I changed the network from ${network} to ${mentionedNetwork}. Let us continue.`, `To, na canza network daga ${network} zuwa ${mentionedNetwork}. Mu ci gaba.`), options: task === 'data' ? ['Corporate','Data Share','Gifting','SME','SME 2','Data Coupon'] : undefined }); return; }
     if (stage === 'language') { const isHa = lower.includes('hausa'); setLanguage(isHa ? 'ha' : 'en'); setStage('task'); add({ text: isHa ? 'Me kake so in taimaka maka da shi?' : 'What would you like to do?', options: isHa ? ['Siyan Data','Siyan Airtime','Cika Wallet','Result Checker PIN','NIN / BVN Verification'] : ['Buy Data','Buy Airtime','Fund Wallet','Result Checker PIN','NIN / BVN Verification'] }); return; }
     if (stage === 'task' && /(fund|top ?up|wallet|cika wallet|saka kudi|add money|deposit)/.test(lower)) { setTask('fund'); setStage('amount'); add({ text: tr('How much would you like to add to your wallet?', 'Nawa kake so ka saka a wallet ɗinka?') }); return; }
@@ -70,17 +116,29 @@ export default function MajorAssistant() {
       setDataType(fields.data_type ?? '');
       setBusy(true); try { const response = await api.get<{data?: Plan[]}>(`/data/plans/${fields.network}?category=${encodeURIComponent(fields.data_type ?? '')}`); const list = response.data ?? []; setPlans(list); const selected = fields.data_size ? list.find(p => `${p.name ?? ''} ${p.size ?? ''}`.replace(/\s/g,'').toLowerCase().includes(fields.data_size!.toLowerCase())) : undefined; if (selected) { const price = Number(selected.price ?? selected.amount ?? 0); setPlan(selected); setAmount(price); setStage('review'); await review(selected, price); } else { setStage('plan'); add({ text: tr(`Choose a plan (${list.length} available):`, `Zaɓi data plan (${list.length} suna akwai):`), options: list.map(p => `${p.name ?? p.size} — ₦${Number(p.price ?? p.amount ?? 0).toLocaleString()}`) }); } } catch { add({ text: tr('I could not load plans. Please try again.', 'Ba a iya ɗauko plan ba. Sake gwadawa.') }); } finally { setBusy(false); } return;
     }
-    if (stage === 'dataType') { const type = lower.includes('corporate') ? 'CORPORATE' : lower.includes('share') ? 'DATA SHARE' : lower.includes('gift') ? 'GIFTING' : lower.includes('sme 2') || lower.includes('sme2') ? 'SME2' : lower.includes('coupon') ? 'DATA COUPON' : lower.includes('sme') ? 'SME' : ''; if (!type) { add({ text: tr('Please choose a data type from the buttons.', 'Zaɓi nau’in Data daga maɓallan.') }); return; } setDataType(type); setStage('phone'); add({ text: tr('Enter the 11-digit Nigerian phone number.', 'Rubuta lambar Najeriya mai digit 11.') }); return; }
-    if (stage === 'network') { const n = networks.find(x => lower.includes(x.toLowerCase()) || (x === '9MOBILE' && (lower.includes('nine') || lower.includes('9')))); if (!n) { add({ text: tr('Please choose MTN, Airtel, Glo or 9mobile.', 'Don Allah zaɓi MTN, Airtel, Glo ko 9mobile.') }); return; } setNetwork(n); setStage(task === 'data' ? 'dataType' : 'phone'); add({ text: task === 'data' ? tr('Which data type: Corporate, Data Share, Gifting, SME, SME 2 or Data Coupon?', 'Wanne nau’in Data: Corporate, Data Share, Gifting, SME, SME 2 ko Data Coupon?') : tr('Enter the 11-digit Nigerian phone number.', 'Rubuta lambar Najeriya mai digit 11.'), options: task === 'data' ? ['Corporate','Data Share','Gifting','SME','SME 2','Data Coupon'] : [] }); return; }
-    if (stage === 'phone') { const p = value.replace(/\D/g,''); if (p.length !== 11 || !p.startsWith('0')) { add({ text: tr('Please enter a valid 11-digit Nigerian number.', 'Don Allah rubuta lamba mai digit 11.') }); return; } setPhone(p); if (task === 'airtime') { setStage('amount'); add({ text: tr('How much airtime should I buy? (minimum ₦50)', 'Nawa zan saya na airtime? (daga ₦50)') }); return; } setBusy(true); try { const response = await api.get<{data?: Plan[]}>(`/data/plans/${network}?category=${encodeURIComponent(dataType)}`); const list = response.data ?? []; setPlans(list); setStage('plan'); add({ text: tr(`Choose a plan (${list.length} available):`, `Zaɓi data plan (${list.length} suna akwai):`), options: list.map(p => `${p.name ?? p.size} — ₦${Number(p.price ?? p.amount ?? 0).toLocaleString()}`) }); } catch { add({ text: tr('I could not load plans. Please try again.', 'Ba a iya ɗauko plan ba. Sake gwadawa.') }); } finally { setBusy(false); } return; }
-    if (stage === 'plan') { const clean = (input: string) => input.toLowerCase().replace(/[^a-z0-9.]/g, ''); const found = plans.find((p) => clean(`${p.name ?? ''} ${p.size ?? ''} ${p.price ?? p.amount ?? ''}`) === clean(value)) ?? plans.find((p) => { const price = Number(p.price ?? p.amount ?? 0); return price > 0 && value.replace(/[^0-9]/g, '') === String(Math.round(price)); }); if (!found) { add({ text: tr('Please use one of the plan buttons.', 'Don Allah zaɓi ɗaya daga maɓallan plan.') }); return; } setPlan(found); setAmount(Number(found.price ?? found.amount ?? 0)); setStage('review'); await review(found, Number(found.price ?? found.amount ?? 0)); return; }
+    if (stage === 'dataType') { const type = parseDataType(lower); if (!type) { add({ text: tr('Please choose a data type from the buttons.', 'Zaɓi nau’in Data daga maɓallan.') }); return; } setDataType(type); setStage('phone'); add({ text: tr('Enter the 11-digit Nigerian phone number.', 'Rubuta lambar Najeriya mai digit 11.') }); return; }
+    if (stage === 'network') { const n = networks.find(x => new RegExp(`(?<![a-z0-9])${x.toLowerCase()}(?![a-z0-9])`).test(lower)) ?? (/\bnine\s*mobile\b|\betisalat\b/.test(lower) ? '9MOBILE' : undefined); if (!n) { add({ text: tr('Please choose MTN, Airtel, Glo or 9mobile.', 'Don Allah zaɓi MTN, Airtel, Glo ko 9mobile.') }); return; } setNetwork(n); setStage(task === 'data' ? 'dataType' : 'phone'); add({ text: task === 'data' ? tr('Which data type: Corporate, Data Share, Gifting, SME, SME 2 or Data Coupon?', 'Wanne nau’in Data: Corporate, Data Share, Gifting, SME, SME 2 ko Data Coupon?') : tr('Enter the 11-digit Nigerian phone number.', 'Rubuta lambar Najeriya mai digit 11.'), options: task === 'data' ? ['Corporate','Data Share','Gifting','SME','SME 2','Data Coupon'] : [] }); return; }
+    if (stage === 'phone') { const p = value.replace(/\D/g,''); if (p.length !== 11 || !p.startsWith('0')) { add({ text: tr('Please enter a valid 11-digit Nigerian number.', 'Don Allah rubuta lamba mai digit 11.') }); return; } setPhone(p); if (task === 'airtime') { setStage('amount'); add({ text: tr('How much airtime should I buy? (minimum ₦50)', 'Nawa zan saya na airtime? (daga ₦50)') }); return; } setBusy(true); try { const response = await api.get<{data?: Plan[]}>(`/data/plans/${network}?category=${encodeURIComponent(dataType)}`); const list = [...(response.data ?? [])].sort((a, b) => Number(a.price ?? a.amount ?? 0) - Number(b.price ?? b.amount ?? 0)); setPlans(list); setStage('plan'); add({ text: tr(`Choose a plan (${list.length} available, cheapest first) - or just say "cheapest":`, `Zaɓi data plan (${list.length} suna akwai, mafi rahusa da farko) - ko ka ce "mafi rahusa":`), options: list.map(planLabel) }); } catch { add({ text: tr('I could not load plans. Please try again.', 'Ba a iya ɗauko plan ba. Sake gwadawa.') }); } finally { setBusy(false); } return; }
+    if (stage === 'plan') {
+      const clean = (input: string) => input.toLowerCase().replace(/[^a-z0-9.]/g, '');
+      // "Which one is cheapest/simplest?" - answered directly instead of
+      // making the customer name a specific plan; `plans` is already
+      // sorted cheapest-first above.
+      const wantsCheapest = /(cheap|lowest|affordable|simple|easiest|best|rahusa|sauki|mafi)/.test(lower);
+      const found = (wantsCheapest ? plans[0] : undefined)
+        ?? plans.find((p) => clean(planLabel(p)) === clean(value))
+        ?? plans.find((p) => { const price = Number(p.price ?? p.amount ?? 0); return price > 0 && value.replace(/[^0-9]/g, '') === String(Math.round(price)); })
+        ?? (plans.length === 1 ? plans[0] : undefined);
+      if (!found) { add({ text: tr('I could not match that to a plan - tap one of the buttons above, tell me the size (e.g. "1GB"), or say "cheapest".', 'Ban gane ba - danna ɗaya daga maɓallan, ko faɗa girman (misali "1GB"), ko ka ce "mafi rahusa".') }); return; }
+      setPlan(found); setAmount(Number(found.price ?? found.amount ?? 0)); setStage('review'); await review(found, Number(found.price ?? found.amount ?? 0)); return;
+    }
     if (stage === 'amount') { const a = Number(value.replace(/[^0-9.]/g,'')); if (!Number.isFinite(a) || a < 50) { add({ text: tr('Enter ₦50 or more.', 'Rubuta ₦50 ko fiye.') }); return; } if (task === 'fund') { add({ text: tr(`I will take you to secure wallet funding for ₦${a.toLocaleString()}. Your card/bank details and PIN must only be entered on the secure payment page.`, `Zan kai ka secure funding page na ₦${a.toLocaleString()}. Kada ka rubuta card/bank details ko PIN a chat.`), options: [tr('Continue to funding','Ci gaba zuwa funding'), tr('Start again','Fara kuma')] }); setAmount(a); setStage('review'); return; } setAmount(a); setStage('review'); await review(null, a); return; }
     if (stage === 'review') { if (task === 'fund' && /(continue|ci gaba|yes|eh|confirm)/.test(lower)) { window.location.assign(`/fund-wallet?amount=${encodeURIComponent(amount)}`); return; } if (/(yes|eh|confirm)/.test(lower)) setPinOpen(true); else reset(); return; }
     if (stage === 'genericField') { await handleGenericFieldAnswer(value, lower); return; }
     if (stage === 'genericReview') { if (/(yes|eh|confirm)/.test(lower)) setPinOpen(true); else reset(); return; }
   }
   async function handoff(reason: string) { try { const result = await api.post<{data?: {ticket_id?: string}}>('/assistant/fallback', { reason, stage }); add({ text: tr(`I’ve connected this to human support. Ticket: ${result.data?.ticket_id ?? 'created'}.`, `Na haɗa wannan da human support. Ticket: ${result.data?.ticket_id ?? 'an ƙirƙira'}.`) }); } catch { add({ text: tr('Support handoff is temporarily unavailable. Please open Support from your account menu.', 'Ba a samu support handoff yanzu ba. Buɗe Support daga account menu.') }); } }
-  async function review(selectedPlan: Plan | null, price: number) { try { const wallet = await api.get<{balance?: number; data?: {balance?:number}}>('/wallet/balance'); const balance = Number(wallet.balance ?? wallet.data?.balance ?? 0); if (balance < price) { add({ text: tr(`Your wallet balance is ₦${balance.toLocaleString()}, but this needs ₦${price.toLocaleString()}. Fund wallet first.`, `Wallet ɗinka yana da ₦${balance.toLocaleString()}, amma wannan na bukatar ₦${price.toLocaleString()}. Cika wallet farko.`) }); reset(); return; } const item = task === 'data' ? (selectedPlan?.name ?? selectedPlan?.size ?? 'data') : tr('airtime','airtime'); add({ text: tr(`Summary: ${item} on ${network} for ${phone} — ₦${price.toLocaleString()}. Wallet: ₦${balance.toLocaleString()}. Proceed?`, `Takaitawa: ${item} na ${network} zuwa ${phone} — ₦${price.toLocaleString()}. Wallet: ₦${balance.toLocaleString()}. A ci gaba?`), options: [tr('Yes, confirm','Eh, tabbatar'), tr('No, start again','A’a, a fara kuma')] }); } catch { add({ text: tr('I could not check your wallet. I can connect you to support.', 'Ba a iya duba wallet ba. Zan haɗa ka da support.'), options: [tr('Talk to support','Yi magana da support')] }); } }
+  async function review(selectedPlan: Plan | null, price: number) { try { const wallet = await api.get<{balance?: number; data?: {balance?:number}}>('/wallet/balance'); const balance = Number(wallet.balance ?? wallet.data?.balance ?? 0); if (balance < price) { add({ text: tr(`Your wallet balance is ₦${balance.toLocaleString()}, but this needs ₦${price.toLocaleString()}. Fund wallet first.`, `Wallet ɗinka yana da ₦${balance.toLocaleString()}, amma wannan na bukatar ₦${price.toLocaleString()}. Cika wallet farko.`) }); reset(); return; } const item = task === 'data' ? (selectedPlan ? planLabel(selectedPlan) : 'data') : tr('airtime','airtime'); add({ text: tr(`Summary: ${item} on ${network} for ${phone} — ₦${price.toLocaleString()}. Wallet: ₦${balance.toLocaleString()}. Proceed?`, `Takaitawa: ${item} na ${network} zuwa ${phone} — ₦${price.toLocaleString()}. Wallet: ₦${balance.toLocaleString()}. A ci gaba?`), options: [tr('Yes, confirm','Eh, tabbatar'), tr('No, start again','A’a, a fara kuma')] }); } catch { add({ text: tr('I could not check your wallet. I can connect you to support.', 'Ba a iya duba wallet ba. Zan haɗa ka da support.'), options: [tr('Talk to support','Yi magana da support')] }); } }
   async function audit(event: { stage: string; outcome: 'started'|'waiting'|'success'|'failed'|'fallback'|'cancelled'; error_code?: string; transaction_ref?: string }) { try { await api.post('/assistant/events', { intent: task, ...event }); } catch { /* observability must never block a customer */ } }
   async function startGenericWorkflow(workflow: Workflow) {
     setTask('generic'); setActiveWorkflow(workflow); setCollected({}); setFieldIndex(0); setStage('genericField');

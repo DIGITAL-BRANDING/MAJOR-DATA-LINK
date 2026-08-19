@@ -5,6 +5,25 @@ import { getFirebaseAdmin } from '../lib/firebase.js';
 import { env } from '../config/env.js';
 
 /**
+ * Preset illustrations a promotional popup notification can use (see the
+ * "Notification popup" feature: PromoPopupDialog on the Flutter side).
+ * Deliberately a closed set the admin picks from - not a free-form image
+ * upload/URL - so there's no image-hosting infrastructure to stand up and
+ * no risk of a broken/slow-loading external image inside the popup. Each
+ * key must have a matching case in PromoIllustration.fromKey() on the
+ * Flutter side (lib/shared/widgets/promo_illustration.dart) - keep the two
+ * lists in sync if either changes.
+ */
+export const PROMO_ILLUSTRATIONS = [
+  { value: 'megaphone', label: 'Megaphone — general announcement' },
+  { value: 'discount', label: 'Discount tag — price drop / sale' },
+  { value: 'party', label: 'Party popper — celebration / anniversary' },
+  { value: 'gift', label: 'Gift — bonus / reward / giveaway' },
+  { value: 'rocket', label: 'Rocket — new feature / update' },
+  { value: 'bell', label: 'Bell — reminder / notice' }
+] as const;
+
+/**
  * Sends a push notification to exactly the device tokens passed in — NEVER to a
  * topic, and never to "all tokens in the table". Every caller in this file resolves
  * the specific userId(s) first and only pushes to tokens belonging to those users.
@@ -129,7 +148,9 @@ export async function fanOutBroadcast(broadcastId: string) {
         type: broadcast.type,
         title: broadcast.title,
         body: broadcast.body,
-        broadcastId: broadcast.id
+        broadcastId: broadcast.id,
+        imageKey: broadcast.imageKey,
+        showAsPopup: broadcast.showAsPopup
       }))
     });
 
@@ -163,6 +184,8 @@ export async function sendAdminBroadcast(params: {
   type?: NotificationType;
   audience: NotificationAudience;
   userIds?: string[];
+  imageKey?: string;
+  showAsPopup?: boolean;
 }) {
   const broadcast = await prisma.notificationBroadcast.create({
     data: {
@@ -172,7 +195,9 @@ export async function sendAdminBroadcast(params: {
       title: params.title,
       body: params.body,
       audience: params.audience,
-      targetUserIds: params.audience === 'SPECIFIC_USERS' ? params.userIds : undefined
+      targetUserIds: params.audience === 'SPECIFIC_USERS' ? params.userIds : undefined,
+      imageKey: params.imageKey,
+      showAsPopup: params.showAsPopup ?? false
     }
   });
 

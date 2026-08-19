@@ -47,7 +47,7 @@ abstract class AuthRemoteDataSource {
 
   Future<UserModel> getProfile();
 
-  Future<void> logout();
+  Future<void> logout({required String refreshToken});
 
   Future<void> setPin({required String pin});
 
@@ -57,10 +57,7 @@ abstract class AuthRemoteDataSource {
 
   Future<void> setLoginPin({required String pin});
 
-  Future<void> changeLoginPin({
-    required String oldPin,
-    required String newPin,
-  });
+  Future<void> changeLoginPin({required String oldPin, required String newPin});
 
   Future<void> changePassword({
     required String oldPassword,
@@ -177,11 +174,7 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
     try {
       await _dio.post(
         AppEndpoints.resetPassword,
-        data: {
-          'email': email,
-          'token': token,
-          'new_password': newPassword,
-        },
+        data: {'email': email, 'token': token, 'new_password': newPassword},
       );
     } on DioException catch (e) {
       throw ErrorHandler.handleException(e);
@@ -202,9 +195,13 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
   }
 
   @override
-  Future<void> logout() async {
+  Future<void> logout({required String refreshToken}) async {
     try {
-      await _dio.post(AppEndpoints.logout);
+      await _dio.post(
+        AppEndpoints.logout,
+        data: {'refresh_token': refreshToken},
+        options: Options(extra: {'skipAuth': true, 'skipRetry': true}),
+      );
     } on DioException catch (e) {
       throw ErrorHandler.handleException(e);
     }
@@ -284,10 +281,7 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
     try {
       await _dio.post(
         AppEndpoints.changePassword,
-        data: {
-          'old_password': oldPassword,
-          'new_password': newPassword,
-        },
+        data: {'old_password': oldPassword, 'new_password': newPassword},
       );
     } on DioException catch (e) {
       throw ErrorHandler.handleException(e);

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
 import { assistantWorkflows, parseAssistantIntent } from '../services/assistant-workflow.service.js';
 import { prisma } from '../lib/prisma.js';
+import { koboToNaira } from '../lib/money.js';
 import { TransactionStatus, TransactionType } from '@prisma/client';
 
 export const assistantRoutes = Router();
@@ -66,4 +67,38 @@ assistantRoutes.post('/fallback', async (req, res) => {
   } });
   await prisma.assistantAuditEvent.create({ data: { userId: user.id, stage: body.stage, outcome: 'fallback', errorCode: 'HUMAN_HANDOFF' } });
   return res.status(201).json({ status: true, data: { ticket_id: ticket.id } });
+});
+
+/**
+ * "Why did my transaction fail?" - the assistant's answer, safe to show a
+ * customer. Deliberately does NOT return `metadata` or `providerRef` (both
+ * present on the raw Transaction row and included in GET /transactions) -
+ * those can carry upstream provider payloads, internal error codes, and
+ * other implementation detail that means nothing to a customer and
+ * shouldn't be exposed to one. Only `type`, `status`, `amount`, our own
+ * human-composed `description` (e.g. "MTN 1GB data purchase for
+ * 08012345678" - written by our own code at purchase time, never raw
+ * provider text), and `created_at` go out. The client is expected to turn
+ * this into a bilingual sentence itself (same pattern as every other
+ * assistant response) - see the doc-comment where this is consumed in
+ * major_ai_assistant_screen.dart / MajorAssistant.tsx for the exact
+ * per-status wording and when `escalate` should be offered.
+ */
+assistantRoutes.get('/last-transaction', async (req, res) => {
+  const tx = await prisma.transaction.findFirst({
+    where: { userId: req.user!.id },
+    orderBy: { createdAt: 'desc' }
+  });
+  if (!tx) return res.json({ status: true, data: { found: false } });
+  res.json({
+    status: true,
+    data: {
+      found: true,
+      type: tx.type.toLowerCase(),
+      status: tx.status.toLowerCase(),
+      amount: koboToNaira(tx.amountKobo),
+      description: tx.description,
+      created_at: tx.createdAt.toISOString()
+    }
+  });
 });
