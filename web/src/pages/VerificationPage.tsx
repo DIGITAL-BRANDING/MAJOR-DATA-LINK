@@ -47,6 +47,7 @@ const nin: Item[] = [
 const bvn: Item[] = [
   { id: 'slip', label: 'BVN Verification', path: '/verification/bvn/slip', fields: ['bvn'], icon: Fingerprint, tiers: ['premium', 'standard'] },
   { id: 'retrieval', label: 'BVN Retrieval', path: '/verification/bvn-retrieval', fields: ['first_name', 'last_name', 'phone_number'], icon: Phone, async: true },
+  { id: 'license-onboarding', label: 'BVN License Onboarding', path: '/verification/bvn/license-onboarding', fields: ['agent_location', 'agent_bvn', 'account_number', 'bank_name', 'first_name', 'last_name', 'email', 'phone_number', 'date_of_birth', 'address', 'lga', 'state_of_residence', 'geo_political_zone'], icon: UserRoundCheck },
 ];
 
 // Every validation_type Techhub's nin_validation.php accepts (see the zod
@@ -95,6 +96,7 @@ function keyFor(item: Item, tier = 'premium') {
       delinking: 'NIN_DELINKING',
       ipe: 'IPE_CLEARANCE',
       retrieval: 'BVN_RETRIEVAL',
+      'license-onboarding': 'BVN_LICENSE_ONBOARDING',
     } as Record<string, string>
   )[item.id];
 }
@@ -148,6 +150,7 @@ export default function VerificationPage({ mode }: { mode: Mode }) {
 
   const selectedPrice = useMemo(() => {
     if (!selected) return undefined;
+    if (selected.id === 'license-onboarding') return 10000;
     if (selected.id === 'validation') return prices[validationServiceKey(values.validation_type)];
     return prices[keyFor(selected, tier)];
   }, [selected, tier, prices, values.validation_type]);
@@ -208,11 +211,14 @@ export default function VerificationPage({ mode }: { mode: Mode }) {
       const result = await api.post<{
         status: boolean;
         message: string;
-        data?: { reference: string; user_data?: Record<string, unknown>; pdf_base64?: string; pdf_url?: string; ticket_id?: string };
+      data?: { reference: string; tracking_id?: string; user_data?: Record<string, unknown>; pdf_base64?: string; pdf_url?: string; ticket_id?: string };
       }>(selected.path, data);
       if (!result.status) throw new Error(result.message);
 
-      if (selected.async) {
+      if (selected.id === 'license-onboarding') {
+        setMessage(`Request submitted successfully. Tracking ID: ${result.data?.tracking_id ?? result.data?.reference ?? 'pending'}`);
+        setAsyncResult({ ticket_id: result.data?.tracking_id ?? result.data?.reference ?? '', reference: result.data?.reference ?? '' });
+      } else if (selected.async) {
         if (!result.data?.ticket_id) throw new Error('No ticket was returned - please contact support.');
         setAsyncResult({ ticket_id: result.data.ticket_id, reference: result.data.reference });
         setMessage('Request submitted. We\u2019ll check its status below - this is usually reviewed within a few minutes.');
@@ -246,12 +252,12 @@ export default function VerificationPage({ mode }: { mode: Mode }) {
   }
 
   useEffect(() => {
-    if (!asyncResult || ticketStatus?.status === 'success' || ticketStatus?.status === 'failed') return;
+    if (!asyncResult || selected?.id === 'license-onboarding' || ticketStatus?.status === 'success' || ticketStatus?.status === 'failed') return;
     void checkTicket(true);
     const id = setInterval(() => void checkTicket(true), 6000);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [asyncResult, ticketStatus?.status]);
+  }, [asyncResult, ticketStatus?.status, selected?.id]);
 
   function prepare(event: FormEvent) {
     event.preventDefault();
@@ -288,7 +294,9 @@ export default function VerificationPage({ mode }: { mode: Mode }) {
             {items.map((item) => {
               const Icon = item.icon;
               const from =
-                item.id === 'validation'
+                item.id === 'license-onboarding'
+                  ? 10000
+                  : item.id === 'validation'
                   ? Math.min(...VALIDATION_TYPES.map((t) => prices[t.serviceKey] ?? Infinity))
                   : prices[keyFor(item, item.tiers?.[0] ?? 'premium')];
               return (
@@ -302,7 +310,9 @@ export default function VerificationPage({ mode }: { mode: Mode }) {
                   </span>
                   <span className="mt-3 font-body text-sm font-semibold text-white">{item.label}</span>
                   <span className="mt-1 font-body text-sm font-bold text-[#ffe9a3]">
-                    {item.id === 'modification'
+                    {item.id === 'license-onboarding'
+                      ? money(10000)
+                      : item.id === 'modification'
                       ? 'From ₦5,000'
                       : item.id === 'validation'
                         ? `From ${money(Number.isFinite(from) ? from : undefined)}`
@@ -395,7 +405,7 @@ export default function VerificationPage({ mode }: { mode: Mode }) {
               />
             )}
 
-            {asyncResult && (
+            {asyncResult && selected.id !== 'license-onboarding' && (
               <AsyncResultView
                 ticket={asyncResult}
                 status={ticketStatus}
@@ -407,6 +417,14 @@ export default function VerificationPage({ mode }: { mode: Mode }) {
                   resetResult();
                 }}
               />
+            )}
+
+            {asyncResult && selected.id === 'license-onboarding' && (
+              <div className="mt-6 rounded-xl border border-gold-300 bg-gold-50 p-5 font-body text-sm text-ink">
+                <p className="font-bold">BVN License request submitted</p>
+                <p className="mt-2">Tracking ID: <span className="font-bold">{asyncResult.ticket_id}</span></p>
+                <p className="mt-1 text-ink-600">₦10,000 has been deducted from your wallet. Admin will update the request status.</p>
+              </div>
             )}
 
             <VerificationHistoryView history={history} loading={loadingHistory} />
