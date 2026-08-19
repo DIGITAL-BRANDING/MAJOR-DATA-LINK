@@ -28,7 +28,14 @@ const SERVICE_KEYS = [
   'BVN_SLIP_PREMIUM',
   'BVN_SLIP_STANDARD',
   'NIN_DELINKING',
-  'NIN_VALIDATION',
+  'NIN_VALIDATION_GENERAL',
+  'NIN_VALIDATION_NO_RECORD',
+  'NIN_VALIDATION_SIM',
+  'NIN_VALIDATION_BANK',
+  'NIN_VALIDATION_UPDATE_RECORDS',
+  'NIN_VALIDATION_MODIFICATION',
+  'NIN_VALIDATION_PHOTO_ERROR',
+  'NIN_VALIDATION_VNIN',
   'NIN_PERSONALIZATION',
   'BVN_RETRIEVAL',
   'IPE_CLEARANCE'
@@ -64,10 +71,44 @@ const DEFAULTS: Record<VerificationServiceKey, { label: string; price: number }>
   BVN_SLIP_PREMIUM: { label: 'BVN Slip (Premium)', price: 80 },
   BVN_SLIP_STANDARD: { label: 'BVN Slip (Standard)', price: 80 },
   NIN_DELINKING: { label: 'NIN Delinking', price: 3500 },
-  NIN_VALIDATION: { label: 'NIN Validation', price: 1000 },
+  // NIN Validation used to be ONE flat-priced service regardless of which of
+  // Techhub's 8 validation_type variants was requested. That was wrong: a
+  // live submit response confirmed 'sim' actually costs ₦300 at Techhub, not
+  // the old flat ₦1000 default - and techhub.co's OWN dashboard prices three
+  // of the eight variants (v.nin validation, modification, photographic
+  // error) 20% higher than the rest (₦1,200 vs ₦1,000 there), which is
+  // consistent with those three being pricier to fulfill on their side too.
+  // Only NIN_VALIDATION_SIM's ₦300 is a confirmed real provider cost from an
+  // actual API response; the other seven are ESTIMATES carrying that same
+  // ~1.5x-of-confirmed / 1.2x-between-tiers ratio - update each via the
+  // "Verification Pricing" admin page (or PATCH /api/admin/service-prices)
+  // once its real Techhub cost is confirmed, no redeploy needed.
+  NIN_VALIDATION_GENERAL: { label: 'NIN Validation — General', price: 300 },
+  NIN_VALIDATION_NO_RECORD: { label: 'NIN Validation — No Record Found', price: 300 },
+  NIN_VALIDATION_SIM: { label: 'NIN Validation — SIM Validation', price: 300 }, // confirmed
+  NIN_VALIDATION_BANK: { label: 'NIN Validation — Bank Validation', price: 300 },
+  NIN_VALIDATION_UPDATE_RECORDS: { label: 'NIN Validation — Update Records', price: 300 },
+  NIN_VALIDATION_MODIFICATION: { label: 'NIN Validation — Modification', price: 360 },
+  NIN_VALIDATION_PHOTO_ERROR: { label: 'NIN Validation — Photographic Error', price: 360 },
+  NIN_VALIDATION_VNIN: { label: 'NIN Validation — v.NIN Validation', price: 360 },
   NIN_PERSONALIZATION: { label: 'NIN Personalization', price: 300 },
   BVN_RETRIEVAL: { label: 'BVN Retrieval', price: 700 },
   IPE_CLEARANCE: { label: 'IPE Clearance', price: 450 }
+};
+
+// Maps the validation_type string Techhub's API (and our own zod enum in
+// verification.routes.ts) expects onto the priced service key it should be
+// billed under. 'nin_validation' (Techhub's own default when validation_type
+// is omitted) and any unrecognized value both fall back to the GENERAL tier.
+const NIN_VALIDATION_SERVICE_BY_TYPE: Record<string, VerificationServiceKey> = {
+  nin_validation: 'NIN_VALIDATION_GENERAL',
+  no_record: 'NIN_VALIDATION_NO_RECORD',
+  sim: 'NIN_VALIDATION_SIM',
+  bank_validation: 'NIN_VALIDATION_BANK',
+  update_records: 'NIN_VALIDATION_UPDATE_RECORDS',
+  modification: 'NIN_VALIDATION_MODIFICATION',
+  photo_error: 'NIN_VALIDATION_PHOTO_ERROR',
+  'v.nin_validation': 'NIN_VALIDATION_VNIN'
 };
 
 function priceToKobo(amount: number) {
@@ -553,11 +594,12 @@ export function checkDelinkingStatus(params: { userId: string; ticketId: string 
 }
 
 export function submitNinValidation(params: { userId: string; nin: string; validationType?: string; idempotencyKey?: string }) {
+  const service = NIN_VALIDATION_SERVICE_BY_TYPE[params.validationType ?? 'nin_validation'] ?? 'NIN_VALIDATION_GENERAL';
   return submitAsyncService({
     userId: params.userId,
-    service: 'NIN_VALIDATION',
-    description: 'NIN validation request',
-    operational: { validation_type: params.validationType },
+    service,
+    description: `NIN validation request (${params.validationType ?? 'nin_validation'})`,
+    operational: { validation_type: params.validationType ?? 'nin_validation' },
     pii: { nin: params.nin },
     idempotencyKey: params.idempotencyKey,
     call: () => techhubService.submitNinValidation(params.nin, params.validationType)

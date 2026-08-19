@@ -49,6 +49,21 @@ const bvn: Item[] = [
   { id: 'retrieval', label: 'BVN Retrieval', path: '/verification/bvn-retrieval', fields: ['first_name', 'last_name', 'phone_number'], icon: Phone, async: true },
 ];
 
+// Every validation_type Techhub's nin_validation.php accepts (see the zod
+// enum `ninValidationType` in verification.routes.ts), each priced under its
+// own service key now (NIN_VALIDATION_* in verification.service.ts) instead
+// of the one flat rate this used to charge regardless of type.
+const VALIDATION_TYPES: { value: string; label: string; serviceKey: string }[] = [
+  { value: 'nin_validation', label: 'General validation', serviceKey: 'NIN_VALIDATION_GENERAL' },
+  { value: 'no_record', label: 'No record found', serviceKey: 'NIN_VALIDATION_NO_RECORD' },
+  { value: 'sim', label: 'SIM validation', serviceKey: 'NIN_VALIDATION_SIM' },
+  { value: 'bank_validation', label: 'Bank validation', serviceKey: 'NIN_VALIDATION_BANK' },
+  { value: 'update_records', label: 'Update records', serviceKey: 'NIN_VALIDATION_UPDATE_RECORDS' },
+  { value: 'modification', label: 'Modification validation', serviceKey: 'NIN_VALIDATION_MODIFICATION' },
+  { value: 'photo_error', label: 'Photographic error', serviceKey: 'NIN_VALIDATION_PHOTO_ERROR' },
+  { value: 'v.nin_validation', label: 'v.NIN validation', serviceKey: 'NIN_VALIDATION_VNIN' },
+];
+
 const labels: Record<string, string> = {
   nin: 'NIN number',
   bvn: 'BVN number',
@@ -73,14 +88,19 @@ function keyFor(item: Item, tier = 'premium') {
   return (
     {
       demographic: 'NIN_DEMOGRAPHIC',
-      validation: 'NIN_VALIDATION',
-      modification: 'NIN_VALIDATION',
+      // 'validation' has no single key any more - each of the 8
+      // validation_type choices is its own priced service (see
+      // VALIDATION_TYPES above). Resolved separately in selectedPrice below.
       personalization: 'NIN_PERSONALIZATION',
       delinking: 'NIN_DELINKING',
       ipe: 'IPE_CLEARANCE',
       retrieval: 'BVN_RETRIEVAL',
     } as Record<string, string>
   )[item.id];
+}
+
+function validationServiceKey(validationType?: string) {
+  return VALIDATION_TYPES.find((t) => t.value === (validationType ?? 'nin_validation'))?.serviceKey ?? 'NIN_VALIDATION_GENERAL';
 }
 
 const money = (amount?: number) =>
@@ -126,8 +146,12 @@ export default function VerificationPage({ mode }: { mode: Mode }) {
       .catch(() => setMessage('Unable to load current prices. Please refresh and try again.'));
   }, []);
 
-  const selectedPrice = useMemo(() => (selected ? prices[keyFor(selected, tier)] : undefined), [selected, tier, prices]);
-  const selectedServiceKey = selected ? keyFor(selected, tier) : '';
+  const selectedPrice = useMemo(() => {
+    if (!selected) return undefined;
+    if (selected.id === 'validation') return prices[validationServiceKey(values.validation_type)];
+    return prices[keyFor(selected, tier)];
+  }, [selected, tier, prices, values.validation_type]);
+  const selectedServiceKey = selected ? (selected.id === 'validation' ? validationServiceKey(values.validation_type) : keyFor(selected, tier)) : '';
 
   useEffect(() => {
     if (!selectedServiceKey) {
@@ -160,7 +184,10 @@ export default function VerificationPage({ mode }: { mode: Mode }) {
     resetResult();
     setSelected(item);
     setTier('premium');
-    setValues({});
+    // Pre-select the general (cheapest, no-op) validation type so a real
+    // price shows immediately instead of "Price loading…" the moment the
+    // form opens - same reasoning as tier defaulting to 'premium' above.
+    setValues(item.id === 'validation' ? { validation_type: 'nin_validation' } : {});
     setMessage('');
   }
 
@@ -260,7 +287,10 @@ export default function VerificationPage({ mode }: { mode: Mode }) {
           <section className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
             {items.map((item) => {
               const Icon = item.icon;
-              const from = prices[keyFor(item, item.tiers?.[0] ?? 'premium')];
+              const from =
+                item.id === 'validation'
+                  ? Math.min(...VALIDATION_TYPES.map((t) => prices[t.serviceKey] ?? Infinity))
+                  : prices[keyFor(item, item.tiers?.[0] ?? 'premium')];
               return (
                 <button
                   key={item.id}
@@ -272,7 +302,11 @@ export default function VerificationPage({ mode }: { mode: Mode }) {
                   </span>
                   <span className="mt-3 font-body text-sm font-semibold text-white">{item.label}</span>
                   <span className="mt-1 font-body text-sm font-bold text-[#ffe9a3]">
-                    {item.id === 'modification' ? 'From ₦5,000' : money(from)}
+                    {item.id === 'modification'
+                      ? 'From ₦5,000'
+                      : item.id === 'validation'
+                        ? `From ${money(Number.isFinite(from) ? from : undefined)}`
+                        : money(from)}
                   </span>
                 </button>
               );
@@ -304,8 +338,20 @@ export default function VerificationPage({ mode }: { mode: Mode }) {
                         <option value="FEMALE">Female</option>
                       </select>
                     ) : field === 'validation_type' ? (
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        {[['modification', 'Modification'], ['nin_validation', 'General validation'], ['no_record', 'No record'], ['sim', 'SIM validation']].map(([value, label]) => <button key={value} type="button" onClick={() => setValues((v) => ({ ...v, [field]: value }))} className={`rounded-xl border px-4 py-3 text-left text-xs font-semibold transition ${values[field] === value ? 'border-[#8b6914] bg-[#6b4f0b] text-white' : 'border-parchment-line bg-cream text-ink hover:border-gold-500'}`}>{label}</button>)}
+                      <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                        {VALIDATION_TYPES.map((t) => (
+                          <button
+                            key={t.value}
+                            type="button"
+                            onClick={() => setValues((v) => ({ ...v, [field]: t.value }))}
+                            className={`rounded-xl border p-3 text-left text-xs font-semibold transition ${values[field] === t.value || (!values[field] && t.value === 'nin_validation') ? 'border-[#8b6914] bg-[#6b4f0b] text-white' : 'border-parchment-line bg-cream text-ink hover:border-gold-500'}`}
+                          >
+                            <span className="block">{t.label}</span>
+                            <span className={`mt-1 block text-[11px] font-bold ${values[field] === t.value || (!values[field] && t.value === 'nin_validation') ? 'text-[#ffe9a3]' : 'text-gold-700'}`}>
+                              {money(prices[t.serviceKey])}
+                            </span>
+                          </button>
+                        ))}
                       </div>
                     ) : (
                       <input

@@ -154,7 +154,20 @@ export const assistantWorkflows: AssistantWorkflow[] = [
       { value: 'v.nin_validation', label: 'vNIN validation', labelHa: 'vNIN validation' },
       { value: 'update_records', label: 'Update records', labelHa: 'Update records' }
     ] }],
-    submitEndpoint: '/api/verification/nin-validation', statusEndpoint: '/api/verification/nin-validation/:ticketId', async: true, priceMode: 'verification', priceServiceKeyTemplate: 'NIN_VALIDATION', status: 'active'
+    submitEndpoint: '/api/verification/nin-validation', statusEndpoint: '/api/verification/nin-validation/:ticketId', async: true, priceMode: 'verification',
+    // NIN Validation used to be one flat-priced service ('NIN_VALIDATION')
+    // regardless of validation_type - it's now 8 separately-priced services
+    // (NIN_VALIDATION_GENERAL/NO_RECORD/SIM/BANK/UPDATE_RECORDS/MODIFICATION/
+    // PHOTO_ERROR/VNIN - see verification.service.ts). This assistant contract
+    // doesn't have per-type pricing yet because whatever client consumes it
+    // does its own '{field}' placeholder substitution (per this file's header
+    // comment) that lives outside this repo, and the 8 new key suffixes don't
+    // all match a naive validation_type.toUpperCase() (e.g. 'bank_validation'
+    // -> BANK, not BANK_VALIDATION; 'v.nin_validation' -> VNIN). Falling back
+    // to the GENERAL rate here is the same conservative behavior this had
+    // before (validation_type was already optional/often omitted) - update
+    // this once the consuming client's substitution logic is confirmed.
+    priceServiceKeyTemplate: 'NIN_VALIDATION_GENERAL', status: 'active'
   },
   {
     id: 'nin_personalization', title: 'NIN Personalization', titleHa: 'NIN Personalization',
