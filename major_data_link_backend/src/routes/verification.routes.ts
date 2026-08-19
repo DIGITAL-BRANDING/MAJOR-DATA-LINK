@@ -2,6 +2,7 @@ import { Router, type Request } from 'express';
 import { z } from 'zod';
 import { TransactionType } from '@prisma/client';
 import { requireAuth } from '../middleware/auth.js';
+import { GEO_POLITICAL_ZONES, submitBvnLicense } from '../services/bvn-license-onboarding.service.js';
 import { pinField, requirePinConfirmation } from '../lib/require-pin.js';
 import { prisma } from '../lib/prisma.js';
 import {
@@ -65,6 +66,35 @@ function slipResponse(result: Awaited<ReturnType<typeof purchaseNinByNin>>) {
 verificationRoutes.get('/prices', async (_req, res) => {
   const prices = await listVerificationPrices();
   res.json({ status: true, data: prices });
+});
+
+verificationRoutes.post('/bvn/license-onboarding', async (req, res) => {
+  const body = z.object({
+    agent_location: z.string().trim().min(2), agent_bvn: z.string().trim().length(11),
+    account_number: z.string().trim().min(10).max(12), bank_name: z.string().trim().min(2),
+    first_name: z.string().trim().min(1), last_name: z.string().trim().min(1),
+    email: z.string().trim().email(), phone_number: z.string().trim().length(11),
+    date_of_birth: z.string().trim().min(8), address: z.string().trim().min(3),
+    lga: z.string().trim().min(2), state_of_residence: z.string().trim().min(2),
+    geo_political_zone: z.enum(GEO_POLITICAL_ZONES), consent: z.literal(true), ...pinField
+  }).parse(req.body);
+  await requirePinConfirmation(req.user!.id, body.pin);
+  const { pin: _pin, ...values } = body;
+  const result = await submitBvnLicense({ userId: req.user!.id, values, idempotencyKey: idempotencyKeyFrom(req) });
+  res.json({ status: true, data: result });
+});
+
+verificationRoutes.get('/bvn/license-onboarding/history', async (req, res) => {
+  const rows = await prisma.transaction.findMany({
+    where: { userId: req.user!.id, type: TransactionType.BVN_LICENSE_ONBOARDING },
+    orderBy: { createdAt: 'desc' }, take: 20
+  });
+  res.json({ status: true, data: rows.map((tx) => {
+    const metadata = tx.metadata as Record<string, unknown> | null;
+    return { reference: tx.reference, tracking_id: metadata?.tracking_id ?? null,
+      status: tx.status.toLowerCase(), amount: Number(tx.amountKobo) / 100,
+      created_at: tx.createdAt.toISOString() };
+  }) });
 });
 
 // A customer can retrieve a verification result for 24 hours without

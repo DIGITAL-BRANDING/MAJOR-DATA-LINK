@@ -3,6 +3,7 @@ import type { ResourceWithOptions } from 'adminjs';
 import { prisma } from '../../lib/prisma.js';
 import { decryptTransactionPII } from '../../services/verification.service.js';
 import { completeModification } from '../../services/nin-modification.service.js';
+import { TransactionStatus } from '@prisma/client';
 import { refundWallet } from '../../services/wallet.service.js';
 import { logAdminAction } from '../audit.js';
 import type { AdminSessionUser } from '../auth.js';
@@ -64,7 +65,7 @@ export const transactionResource: ResourceWithOptions = {
           // other transaction type, where PENDING means "still in flight,
           // don't touch it", so this is the one type reverse() also allows
           // from PENDING.
-          if (status === 'PENDING') return record?.params?.type === 'NIN_MODIFICATION';
+          if (status === 'PENDING') return ['NIN_MODIFICATION', 'BVN_LICENSE_ONBOARDING'].includes(record?.params?.type as string);
           return status === 'SUCCESS' || status === 'FAILED';
         },
         handler: async (request, response, context) => {
@@ -213,6 +214,32 @@ export const transactionResource: ResourceWithOptions = {
             record: record.toJSON(currentAdmin),
             redirectUrl: `/admin/nin-modification/${record.params.id as string}/pdf`
           };
+        }
+      },
+      completeBvnLicense: {
+        actionType: 'record', icon: 'CheckCircle',
+        guard: 'Mark this BVN License request as completed?',
+        isAccessible: ({ currentAdmin, record }) => {
+          const admin = currentAdmin as unknown as AdminSessionUser | undefined;
+          return !!admin && admin.role !== 'SUPPORT' && record?.params?.type === 'BVN_LICENSE_ONBOARDING' && record?.params?.status === 'PENDING';
+        },
+        handler: async (_request, _response, context) => {
+          const { record, currentAdmin } = context; const admin = currentAdmin as unknown as AdminSessionUser;
+          if (!record || !admin) throw new Error('Missing record or admin context');
+          await prisma.transaction.update({ where: { id: record.params.id as string }, data: { status: TransactionStatus.SUCCESS } });
+          await logAdminAction({ adminId: admin.id, action: 'COMPLETE_BVN_LICENSE', targetType: 'Transaction', targetId: record.params.id as string, metadata: { reference: record.params.reference } });
+          return { record: record.toJSON(currentAdmin), notice: { message: 'BVN License request marked as completed.', type: 'success' } };
+        }
+      },
+      downloadBvnLicensePdf: {
+        actionType: 'record', icon: 'Download',
+        isAccessible: ({ currentAdmin, record }) => {
+          const admin = currentAdmin as unknown as AdminSessionUser | undefined;
+          return admin?.role === 'SUPER_ADMIN' && record?.params?.type === 'BVN_LICENSE_ONBOARDING';
+        },
+        handler: async (_request, _response, context) => {
+          const { record, currentAdmin } = context; if (!record) throw new Error('Missing record');
+          return { record: record.toJSON(currentAdmin), redirectUrl: `/admin/bvn-license/${record.params.id as string}/pdf` };
         }
       }
     }

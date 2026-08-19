@@ -62,6 +62,7 @@ import '../../features/verification/presentation/screens/nin_personalization_scr
 import '../../features/verification/presentation/screens/ipe_clearance_screen.dart';
 import '../../features/verification/presentation/screens/bvn_slip_screen.dart';
 import '../../features/verification/presentation/screens/bvn_retrieval_screen.dart';
+import '../../features/verification/presentation/screens/bvn_license_onboarding_screen.dart';
 import '../../features/verification/presentation/screens/nin_modification_screen.dart';
 import '../../features/deliveries/presentation/screens/deliveries_screen.dart';
 import '../di/injection.dart';
@@ -277,6 +278,10 @@ final routerProvider = Provider<GoRouter>((ref) {
                       GoRoute(
                         path: 'retrieval',
                         builder: (_, __) => const BvnRetrievalScreen(),
+                      ),
+                      GoRoute(
+                        path: 'license-onboarding',
+                        builder: (_, __) => const BvnLicenseOnboardingScreen(),
                       ),
                     ],
                   ),

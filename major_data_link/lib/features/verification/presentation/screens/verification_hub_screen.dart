@@ -170,6 +170,13 @@ const _bvnHubItems = [
     color: AppColors.secondary700,
     route: RouteNames.bvnRetrieval,
   ),
+  VerificationHubItem(
+    label: 'BVN License Onboarding',
+    description: 'Submit a BVN licence application for manual processing',
+    icon: Icons.person_add_alt_1_rounded,
+    color: AppColors.primary600,
+    route: RouteNames.bvnLicenseOnboarding,
+  ),
 ];
 
 class NinServicesHubScreen extends StatelessWidget {

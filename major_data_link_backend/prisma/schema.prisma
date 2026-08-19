@@ -59,6 +59,10 @@ enum TransactionType {
   /// SUCCESS (via the "Complete modification" admin action) or FAILED (via
   /// the existing "reverse", which refunds). See nin-modification.service.ts.
   NIN_MODIFICATION
+  /// Manual BVN License Onboarding request. The customer is debited from
+  /// wallet at submission; the encrypted PDF is completed manually in
+  /// Techhub by an authorised admin, or reversed to refund the wallet.
+  BVN_LICENSE_ONBOARDING
   /// The credit-back entry refundWallet() creates - distinct from the
   /// original debit's own type (e.g. a reversed DATA_PURCHASE gets a REFUND
   /// entry, not a second DATA_PURCHASE). See relatedTransactionId above.

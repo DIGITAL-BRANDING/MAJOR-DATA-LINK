@@ -97,6 +97,8 @@ class AppEndpoints {
   static String ninPersonalizationStatus(String ticketId) =>
       '$_base/verification/personalization/$ticketId';
   static String get bvnRetrieval => '$_base/verification/bvn-retrieval';
+  static String get bvnLicenseOnboarding => '$_base/verification/bvn/license-onboarding';
+  static String get bvnLicenseHistory => '$_base/verification/bvn/license-onboarding/history';
   static String bvnRetrievalStatus(String ticketId) =>
       '$_base/verification/bvn-retrieval/$ticketId';
   static String get ipeClearance => '$_base/verification/ipe-clearance';

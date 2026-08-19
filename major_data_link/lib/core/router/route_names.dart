@@ -57,6 +57,7 @@ abstract class RouteNames {
   static const bvnServices = '/home/services/bvn';
   static const bvnSlip = '/home/services/bvn/slip';
   static const bvnRetrieval = '/home/services/bvn/retrieval';
+  static const bvnLicenseOnboarding = '/home/services/bvn/license-onboarding';
   static const cacServices = '/home/services/cac';
   static const scumlServices = '/home/services/scuml';
   static const tinServices = '/home/services/tin';
