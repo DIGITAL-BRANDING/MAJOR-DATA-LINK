@@ -8,6 +8,7 @@ import '../../../../core/router/route_names.dart';
 import '../../../../core/utils/extensions.dart';
 import '../../../../core/utils/formatters.dart';
 import '../../../../shared/widgets/banner_slider.dart';
+import '../../../../shared/widgets/kd_button.dart';
 import '../../../../shared/widgets/kd_card.dart';
 import '../../../../shared/widgets/kd_shimmer.dart';
 import '../../../../shared/widgets/promo_illustration.dart';

@@ -10,6 +10,7 @@ abstract class AuthLocalDataSource {
   Future<void> cacheUser(UserModel user);
   Future<UserModel?> getCachedUser();
   Future<String?> getAccessToken();
+  Future<String?> getRefreshToken();
   Future<bool> hasValidSession();
   Future<void> clearSession();
 
@@ -78,6 +79,9 @@ class AuthLocalDataSourceImpl implements AuthLocalDataSource {
 
   @override
   Future<String?> getAccessToken() => _secureStorage.getAccessToken();
+
+  @override
+  Future<String?> getRefreshToken() => _secureStorage.getRefreshToken();
 
   @override
   Future<bool> hasValidSession() async {

@@ -56,7 +56,7 @@ class _MajorDataLinkAppState extends ConsumerState<MajorDataLinkApp> {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final router = ref.watch(routerProvider);
     final themeMode = ref.watch(themeModeProvider);
 
