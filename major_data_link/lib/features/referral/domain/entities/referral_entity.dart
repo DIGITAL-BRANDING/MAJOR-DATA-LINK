@@ -36,7 +36,7 @@ class ReferralEntity extends Equatable {
   final bool isEnabled;
 
   String get shareLink =>
-      '${AppConfig.referralLinkBaseUrl}/ref/$referralCode';
+      '${AppConfig.referralLinkBaseUrl}/register?ref=$referralCode';
 
   factory ReferralEntity.fromJson(Map<String, dynamic> json) {
     final data = json['data'] as Map<String, dynamic>? ?? json;
@@ -51,8 +51,7 @@ class ReferralEntity extends Equatable {
       minWithdrawal: _minWithdrawalOrDefault(data['min_withdrawal']),
       isEnabled: data['is_enabled'] as bool? ?? true,
       referees: (data['referees'] as List<dynamic>? ?? [])
-          .map((e) =>
-              RefereeEntity.fromJson(e as Map<String, dynamic>))
+          .map((e) => RefereeEntity.fromJson(e as Map<String, dynamic>))
           .toList(),
     );
   }
@@ -86,15 +85,15 @@ class ReferralEntity extends Equatable {
 
   @override
   List<Object?> get props => [
-        referralCode,
-        totalReferrals,
-        totalEarned,
-        pendingCommission,
-        paidCommission,
-        commissionRate,
-        minWithdrawal,
-        isEnabled,
-      ];
+    referralCode,
+    totalReferrals,
+    totalEarned,
+    pendingCommission,
+    paidCommission,
+    commissionRate,
+    minWithdrawal,
+    isEnabled,
+  ];
 }
 
 class RefereeEntity extends Equatable {
@@ -113,17 +112,21 @@ class RefereeEntity extends Equatable {
   factory RefereeEntity.fromJson(Map<String, dynamic> json) {
     return RefereeEntity(
       name: json['name']?.toString() ?? 'User',
-      joinedAt: DateTime.tryParse(json['joined_at']?.toString() ?? '') ??
+      joinedAt:
+          DateTime.tryParse(json['joined_at']?.toString() ?? '') ??
           DateTime.now(),
       totalTransactions:
           int.tryParse(json['total_transactions']?.toString() ?? '0') ?? 0,
-      commissionEarned: double.tryParse(
-              json['commission_earned']?.toString() ?? '0') ??
-          0.0,
+      commissionEarned:
+          double.tryParse(json['commission_earned']?.toString() ?? '0') ?? 0.0,
     );
   }
 
   @override
-  List<Object?> get props =>
-      [name, joinedAt, totalTransactions, commissionEarned];
+  List<Object?> get props => [
+    name,
+    joinedAt,
+    totalTransactions,
+    commissionEarned,
+  ];
 }

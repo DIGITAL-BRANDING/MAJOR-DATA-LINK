@@ -82,7 +82,8 @@ class AppConfig {
   static const double maxDailyTransfer = 500000.0;
 
   // â”€â”€ Referral â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  static const String referralScheme = 'https://imamdatasubweb-production-d2d7.up.railway.app//ref/';
+  static const String referralScheme =
+      'https://major-data-link-production.up.railway.app/register?ref=';
   static const double referralCommissionRate = 0.02; // 2%
   static const double minCommissionWithdrawal = 500.0;
 
@@ -109,14 +110,8 @@ class AppConfig {
       'https://imamdatasubweb-production-4f62.up.railway.app/privacy-policy';
   static const String termsUrl =
       'https://imamdatasubweb-production-4f62.up.railway.app/terms';
-  // Base for referral share links (ReferralEntity.shareLink appends /ref/CODE).
-  // Previously pointed at imamdatasub.com.ng, a domain that was never live -
-  // every shared referral link 404'd. No dedicated landing page exists yet for
-  // /ref/:code either, so this alone doesn't make the link fully functional;
-  // it just makes it point somewhere real instead of a dead domain. Update
-  // this to a custom domain later if one gets set up.
   static const String referralLinkBaseUrl =
-      'https://imamdatasubweb-production-4f62.up.railway.app';
+      'https://major-data-link-production.up.railway.app';
 
   // â”€â”€ Play Integrity â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   static const String playIntegrityCloudProjectNumber = '123456789';
@@ -154,4 +149,3 @@ class AppConfig {
     'BEDC',
   ];
 }
-
