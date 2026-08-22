@@ -63,6 +63,7 @@ class AppEndpoints {
 
   // Electricity
   static String get electricityProviders => '$_base/electricity/providers';
+  static String get electricityFee => '$_base/electricity/fee';
   static String get validateMeter => '$_base/electricity/validate';
   static String get purchaseElectricity => '$_base/electricity/purchase';
   static String get electricityHistory => '$_base/electricity/history';

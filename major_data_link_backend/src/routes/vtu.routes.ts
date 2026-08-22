@@ -6,6 +6,9 @@ import { prisma } from '../lib/prisma.js';
 import { requireAuth } from '../middleware/auth.js';
 import { pinField, requirePinConfirmation } from '../lib/require-pin.js';
 import { providerService, type ProviderPurchaseInput } from '../services/provider.service.js';
+import * as bilalsadasub from '../services/bilalsadasub.service.js';
+import { getPricingSettings } from '../services/pricing-settings.service.js';
+import type { NormalizedProviderResponse } from '../services/provider-types.js';
 import { debitWallet, refundWallet } from '../services/wallet.service.js';
 import { recordProviderDebit } from '../services/provider-ledger.service.js';
 import { awardReferralCommission } from '../services/referral.service.js';
@@ -17,6 +20,18 @@ vtuRoutes.use(requireAuth);
 function idempotencyKeyFrom(req: Request) {
   const header = req.header('Idempotency-Key');
   return header && header.trim().length > 0 ? header.trim() : undefined;
+}
+
+/**
+ * Which upstream handles data/airtime right now - PricingSettings.
+ * dataAirtimeProvider, admin-editable at /admin/bulk-pricing, read fresh on
+ * every call so a switch takes effect immediately with no redeploy. Falls
+ * back to 'alrahuz' for any unrecognized value rather than throwing, so a
+ * bad/blank DB value can never take purchasing down entirely.
+ */
+async function activeDataAirtimeProvider(): Promise<'alrahuz' | 'bilalsadasub'> {
+  const settings = await getPricingSettings();
+  return settings.dataAirtimeProvider === 'bilalsadasub' ? 'bilalsadasub' : 'alrahuz';
 }
 
 /**
@@ -35,16 +50,17 @@ export async function processProviderPurchase(params: {
   description: string;
   metadata: Prisma.InputJsonValue;
   idempotencyKey?: string;
+  provider: 'alrahuz' | 'bilalsadasub';
   /**
    * Our best-known cost basis at debit time (e.g. plan.providerAmount for
    * data). Omit for purchase types with no config-based cost available up
-   * front (airtime) - `provider.costKobo`, the ACTUAL cost Alrahuz's
+   * front (airtime) - `provider.costKobo`, the ACTUAL cost the provider's
    * response reports, always wins over this estimate on success; this is
    * only what gets stored if that actual figure isn't available. See the
    * costKobo doc-comment on debitWallet() in wallet.service.ts.
    */
   costKobo?: bigint;
-  callProvider: (reference: string) => ReturnType<typeof providerService.buyData>;
+  callProvider: (reference: string) => Promise<NormalizedProviderResponse>;
 }) {
   const debit = await debitWallet({
     userId: params.userId,
@@ -76,9 +92,9 @@ export async function processProviderPurchase(params: {
       where: { id: debit.transaction.id },
       data: {
         status: TransactionStatus.SUCCESS,
-        provider: 'alrahuz',
+        provider: params.provider,
         providerRef: provider.providerRef ?? null,
-        // Alrahuz's own reported balance delta, when present, is more
+        // The provider's own reported balance delta, when present, is more
         // accurate than the config-based estimate debitWallet() stored above
         // (it's what we were ACTUALLY charged, this one time) - overwrite
         // with it. Otherwise leave the estimate (or null) as-is.
@@ -92,7 +108,7 @@ export async function processProviderPurchase(params: {
     // never appear as a free (zero-cost) debit on the provider ledger.
     if (finalCostKobo !== undefined) {
       await recordProviderDebit({
-        provider: 'alrahuz',
+        provider: params.provider,
         amountKobo: finalCostKobo,
         relatedTransactionId: debit.transaction.id,
         description: params.description
@@ -122,7 +138,7 @@ export async function processProviderPurchase(params: {
     where: { id: debit.transaction.id },
     data: {
       status: TransactionStatus.FAILED,
-      provider: 'alrahuz',
+      provider: params.provider,
       providerRef: provider.providerRef ?? null
     }
   });
@@ -137,13 +153,21 @@ export async function processProviderPurchase(params: {
 }
 
 vtuRoutes.get('/data/plans/:network/categories', async (req, res) => {
-  const categories = await providerService.getDataPlanCategories(req.params.network);
+  const provider = await activeDataAirtimeProvider();
+  const categories =
+    provider === 'bilalsadasub'
+      ? await bilalsadasub.getDataPlanCategories(req.params.network)
+      : await providerService.getDataPlanCategories(req.params.network);
   res.json({ status: true, data: categories });
 });
 
 vtuRoutes.get('/data/plans/:network', async (req, res) => {
   const category = typeof req.query.category === 'string' ? req.query.category : undefined;
-  const plans = await providerService.getDataPlans(req.params.network, category);
+  const provider = await activeDataAirtimeProvider();
+  const plans =
+    provider === 'bilalsadasub'
+      ? await bilalsadasub.getDataPlans(req.params.network, category)
+      : await providerService.getDataPlans(req.params.network, category);
   res.json({ status: true, data: plans });
 });
 
@@ -156,7 +180,12 @@ vtuRoutes.post('/data/purchase', async (req, res) => {
     ...pinField
   }).parse(req.body);
   await requirePinConfirmation(req.user!.id, body.pin);
-  const plan = await providerService.getDataPlan(body.network, body.plan_id);
+
+  const provider = await activeDataAirtimeProvider();
+  const plan =
+    provider === 'bilalsadasub'
+      ? await bilalsadasub.getDataPlan(body.network, body.plan_id)
+      : await providerService.getDataPlan(body.network, body.plan_id);
 
   // Never persist the PIN - `body` is spread into Transaction.metadata below,
   // so it's stripped out explicitly rather than trusting every future edit
@@ -168,20 +197,23 @@ vtuRoutes.post('/data/purchase', async (req, res) => {
     amount: plan.amount,
     type: TransactionType.DATA_PURCHASE,
     description: `${plan.name} data purchase for ${body.phone}`,
-    metadata: { ...metadataBody, amount: plan.amount, plan_name: plan.name, validity: plan.validity },
+    metadata: { ...metadataBody, amount: plan.amount, plan_name: plan.name, validity: plan.validity, provider },
     idempotencyKey: idempotencyKeyFrom(req),
+    provider,
     // What this plan cost us according to our last pricing sync
-    // (DataPlanPricing.providerCostKobo) - overwritten with Alrahuz's actual
-    // reported balance delta on success, see processProviderPurchase above.
+    // (DataPlanPricing.providerCostKobo) - overwritten with the provider's
+    // actual reported balance delta on success, see processProviderPurchase above.
     costKobo: BigInt(Math.round(plan.providerAmount * 100)),
     callProvider: (reference) =>
-      providerService.buyData({
-        network: body.network,
-        planId: body.plan_id,
-        phone: body.phone,
-        amount: plan.amount,
-        reference
-      } satisfies ProviderPurchaseInput)
+      provider === 'bilalsadasub'
+        ? bilalsadasub.buyData({ network: body.network, planId: body.plan_id, phone: body.phone, reference })
+        : providerService.buyData({
+            network: body.network,
+            planId: body.plan_id,
+            phone: body.phone,
+            amount: plan.amount,
+            reference
+          } satisfies ProviderPurchaseInput)
   });
 
   res.json({
@@ -201,28 +233,33 @@ vtuRoutes.post('/airtime/purchase', async (req, res) => {
   await requirePinConfirmation(req.user!.id, body.pin);
 
   const { pin: _pin, ...metadataBody } = body;
+  const provider = await activeDataAirtimeProvider();
 
   const result = await processProviderPurchase({
     userId: req.user!.id,
     amount: body.amount,
     type: TransactionType.AIRTIME_PURCHASE,
     description: `Airtime purchase for ${body.phone}`,
-    metadata: metadataBody,
+    metadata: { ...metadataBody, provider },
     // No `costKobo` here on purpose - unlike data plans, airtime has no
-    // pricing-config table to estimate from (Alrahuz doesn't quote a fixed
-    // discount rate up front). Our real cost is only knowable from Alrahuz's
-    // own balance_before/balance_after delta once they respond - see
-    // provider.costKobo in processProviderPurchase above. In MOCK_PROVIDER
-    // mode (no real balance movement), this stays null - "unknown", not "0
-    // margin" - see the costKobo comment on the Transaction model.
+    // pricing-config table to estimate from (neither provider quotes a
+    // fixed discount rate up front). Our real cost is only knowable from
+    // the provider's own balance_before/balance_after delta once they
+    // respond - see provider.costKobo in processProviderPurchase above. In
+    // MOCK_PROVIDER mode (no real balance movement), this stays null -
+    // "unknown", not "0 margin" - see the costKobo comment on the
+    // Transaction model.
     idempotencyKey: idempotencyKeyFrom(req),
+    provider,
     callProvider: (reference) =>
-      providerService.buyAirtime({
-        network: body.network,
-        phone: body.phone,
-        amount: body.amount,
-        reference
-      } satisfies ProviderPurchaseInput)
+      provider === 'bilalsadasub'
+        ? bilalsadasub.buyAirtime({ network: body.network, phone: body.phone, amount: body.amount, reference })
+        : providerService.buyAirtime({
+            network: body.network,
+            phone: body.phone,
+            amount: body.amount,
+            reference
+          } satisfies ProviderPurchaseInput)
   });
 
   res.json({

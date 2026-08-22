@@ -97,6 +97,38 @@ export function registerBulkPricingRoutes(router: Router) {
     }
   });
 
+  router.post('/bulk-pricing/provider-switch', async (req, res) => {
+    const admin = requireFinanceOrSuper(req);
+    if (!admin) return res.redirect('/admin/login');
+
+    const dataAirtimeProviderRaw = field(req, 'dataAirtimeProvider');
+    const resultPinProviderRaw = field(req, 'resultPinProvider');
+    const cableMarkupPercent = parseNonNegativeNumber(field(req, 'cableMarkupPercent'));
+    const electricityMarkupPercent = parseNonNegativeNumber(field(req, 'electricityMarkupPercent'));
+
+    const dataAirtimeProvider = dataAirtimeProviderRaw === 'bilalsadasub' ? 'bilalsadasub' : 'alrahuz';
+    const resultPinProvider = resultPinProviderRaw === 'bilalsadasub' ? 'bilalsadasub' : 'alrahuz';
+
+    if (cableMarkupPercent === null || electricityMarkupPercent === null) {
+      return res.redirect('/admin/bulk-pricing?flash=' + encodeFlash('error', 'Cable and electricity markup % must both be valid numbers ≥ 0.'));
+    }
+
+    try {
+      await updatePricingSettings({ dataAirtimeProvider, resultPinProvider, cableMarkupPercent, electricityMarkupPercent });
+      await logAdminAction({
+        adminId: admin.id,
+        action: 'UPDATE_PROVIDER_SWITCH',
+        targetType: 'PricingSettings',
+        targetId: 'default',
+        metadata: { dataAirtimeProvider, resultPinProvider, cableMarkupPercent, electricityMarkupPercent }
+      });
+      res.redirect('/admin/bulk-pricing?flash=' + encodeFlash('success', `Providers updated - Data/Airtime: ${dataAirtimeProvider}, Result Pins: ${resultPinProvider}.`));
+    } catch (error) {
+      console.error('[bulk-pricing] provider-switch update failed:', error);
+      res.redirect('/admin/bulk-pricing?flash=' + encodeFlash('error', 'Something went wrong updating the provider switch. Check the server logs.'));
+    }
+  });
+
   router.post('/bulk-pricing/data-plans', async (req, res) => {
     const admin = requireFinanceOrSuper(req);
     if (!admin) return res.redirect('/admin/login');
@@ -105,22 +137,25 @@ export function registerBulkPricingRoutes(router: Router) {
     const naira = parseNonNegativeNumber(field(req, 'markupNaira'));
     const networkRaw = field(req, 'network').trim();
     const network = networkRaw ? networkRaw : undefined;
+    const providerRaw = field(req, 'dataPlanProvider');
+    const provider = providerRaw === 'bilalsadasub' ? 'bilalsadasub' : providerRaw === 'alrahuz' ? 'alrahuz' : undefined;
     if (percent === null || naira === null) {
       return res.redirect('/admin/bulk-pricing?flash=' + encodeFlash('error', 'Markup % and ₦ must both be valid numbers ≥ 0.'));
     }
 
     try {
-      const result = await dataPlanPricingService.applyMarkup({ network, markupNaira: naira, markupPercent: percent });
+      const result = await dataPlanPricingService.applyMarkup({ network, provider, markupNaira: naira, markupPercent: percent });
       await logAdminAction({
         adminId: admin.id,
         action: 'BULK_REPRICE_DATA_PLANS',
         targetType: 'DataPlanPricing',
-        metadata: { network: network ?? 'ALL', markupPercent: percent, markupNaira: naira, updated: result.updated }
+        metadata: { network: network ?? 'ALL', provider: provider ?? 'ALL', markupPercent: percent, markupNaira: naira, updated: result.updated }
       });
 
       const scope = network ? `${network} plans` : 'ALL networks';
+      const providerScope = provider ? ` (${provider} only)` : '';
       const skippedNote = result.skipped > 0 ? ` (${result.skipped} skipped - non-positive computed price, check their provider cost)` : '';
-      res.redirect('/admin/bulk-pricing?flash=' + encodeFlash('success', `Repriced ${result.updated} data plan(s) (${scope}) at cost + ${percent}% + ₦${naira}.${skippedNote}`));
+      res.redirect('/admin/bulk-pricing?flash=' + encodeFlash('success', `Repriced ${result.updated} data plan(s) (${scope}${providerScope}) at cost + ${percent}% + ₦${naira}.${skippedNote}`));
     } catch (error) {
       console.error('[bulk-pricing] data-plans bulk markup failed:', error);
       res.redirect('/admin/bulk-pricing?flash=' + encodeFlash('error', 'Something went wrong repricing data plans. Some rows may already be updated - check the server logs.'));
@@ -184,7 +219,14 @@ function flashFromQuery(query: Record<string, unknown>): { type: 'success' | 'er
 
 function renderPage(params: {
   admin: AdminSessionUser;
-  settings: { dataPlanMarkupPercent: number; dataPlanMarkupNaira: number };
+  settings: {
+    dataPlanMarkupPercent: number;
+    dataPlanMarkupNaira: number;
+    dataAirtimeProvider: string;
+    resultPinProvider: string;
+    cableMarkupPercent: number;
+    electricityMarkupPercent: number;
+  };
   networks: string[];
   flash: { type: 'success' | 'error'; message: string } | null;
 }) {
@@ -257,6 +299,34 @@ function renderPage(params: {
   </div>
 
   <div class="card">
+    <h2>0. Provider switch</h2>
+    <p class="hint">Which upstream fulfills each purchase type. Switches instantly, no redeploy - a live customer's very next request uses the new provider. Cable TV and Electricity always use BilalSadaSub (Alrahuz doesn't offer them).</p>
+    <form method="POST" action="/admin/bulk-pricing/provider-switch">
+      <label>Data &amp; Airtime provider</label>
+      <select name="dataAirtimeProvider">
+        <option value="alrahuz" ${settings.dataAirtimeProvider === 'alrahuz' ? 'selected' : ''}>Alrahuz</option>
+        <option value="bilalsadasub" ${settings.dataAirtimeProvider === 'bilalsadasub' ? 'selected' : ''}>BilalSadaSub</option>
+      </select>
+      <label>Result Pin (WAEC/NECO/NABTEB) provider</label>
+      <select name="resultPinProvider">
+        <option value="alrahuz" ${settings.resultPinProvider === 'alrahuz' ? 'selected' : ''}>Alrahuz</option>
+        <option value="bilalsadasub" ${settings.resultPinProvider === 'bilalsadasub' ? 'selected' : ''}>BilalSadaSub</option>
+      </select>
+      <div class="row">
+        <div>
+          <label>Cable TV markup %</label>
+          <input type="number" name="cableMarkupPercent" step="0.01" min="0" value="${settings.cableMarkupPercent}" required>
+        </div>
+        <div>
+          <label>Electricity markup %</label>
+          <input type="number" name="electricityMarkupPercent" step="0.01" min="0" value="${settings.electricityMarkupPercent}" required>
+        </div>
+      </div>
+      <button type="submit">Save provider switch</button>
+    </form>
+  </div>
+
+  <div class="card">
     <h2>2. Bulk reprice data plans</h2>
     <p class="hint">Sets selling price = provider cost + % + ₦ for every plan in the chosen network (or all networks). Overwrites any price already set on those plans.</p>
     <form method="POST" action="/admin/bulk-pricing/data-plans" onsubmit="return confirm('This overwrites the selling price on every matching data plan. Continue?');">
@@ -264,6 +334,12 @@ function renderPage(params: {
       <select name="network">
         <option value="">All networks</option>
         ${networkOptions}
+      </select>
+      <label>Provider</label>
+      <select name="dataPlanProvider">
+        <option value="">Both providers</option>
+        <option value="alrahuz">Alrahuz only</option>
+        <option value="bilalsadasub">BilalSadaSub only</option>
       </select>
       <div class="row">
         <div>

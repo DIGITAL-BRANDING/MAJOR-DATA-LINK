@@ -10,6 +10,18 @@ const EnvSchema = z.object({
   FIREBASE_SERVICE_ACCOUNT_BASE64: z.string().optional(),
   ALRAHUZ_BASE_URL: z.string().url().default('https://alrahuzdata.com.ng/api'),
   ALRAHUZ_API_TOKEN: z.string().optional(),
+
+  // BilalSadaSub - second data/airtime/cable/electricity/result-pin
+  // provider (see bilalsadasub.service.ts). Auth is username+password (not
+  // a static token like Alrahuz) - the service exchanges these for an
+  // AccessToken at runtime and caches it in memory, re-generating on a 401.
+  // Both optional so a deploy with no BilalSadaSub account configured yet
+  // doesn't fail startup - PricingSettings.dataAirtimeProvider/
+  // resultPinProvider just can't be switched to 'bilalsadasub' (and cable/
+  // electricity purchases will fail with a clear error) until they're set.
+  BILALSADASUB_BASE_URL: z.string().url().default('https://bilalsadasub.com'),
+  BILALSADASUB_USERNAME: z.string().optional(),
+  BILALSADASUB_PASSWORD: z.string().optional(),
   ALRAHUZ_DATA_PLANS_PATH: z.string().default('/data/'),
   ALRAHUZ_BALANCE_PATH: z.string().default('/user/'),
   ALRAHUZ_FUNDING_ACCOUNT_NUMBER: z.string().default('6651219714'),

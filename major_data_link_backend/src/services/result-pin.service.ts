@@ -4,6 +4,8 @@ import { koboToNaira } from '../lib/money.js';
 import { prisma } from '../lib/prisma.js';
 import { ApiError } from '../middleware/error.js';
 import { providerService, type ProviderResultPinInput } from './provider.service.js';
+import * as bilalsadasub from './bilalsadasub.service.js';
+import { getPricingSettings } from './pricing-settings.service.js';
 import { debitWallet, refundWallet } from './wallet.service.js';
 import { recordProviderDebit } from './provider-ledger.service.js';
 
@@ -14,6 +16,16 @@ const DEFAULTS: Record<ExamPinType, { service: string; label: string; price: num
   NECO: { service: 'NECO_PIN', label: 'NECO Result Checker Token', price: env.RESULT_PIN_NECO_DEFAULT_PRICE_NAIRA },
   NABTEB: { service: 'NABTEB_PIN', label: 'NABTEB Result Checker PIN', price: env.RESULT_PIN_NABTEB_DEFAULT_PRICE_NAIRA }
 };
+
+/**
+ * Which upstream fulfills a result-pin purchase - PricingSettings.
+ * resultPinProvider, same admin-editable/instant-switch mechanism as
+ * activeDataAirtimeProvider() in vtu.routes.ts.
+ */
+async function activeResultPinProvider(): Promise<'alrahuz' | 'bilalsadasub'> {
+  const settings = await getPricingSettings();
+  return settings.resultPinProvider === 'bilalsadasub' ? 'bilalsadasub' : 'alrahuz';
+}
 
 function priceToKobo(amount: number) {
   return BigInt(Math.round(amount * 100));
@@ -161,14 +173,16 @@ export async function purchaseResultPin(params: {
   const price = await getResultPinPrice(params.examType);
   const amount = price.unitPrice * params.quantity;
 
+  const provider = await activeResultPinProvider();
+
   const debit = await debitWallet({
     userId: params.userId,
     amount,
     type: TransactionType.RESULT_PIN,
     description: `${params.examType} result checker PIN x${params.quantity}`,
-    metadata: { exam_type: params.examType, quantity: params.quantity, unit_price: price.unitPrice } as Prisma.InputJsonValue,
+    metadata: { exam_type: params.examType, quantity: params.quantity, unit_price: price.unitPrice, provider } as Prisma.InputJsonValue,
     idempotencyKey: params.idempotencyKey,
-    // Result pins have a fixed, known Alrahuz cost per unit (ServicePricing.
+    // Result pins have a fixed, known cost per unit (ServicePricing.
     // providerCostKobo) - reliable enough on its own that, unlike data/
     // airtime, this doesn't need a balance-delta correction afterward.
     costKobo: priceToKobo(price.providerCost * params.quantity)
@@ -186,29 +200,36 @@ export async function purchaseResultPin(params: {
     };
   }
 
-  const provider = await providerService.buyResultPin({
-    examType: params.examType,
-    quantity: params.quantity,
-    reference: debit.reference
-  } satisfies ProviderResultPinInput);
+  const providerResult =
+    provider === 'bilalsadasub'
+      ? await bilalsadasub.buyResultPin({
+          examType: params.examType,
+          quantity: params.quantity,
+          reference: debit.reference
+        })
+      : await providerService.buyResultPin({
+          examType: params.examType,
+          quantity: params.quantity,
+          reference: debit.reference
+        } satisfies ProviderResultPinInput);
 
-  if (provider.status) {
+  if (providerResult.status) {
     const costKobo = priceToKobo(price.providerCost * params.quantity);
 
     await prisma.transaction.update({
       where: { id: debit.transaction.id },
       data: {
         status: TransactionStatus.SUCCESS,
-        provider: 'alrahuz',
-        providerRef: provider.providerRef ?? null,
+        provider,
+        providerRef: providerResult.providerRef ?? null,
         metadata: {
           exam_type: params.examType,
           quantity: params.quantity,
           unit_price: price.unitPrice,
-          pin: provider.pin,
-          pins: provider.pins,
-          serial: provider.serial,
-          raw: provider.raw
+          pin: providerResult.pin,
+          pins: providerResult.pins,
+          serial: providerResult.serial,
+          raw: providerResult.raw
         } as Prisma.InputJsonValue
       }
     });
@@ -217,7 +238,7 @@ export async function purchaseResultPin(params: {
     // airtime) - no balance-delta correction needed, just record the same
     // figure debitWallet() already stored on the transaction.
     await recordProviderDebit({
-      provider: 'alrahuz',
+      provider,
       amountKobo: costKobo,
       relatedTransactionId: debit.transaction.id,
       description: `${params.quantity}x ${params.examType} result PIN`
@@ -227,10 +248,10 @@ export async function purchaseResultPin(params: {
 
     return {
       status: 'success' as const,
-      message: provider.message ?? 'PIN purchase successful',
+      message: providerResult.message ?? 'PIN purchase successful',
       reference: debit.reference,
-      pin: provider.pin,
-      serial: provider.serial,
+      pin: providerResult.pin,
+      serial: providerResult.serial,
       balanceAfter: debit.balanceAfter
     };
   }
@@ -239,15 +260,15 @@ export async function purchaseResultPin(params: {
     where: { id: debit.transaction.id },
     data: {
       status: TransactionStatus.FAILED,
-      provider: 'alrahuz',
-      providerRef: provider.providerRef ?? null
+      provider,
+      providerRef: providerResult.providerRef ?? null
     }
   });
   const refunded = await refundWallet({ transactionId: debit.transaction.id, userId: params.userId });
 
   return {
     status: false as const,
-    message: provider.message ?? 'PIN purchase failed and was refunded',
+    message: providerResult.message ?? 'PIN purchase failed and was refunded',
     reference: debit.reference,
     balanceAfter: koboToNaira(refunded.balanceAfterKobo)
   };

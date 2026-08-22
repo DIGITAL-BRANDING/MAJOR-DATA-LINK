@@ -35,6 +35,8 @@ import { userRoutes } from './routes/user.routes.js';
 import { verificationRoutes } from './routes/verification.routes.js';
 import { ninModificationRoutes } from './routes/nin-modification.routes.js';
 import { vtuRoutes } from './routes/vtu.routes.js';
+import { cableRoutes } from './routes/cable.routes.js';
+import { electricityRoutes } from './routes/electricity.routes.js';
 import { walletRoutes } from './routes/wallet.routes.js';
 import { webhookRoutes } from './routes/webhook.routes.js';
 import { deliveryRoutes } from './routes/delivery.routes.js';
@@ -182,6 +184,8 @@ export function createApp() {
   app.use('/api/verification', verificationRoutes);
   app.use('/api/nin-modification', ninModificationRoutes);
   app.use('/api', vtuRoutes);
+  app.use('/api/cable', cableRoutes);
+  app.use('/api/electricity', electricityRoutes);
   app.use('/api/transactions', transactionRoutes);
 
   let adminRouterPromise: Promise<express.Router> | null = null;

@@ -418,10 +418,20 @@ model AppConfig {
 // vars still exist as the one-time seed value for a fresh database, read in
 // getPricingSettings()'s getOrCreate.
 model PricingSettings {
-  id                    String   @id @default("default")
-  dataPlanMarkupPercent Float    @default(0)
-  dataPlanMarkupNaira   Float    @default(0)
-  updatedAt             DateTime @updatedAt
+  id                       String   @id @default("default")
+  dataPlanMarkupPercent    Float    @default(0)
+  dataPlanMarkupNaira      Float    @default(0)
+  // Which upstream provider handles data/airtime/result-pin purchases right
+  // now - 'alrahuz' or 'bilalsadasub'. Admin-editable at /admin/bulk-pricing
+  // (no redeploy needed), read fresh on every purchase/list call so a
+  // switch takes effect immediately. Cable/electricity have no Alrahuz
+  // equivalent in this codebase at all, so they always go through
+  // bilalsadasub.service.ts regardless of these two settings.
+  dataAirtimeProvider      String   @default("alrahuz")
+  resultPinProvider        String   @default("alrahuz")
+  cableMarkupPercent       Float    @default(0)
+  electricityMarkupPercent Float    @default(0)
+  updatedAt                DateTime @updatedAt
 }
 // Conversation state for the WhatsApp data-purchase bot (see
 // src/services/whatsapp-session.service.ts). One row per WhatsApp phone

@@ -32,13 +32,24 @@ export async function getPricingSettings() {
   }
 }
 
-export async function updatePricingSettings(input: { dataPlanMarkupPercent?: number; dataPlanMarkupNaira?: number }) {
+export async function updatePricingSettings(input: {
+  dataPlanMarkupPercent?: number;
+  dataPlanMarkupNaira?: number;
+  dataAirtimeProvider?: 'alrahuz' | 'bilalsadasub';
+  resultPinProvider?: 'alrahuz' | 'bilalsadasub';
+  cableMarkupPercent?: number;
+  electricityMarkupPercent?: number;
+}) {
   await getPricingSettings(); // ensure the row exists before updating it
   return prisma.pricingSettings.update({
     where: { id: 'default' },
     data: {
       ...(input.dataPlanMarkupPercent !== undefined ? { dataPlanMarkupPercent: input.dataPlanMarkupPercent } : {}),
-      ...(input.dataPlanMarkupNaira !== undefined ? { dataPlanMarkupNaira: input.dataPlanMarkupNaira } : {})
+      ...(input.dataPlanMarkupNaira !== undefined ? { dataPlanMarkupNaira: input.dataPlanMarkupNaira } : {}),
+      ...(input.dataAirtimeProvider !== undefined ? { dataAirtimeProvider: input.dataAirtimeProvider } : {}),
+      ...(input.resultPinProvider !== undefined ? { resultPinProvider: input.resultPinProvider } : {}),
+      ...(input.cableMarkupPercent !== undefined ? { cableMarkupPercent: input.cableMarkupPercent } : {}),
+      ...(input.electricityMarkupPercent !== undefined ? { electricityMarkupPercent: input.electricityMarkupPercent } : {})
     }
   });
 }

@@ -32,7 +32,7 @@ class _ElectricityScreenState extends ConsumerState<ElectricityScreen> {
     super.dispose();
   }
 
-  Future<void> _handlePurchase() async {
+  Future<void> _handlePurchase(double serviceFee, double total) async {
     context.hideKeyboard();
     final state = ref.read(electricityNotifierProvider);
     final disco = ref.read(selectedDiscoProvider);
@@ -49,6 +49,8 @@ class _ElectricityScreenState extends ConsumerState<ElectricityScreen> {
         meterType: state.meterType,
         customerName: state.validationResult?.customerName ?? '',
         amount: state.amount,
+        serviceFee: serviceFee,
+        total: total,
       ),
     );
     if (confirmed != true) return;
@@ -71,12 +73,15 @@ class _ElectricityScreenState extends ConsumerState<ElectricityScreen> {
         MaterialPageRoute(
           builder: (_) => PurchaseSuccessView(
             title: '$disco Electricity',
-            amount: state.amount,
+            amount: total,
             reference: data['reference']?.toString() ?? '',
             details: [
               MapEntry('Disco', disco),
               MapEntry('Meter number', state.meterNumber),
               MapEntry('Customer', state.validationResult?.customerName ?? ''),
+              MapEntry('Meter top-up', AppFormatters.formatAmount(state.amount)),
+              if (serviceFee > 0)
+                MapEntry('Service fee', AppFormatters.formatAmount(serviceFee)),
               if (token != null) MapEntry('Token', token),
             ],
             onBuyAgain: () {
@@ -100,6 +105,9 @@ class _ElectricityScreenState extends ConsumerState<ElectricityScreen> {
   Widget build(BuildContext context) {
     final disco = ref.watch(selectedDiscoProvider);
     final state = ref.watch(electricityNotifierProvider);
+    final feePercent = ref.watch(electricityFeePercentProvider).valueOrNull ?? 0;
+    final serviceFee = state.amount * feePercent / 100;
+    final total = state.amount + serviceFee;
 
     return Scaffold(
       appBar: AppBar(title: const Text(AppStrings.electricity)),
@@ -257,6 +265,33 @@ class _ElectricityScreenState extends ConsumerState<ElectricityScreen> {
                   },
                   validator: (v) => AppValidators.amount(v, min: 500),
                 ),
+                if (feePercent > 0 && state.amount > 0) ...[
+                  const SizedBox(height: 10),
+                  KDCard(
+                    backgroundColor: AppColors.primary50,
+                    child: Column(
+                      children: [
+                        _summaryRow(
+                          context,
+                          'Meter top-up',
+                          AppFormatters.formatAmount(state.amount),
+                        ),
+                        _summaryRow(
+                          context,
+                          'Service fee (${feePercent.toStringAsFixed(feePercent.truncateToDouble() == feePercent ? 0 : 1)}%)',
+                          AppFormatters.formatAmount(serviceFee),
+                        ),
+                        const Divider(height: 20),
+                        _summaryRow(
+                          context,
+                          'Total to pay',
+                          AppFormatters.formatAmount(total),
+                          isTotal: true,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 16),
                 Row(
                   children: [
@@ -286,14 +321,39 @@ class _ElectricityScreenState extends ConsumerState<ElectricityScreen> {
         child: Padding(
           padding: const EdgeInsets.all(AppDimensions.screenPaddingH),
           child: KDButton(
-            label: state.amount > 0
-                ? 'Pay ${AppFormatters.formatAmount(state.amount)}'
+            label: total > 0
+                ? 'Pay ${AppFormatters.formatAmount(total)}'
                 : AppStrings.proceed,
-            onPressed: state.canProceed ? _handlePurchase : null,
+            onPressed: state.canProceed ? () => _handlePurchase(serviceFee, total) : null,
             isLoading: state.isProcessing,
             gradient: AppColors.primaryGradient,
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _summaryRow(BuildContext context, String label, String value, {bool isTotal = false}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            label,
+            style: context.textTheme.bodySmall?.copyWith(
+              color: isTotal ? null : AppColors.neutral500,
+              fontWeight: isTotal ? FontWeight.w700 : null,
+            ),
+          ),
+          Text(
+            value,
+            style: context.textTheme.bodyMedium?.copyWith(
+              fontWeight: isTotal ? FontWeight.w800 : FontWeight.w600,
+              color: isTotal ? context.colors.primary : null,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -306,6 +366,8 @@ class _ConfirmSheet extends StatelessWidget {
     required this.meterType,
     required this.customerName,
     required this.amount,
+    required this.serviceFee,
+    required this.total,
   });
 
   final String disco;
@@ -313,6 +375,8 @@ class _ConfirmSheet extends StatelessWidget {
   final MeterType meterType;
   final String customerName;
   final double amount;
+  final double serviceFee;
+  final double total;
 
   @override
   Widget build(BuildContext context) {
@@ -346,7 +410,10 @@ class _ConfirmSheet extends StatelessWidget {
           _row(context, 'Meter number', meterNumber),
           _row(context, 'Customer', customerName),
           const Divider(height: 28),
-          _row(context, AppStrings.amount, AppFormatters.formatAmount(amount),
+          _row(context, 'Meter top-up', AppFormatters.formatAmount(amount)),
+          if (serviceFee > 0)
+            _row(context, 'Service fee', AppFormatters.formatAmount(serviceFee)),
+          _row(context, 'Total to pay', AppFormatters.formatAmount(total),
               isTotal: true),
           const SizedBox(height: 24),
           KDButton(

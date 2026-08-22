@@ -31,6 +31,23 @@ final electricityRemoteDataSourceProvider = Provider((ref) {
   return _ElectricityRemoteDataSource(ref.read(dioClientProvider));
 });
 
+/// Fetched once and cached for the life of this provider - the same
+/// percent every purchase on this screen will be charged, so there's no
+/// need to re-fetch per keystroke. Defaults to 0 (no fee shown) if the
+/// request fails, matching the backend's own zero-markup default - a
+/// network hiccup here should never make the app THINK there's a fee that
+/// doesn't actually exist.
+final electricityFeePercentProvider = FutureProvider.autoDispose<double>((ref) async {
+  try {
+    final dio = ref.read(dioClientProvider);
+    final response = await dio.get(AppEndpoints.electricityFee);
+    final data = response.data['data'] as Map<String, dynamic>? ?? {};
+    return (data['percent'] as num?)?.toDouble() ?? 0;
+  } catch (_) {
+    return 0;
+  }
+});
+
 class _ElectricityRemoteDataSource {
   const _ElectricityRemoteDataSource(this._dio);
   final Dio _dio;

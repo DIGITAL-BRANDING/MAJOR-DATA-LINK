@@ -1,0 +1,1646 @@
+diff --git a/major_data_link/lib/core/config/app_endpoints.dart b/major_data_link/lib/core/config/app_endpoints.dart
+index 63472e8..2d183ad 100644
+--- a/major_data_link/lib/core/config/app_endpoints.dart
++++ b/major_data_link/lib/core/config/app_endpoints.dart
+@@ -63,6 +63,7 @@ class AppEndpoints {
+ 
+   // Electricity
+   static String get electricityProviders => '$_base/electricity/providers';
++  static String get electricityFee => '$_base/electricity/fee';
+   static String get validateMeter => '$_base/electricity/validate';
+   static String get purchaseElectricity => '$_base/electricity/purchase';
+   static String get electricityHistory => '$_base/electricity/history';
+diff --git a/major_data_link/lib/features/electricity/presentation/providers/electricity_provider.dart b/major_data_link/lib/features/electricity/presentation/providers/electricity_provider.dart
+index 345bf80..f4d9f5f 100644
+--- a/major_data_link/lib/features/electricity/presentation/providers/electricity_provider.dart
++++ b/major_data_link/lib/features/electricity/presentation/providers/electricity_provider.dart
+@@ -31,6 +31,23 @@ final electricityRemoteDataSourceProvider = Provider((ref) {
+   return _ElectricityRemoteDataSource(ref.read(dioClientProvider));
+ });
+ 
++/// Fetched once and cached for the life of this provider - the same
++/// percent every purchase on this screen will be charged, so there's no
++/// need to re-fetch per keystroke. Defaults to 0 (no fee shown) if the
++/// request fails, matching the backend's own zero-markup default - a
++/// network hiccup here should never make the app THINK there's a fee that
++/// doesn't actually exist.
++final electricityFeePercentProvider = FutureProvider.autoDispose<double>((ref) async {
++  try {
++    final dio = ref.read(dioClientProvider);
++    final response = await dio.get(AppEndpoints.electricityFee);
++    final data = response.data['data'] as Map<String, dynamic>? ?? {};
++    return (data['percent'] as num?)?.toDouble() ?? 0;
++  } catch (_) {
++    return 0;
++  }
++});
++
+ class _ElectricityRemoteDataSource {
+   const _ElectricityRemoteDataSource(this._dio);
+   final Dio _dio;
+diff --git a/major_data_link/lib/features/electricity/presentation/screens/electricity_screen.dart b/major_data_link/lib/features/electricity/presentation/screens/electricity_screen.dart
+index 2535271..df01d4f 100644
+--- a/major_data_link/lib/features/electricity/presentation/screens/electricity_screen.dart
++++ b/major_data_link/lib/features/electricity/presentation/screens/electricity_screen.dart
+@@ -32,7 +32,7 @@ class _ElectricityScreenState extends ConsumerState<ElectricityScreen> {
+     super.dispose();
+   }
+ 
+-  Future<void> _handlePurchase() async {
++  Future<void> _handlePurchase(double serviceFee, double total) async {
+     context.hideKeyboard();
+     final state = ref.read(electricityNotifierProvider);
+     final disco = ref.read(selectedDiscoProvider);
+@@ -49,6 +49,8 @@ class _ElectricityScreenState extends ConsumerState<ElectricityScreen> {
+         meterType: state.meterType,
+         customerName: state.validationResult?.customerName ?? '',
+         amount: state.amount,
++        serviceFee: serviceFee,
++        total: total,
+       ),
+     );
+     if (confirmed != true) return;
+@@ -71,12 +73,15 @@ class _ElectricityScreenState extends ConsumerState<ElectricityScreen> {
+         MaterialPageRoute(
+           builder: (_) => PurchaseSuccessView(
+             title: '$disco Electricity',
+-            amount: state.amount,
++            amount: total,
+             reference: data['reference']?.toString() ?? '',
+             details: [
+               MapEntry('Disco', disco),
+               MapEntry('Meter number', state.meterNumber),
+               MapEntry('Customer', state.validationResult?.customerName ?? ''),
++              MapEntry('Meter top-up', AppFormatters.formatAmount(state.amount)),
++              if (serviceFee > 0)
++                MapEntry('Service fee', AppFormatters.formatAmount(serviceFee)),
+               if (token != null) MapEntry('Token', token),
+             ],
+             onBuyAgain: () {
+@@ -100,6 +105,9 @@ class _ElectricityScreenState extends ConsumerState<ElectricityScreen> {
+   Widget build(BuildContext context) {
+     final disco = ref.watch(selectedDiscoProvider);
+     final state = ref.watch(electricityNotifierProvider);
++    final feePercent = ref.watch(electricityFeePercentProvider).valueOrNull ?? 0;
++    final serviceFee = state.amount * feePercent / 100;
++    final total = state.amount + serviceFee;
+ 
+     return Scaffold(
+       appBar: AppBar(title: const Text(AppStrings.electricity)),
+@@ -257,6 +265,33 @@ class _ElectricityScreenState extends ConsumerState<ElectricityScreen> {
+                   },
+                   validator: (v) => AppValidators.amount(v, min: 500),
+                 ),
++                if (feePercent > 0 && state.amount > 0) ...[
++                  const SizedBox(height: 10),
++                  KDCard(
++                    backgroundColor: AppColors.primary50,
++                    child: Column(
++                      children: [
++                        _summaryRow(
++                          context,
++                          'Meter top-up',
++                          AppFormatters.formatAmount(state.amount),
++                        ),
++                        _summaryRow(
++                          context,
++                          'Service fee (${feePercent.toStringAsFixed(feePercent.truncateToDouble() == feePercent ? 0 : 1)}%)',
++                          AppFormatters.formatAmount(serviceFee),
++                        ),
++                        const Divider(height: 20),
++                        _summaryRow(
++                          context,
++                          'Total to pay',
++                          AppFormatters.formatAmount(total),
++                          isTotal: true,
++                        ),
++                      ],
++                    ),
++                  ),
++                ],
+                 const SizedBox(height: 16),
+                 Row(
+                   children: [
+@@ -286,10 +321,10 @@ class _ElectricityScreenState extends ConsumerState<ElectricityScreen> {
+         child: Padding(
+           padding: const EdgeInsets.all(AppDimensions.screenPaddingH),
+           child: KDButton(
+-            label: state.amount > 0
+-                ? 'Pay ${AppFormatters.formatAmount(state.amount)}'
++            label: total > 0
++                ? 'Pay ${AppFormatters.formatAmount(total)}'
+                 : AppStrings.proceed,
+-            onPressed: state.canProceed ? _handlePurchase : null,
++            onPressed: state.canProceed ? () => _handlePurchase(serviceFee, total) : null,
+             isLoading: state.isProcessing,
+             gradient: AppColors.primaryGradient,
+           ),
+@@ -297,6 +332,31 @@ class _ElectricityScreenState extends ConsumerState<ElectricityScreen> {
+       ),
+     );
+   }
++
++  Widget _summaryRow(BuildContext context, String label, String value, {bool isTotal = false}) {
++    return Padding(
++      padding: const EdgeInsets.symmetric(vertical: 4),
++      child: Row(
++        mainAxisAlignment: MainAxisAlignment.spaceBetween,
++        children: [
++          Text(
++            label,
++            style: context.textTheme.bodySmall?.copyWith(
++              color: isTotal ? null : AppColors.neutral500,
++              fontWeight: isTotal ? FontWeight.w700 : null,
++            ),
++          ),
++          Text(
++            value,
++            style: context.textTheme.bodyMedium?.copyWith(
++              fontWeight: isTotal ? FontWeight.w800 : FontWeight.w600,
++              color: isTotal ? context.colors.primary : null,
++            ),
++          ),
++        ],
++      ),
++    );
++  }
+ }
+ 
+ class _ConfirmSheet extends StatelessWidget {
+@@ -306,6 +366,8 @@ class _ConfirmSheet extends StatelessWidget {
+     required this.meterType,
+     required this.customerName,
+     required this.amount,
++    required this.serviceFee,
++    required this.total,
+   });
+ 
+   final String disco;
+@@ -313,6 +375,8 @@ class _ConfirmSheet extends StatelessWidget {
+   final MeterType meterType;
+   final String customerName;
+   final double amount;
++  final double serviceFee;
++  final double total;
+ 
+   @override
+   Widget build(BuildContext context) {
+@@ -346,7 +410,10 @@ class _ConfirmSheet extends StatelessWidget {
+           _row(context, 'Meter number', meterNumber),
+           _row(context, 'Customer', customerName),
+           const Divider(height: 28),
+-          _row(context, AppStrings.amount, AppFormatters.formatAmount(amount),
++          _row(context, 'Meter top-up', AppFormatters.formatAmount(amount)),
++          if (serviceFee > 0)
++            _row(context, 'Service fee', AppFormatters.formatAmount(serviceFee)),
++          _row(context, 'Total to pay', AppFormatters.formatAmount(total),
+               isTotal: true),
+           const SizedBox(height: 24),
+           KDButton(
+diff --git a/major_data_link_backend/prisma/schema.prisma b/major_data_link_backend/prisma/schema.prisma
+index 6cdbf53..3356958 100644
+--- a/major_data_link_backend/prisma/schema.prisma
++++ b/major_data_link_backend/prisma/schema.prisma
+@@ -414,10 +414,20 @@ model AppConfig {
+ // vars still exist as the one-time seed value for a fresh database, read in
+ // getPricingSettings()'s getOrCreate.
+ model PricingSettings {
+-  id                    String   @id @default("default")
+-  dataPlanMarkupPercent Float    @default(0)
+-  dataPlanMarkupNaira   Float    @default(0)
+-  updatedAt             DateTime @updatedAt
++  id                       String   @id @default("default")
++  dataPlanMarkupPercent    Float    @default(0)
++  dataPlanMarkupNaira      Float    @default(0)
++  // Which upstream provider handles data/airtime/result-pin purchases right
++  // now - 'alrahuz' or 'bilalsadasub'. Admin-editable at /admin/bulk-pricing
++  // (no redeploy needed), read fresh on every purchase/list call so a
++  // switch takes effect immediately. Cable/electricity have no Alrahuz
++  // equivalent in this codebase at all, so they always go through
++  // bilalsadasub.service.ts regardless of these two settings.
++  dataAirtimeProvider      String   @default("alrahuz")
++  resultPinProvider        String   @default("alrahuz")
++  cableMarkupPercent       Float    @default(0)
++  electricityMarkupPercent Float    @default(0)
++  updatedAt                DateTime @updatedAt
+ }
+ // Conversation state for the WhatsApp data-purchase bot (see
+ // src/services/whatsapp-session.service.ts). One row per WhatsApp phone
+diff --git a/major_data_link_backend/src/admin/bulk-pricing.ts b/major_data_link_backend/src/admin/bulk-pricing.ts
+index 3501d17..a0b7ddb 100644
+--- a/major_data_link_backend/src/admin/bulk-pricing.ts
++++ b/major_data_link_backend/src/admin/bulk-pricing.ts
+@@ -97,6 +97,38 @@ export function registerBulkPricingRoutes(router: Router) {
+     }
+   });
+ 
++  router.post('/bulk-pricing/provider-switch', async (req, res) => {
++    const admin = requireFinanceOrSuper(req);
++    if (!admin) return res.redirect('/admin/login');
++
++    const dataAirtimeProviderRaw = field(req, 'dataAirtimeProvider');
++    const resultPinProviderRaw = field(req, 'resultPinProvider');
++    const cableMarkupPercent = parseNonNegativeNumber(field(req, 'cableMarkupPercent'));
++    const electricityMarkupPercent = parseNonNegativeNumber(field(req, 'electricityMarkupPercent'));
++
++    const dataAirtimeProvider = dataAirtimeProviderRaw === 'bilalsadasub' ? 'bilalsadasub' : 'alrahuz';
++    const resultPinProvider = resultPinProviderRaw === 'bilalsadasub' ? 'bilalsadasub' : 'alrahuz';
++
++    if (cableMarkupPercent === null || electricityMarkupPercent === null) {
++      return res.redirect('/admin/bulk-pricing?flash=' + encodeFlash('error', 'Cable and electricity markup % must both be valid numbers ≥ 0.'));
++    }
++
++    try {
++      await updatePricingSettings({ dataAirtimeProvider, resultPinProvider, cableMarkupPercent, electricityMarkupPercent });
++      await logAdminAction({
++        adminId: admin.id,
++        action: 'UPDATE_PROVIDER_SWITCH',
++        targetType: 'PricingSettings',
++        targetId: 'default',
++        metadata: { dataAirtimeProvider, resultPinProvider, cableMarkupPercent, electricityMarkupPercent }
++      });
++      res.redirect('/admin/bulk-pricing?flash=' + encodeFlash('success', `Providers updated - Data/Airtime: ${dataAirtimeProvider}, Result Pins: ${resultPinProvider}.`));
++    } catch (error) {
++      console.error('[bulk-pricing] provider-switch update failed:', error);
++      res.redirect('/admin/bulk-pricing?flash=' + encodeFlash('error', 'Something went wrong updating the provider switch. Check the server logs.'));
++    }
++  });
++
+   router.post('/bulk-pricing/data-plans', async (req, res) => {
+     const admin = requireFinanceOrSuper(req);
+     if (!admin) return res.redirect('/admin/login');
+@@ -105,22 +137,25 @@ export function registerBulkPricingRoutes(router: Router) {
+     const naira = parseNonNegativeNumber(field(req, 'markupNaira'));
+     const networkRaw = field(req, 'network').trim();
+     const network = networkRaw ? networkRaw : undefined;
++    const providerRaw = field(req, 'dataPlanProvider');
++    const provider = providerRaw === 'bilalsadasub' ? 'bilalsadasub' : providerRaw === 'alrahuz' ? 'alrahuz' : undefined;
+     if (percent === null || naira === null) {
+       return res.redirect('/admin/bulk-pricing?flash=' + encodeFlash('error', 'Markup % and ₦ must both be valid numbers ≥ 0.'));
+     }
+ 
+     try {
+-      const result = await dataPlanPricingService.applyMarkup({ network, markupNaira: naira, markupPercent: percent });
++      const result = await dataPlanPricingService.applyMarkup({ network, provider, markupNaira: naira, markupPercent: percent });
+       await logAdminAction({
+         adminId: admin.id,
+         action: 'BULK_REPRICE_DATA_PLANS',
+         targetType: 'DataPlanPricing',
+-        metadata: { network: network ?? 'ALL', markupPercent: percent, markupNaira: naira, updated: result.updated }
++        metadata: { network: network ?? 'ALL', provider: provider ?? 'ALL', markupPercent: percent, markupNaira: naira, updated: result.updated }
+       });
+ 
+       const scope = network ? `${network} plans` : 'ALL networks';
++      const providerScope = provider ? ` (${provider} only)` : '';
+       const skippedNote = result.skipped > 0 ? ` (${result.skipped} skipped - non-positive computed price, check their provider cost)` : '';
+-      res.redirect('/admin/bulk-pricing?flash=' + encodeFlash('success', `Repriced ${result.updated} data plan(s) (${scope}) at cost + ${percent}% + ₦${naira}.${skippedNote}`));
++      res.redirect('/admin/bulk-pricing?flash=' + encodeFlash('success', `Repriced ${result.updated} data plan(s) (${scope}${providerScope}) at cost + ${percent}% + ₦${naira}.${skippedNote}`));
+     } catch (error) {
+       console.error('[bulk-pricing] data-plans bulk markup failed:', error);
+       res.redirect('/admin/bulk-pricing?flash=' + encodeFlash('error', 'Something went wrong repricing data plans. Some rows may already be updated - check the server logs.'));
+@@ -184,7 +219,14 @@ function flashFromQuery(query: Record<string, unknown>): { type: 'success' | 'er
+ 
+ function renderPage(params: {
+   admin: AdminSessionUser;
+-  settings: { dataPlanMarkupPercent: number; dataPlanMarkupNaira: number };
++  settings: {
++    dataPlanMarkupPercent: number;
++    dataPlanMarkupNaira: number;
++    dataAirtimeProvider: string;
++    resultPinProvider: string;
++    cableMarkupPercent: number;
++    electricityMarkupPercent: number;
++  };
+   networks: string[];
+   flash: { type: 'success' | 'error'; message: string } | null;
+ }) {
+@@ -256,6 +298,34 @@ function renderPage(params: {
+     </form>
+   </div>
+ 
++  <div class="card">
++    <h2>0. Provider switch</h2>
++    <p class="hint">Which upstream fulfills each purchase type. Switches instantly, no redeploy - a live customer's very next request uses the new provider. Cable TV and Electricity always use BilalSadaSub (Alrahuz doesn't offer them).</p>
++    <form method="POST" action="/admin/bulk-pricing/provider-switch">
++      <label>Data &amp; Airtime provider</label>
++      <select name="dataAirtimeProvider">
++        <option value="alrahuz" ${settings.dataAirtimeProvider === 'alrahuz' ? 'selected' : ''}>Alrahuz</option>
++        <option value="bilalsadasub" ${settings.dataAirtimeProvider === 'bilalsadasub' ? 'selected' : ''}>BilalSadaSub</option>
++      </select>
++      <label>Result Pin (WAEC/NECO/NABTEB) provider</label>
++      <select name="resultPinProvider">
++        <option value="alrahuz" ${settings.resultPinProvider === 'alrahuz' ? 'selected' : ''}>Alrahuz</option>
++        <option value="bilalsadasub" ${settings.resultPinProvider === 'bilalsadasub' ? 'selected' : ''}>BilalSadaSub</option>
++      </select>
++      <div class="row">
++        <div>
++          <label>Cable TV markup %</label>
++          <input type="number" name="cableMarkupPercent" step="0.01" min="0" value="${settings.cableMarkupPercent}" required>
++        </div>
++        <div>
++          <label>Electricity markup %</label>
++          <input type="number" name="electricityMarkupPercent" step="0.01" min="0" value="${settings.electricityMarkupPercent}" required>
++        </div>
++      </div>
++      <button type="submit">Save provider switch</button>
++    </form>
++  </div>
++
+   <div class="card">
+     <h2>2. Bulk reprice data plans</h2>
+     <p class="hint">Sets selling price = provider cost + % + ₦ for every plan in the chosen network (or all networks). Overwrites any price already set on those plans.</p>
+@@ -265,6 +335,12 @@ function renderPage(params: {
+         <option value="">All networks</option>
+         ${networkOptions}
+       </select>
++      <label>Provider</label>
++      <select name="dataPlanProvider">
++        <option value="">Both providers</option>
++        <option value="alrahuz">Alrahuz only</option>
++        <option value="bilalsadasub">BilalSadaSub only</option>
++      </select>
+       <div class="row">
+         <div>
+           <label>Markup %</label>
+diff --git a/major_data_link_backend/src/app.ts b/major_data_link_backend/src/app.ts
+index 357155c..b25dd6c 100644
+--- a/major_data_link_backend/src/app.ts
++++ b/major_data_link_backend/src/app.ts
+@@ -35,6 +35,8 @@ import { userRoutes } from './routes/user.routes.js';
+ import { verificationRoutes } from './routes/verification.routes.js';
+ import { ninModificationRoutes } from './routes/nin-modification.routes.js';
+ import { vtuRoutes } from './routes/vtu.routes.js';
++import { cableRoutes } from './routes/cable.routes.js';
++import { electricityRoutes } from './routes/electricity.routes.js';
+ import { walletRoutes } from './routes/wallet.routes.js';
+ import { webhookRoutes } from './routes/webhook.routes.js';
+ import { deliveryRoutes } from './routes/delivery.routes.js';
+@@ -182,6 +184,8 @@ export function createApp() {
+   app.use('/api/verification', verificationRoutes);
+   app.use('/api/nin-modification', ninModificationRoutes);
+   app.use('/api', vtuRoutes);
++  app.use('/api/cable', cableRoutes);
++  app.use('/api/electricity', electricityRoutes);
+   app.use('/api/transactions', transactionRoutes);
+ 
+   let adminRouterPromise: Promise<express.Router> | null = null;
+diff --git a/major_data_link_backend/src/config/env.ts b/major_data_link_backend/src/config/env.ts
+index fdf2565..69263a6 100644
+--- a/major_data_link_backend/src/config/env.ts
++++ b/major_data_link_backend/src/config/env.ts
+@@ -10,6 +10,18 @@ const EnvSchema = z.object({
+   FIREBASE_SERVICE_ACCOUNT_BASE64: z.string().optional(),
+   ALRAHUZ_BASE_URL: z.string().url().default('https://alrahuzdata.com.ng/api'),
+   ALRAHUZ_API_TOKEN: z.string().optional(),
++
++  // BilalSadaSub - second data/airtime/cable/electricity/result-pin
++  // provider (see bilalsadasub.service.ts). Auth is username+password (not
++  // a static token like Alrahuz) - the service exchanges these for an
++  // AccessToken at runtime and caches it in memory, re-generating on a 401.
++  // Both optional so a deploy with no BilalSadaSub account configured yet
++  // doesn't fail startup - PricingSettings.dataAirtimeProvider/
++  // resultPinProvider just can't be switched to 'bilalsadasub' (and cable/
++  // electricity purchases will fail with a clear error) until they're set.
++  BILALSADASUB_BASE_URL: z.string().url().default('https://bilalsadasub.com'),
++  BILALSADASUB_USERNAME: z.string().optional(),
++  BILALSADASUB_PASSWORD: z.string().optional(),
+   ALRAHUZ_DATA_PLANS_PATH: z.string().default('/data/'),
+   ALRAHUZ_BALANCE_PATH: z.string().default('/user/'),
+   ALRAHUZ_FUNDING_ACCOUNT_NUMBER: z.string().default('6651219714'),
+diff --git a/major_data_link_backend/src/routes/cable.routes.ts b/major_data_link_backend/src/routes/cable.routes.ts
+new file mode 100644
+index 0000000..f7f4752
+--- /dev/null
++++ b/major_data_link_backend/src/routes/cable.routes.ts
+@@ -0,0 +1,151 @@
++import { Router, type Request } from 'express';
++import { TransactionStatus, TransactionType, type Prisma } from '@prisma/client';
++import { z } from 'zod';
++import { koboToNaira, nairaToKobo } from '../lib/money.js';
++import { prisma } from '../lib/prisma.js';
++import { requireAuth } from '../middleware/auth.js';
++import { pinField, requirePinConfirmation } from '../lib/require-pin.js';
++import * as bilalsadasub from '../services/bilalsadasub.service.js';
++import { getPricingSettings } from '../services/pricing-settings.service.js';
++import { debitWallet, refundWallet } from '../services/wallet.service.js';
++import { recordProviderDebit } from '../services/provider-ledger.service.js';
++import { awardReferralCommission } from '../services/referral.service.js';
++
++// Cable TV has no Alrahuz equivalent anywhere in this codebase - always
++// BilalSadaSub, unlike data/airtime/result-pins which check PricingSettings.
++// Request/response shapes here are dictated by the already-built Flutter UI
++// (lib/features/cable_tv/presentation/providers/cable_provider.dart) - this
++// file conforms to that contract, not the other way around.
++export const cableRoutes = Router();
++
++cableRoutes.use(requireAuth);
++
++function idempotencyKeyFrom(req: Request) {
++  const header = req.header('Idempotency-Key');
++  return header && header.trim().length > 0 ? header.trim() : undefined;
++}
++
++function applyCableMarkup(providerPrice: number, markupPercent: number) {
++  return Math.ceil(providerPrice + (providerPrice * markupPercent) / 100);
++}
++
++// GET /api/cable/plans/:provider -> CablePlan.fromJson reads id/name/
++// (or plan_name)/price/validity - see cable_provider.dart.
++cableRoutes.get('/plans/:provider', async (req, res) => {
++  const [plans, settings] = await Promise.all([
++    bilalsadasub.getCablePlans(req.params.provider),
++    getPricingSettings()
++  ]);
++  const priced = plans.map((plan) => ({
++    id: plan.planId,
++    name: plan.planName,
++    price: applyCableMarkup(plan.amount, settings.cableMarkupPercent)
++  }));
++  res.json({ status: true, data: priced });
++});
++
++// POST /api/cable/validate { provider, smartcard_number } -> { status,
++// data: { customer_name } } - see cable_provider.dart's validateSmartcard().
++cableRoutes.post('/validate', async (req, res) => {
++  const body = z.object({ provider: z.string(), smartcard_number: z.string() }).parse(req.body);
++  const result = await bilalsadasub.validateSmartcard({ cable: body.provider, iuc: body.smartcard_number });
++  res.json({ status: result.isValid, data: { customer_name: result.customerName } });
++});
++
++// POST /api/cable/subscribe { provider, smartcard_number, plan_id, amount }
++// -> { status: bool, ... } - see cable_provider.dart's subscribe(). `amount`
++// is trusted from the client only as a display echo; the real charge is
++// always recomputed server-side from the plan's current priced amount so a
++// tampered client value can never change what's actually debited.
++cableRoutes.post('/subscribe', async (req, res) => {
++  const body = z
++    .object({
++      provider: z.string(),
++      smartcard_number: z.string().min(10).max(10),
++      plan_id: z.string(),
++      amount: z.number().optional(),
++      ...pinField
++    })
++    .parse(req.body);
++  await requirePinConfirmation(req.user!.id, body.pin);
++
++  const [plans, settings] = await Promise.all([bilalsadasub.getCablePlans(body.provider), getPricingSettings()]);
++  const plan = plans.find((p) => p.planId === body.plan_id);
++  if (!plan) {
++    return res.status(404).json({ status: false, message: 'Cable plan not found' });
++  }
++  const amount = applyCableMarkup(plan.amount, settings.cableMarkupPercent);
++  const { pin: _pin, ...metadataBody } = body;
++
++  const debit = await debitWallet({
++    userId: req.user!.id,
++    amount,
++    type: TransactionType.CABLE_PURCHASE,
++    description: `${plan.cableName} ${plan.planName} for IUC ${body.smartcard_number}`,
++    metadata: { ...metadataBody, amount, plan_name: plan.planName, provider: 'bilalsadasub' } as Prisma.InputJsonValue,
++    idempotencyKey: idempotencyKeyFrom(req),
++    costKobo: nairaToKobo(plan.amount)
++  });
++
++  if (debit.reused && debit.transaction.status !== TransactionStatus.PENDING) {
++    return res.json({
++      status: debit.transaction.status === TransactionStatus.SUCCESS,
++      message: 'Transaction already processed',
++      reference: debit.reference,
++      balance_after: koboToNaira(debit.transaction.balanceAfterKobo)
++    });
++  }
++
++  const provider = await bilalsadasub.buyCable({
++    cable: body.provider,
++    iuc: body.smartcard_number,
++    planId: body.plan_id,
++    reference: debit.reference
++  });
++
++  if (provider.status) {
++    await prisma.transaction.update({
++      where: { id: debit.transaction.id },
++      data: {
++        status: TransactionStatus.SUCCESS,
++        provider: 'bilalsadasub',
++        providerRef: provider.providerRef ?? null,
++        ...(provider.costKobo !== undefined ? { costKobo: provider.costKobo } : {})
++      }
++    });
++
++    const finalCostKobo = provider.costKobo ?? nairaToKobo(plan.amount);
++    await recordProviderDebit({
++      provider: 'bilalsadasub',
++      amountKobo: finalCostKobo,
++      relatedTransactionId: debit.transaction.id,
++      description: `${plan.cableName} ${plan.planName}`
++    }).catch((error) => console.error('[provider-ledger] failed to record debit for', debit.transaction.id, error));
++
++    await awardReferralCommission({
++      buyerId: req.user!.id,
++      purchaseAmountKobo: debit.transaction.amountKobo,
++      sourceTransactionId: debit.transaction.id
++    });
++
++    return res.json({
++      status: true,
++      message: provider.message ?? 'Cable subscription renewed',
++      reference: debit.reference,
++      balance_after: debit.balanceAfter
++    });
++  }
++
++  await prisma.transaction.update({
++    where: { id: debit.transaction.id },
++    data: { status: TransactionStatus.FAILED, provider: 'bilalsadasub', providerRef: provider.providerRef ?? null }
++  });
++  const refunded = await refundWallet({ transactionId: debit.transaction.id, userId: req.user!.id });
++
++  res.json({
++    status: false,
++    message: provider.message ?? 'Cable subscription failed and was refunded',
++    reference: debit.reference,
++    balance_after: koboToNaira(refunded.balanceAfterKobo)
++  });
++});
+diff --git a/major_data_link_backend/src/routes/electricity.routes.ts b/major_data_link_backend/src/routes/electricity.routes.ts
+new file mode 100644
+index 0000000..b5f7632
+--- /dev/null
++++ b/major_data_link_backend/src/routes/electricity.routes.ts
+@@ -0,0 +1,167 @@
++import { Router, type Request } from 'express';
++import { TransactionStatus, TransactionType, type Prisma } from '@prisma/client';
++import { z } from 'zod';
++import { koboToNaira, nairaToKobo } from '../lib/money.js';
++import { prisma } from '../lib/prisma.js';
++import { requireAuth } from '../middleware/auth.js';
++import { pinField, requirePinConfirmation } from '../lib/require-pin.js';
++import * as bilalsadasub from '../services/bilalsadasub.service.js';
++import { getPricingSettings } from '../services/pricing-settings.service.js';
++import { debitWallet, refundWallet } from '../services/wallet.service.js';
++import { recordProviderDebit } from '../services/provider-ledger.service.js';
++import { awardReferralCommission } from '../services/referral.service.js';
++
++// Electricity has no Alrahuz equivalent anywhere in this codebase - always
++// BilalSadaSub, same as cable.routes.ts. Request/response shapes here are
++// dictated by the already-built Flutter UI
++// (lib/features/electricity/presentation/providers/electricity_provider.dart)
++// - `meter_number`/`meter_type` (not `meter`), top-level `status`, etc.
++export const electricityRoutes = Router();
++
++electricityRoutes.use(requireAuth);
++
++function idempotencyKeyFrom(req: Request) {
++  const header = req.header('Idempotency-Key');
++  return header && header.trim().length > 0 ? header.trim() : undefined;
++}
++
++electricityRoutes.get('/providers', async (_req, res) => {
++  const providers = await bilalsadasub.listDiscos();
++  res.json({ status: true, data: providers });
++});
++
++// Lets ElectricityScreen show "Service fee: ₦X" / "Total: ₦Y" BEFORE the
++// user confirms, instead of silently debiting more than the amount they
++// typed - see the doc comment on `sellingAmount` in the /purchase handler
++// below for why this matters once electricityMarkupPercent is ever > 0.
++electricityRoutes.get('/fee', async (_req, res) => {
++  const settings = await getPricingSettings();
++  res.json({ status: true, data: { percent: settings.electricityMarkupPercent } });
++});
++
++// POST /api/electricity/validate { disco, meter_number, meter_type } ->
++// { status, data: { customer_name, address } } - see
++// electricity_provider.dart's validateMeter().
++electricityRoutes.post('/validate', async (req, res) => {
++  const body = z
++    .object({ disco: z.string(), meter_number: z.string(), meter_type: z.enum(['prepaid', 'postpaid']) })
++    .parse(req.body);
++  const result = await bilalsadasub.validateMeter({
++    disco: body.disco,
++    meter: body.meter_number,
++    meterType: body.meter_type
++  });
++  res.json({ status: result.isValid, data: { customer_name: result.customerName, address: result.address } });
++});
++
++electricityRoutes.post('/purchase', async (req, res) => {
++  const body = z
++    .object({
++      disco: z.string(),
++      meter_number: z.string().min(1),
++      meter_type: z.enum(['prepaid', 'postpaid']),
++      // The amount the CUSTOMER'S METER should be topped up by - this goes
++      // to BilalSadaSub unchanged. The wallet is debited this plus
++      // electricityMarkupPercent (default 0 - see the doc comment below on
++      // why a nonzero value here needs a UI change too), so the customer's
++      // meter gets exactly what they asked for while our margin (if any)
++      // comes out of their wallet balance, not out of their units.
++      amount: z.number().min(500).max(500000),
++      ...pinField
++    })
++    .parse(req.body);
++  await requirePinConfirmation(req.user!.id, body.pin);
++
++  const settings = await getPricingSettings();
++  // NOTE: ElectricityScreen's form only ever shows/asks for `body.amount`
++  // itself - it has no "your total charge including our fee is ₦X" line.
++  // That's fine at the default 0% markup (sellingAmount === body.amount,
++  // nothing hidden) but if electricityMarkupPercent is ever raised above
++  // 0, the customer would be debited MORE than the number they typed with
++  // no on-screen indication why - the Flutter screen needs a
++  // "service fee" line added before that setting is used for real.
++  const sellingAmount = Math.ceil(body.amount + (body.amount * settings.electricityMarkupPercent) / 100);
++  const { pin: _pin, ...metadataBody } = body;
++
++  const debit = await debitWallet({
++    userId: req.user!.id,
++    amount: sellingAmount,
++    type: TransactionType.ELECTRICITY_PURCHASE,
++    description: `${body.disco} ${body.meter_type} electricity for meter ${body.meter_number}`,
++    metadata: { ...metadataBody, amount: sellingAmount, provider: 'bilalsadasub' } as Prisma.InputJsonValue,
++    idempotencyKey: idempotencyKeyFrom(req),
++    costKobo: nairaToKobo(body.amount)
++  });
++
++  if (debit.reused && debit.transaction.status !== TransactionStatus.PENDING) {
++    return res.json({
++      status: debit.transaction.status === TransactionStatus.SUCCESS,
++      message: 'Transaction already processed',
++      reference: debit.reference,
++      balance_after: koboToNaira(debit.transaction.balanceAfterKobo)
++    });
++  }
++
++  const provider = await bilalsadasub.buyElectricity({
++    disco: body.disco,
++    meterType: body.meter_type,
++    meter: body.meter_number,
++    amount: body.amount,
++    reference: debit.reference
++  });
++
++  if (provider.status) {
++    await prisma.transaction.update({
++      where: { id: debit.transaction.id },
++      data: {
++        status: TransactionStatus.SUCCESS,
++        provider: 'bilalsadasub',
++        providerRef: provider.providerRef ?? null,
++        metadata: {
++          ...metadataBody,
++          amount: sellingAmount,
++          provider: 'bilalsadasub',
++          token: provider.token,
++          units: provider.units
++        } as Prisma.InputJsonValue,
++        ...(provider.costKobo !== undefined ? { costKobo: provider.costKobo } : {})
++      }
++    });
++
++    const finalCostKobo = provider.costKobo ?? nairaToKobo(body.amount);
++    await recordProviderDebit({
++      provider: 'bilalsadasub',
++      amountKobo: finalCostKobo,
++      relatedTransactionId: debit.transaction.id,
++      description: `${body.disco} ${body.meter_type} electricity`
++    }).catch((error) => console.error('[provider-ledger] failed to record debit for', debit.transaction.id, error));
++
++    await awardReferralCommission({
++      buyerId: req.user!.id,
++      purchaseAmountKobo: debit.transaction.amountKobo,
++      sourceTransactionId: debit.transaction.id
++    });
++
++    return res.json({
++      status: true,
++      message: provider.message ?? 'Electricity token sent',
++      reference: debit.reference,
++      balance_after: debit.balanceAfter,
++      token: provider.token,
++      units: provider.units
++    });
++  }
++
++  await prisma.transaction.update({
++    where: { id: debit.transaction.id },
++    data: { status: TransactionStatus.FAILED, provider: 'bilalsadasub', providerRef: provider.providerRef ?? null }
++  });
++  const refunded = await refundWallet({ transactionId: debit.transaction.id, userId: req.user!.id });
++
++  res.json({
++    status: false,
++    message: provider.message ?? 'Electricity purchase failed and was refunded',
++    reference: debit.reference,
++    balance_after: koboToNaira(refunded.balanceAfterKobo)
++  });
++});
+diff --git a/major_data_link_backend/src/routes/vtu.routes.ts b/major_data_link_backend/src/routes/vtu.routes.ts
+index bb8d7f1..d28b2a4 100644
+--- a/major_data_link_backend/src/routes/vtu.routes.ts
++++ b/major_data_link_backend/src/routes/vtu.routes.ts
+@@ -6,6 +6,9 @@ import { prisma } from '../lib/prisma.js';
+ import { requireAuth } from '../middleware/auth.js';
+ import { pinField, requirePinConfirmation } from '../lib/require-pin.js';
+ import { providerService, type ProviderPurchaseInput } from '../services/provider.service.js';
++import * as bilalsadasub from '../services/bilalsadasub.service.js';
++import { getPricingSettings } from '../services/pricing-settings.service.js';
++import type { NormalizedProviderResponse } from '../services/provider-types.js';
+ import { debitWallet, refundWallet } from '../services/wallet.service.js';
+ import { recordProviderDebit } from '../services/provider-ledger.service.js';
+ import { awardReferralCommission } from '../services/referral.service.js';
+@@ -19,6 +22,18 @@ function idempotencyKeyFrom(req: Request) {
+   return header && header.trim().length > 0 ? header.trim() : undefined;
+ }
+ 
++/**
++ * Which upstream handles data/airtime right now - PricingSettings.
++ * dataAirtimeProvider, admin-editable at /admin/bulk-pricing, read fresh on
++ * every call so a switch takes effect immediately with no redeploy. Falls
++ * back to 'alrahuz' for any unrecognized value rather than throwing, so a
++ * bad/blank DB value can never take purchasing down entirely.
++ */
++async function activeDataAirtimeProvider(): Promise<'alrahuz' | 'bilalsadasub'> {
++  const settings = await getPricingSettings();
++  return settings.dataAirtimeProvider === 'bilalsadasub' ? 'bilalsadasub' : 'alrahuz';
++}
++
+ /**
+  * Shared purchase flow for anything that debits the wallet then calls the provider
+  * (data, airtime, and later electricity/cable). Handles:
+@@ -35,16 +50,17 @@ export async function processProviderPurchase(params: {
+   description: string;
+   metadata: Prisma.InputJsonValue;
+   idempotencyKey?: string;
++  provider: 'alrahuz' | 'bilalsadasub';
+   /**
+    * Our best-known cost basis at debit time (e.g. plan.providerAmount for
+    * data). Omit for purchase types with no config-based cost available up
+-   * front (airtime) - `provider.costKobo`, the ACTUAL cost Alrahuz's
++   * front (airtime) - `provider.costKobo`, the ACTUAL cost the provider's
+    * response reports, always wins over this estimate on success; this is
+    * only what gets stored if that actual figure isn't available. See the
+    * costKobo doc-comment on debitWallet() in wallet.service.ts.
+    */
+   costKobo?: bigint;
+-  callProvider: (reference: string) => ReturnType<typeof providerService.buyData>;
++  callProvider: (reference: string) => Promise<NormalizedProviderResponse>;
+ }) {
+   const debit = await debitWallet({
+     userId: params.userId,
+@@ -76,9 +92,9 @@ export async function processProviderPurchase(params: {
+       where: { id: debit.transaction.id },
+       data: {
+         status: TransactionStatus.SUCCESS,
+-        provider: 'alrahuz',
++        provider: params.provider,
+         providerRef: provider.providerRef ?? null,
+-        // Alrahuz's own reported balance delta, when present, is more
++        // The provider's own reported balance delta, when present, is more
+         // accurate than the config-based estimate debitWallet() stored above
+         // (it's what we were ACTUALLY charged, this one time) - overwrite
+         // with it. Otherwise leave the estimate (or null) as-is.
+@@ -92,7 +108,7 @@ export async function processProviderPurchase(params: {
+     // never appear as a free (zero-cost) debit on the provider ledger.
+     if (finalCostKobo !== undefined) {
+       await recordProviderDebit({
+-        provider: 'alrahuz',
++        provider: params.provider,
+         amountKobo: finalCostKobo,
+         relatedTransactionId: debit.transaction.id,
+         description: params.description
+@@ -122,7 +138,7 @@ export async function processProviderPurchase(params: {
+     where: { id: debit.transaction.id },
+     data: {
+       status: TransactionStatus.FAILED,
+-      provider: 'alrahuz',
++      provider: params.provider,
+       providerRef: provider.providerRef ?? null
+     }
+   });
+@@ -137,13 +153,21 @@ export async function processProviderPurchase(params: {
+ }
+ 
+ vtuRoutes.get('/data/plans/:network/categories', async (req, res) => {
+-  const categories = await providerService.getDataPlanCategories(req.params.network);
++  const provider = await activeDataAirtimeProvider();
++  const categories =
++    provider === 'bilalsadasub'
++      ? await bilalsadasub.getDataPlanCategories(req.params.network)
++      : await providerService.getDataPlanCategories(req.params.network);
+   res.json({ status: true, data: categories });
+ });
+ 
+ vtuRoutes.get('/data/plans/:network', async (req, res) => {
+   const category = typeof req.query.category === 'string' ? req.query.category : undefined;
+-  const plans = await providerService.getDataPlans(req.params.network, category);
++  const provider = await activeDataAirtimeProvider();
++  const plans =
++    provider === 'bilalsadasub'
++      ? await bilalsadasub.getDataPlans(req.params.network, category)
++      : await providerService.getDataPlans(req.params.network, category);
+   res.json({ status: true, data: plans });
+ });
+ 
+@@ -156,7 +180,12 @@ vtuRoutes.post('/data/purchase', async (req, res) => {
+     ...pinField
+   }).parse(req.body);
+   await requirePinConfirmation(req.user!.id, body.pin);
+-  const plan = await providerService.getDataPlan(body.network, body.plan_id);
++
++  const provider = await activeDataAirtimeProvider();
++  const plan =
++    provider === 'bilalsadasub'
++      ? await bilalsadasub.getDataPlan(body.network, body.plan_id)
++      : await providerService.getDataPlan(body.network, body.plan_id);
+ 
+   // Never persist the PIN - `body` is spread into Transaction.metadata below,
+   // so it's stripped out explicitly rather than trusting every future edit
+@@ -168,20 +197,23 @@ vtuRoutes.post('/data/purchase', async (req, res) => {
+     amount: plan.amount,
+     type: TransactionType.DATA_PURCHASE,
+     description: `${plan.name} data purchase for ${body.phone}`,
+-    metadata: { ...metadataBody, amount: plan.amount, plan_name: plan.name, validity: plan.validity },
++    metadata: { ...metadataBody, amount: plan.amount, plan_name: plan.name, validity: plan.validity, provider },
+     idempotencyKey: idempotencyKeyFrom(req),
++    provider,
+     // What this plan cost us according to our last pricing sync
+-    // (DataPlanPricing.providerCostKobo) - overwritten with Alrahuz's actual
+-    // reported balance delta on success, see processProviderPurchase above.
++    // (DataPlanPricing.providerCostKobo) - overwritten with the provider's
++    // actual reported balance delta on success, see processProviderPurchase above.
+     costKobo: BigInt(Math.round(plan.providerAmount * 100)),
+     callProvider: (reference) =>
+-      providerService.buyData({
+-        network: body.network,
+-        planId: body.plan_id,
+-        phone: body.phone,
+-        amount: plan.amount,
+-        reference
+-      } satisfies ProviderPurchaseInput)
++      provider === 'bilalsadasub'
++        ? bilalsadasub.buyData({ network: body.network, planId: body.plan_id, phone: body.phone, reference })
++        : providerService.buyData({
++            network: body.network,
++            planId: body.plan_id,
++            phone: body.phone,
++            amount: plan.amount,
++            reference
++          } satisfies ProviderPurchaseInput)
+   });
+ 
+   res.json({
+@@ -201,28 +233,33 @@ vtuRoutes.post('/airtime/purchase', async (req, res) => {
+   await requirePinConfirmation(req.user!.id, body.pin);
+ 
+   const { pin: _pin, ...metadataBody } = body;
++  const provider = await activeDataAirtimeProvider();
+ 
+   const result = await processProviderPurchase({
+     userId: req.user!.id,
+     amount: body.amount,
+     type: TransactionType.AIRTIME_PURCHASE,
+     description: `Airtime purchase for ${body.phone}`,
+-    metadata: metadataBody,
++    metadata: { ...metadataBody, provider },
+     // No `costKobo` here on purpose - unlike data plans, airtime has no
+-    // pricing-config table to estimate from (Alrahuz doesn't quote a fixed
+-    // discount rate up front). Our real cost is only knowable from Alrahuz's
+-    // own balance_before/balance_after delta once they respond - see
+-    // provider.costKobo in processProviderPurchase above. In MOCK_PROVIDER
+-    // mode (no real balance movement), this stays null - "unknown", not "0
+-    // margin" - see the costKobo comment on the Transaction model.
++    // pricing-config table to estimate from (neither provider quotes a
++    // fixed discount rate up front). Our real cost is only knowable from
++    // the provider's own balance_before/balance_after delta once they
++    // respond - see provider.costKobo in processProviderPurchase above. In
++    // MOCK_PROVIDER mode (no real balance movement), this stays null -
++    // "unknown", not "0 margin" - see the costKobo comment on the
++    // Transaction model.
+     idempotencyKey: idempotencyKeyFrom(req),
++    provider,
+     callProvider: (reference) =>
+-      providerService.buyAirtime({
+-        network: body.network,
+-        phone: body.phone,
+-        amount: body.amount,
+-        reference
+-      } satisfies ProviderPurchaseInput)
++      provider === 'bilalsadasub'
++        ? bilalsadasub.buyAirtime({ network: body.network, phone: body.phone, amount: body.amount, reference })
++        : providerService.buyAirtime({
++            network: body.network,
++            phone: body.phone,
++            amount: body.amount,
++            reference
++          } satisfies ProviderPurchaseInput)
+   });
+ 
+   res.json({
+diff --git a/major_data_link_backend/src/services/bilalsadasub.service.ts b/major_data_link_backend/src/services/bilalsadasub.service.ts
+new file mode 100644
+index 0000000..e702c80
+--- /dev/null
++++ b/major_data_link_backend/src/services/bilalsadasub.service.ts
+@@ -0,0 +1,411 @@
++import { env } from '../config/env.js';
++import { ApiError } from '../middleware/error.js';
++import { dataPlanPricingService } from './data-plan-pricing.service.js';
++import type { DataPlan } from './data-plans.data.js';
++import type { NormalizedProviderResponse, NormalizedResultPinResponse } from './provider-types.js';
++
++const PROVIDER = 'bilalsadasub';
++
++// Confirmed from the BilalSadaSub API docs (Network reference table,
++// /api/v1/plans/networks). T2 is BilalSadaSub's ID for 9mobile - not
++// documented anywhere as such explicitly, only inferable from it being the
++// 4th of exactly 4 "real" networks alongside MTN/AIRTEL/GLO, matching this
++// app's own 4-network scope (see NetworkProvider in the Flutter app and
++// Alrahuz's own NETWORK_IDS in provider.service.ts). VITEL (id 5) has no
++// equivalent in this app's NetworkProvider enum and is deliberately left
++// unmapped - a purchase for it would fail fast with "unsupported network"
++// rather than silently guessing.
++const NETWORK_IDS: Record<string, number> = { MTN: 1, AIRTEL: 2, GLO: 3, '9MOBILE': 4 };
++
++// exam_id values from the docs' /api/v1/plans/exams reference (JAMB UTME/
++// UTME MOCK/DIRECT ENTRY - ids 4-6 - are deliberately omitted: this app
++// doesn't support JAMB anywhere else (no ExamPinType/TransactionType/UI for
++// it), and JAMB pins need extra fields - profile_code, jamb_type - this
++// service's buyResultPin() doesn't collect).
++const EXAM_IDS: Record<'WAEC' | 'NECO' | 'NABTEB', number> = { WAEC: 1, NECO: 2, NABTEB: 3 };
++
++// Cable provider reference table from the docs.
++const CABLE_IDS: Record<'DSTV' | 'GOTV' | 'STARTIME', number> = { DSTV: 2, GOTV: 1, STARTIME: 3 };
++
++// Distribution company reference table from the docs, keyed by the
++// abbreviations app_config.dart's `electricityProviders` list actually
++// sends (IKEDC, EKEDC, etc.) rather than BilalSadaSub's own full names -
++// this is the ONE place that mapping needs to happen. EEDC (Enugu) and
++// BEDC (Benin) are in that Flutter-side list for parity with other
++// providers/coverage completeness, but BilalSadaSub doesn't offer either
++// at all - selecting one fails fast with a clear "unsupported" error from
++// discoId() below rather than silently mis-routing to a random disco.
++const DISCO_IDS: Record<string, number> = {
++  IKEDC: 1, // Ikeja Electric
++  EKEDC: 2, // Eko Electric
++  KEDCO: 3, // Kano Electric
++  PHEDC: 4, // Port Harcourt Electric
++  JED: 5, // Jos Electric
++  IBEDC: 6, // Ibadan Electric
++  KAEDCO: 7, // Kaduna Electric
++  AEDC: 8 // Abuja Electric
++};
++
++type BilalResponse = {
++  status?: string | boolean; // "success" | "fail" | "process" on documented endpoints; the two UNVERIFIED validate endpoints might return a plain boolean instead
++  message?: string;
++  'request-id'?: string;
++  amount?: number | string;
++  oldbal?: number | string;
++  newbal?: number | string;
++  token?: string; // electricity
++  units?: string; // electricity
++  pins?: { pin: string; serial?: string }[]; // result pins
++  AccessToken?: string; // /api/user only
++  balance?: string; // /api/user only
++  [key: string]: unknown;
++};
++
++// ---- Auth: username+password -> cached AccessToken ----
++// Unlike Alrahuz's ALRAHUZ_API_TOKEN (a static value pasted into env vars),
++// BilalSadaSub's docs describe generating a token from credentials once and
++// reusing it - it reads like a long-lived reseller API key rather than a
++// short-lived JWT, so this caches it in memory indefinitely and only
++// re-generates on an explicit 401 from a real API call, rather than on a
++// timer. That cache is per-process (lost on every Railway restart/deploy) -
++// acceptable since generating a fresh one is a single cheap call.
++let cachedToken: string | null = null;
++let pendingTokenRequest: Promise<string> | null = null;
++
++function credentialsConfigured() {
++  return Boolean(env.BILALSADASUB_USERNAME && env.BILALSADASUB_PASSWORD);
++}
++
++async function generateToken(): Promise<string> {
++  if (!credentialsConfigured()) {
++    throw new ApiError(500, 'BilalSadaSub is not configured', 'BILALSADASUB_NOT_CONFIGURED');
++  }
++
++  const basic = Buffer.from(`${env.BILALSADASUB_USERNAME}:${env.BILALSADASUB_PASSWORD}`).toString('base64');
++  const response = await fetch(`${env.BILALSADASUB_BASE_URL}/api/user`, {
++    method: 'POST',
++    headers: { Authorization: `Basic ${basic}`, 'Content-Type': 'application/json' }
++  });
++  const body = (await response.json().catch(() => ({}))) as BilalResponse;
++
++  if (!response.ok || body.status !== 'success' || !body.AccessToken) {
++    console.error('[bilalsadasub] token generation failed', { httpStatus: response.status, body });
++    throw new ApiError(502, 'Could not authenticate with BilalSadaSub', 'BILALSADASUB_AUTH_FAILED');
++  }
++
++  cachedToken = body.AccessToken;
++  return cachedToken;
++}
++
++async function getToken(): Promise<string> {
++  if (cachedToken) return cachedToken;
++  // Several purchase requests can land while the very first token
++  // generation is still in flight (e.g. a burst of requests right after a
++  // cold start) - share one in-flight request instead of firing one
++  // /api/user call per concurrent caller.
++  if (!pendingTokenRequest) {
++    pendingTokenRequest = generateToken().finally(() => {
++      pendingTokenRequest = null;
++    });
++  }
++  return pendingTokenRequest;
++}
++
++/**
++ * POSTs to any BilalSadaSub endpoint with the cached token, transparently
++ * regenerating the token and retrying ONCE if the first attempt comes back
++ * 401 (token expired/rotated on their end - "Rotate it from Pricing → API
++ * token if it leaks" in the docs implies tokens CAN change server-side).
++ */
++async function authedPost(path: string, body: Record<string, unknown>, retried = false): Promise<BilalResponse> {
++  const token = await getToken();
++  const response = await fetch(`${env.BILALSADASUB_BASE_URL}${path}`, {
++    method: 'POST',
++    headers: { Authorization: `Token ${token}`, 'Content-Type': 'application/json' },
++    body: JSON.stringify(body)
++  });
++
++  if (response.status === 401 && !retried) {
++    cachedToken = null;
++    return authedPost(path, body, true);
++  }
++
++  return (await response.json().catch(() => ({}))) as BilalResponse;
++}
++
++/** Discovery endpoints (`/api/v1/plans/*`) are explicitly documented as
++ * public - no Authorization header needed or sent. */
++async function publicGet(path: string): Promise<BilalResponse> {
++  const response = await fetch(`${env.BILALSADASUB_BASE_URL}${path}`);
++  return (await response.json().catch(() => ({}))) as BilalResponse;
++}
++
++function networkId(network: string): number {
++  const id = NETWORK_IDS[network.toUpperCase()];
++  if (!id) throw new ApiError(422, `Unsupported network for BilalSadaSub: ${network}`, 'UNSUPPORTED_NETWORK');
++  return id;
++}
++
++/**
++ * Every purchase-style BilalSadaSub response shares one shape (see the
++ * docs' "Common patterns" section): status "success"/"fail"/"process",
++ * message, oldbal/newbal. "process" is treated as NOT yet a confirmed
++ * success - same conservative handling as an outright failure, since this
++ * app has no mechanism to poll/requery a pending BilalSadaSub transaction
++ * later. amount/oldbal/newbal are all sent as strings OR numbers
++ * inconsistently across the doc's own examples, hence Number(...) rather
++ * than assuming either.
++ */
++function normalize(body: BilalResponse): NormalizedProviderResponse {
++  const success = body.status === 'success';
++  const oldbal = body.oldbal !== undefined ? Number(body.oldbal) : undefined;
++  const newbal = body.newbal !== undefined ? Number(body.newbal) : undefined;
++  const costKobo =
++    success && oldbal !== undefined && newbal !== undefined && Number.isFinite(oldbal) && Number.isFinite(newbal)
++      ? BigInt(Math.round((oldbal - newbal) * 100))
++      : undefined;
++
++  return {
++    status: success,
++    providerRef: body['request-id'],
++    message: body.message ?? (success ? 'Transaction processed' : 'Transaction failed'),
++    costKobo
++  };
++}
++
++// ---- Data ----
++
++async function fetchLiveDataPlans(network: string, planType?: string): Promise<DataPlan[]> {
++  const query = new URLSearchParams({ network: network.toUpperCase() });
++  if (planType) query.set('plan_type', planType);
++  const body = await publicGet(`/api/v1/plans/data?${query.toString()}`);
++
++  if (body.status !== 'success' || !Array.isArray(body.data)) {
++    console.error('[bilalsadasub] unexpected data-plans response shape', { network, planType, body });
++    return [];
++  }
++
++  return (body.data as Record<string, unknown>[]).map((row) => ({
++    id: String(row.plan_id),
++    networkId: networkId(network),
++    // plan_type isn't folded into the name here the way Alrahuz's raw
++    // names sometimes are - applyPricing()'s planTypeFrom() only reads a
++    // "TYPE - rest" prefix, so it's added explicitly to make plan_type
++    // (SME/GIFTING/COOPERATE GIFTING) actually show up as a category.
++    name: `${row.plan_type ?? ''}${row.plan_type ? ' - ' : ''}${row.plan_name}`,
++    amount: Number(row.amount),
++    validity: typeof row.plan_day === 'string' ? row.plan_day : '30 days'
++  }));
++}
++
++const planCache = new Map<
++  string,
++  { expiresAt: number; plans: Awaited<ReturnType<typeof dataPlanPricingService.applyPricing>> }
++>();
++const CACHE_MS = 15 * 60 * 1000;
++
++async function getAllDataPlans(network: string) {
++  const key = network.toUpperCase();
++  const cached = planCache.get(key);
++  if (cached && cached.expiresAt > Date.now()) return cached.plans;
++
++  const rawPlans = await fetchLiveDataPlans(network);
++  const priced = await dataPlanPricingService.applyPricing(rawPlans, key, PROVIDER);
++  planCache.set(key, { expiresAt: Date.now() + CACHE_MS, plans: priced });
++  return priced;
++}
++
++export async function getDataPlans(network: string, category?: string) {
++  const plans = await getAllDataPlans(network);
++  if (!category) return plans;
++  const normalized = category.trim().toUpperCase();
++  return plans.filter((plan) => (plan.planType ?? '').toUpperCase() === normalized);
++}
++
++export async function getDataPlanCategories(network: string) {
++  const plans = await getAllDataPlans(network);
++  const counts = new Map<string, number>();
++  for (const plan of plans) {
++    const type = plan.planType?.trim();
++    if (!type) continue;
++    counts.set(type, (counts.get(type) ?? 0) + 1);
++  }
++  return Array.from(counts.entries()).map(([category, count]) => ({ category, count }));
++}
++
++export async function getDataPlan(network: string, planId: string) {
++  const plans = await getAllDataPlans(network);
++  const plan = plans.find((p) => p.id === planId);
++  if (!plan) throw new ApiError(404, 'Data plan not found', 'PLAN_NOT_FOUND');
++  return plan;
++}
++
++export async function buyData(input: { network: string; phone: string; planId: string; reference: string }) {
++  const body = await authedPost('/api/data', {
++    network: networkId(input.network),
++    phone: input.phone,
++    data_plan: Number(input.planId),
++    'request-id': input.reference
++  });
++  return normalize(body);
++}
++
++// ---- Airtime ----
++
++export async function buyAirtime(input: { network: string; phone: string; amount: number; reference: string }) {
++  const body = await authedPost('/api/topup', {
++    network: networkId(input.network),
++    phone: input.phone,
++    amount: input.amount,
++    plan_type: 'VTU',
++    'request-id': input.reference
++  });
++  return normalize(body);
++}
++
++// ---- Result pins (WAEC/NECO/NABTEB only - see EXAM_IDS comment) ----
++
++export async function buyResultPin(input: {
++  examType: 'WAEC' | 'NECO' | 'NABTEB';
++  quantity: number;
++  reference: string;
++}): Promise<NormalizedResultPinResponse> {
++  const examId = EXAM_IDS[input.examType];
++  const body = await authedPost('/api/exam', {
++    exam_id: examId,
++    quantity: input.quantity,
++    'request-id': input.reference
++  });
++
++  const pins = Array.isArray(body.pins) ? body.pins.map((p) => p.pin) : undefined;
++  return {
++    ...normalize(body),
++    pin: pins?.[0],
++    pins,
++    serial: Array.isArray(body.pins) ? body.pins[0]?.serial : undefined,
++    raw: body
++  };
++}
++
++// ---- Cable TV ----
++
++export async function listCableProviders() {
++  return Object.entries(CABLE_IDS).map(([name, id]) => ({ id, name }));
++}
++
++export async function getCablePlans(cable: string) {
++  const body = await publicGet(`/api/v1/plans/cable?cable=${encodeURIComponent(cable.toUpperCase())}`);
++  if (body.status !== 'success' || !Array.isArray(body.data)) {
++    console.error('[bilalsadasub] unexpected cable-plans response shape', { cable, body });
++    return [];
++  }
++  return (body.data as Record<string, unknown>[]).map((row) => ({
++    planId: String(row.plan_id),
++    cableName: String(row.cable_name),
++    planName: String(row.plan_name),
++    amount: Number(row.plan_price)
++  }));
++}
++
++function cableId(cable: string): number {
++  const id = CABLE_IDS[cable.toUpperCase() as keyof typeof CABLE_IDS];
++  if (!id) throw new ApiError(422, `Unsupported cable provider: ${cable}`, 'UNSUPPORTED_CABLE');
++  return id;
++}
++
++/**
++ * UNVERIFIED - the docs' cable page mentions "Validate IUC first to avoid
++ * charging the wrong customer" with a link, but that link's actual
++ * endpoint/request/response shape wasn't captured in the screenshots this
++ * integration was built from. This guesses the most consistent shape given
++ * every OTHER documented endpoint's pattern (POST, JSON body, `status`),
++ * and normalizes whatever comes back so a shape mismatch fails safely -
++ * "could not validate" - rather than throwing past the caller. CONFIRM
++ * against BilalSadaSub's real docs/support before relying on this for
++ * fraud prevention; until then, treat a "valid" result as a nice-to-have
++ * customer-name confirmation, not a guarantee.
++ */
++export async function validateSmartcard(input: { cable: string; iuc: string }) {
++  try {
++    const body = await authedPost('/api/cable/validate', { cable: cableId(input.cable), iuc: input.iuc });
++    const success = body.status === 'success' || body.status === true;
++    const name = (body.name ?? body.customer_name ?? (body.data as Record<string, unknown> | undefined)?.customer_name) as
++      | string
++      | undefined;
++    return { isValid: success && Boolean(name), customerName: name ?? '' };
++  } catch (error) {
++    console.error('[bilalsadasub] IUC validation request failed', error);
++    return { isValid: false, customerName: '' };
++  }
++}
++
++export async function buyCable(input: {
++  cable: string;
++  iuc: string;
++  planId: string;
++  phone?: string;
++  reference: string;
++}) {
++  const body = await authedPost('/api/cable', {
++    cable: cableId(input.cable),
++    iuc: input.iuc,
++    plan_id: Number(input.planId),
++    ...(input.phone ? { phone: input.phone } : {}),
++    'request-id': input.reference
++  });
++  return normalize(body);
++}
++
++// ---- Electricity ----
++
++export async function listDiscos() {
++  return Object.entries(DISCO_IDS).map(([name, id]) => ({ id, name }));
++}
++
++function discoId(disco: string): number {
++  const id = DISCO_IDS[disco.toUpperCase()];
++  if (!id) throw new ApiError(422, `Unsupported electricity distribution company: ${disco}`, 'UNSUPPORTED_DISCO');
++  return id;
++}
++
++/**
++ * UNVERIFIED - same caveat as validateSmartcard above: the docs mention
++ * "Validate meter first" but the endpoint itself wasn't captured. Confirm
++ * before relying on it for fraud prevention.
++ */
++export async function validateMeter(input: { disco: string; meter: string; meterType: 'prepaid' | 'postpaid' }) {
++  try {
++    const body = await authedPost('/api/bill/validate', {
++      disco: discoId(input.disco),
++      meter: input.meter,
++      meter_type: input.meterType
++    });
++    const success = body.status === 'success' || body.status === true;
++    const data = body.data as Record<string, unknown> | undefined;
++    const name = (body.name ?? body.customer_name ?? data?.customer_name) as string | undefined;
++    const address = (body.address ?? data?.address) as string | undefined;
++    return { isValid: success && Boolean(name), customerName: name ?? '', address: address ?? '' };
++  } catch (error) {
++    console.error('[bilalsadasub] meter validation request failed', error);
++    return { isValid: false, customerName: '', address: '' };
++  }
++}
++
++export async function buyElectricity(input: {
++  disco: string;
++  meterType: 'prepaid' | 'postpaid';
++  meter: string;
++  amount: number;
++  phone?: string;
++  reference: string;
++}): Promise<NormalizedProviderResponse & { token?: string; units?: string }> {
++  const body = await authedPost('/api/bill', {
++    disco: discoId(input.disco),
++    meter_type: input.meterType,
++    meter: input.meter,
++    amount: input.amount,
++    ...(input.phone ? { phone: input.phone } : {}),
++    'request-id': input.reference
++  });
++  return { ...normalize(body), token: body.token, units: body.units };
++}
+diff --git a/major_data_link_backend/src/services/data-plan-pricing.service.ts b/major_data_link_backend/src/services/data-plan-pricing.service.ts
+index 8705eb0..18d24bc 100644
+--- a/major_data_link_backend/src/services/data-plan-pricing.service.ts
++++ b/major_data_link_backend/src/services/data-plan-pricing.service.ts
+@@ -39,13 +39,13 @@ export class DataPlanPricingService {
+    * AFTER the response-relevant computation, via persistPricingUpdates(),
+    * fired-and-forgotten so it never blocks what the user is waiting on.
+    */
+-  async applyPricing(plans: DataPlan[], network: string) {
++  async applyPricing(plans: DataPlan[], network: string, provider: string = 'alrahuz') {
+     if (plans.length === 0) return [];
+ 
+     const [existingRows, settings] = await Promise.all([
+       prisma.dataPlanPricing.findMany({
+         where: {
+-          provider: 'alrahuz',
++          provider,
+           providerPlanId: { in: plans.map((plan) => plan.id) }
+         }
+       }) as Promise<DataPlanPricing[]>,
+@@ -113,7 +113,7 @@ export class DataPlanPricingService {
+     if (toCreate.length > 0 || toUpdate.length > 0) {
+       // Fire-and-forget: the priced list above already has everything the
+       // caller needs, so persistence doesn't have to finish before we return.
+-      void this.persistPricingUpdates(network, toCreate, toUpdate);
++      void this.persistPricingUpdates(network, provider, toCreate, toUpdate);
+     }
+ 
+     return priced.filter((plan) => plan.isActive);
+@@ -127,6 +127,7 @@ export class DataPlanPricingService {
+    */
+   private async persistPricingUpdates(
+     network: string,
++    provider: string,
+     toCreate: { plan: DataPlan; providerCostKobo: bigint; planType: string | undefined }[],
+     toUpdate: { id: string; plan: DataPlan; providerCostKobo: bigint; planType: string | undefined }[]
+   ) {
+@@ -134,7 +135,7 @@ export class DataPlanPricingService {
+       for (const { plan, providerCostKobo, planType } of toCreate) {
+         await prisma.dataPlanPricing.create({
+           data: {
+-            provider: 'alrahuz',
++            provider,
+             providerPlanId: plan.id,
+             network,
+             networkId: plan.networkId,
+@@ -164,10 +165,13 @@ export class DataPlanPricingService {
+     }
+   }
+ 
+-  async getPricingRows(network?: string) {
++  async getPricingRows(network?: string, provider?: string) {
+     const [rows, settings] = await Promise.all([
+       prisma.dataPlanPricing.findMany({
+-        where: network ? { network: network.toUpperCase() } : undefined,
++        where: {
++          ...(network ? { network: network.toUpperCase() } : {}),
++          ...(provider ? { provider } : {})
++        },
+         orderBy: [{ networkId: 'asc' }, { planType: 'asc' }, { providerCostKobo: 'asc' }]
+       }) as Promise<DataPlanPricing[]>,
+       getPricingSettings()
+@@ -180,6 +184,7 @@ export class DataPlanPricingService {
+         : defaultSellingPrice(providerCost, settings);
+       return {
+         id: row.id,
++        provider: row.provider,
+         provider_plan_id: row.providerPlanId,
+         network: row.network,
+         network_id: row.networkId,
+@@ -229,9 +234,12 @@ export class DataPlanPricingService {
+     };
+   }
+ 
+-  async applyMarkup(params: { network?: string; markupNaira: number; markupPercent: number }) {
++  async applyMarkup(params: { network?: string; provider?: string; markupNaira: number; markupPercent: number }) {
+     const rows = await prisma.dataPlanPricing.findMany({
+-      where: params.network ? { network: params.network.toUpperCase() } : undefined
++      where: {
++        ...(params.network ? { network: params.network.toUpperCase() } : {}),
++        ...(params.provider ? { provider: params.provider } : {})
++      }
+     });
+ 
+     let updated = 0;
+diff --git a/major_data_link_backend/src/services/pricing-settings.service.ts b/major_data_link_backend/src/services/pricing-settings.service.ts
+index 255a44d..165e646 100644
+--- a/major_data_link_backend/src/services/pricing-settings.service.ts
++++ b/major_data_link_backend/src/services/pricing-settings.service.ts
+@@ -32,13 +32,24 @@ export async function getPricingSettings() {
+   }
+ }
+ 
+-export async function updatePricingSettings(input: { dataPlanMarkupPercent?: number; dataPlanMarkupNaira?: number }) {
++export async function updatePricingSettings(input: {
++  dataPlanMarkupPercent?: number;
++  dataPlanMarkupNaira?: number;
++  dataAirtimeProvider?: 'alrahuz' | 'bilalsadasub';
++  resultPinProvider?: 'alrahuz' | 'bilalsadasub';
++  cableMarkupPercent?: number;
++  electricityMarkupPercent?: number;
++}) {
+   await getPricingSettings(); // ensure the row exists before updating it
+   return prisma.pricingSettings.update({
+     where: { id: 'default' },
+     data: {
+       ...(input.dataPlanMarkupPercent !== undefined ? { dataPlanMarkupPercent: input.dataPlanMarkupPercent } : {}),
+-      ...(input.dataPlanMarkupNaira !== undefined ? { dataPlanMarkupNaira: input.dataPlanMarkupNaira } : {})
++      ...(input.dataPlanMarkupNaira !== undefined ? { dataPlanMarkupNaira: input.dataPlanMarkupNaira } : {}),
++      ...(input.dataAirtimeProvider !== undefined ? { dataAirtimeProvider: input.dataAirtimeProvider } : {}),
++      ...(input.resultPinProvider !== undefined ? { resultPinProvider: input.resultPinProvider } : {}),
++      ...(input.cableMarkupPercent !== undefined ? { cableMarkupPercent: input.cableMarkupPercent } : {}),
++      ...(input.electricityMarkupPercent !== undefined ? { electricityMarkupPercent: input.electricityMarkupPercent } : {})
+     }
+   });
+ }
+diff --git a/major_data_link_backend/src/services/provider-types.ts b/major_data_link_backend/src/services/provider-types.ts
+new file mode 100644
+index 0000000..5e37768
+--- /dev/null
++++ b/major_data_link_backend/src/services/provider-types.ts
+@@ -0,0 +1,26 @@
++/**
++ * The common shape every provider integration (provider.service.ts /
++ * Alrahuz, bilalsadasub.service.ts) normalizes its raw HTTP response into.
++ * processProviderPurchase() in vtu.routes.ts, and the purchase flows in
++ * result.routes.ts/cable.routes.ts/electricity.routes.ts, are written
++ * against this shape only - never against a specific provider's raw
++ * response fields - so switching PricingSettings.dataAirtimeProvider (or
++ * resultPinProvider) between 'alrahuz' and 'bilalsadasub' needs no route
++ * changes at all.
++ */
++export type NormalizedProviderResponse = {
++  status: boolean;
++  providerRef?: string;
++  message?: string;
++  /** Actual cost in kobo, when the provider's response reveals it (e.g. a
++   *  balance_before/balance_after delta). Undefined means "unknown", not
++   *  "free" - see the identical note on Transaction.costKobo. */
++  costKobo?: bigint;
++};
++
++export type NormalizedResultPinResponse = NormalizedProviderResponse & {
++  pin?: string;
++  pins?: string[];
++  serial?: string;
++  raw?: unknown;
++};
+diff --git a/major_data_link_backend/src/services/result-pin.service.ts b/major_data_link_backend/src/services/result-pin.service.ts
+index 2f98168..e6ef33e 100644
+--- a/major_data_link_backend/src/services/result-pin.service.ts
++++ b/major_data_link_backend/src/services/result-pin.service.ts
+@@ -4,6 +4,8 @@ import { koboToNaira } from '../lib/money.js';
+ import { prisma } from '../lib/prisma.js';
+ import { ApiError } from '../middleware/error.js';
+ import { providerService, type ProviderResultPinInput } from './provider.service.js';
++import * as bilalsadasub from './bilalsadasub.service.js';
++import { getPricingSettings } from './pricing-settings.service.js';
+ import { debitWallet, refundWallet } from './wallet.service.js';
+ import { recordProviderDebit } from './provider-ledger.service.js';
+ 
+@@ -15,6 +17,16 @@ const DEFAULTS: Record<ExamPinType, { service: string; label: string; price: num
+   NABTEB: { service: 'NABTEB_PIN', label: 'NABTEB Result Checker PIN', price: env.RESULT_PIN_NABTEB_DEFAULT_PRICE_NAIRA }
+ };
+ 
++/**
++ * Which upstream fulfills a result-pin purchase - PricingSettings.
++ * resultPinProvider, same admin-editable/instant-switch mechanism as
++ * activeDataAirtimeProvider() in vtu.routes.ts.
++ */
++async function activeResultPinProvider(): Promise<'alrahuz' | 'bilalsadasub'> {
++  const settings = await getPricingSettings();
++  return settings.resultPinProvider === 'bilalsadasub' ? 'bilalsadasub' : 'alrahuz';
++}
++
+ function priceToKobo(amount: number) {
+   return BigInt(Math.round(amount * 100));
+ }
+@@ -161,14 +173,16 @@ export async function purchaseResultPin(params: {
+   const price = await getResultPinPrice(params.examType);
+   const amount = price.unitPrice * params.quantity;
+ 
++  const provider = await activeResultPinProvider();
++
+   const debit = await debitWallet({
+     userId: params.userId,
+     amount,
+     type: TransactionType.RESULT_PIN,
+     description: `${params.examType} result checker PIN x${params.quantity}`,
+-    metadata: { exam_type: params.examType, quantity: params.quantity, unit_price: price.unitPrice } as Prisma.InputJsonValue,
++    metadata: { exam_type: params.examType, quantity: params.quantity, unit_price: price.unitPrice, provider } as Prisma.InputJsonValue,
+     idempotencyKey: params.idempotencyKey,
+-    // Result pins have a fixed, known Alrahuz cost per unit (ServicePricing.
++    // Result pins have a fixed, known cost per unit (ServicePricing.
+     // providerCostKobo) - reliable enough on its own that, unlike data/
+     // airtime, this doesn't need a balance-delta correction afterward.
+     costKobo: priceToKobo(price.providerCost * params.quantity)
+@@ -186,29 +200,36 @@ export async function purchaseResultPin(params: {
+     };
+   }
+ 
+-  const provider = await providerService.buyResultPin({
+-    examType: params.examType,
+-    quantity: params.quantity,
+-    reference: debit.reference
+-  } satisfies ProviderResultPinInput);
++  const providerResult =
++    provider === 'bilalsadasub'
++      ? await bilalsadasub.buyResultPin({
++          examType: params.examType,
++          quantity: params.quantity,
++          reference: debit.reference
++        })
++      : await providerService.buyResultPin({
++          examType: params.examType,
++          quantity: params.quantity,
++          reference: debit.reference
++        } satisfies ProviderResultPinInput);
+ 
+-  if (provider.status) {
++  if (providerResult.status) {
+     const costKobo = priceToKobo(price.providerCost * params.quantity);
+ 
+     await prisma.transaction.update({
+       where: { id: debit.transaction.id },
+       data: {
+         status: TransactionStatus.SUCCESS,
+-        provider: 'alrahuz',
+-        providerRef: provider.providerRef ?? null,
++        provider,
++        providerRef: providerResult.providerRef ?? null,
+         metadata: {
+           exam_type: params.examType,
+           quantity: params.quantity,
+           unit_price: price.unitPrice,
+-          pin: provider.pin,
+-          pins: provider.pins,
+-          serial: provider.serial,
+-          raw: provider.raw
++          pin: providerResult.pin,
++          pins: providerResult.pins,
++          serial: providerResult.serial,
++          raw: providerResult.raw
+         } as Prisma.InputJsonValue
+       }
+     });
+@@ -217,7 +238,7 @@ export async function purchaseResultPin(params: {
+     // airtime) - no balance-delta correction needed, just record the same
+     // figure debitWallet() already stored on the transaction.
+     await recordProviderDebit({
+-      provider: 'alrahuz',
++      provider,
+       amountKobo: costKobo,
+       relatedTransactionId: debit.transaction.id,
+       description: `${params.quantity}x ${params.examType} result PIN`
+@@ -227,10 +248,10 @@ export async function purchaseResultPin(params: {
+ 
+     return {
+       status: 'success' as const,
+-      message: provider.message ?? 'PIN purchase successful',
++      message: providerResult.message ?? 'PIN purchase successful',
+       reference: debit.reference,
+-      pin: provider.pin,
+-      serial: provider.serial,
++      pin: providerResult.pin,
++      serial: providerResult.serial,
+       balanceAfter: debit.balanceAfter
+     };
+   }
+@@ -239,15 +260,15 @@ export async function purchaseResultPin(params: {
+     where: { id: debit.transaction.id },
+     data: {
+       status: TransactionStatus.FAILED,
+-      provider: 'alrahuz',
+-      providerRef: provider.providerRef ?? null
++      provider,
++      providerRef: providerResult.providerRef ?? null
+     }
+   });
+   const refunded = await refundWallet({ transactionId: debit.transaction.id, userId: params.userId });
+ 
+   return {
+     status: false as const,
+-    message: provider.message ?? 'PIN purchase failed and was refunded',
++    message: providerResult.message ?? 'PIN purchase failed and was refunded',
+     reference: debit.reference,
+     balanceAfter: koboToNaira(refunded.balanceAfterKobo)
+   };

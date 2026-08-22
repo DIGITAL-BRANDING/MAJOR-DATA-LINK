@@ -39,13 +39,13 @@ export class DataPlanPricingService {
    * AFTER the response-relevant computation, via persistPricingUpdates(),
    * fired-and-forgotten so it never blocks what the user is waiting on.
    */
-  async applyPricing(plans: DataPlan[], network: string) {
+  async applyPricing(plans: DataPlan[], network: string, provider: string = 'alrahuz') {
     if (plans.length === 0) return [];
 
     const [existingRows, settings] = await Promise.all([
       prisma.dataPlanPricing.findMany({
         where: {
-          provider: 'alrahuz',
+          provider,
           providerPlanId: { in: plans.map((plan) => plan.id) }
         }
       }) as Promise<DataPlanPricing[]>,
@@ -113,7 +113,7 @@ export class DataPlanPricingService {
     if (toCreate.length > 0 || toUpdate.length > 0) {
       // Fire-and-forget: the priced list above already has everything the
       // caller needs, so persistence doesn't have to finish before we return.
-      void this.persistPricingUpdates(network, toCreate, toUpdate);
+      void this.persistPricingUpdates(network, provider, toCreate, toUpdate);
     }
 
     return priced.filter((plan) => plan.isActive);
@@ -127,6 +127,7 @@ export class DataPlanPricingService {
    */
   private async persistPricingUpdates(
     network: string,
+    provider: string,
     toCreate: { plan: DataPlan; providerCostKobo: bigint; planType: string | undefined }[],
     toUpdate: { id: string; plan: DataPlan; providerCostKobo: bigint; planType: string | undefined }[]
   ) {
@@ -134,7 +135,7 @@ export class DataPlanPricingService {
       for (const { plan, providerCostKobo, planType } of toCreate) {
         await prisma.dataPlanPricing.create({
           data: {
-            provider: 'alrahuz',
+            provider,
             providerPlanId: plan.id,
             network,
             networkId: plan.networkId,
@@ -164,10 +165,13 @@ export class DataPlanPricingService {
     }
   }
 
-  async getPricingRows(network?: string) {
+  async getPricingRows(network?: string, provider?: string) {
     const [rows, settings] = await Promise.all([
       prisma.dataPlanPricing.findMany({
-        where: network ? { network: network.toUpperCase() } : undefined,
+        where: {
+          ...(network ? { network: network.toUpperCase() } : {}),
+          ...(provider ? { provider } : {})
+        },
         orderBy: [{ networkId: 'asc' }, { planType: 'asc' }, { providerCostKobo: 'asc' }]
       }) as Promise<DataPlanPricing[]>,
       getPricingSettings()
@@ -180,6 +184,7 @@ export class DataPlanPricingService {
         : defaultSellingPrice(providerCost, settings);
       return {
         id: row.id,
+        provider: row.provider,
         provider_plan_id: row.providerPlanId,
         network: row.network,
         network_id: row.networkId,
@@ -229,9 +234,12 @@ export class DataPlanPricingService {
     };
   }
 
-  async applyMarkup(params: { network?: string; markupNaira: number; markupPercent: number }) {
+  async applyMarkup(params: { network?: string; provider?: string; markupNaira: number; markupPercent: number }) {
     const rows = await prisma.dataPlanPricing.findMany({
-      where: params.network ? { network: params.network.toUpperCase() } : undefined
+      where: {
+        ...(params.network ? { network: params.network.toUpperCase() } : {}),
+        ...(params.provider ? { provider: params.provider } : {})
+      }
     });
 
     let updated = 0;
