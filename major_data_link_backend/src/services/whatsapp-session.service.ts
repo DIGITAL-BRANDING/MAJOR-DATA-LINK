@@ -5,6 +5,8 @@ import { nanoid } from 'nanoid';
 import { verifyPin, createPendingFunding } from './wallet.service.js';
 import { paystackService } from './paystack.service.js';
 import { providerService, NETWORK_IDS } from './provider.service.js';
+import * as bilalsadasub from './bilalsadasub.service.js';
+import { getPricingSettings } from './pricing-settings.service.js';
 import { processProviderPurchase } from '../routes/vtu.routes.js';
 
 // Deliberately generous but bounded — mirrors no explicit limit in the app's
@@ -98,7 +100,10 @@ export async function advanceSession(phone: string, rawText: string, messageId: 
       const network = NETWORK_MENU[idx];
       if (!network) return `Please reply with a number from 1-${NETWORK_MENU.length}.\n${networkMenuText()}`;
 
-      const plans = await providerService.getDataPlans(network);
+      const provider = (await getPricingSettings()).dataAirtimeProvider === 'bilalsadasub' ? 'bilalsadasub' : 'alrahuz';
+      const plans = provider === 'bilalsadasub'
+        ? await bilalsadasub.getDataPlans(network)
+        : await providerService.getDataPlans(network);
       if (plans.length === 0) {
         await setState(phone, 'AWAITING_NETWORK', {});
         return `No ${network} plans are available right now. Pick another network:\n${networkMenuText()}`;
@@ -152,7 +157,10 @@ export async function advanceSession(phone: string, rawText: string, messageId: 
       // Re-fetch the plan by ID rather than trusting the amount cached in the
       // session context - same defense-in-depth as POST /api/data/purchase,
       // in case pricing changed between menu selection and confirmation.
-      const plan = await providerService.getDataPlan(ctx.network!, ctx.planId!);
+      const provider = (await getPricingSettings()).dataAirtimeProvider === 'bilalsadasub' ? 'bilalsadasub' : 'alrahuz';
+      const plan = provider === 'bilalsadasub'
+        ? await bilalsadasub.getDataPlan(ctx.network!, ctx.planId!)
+        : await providerService.getDataPlan(ctx.network!, ctx.planId!);
 
       const result = await processProviderPurchase({
         userId: user.id,
@@ -165,20 +173,25 @@ export async function advanceSession(phone: string, rawText: string, messageId: 
           plan_id: ctx.planId,
           plan_name: plan.name,
           phone: ctx.recipientPhone,
-          amount: plan.amount
+          amount: plan.amount,
+          provider
         },
         // Keyed off the WhatsApp message's own ID (globally unique per Meta) so
         // a redelivered webhook - which Meta does not guarantee against, same
         // as Paystack - can never trigger a second debit for the same message.
         idempotencyKey: `wa-${messageId}`,
+        provider,
+        costKobo: BigInt(Math.round(plan.providerAmount * 100)),
         callProvider: (reference) =>
-          providerService.buyData({
-            network: ctx.network!,
-            planId: ctx.planId!,
-            phone: ctx.recipientPhone!,
-            amount: plan.amount,
-            reference
-          })
+          provider === 'bilalsadasub'
+            ? bilalsadasub.buyData({ network: ctx.network!, planId: ctx.planId!, phone: ctx.recipientPhone!, reference })
+            : providerService.buyData({
+                network: ctx.network!,
+                planId: ctx.planId!,
+                phone: ctx.recipientPhone!,
+                amount: plan.amount,
+                reference
+              })
       });
 
       await setState(phone, 'START', {});
