@@ -13,7 +13,7 @@ const NETWORKS = [
   { code: '9MOBILE', label: '9mobile', bg: 'bg-[#00A99D]', text: 'text-white' },
 ];
 
-type Category = { category: string; planCount: number };
+type Category = { category: string; count: number };
 type Plan = { id: string; name: string; amount: number; validity: string; planType?: string };
 
 export default function BuyDataPage() {

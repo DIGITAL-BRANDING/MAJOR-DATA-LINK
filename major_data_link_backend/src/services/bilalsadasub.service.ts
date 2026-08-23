@@ -230,6 +230,21 @@ async function fetchLiveDataPlansForType(network: string, planType?: string): Pr
     return [];
   }
 
+  // Diagnostic: lets us see, per requested plan_type, exactly how many
+  // rows BilalSadaSub actually returned - a guessed plan_type string that
+  // doesn't match what their API expects shows up here as 0 (or the same
+  // count as the unfiltered call, if they're silently ignoring an unknown
+  // plan_type rather than filtering by it), instead of silently vanishing
+  // into the merged/deduped final list with no trace of why.
+  console.log(`[bilalsadasub] ${network} plan_type=${planType ?? '(none)'}: ${body.data.length} raw row(s)`);
+  if (!planType) {
+    // The unfiltered call's own rows reveal the REAL plan_type vocabulary
+    // BilalSadaSub's API actually stores, as ground truth - independent of
+    // whatever labels their dashboard UI's filter tabs show.
+    const rawTypes = new Set((body.data as Record<string, unknown>[]).map((row) => String(row.plan_type ?? '(missing)')));
+    console.log(`[bilalsadasub] ${network} unfiltered call's actual plan_type values seen: ${[...rawTypes].join(', ')}`);
+  }
+
   return (body.data as Record<string, unknown>[]).map((row) => ({
     id: String(row.plan_id),
     networkId: networkId(network),
