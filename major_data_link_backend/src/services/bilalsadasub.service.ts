@@ -187,77 +187,52 @@ function normalize(body: BilalResponse): NormalizedProviderResponse {
 
 // ---- Data ----
 
-// BilalSadaSub's own docs only ever show `plan_type` paired WITH `network`
-// in every example (`?network=MTN&plan_type=GIFTING`) - never network
-// alone. In production, fetching with just `network` and no `plan_type`
-// silently returned an incomplete catalog (missing plans users could
-// confirm existed) rather than every type merged together, contradicting
-// the docs' "and/or" framing of the filter. Fetching each known type
-// explicitly and merging is the reliable way to get the full catalog.
-//
-// The docs' own filter EXAMPLE mentioned "SME, GIFTING, COOPERATE GIFTING"
-// - but that turned out to just be illustrative wording, not the real
-// category list: BilalSadaSub's own reseller dashboard (Buy Data ->
-// Category step) shows the actual tabs as PROMO, SME, DAILY, WEEKLY,
-// MONTHLY, 2-MONTHLY. This list is confirmed against that UI. It's still
-// not guaranteed to be the exact literal `plan_type` string their API
-// stores for every one of these (display label vs. stored value can
-// differ, e.g. "2-MONTHLY" vs "2MONTHLY"), so an unfiltered network-only
-// call is ALSO fetched and merged in below as a safety net for any type
-// whose exact string doesn't match one of these.
-const KNOWN_DATA_PLAN_TYPES = ['PROMO', 'SME', 'DAILY', 'WEEKLY', 'MONTHLY', '2-MONTHLY'];
+// The API's `plan_type` is its fulfilment type, not the category displayed in
+// BilalSadaSub's Buy Data page. For example, MTN returns only `SME` and
+// `GIFTING`, while the dashboard groups the same plans into PROMO, DAILY,
+// WEEKLY, MONTHLY and 2-MONTHLY. Sending those display labels back as
+// `plan_type` filters returns no rows, so fetch the complete network catalog
+// once and derive the customer-facing category from each plan's metadata.
+const BILAL_CATEGORY_ORDER = ['PROMO', 'SME', 'DAILY', 'WEEKLY', 'MONTHLY', '2-MONTHLY'];
 
-async function fetchLiveDataPlans(network: string): Promise<DataPlan[]> {
-  const [unfiltered, ...byType] = await Promise.all([
-    fetchLiveDataPlansForType(network),
-    ...KNOWN_DATA_PLAN_TYPES.map((planType) => fetchLiveDataPlansForType(network, planType))
-  ]);
+export function bilalDisplayCategory(row: Record<string, unknown>): string {
+  const rawType = String(row.plan_type ?? '').trim().toUpperCase();
+  const details = [row.plan_name, row.plan_day, row.validity, row.category]
+    .filter((value): value is string => typeof value === 'string')
+    .join(' ')
+    .toUpperCase();
 
-  const byPlanId = new Map<string, DataPlan>();
-  for (const plans of [unfiltered, ...byType]) {
-    for (const plan of plans) byPlanId.set(plan.id, plan);
-  }
-  return Array.from(byPlanId.values());
+  // Prefer an explicit category supplied in a plan's label/metadata.
+  if (/\b(?:PROMO|PROMOTION|SPECIAL OFFER)\b/.test(details)) return 'PROMO';
+  // SME is a genuine dashboard category even though many of its bundles have
+  // monthly-looking validity (for example, 500MB / 30 days).
+  if (rawType === 'SME') return 'SME';
+  if (/\b2[ -]?(?:MONTH|MONTHLY)\b|\b(?:60|61|62)\s*DAYS?\b/.test(details)) return '2-MONTHLY';
+  if (/\bMONTHLY\b|\b(?:2[1-9]|30|31)\s*DAYS?\b/.test(details)) return 'MONTHLY';
+  if (/\bWEEKLY\b|\b(?:7|14)\s*DAYS?\b/.test(details)) return 'WEEKLY';
+  if (/\bDAILY\b|\b(?:[1-6])\s*(?:DAY|DAYS|HR|HRS|HOUR|HOURS)\b/.test(details)) return 'DAILY';
+
+  // GIFTING is an upstream fulfilment type, not a Bilal dashboard tab. A
+  // plan with no duration/category hint belongs under PROMO, the dashboard's
+  // catch-all for its promotional offers, rather than leaking GIFTING to UI.
+  return rawType === 'GIFTING' ? 'PROMO' : rawType || 'PROMO';
 }
 
-async function fetchLiveDataPlansForType(network: string, planType?: string): Promise<DataPlan[]> {
+async function fetchLiveDataPlans(network: string): Promise<DataPlan[]> {
   const query = new URLSearchParams({ network: network.toUpperCase() });
-  if (planType) query.set('plan_type', planType);
   const body = await publicGet(`/api/v1/plans/data?${query.toString()}`);
 
   if (body.status !== 'success' || !Array.isArray(body.data)) {
-    console.error('[bilalsadasub] unexpected data-plans response shape', { network, planType, body });
+    console.error('[bilalsadasub] unexpected data-plans response shape', { network, body });
     return [];
-  }
-
-  // Diagnostic: lets us see, per requested plan_type, exactly how many
-  // rows BilalSadaSub actually returned - a guessed plan_type string that
-  // doesn't match what their API expects shows up here as 0 (or the same
-  // count as the unfiltered call, if they're silently ignoring an unknown
-  // plan_type rather than filtering by it), instead of silently vanishing
-  // into the merged/deduped final list with no trace of why.
-  console.log(`[bilalsadasub] ${network} plan_type=${planType ?? '(none)'}: ${body.data.length} raw row(s)`);
-  if (!planType) {
-    // The unfiltered call's own rows reveal the REAL plan_type vocabulary
-    // BilalSadaSub's API actually stores, as ground truth - independent of
-    // whatever labels their dashboard UI's filter tabs show.
-    const rawTypes = new Set((body.data as Record<string, unknown>[]).map((row) => String(row.plan_type ?? '(missing)')));
-    console.log(`[bilalsadasub] ${network} unfiltered call's actual plan_type values seen: ${[...rawTypes].join(', ')}`);
   }
 
   return (body.data as Record<string, unknown>[]).map((row) => ({
     id: String(row.plan_id),
     networkId: networkId(network),
-    // plan_type isn't folded into the name here the way Alrahuz's raw
-    // names sometimes are - applyPricing()'s planTypeFrom() only reads a
-    // "TYPE - rest" prefix, so it's added explicitly to make plan_type
-    // (SME/GIFTING/COOPERATE GIFTING) actually show up as a category.
-    // Falls back to the requested planType (if any) when the row itself
-    // doesn't echo one back, and finally to 'OTHER' for the fully
-    // unfiltered call so an uncategorized plan still gets SOME grouping
-    // rather than silently losing its "TYPE - " prefix (which would make
-    // planTypeFrom() treat it as having no category at all).
-    name: `${row.plan_type ?? planType ?? 'OTHER'} - ${row.plan_name}`,
+    // applyPricing() derives `planType` from this prefix. Use the category
+    // users see in BilalSadaSub's dashboard, never the raw fulfilment type.
+    name: `${bilalDisplayCategory(row)} - ${row.plan_name}`,
     amount: Number(row.amount),
     validity: typeof row.plan_day === 'string' ? row.plan_day : '30 days'
   }));
@@ -275,7 +250,7 @@ async function getAllDataPlans(network: string) {
   if (cached && cached.expiresAt > Date.now()) return cached.plans;
 
   const rawPlans = await fetchLiveDataPlans(network);
-  console.log(`[bilalsadasub] ${key}: ${rawPlans.length} plan(s) after merging unfiltered + per-type fetches`);
+  console.log(`[bilalsadasub] ${key}: ${rawPlans.length} plan(s) loaded`);
   const priced = await dataPlanPricingService.applyPricing(rawPlans, key, PROVIDER);
   planCache.set(key, { expiresAt: Date.now() + CACHE_MS, plans: priced });
   return priced;
@@ -296,7 +271,14 @@ export async function getDataPlanCategories(network: string) {
     if (!type) continue;
     counts.set(type, (counts.get(type) ?? 0) + 1);
   }
-  return Array.from(counts.entries()).map(([category, count]) => ({ category, count }));
+  return Array.from(counts.entries())
+    .sort(([left], [right]) => {
+      const leftIndex = BILAL_CATEGORY_ORDER.indexOf(left.toUpperCase());
+      const rightIndex = BILAL_CATEGORY_ORDER.indexOf(right.toUpperCase());
+      return (leftIndex === -1 ? Number.MAX_SAFE_INTEGER : leftIndex) -
+        (rightIndex === -1 ? Number.MAX_SAFE_INTEGER : rightIndex) || left.localeCompare(right);
+    })
+    .map(([category, count]) => ({ category, count }));
 }
 
 export async function getDataPlan(network: string, planId: string) {
