@@ -267,6 +267,7 @@ export async function purchaseResultPin(params: {
   if ('pending' in providerResult && providerResult.pending) {
     await flagPendingReconciliation({
       transactionId: debit.transaction.id,
+      provider,
       providerRef: providerResult.providerRef,
       providerMessage: providerResult.message
     });

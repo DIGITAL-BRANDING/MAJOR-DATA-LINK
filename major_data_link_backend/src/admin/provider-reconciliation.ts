@@ -144,7 +144,7 @@ function renderPage(params: {
         <div class="txn-head">
           <div>
             <strong>${escape(t.description)}</strong>
-            <div class="muted">Ref: ${escape(t.reference)} · ${escape(t.type)} · ${ageLabel(t.createdAt)}${stale ? ' <span class="stale-tag">STALE</span>' : ''}</div>
+            <div class="muted">Ref: ${escape(t.reference)} · ${escape(t.type)} · <span class="provider-tag">${escape(t.provider ?? 'unknown')}</span> · ${ageLabel(t.createdAt)}${stale ? ' <span class="stale-tag">STALE</span>' : ''}</div>
           </div>
           <div class="amount">${naira(koboToNaira(t.amountKobo))}</div>
         </div>
@@ -193,6 +193,7 @@ function renderPage(params: {
   .txn-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 10px; }
   .txn-head strong { font-size: 14px; }
   .muted { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .provider-tag { text-transform: uppercase; font-weight: 700; letter-spacing: 0.03em; color: var(--gold-dark); }
   .stale-tag { background: var(--red); color: #fff; font-size: 10px; padding: 1px 6px; border-radius: 999px; font-weight: 700; }
   .amount { font-size: 16px; font-weight: 700; white-space: nowrap; }
   .txn-meta { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); margin-bottom: 14px; border-top: 1px solid var(--border); padding-top: 10px; }
@@ -215,7 +216,7 @@ function renderPage(params: {
     <h1>Provider Reconciliation</h1>
     <a class="back" href="/admin">&larr; Back to admin panel</a>
   </header>
-  <p class="intro">Transactions where BilalSadaSub responded "still processing" instead of a clear success or failure. Check BilalSadaSub's own merchant dashboard or contact their support for the real outcome, then resolve here - do not guess.</p>
+  <p class="intro">Transactions where a provider responded with an ambiguous "still processing" status instead of a clear success or failure. Check that provider's own merchant dashboard or contact their support for the real outcome, then resolve here - do not guess.</p>
 
   ${params.notice ? `<div class="notice">${escape(params.notice)}</div>` : ''}
   ${params.error ? `<div class="error-banner">${escape(params.error)}</div>` : ''}

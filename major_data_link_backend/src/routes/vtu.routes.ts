@@ -133,13 +133,16 @@ export async function processProviderPurchase(params: {
     };
   }
 
-  // BilalSadaSub's "process" status - not a confirmed failure, so DON'T
-  // auto-refund (see flagPendingReconciliation()'s doc-comment for why).
-  // Alrahuz's provider.service.ts never sets `pending`, so this branch is
-  // unreachable for that provider - existing Alrahuz behavior is unchanged.
+  // A provider's ambiguous "in progress" status - not a confirmed failure,
+  // so DON'T auto-refund (see flagPendingReconciliation()'s doc-comment for
+  // why). Only BilalSadaSub sets `pending` today; Alrahuz's
+  // provider.service.ts never does, so this branch is currently
+  // unreachable when params.provider === 'alrahuz' - existing Alrahuz
+  // behavior is unchanged.
   if (provider.pending) {
     await flagPendingReconciliation({
       transactionId: debit.transaction.id,
+      provider: params.provider,
       providerRef: provider.providerRef,
       providerMessage: provider.message
     });

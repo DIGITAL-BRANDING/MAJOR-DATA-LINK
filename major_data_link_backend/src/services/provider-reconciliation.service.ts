@@ -8,36 +8,43 @@ import { awardReferralCommission } from './referral.service.js';
 import { notifyUser } from './notification.service.js';
 
 /**
- * Handles BilalSadaSub's "process" response status - see the doc-comment on
- * normalize() in bilalsadasub.service.ts for why that status is neither
- * treated as success nor auto-refunded like an outright failure.
+ * Handles any provider's ambiguous "in progress" response status - not a
+ * confirmed success, not a confirmed failure. Today only BilalSadaSub
+ * produces one (its "process" status - see the doc-comment on normalize()
+ * in bilalsadasub.service.ts), but this file is intentionally
+ * provider-agnostic: Alrahuz's provider.service.ts treats ANY status text
+ * it doesn't recognize as an outright failure (auto-refund) today, which
+ * carries the exact same risk BilalSadaSub's "process" does if Alrahuz ever
+ * starts returning its own "pending"/"queued" status - so `provider` is a
+ * parameter everywhere here, never hardcoded, and this same flow can be
+ * wired up for Alrahuz (or any future provider) the moment its normalize()
+ * starts setting `pending: true` too.
  *
- * There is no BilalSadaSub requery/status-check endpoint confirmed from
+ * There is no requery/status-check endpoint confirmed for BilalSadaSub from
  * their docs (the two "validate" endpoints already in bilalsadasub.service.ts
  * are marked UNVERIFIED for the same reason - the integration was built from
  * partial doc screenshots). Rather than guess at a requery endpoint and risk
  * silently mis-polling, a transaction left in this state is surfaced here
- * for a human admin to resolve - by checking BilalSadaSub's own merchant
+ * for a human admin to resolve - by checking the provider's own merchant
  * dashboard/support for the real outcome - via /admin/provider-reconciliation.
- * If BilalSadaSub's docs are later confirmed to include a real requery
+ * If a provider's docs are later confirmed to include a real requery
  * endpoint, an automatic poller can be added in front of this without
  * changing anything downstream: it would just call resolveAsSuccess/
  * resolveAsFailed itself instead of leaving the row for a human.
  */
 
-const RECONCILE_PROVIDER = 'bilalsadasub';
-
 /**
  * Called from the purchase route (cable.routes.ts, electricity.routes.ts,
  * vtu.routes.ts's processProviderPurchase, result-pin.service.ts) the moment
- * BilalSadaSub responds with `pending: true`. Leaves the transaction's
- * status as PENDING (its state right after debitWallet()) - just stamps it
- * with the provider info and a `reconciliation` metadata block so
+ * a provider responds with `pending: true`. Leaves the transaction's status
+ * as PENDING (its state right after debitWallet()) - just stamps it with
+ * the provider info and a `reconciliation` metadata block so
  * /admin/provider-reconciliation can find and display it, and logs a
  * grep-able marker for anyone watching Railway logs in real time.
  */
 export async function flagPendingReconciliation(params: {
   transactionId: string;
+  provider: string;
   providerRef?: string;
   providerMessage?: string;
   rawStatus?: unknown;
@@ -48,7 +55,7 @@ export async function flagPendingReconciliation(params: {
   await prisma.transaction.update({
     where: { id: params.transactionId },
     data: {
-      provider: RECONCILE_PROVIDER,
+      provider: params.provider,
       providerRef: params.providerRef ?? null,
       metadata: {
         ...existingMetadata,
@@ -62,7 +69,7 @@ export async function flagPendingReconciliation(params: {
   });
 
   console.error(
-    `[reconcile][${RECONCILE_PROVIDER}] transaction ${params.transactionId} left PENDING - provider returned "process", needs manual review at /admin/provider-reconciliation`
+    `[reconcile][${params.provider}] transaction ${params.transactionId} left PENDING - provider returned an ambiguous in-progress status, needs manual review at /admin/provider-reconciliation`
   );
 }
 
@@ -71,15 +78,26 @@ export type PendingReconciliationRow = Prisma.TransactionGetPayload<{
 }>;
 
 /**
- * Everything currently awaiting manual resolution: PENDING transactions
- * that were routed through BilalSadaSub. Deliberately does NOT filter by
- * age - a `process` result is ambiguous the moment it happens, not only
- * once it's been sitting a while, so the admin page shows all of them and
- * lets a human judge how stale each one is from `createdAt` itself.
+ * Everything currently awaiting manual resolution, across every provider -
+ * any PENDING transaction that flagPendingReconciliation() stamped with a
+ * `reconciliation` metadata block. Deliberately does NOT filter by age - an
+ * ambiguous result is ambiguous the moment it happens, not only once it's
+ * been sitting a while, so the admin page shows all of them and lets a
+ * human judge how stale each one is from `createdAt` itself.
  */
 export async function listPendingReconciliations(): Promise<PendingReconciliationRow[]> {
+  // `metadata.reconciliation` is only ever set by flagPendingReconciliation()
+  // above, so this JSON-path filter is exactly "has been flagged" - across
+  // any provider. This is the first place in the codebase filtering a JSON
+  // column by path on Postgres; the syntax is correct for Prisma 5.x, but
+  // since `prisma generate` couldn't run in the sandbox this was built in,
+  // it's only been checked against Prisma's docs, not a live database -
+  // worth confirming this returns the expected rows on first real use.
   return prisma.transaction.findMany({
-    where: { status: TransactionStatus.PENDING, provider: RECONCILE_PROVIDER },
+    where: {
+      status: TransactionStatus.PENDING,
+      metadata: { path: ['reconciliation'], not: Prisma.JsonNull }
+    },
     orderBy: { createdAt: 'asc' },
     include: { user: { select: { id: true, fullName: true, email: true, phone: true } } }
   });
@@ -117,12 +135,16 @@ export async function resolveReconciliationAsSuccess(params: {
 
   const existingMetadata = (transaction.metadata as Record<string, unknown> | null) ?? {};
   const finalCostKobo = params.costKobo ?? transaction.costKobo ?? undefined;
+  // transaction.provider was already stamped by flagPendingReconciliation()
+  // when the purchase route first flagged this row - trust it over
+  // re-guessing, since it's the provider that actually returned "pending".
+  const resolvedProvider = transaction.provider ?? 'unknown';
 
   const updated = await prisma.transaction.update({
     where: { id: transaction.id },
     data: {
       status: TransactionStatus.SUCCESS,
-      provider: RECONCILE_PROVIDER,
+      provider: resolvedProvider,
       providerRef: params.providerRef ?? transaction.providerRef,
       ...(finalCostKobo !== undefined ? { costKobo: finalCostKobo } : {}),
       metadata: {
@@ -142,7 +164,7 @@ export async function resolveReconciliationAsSuccess(params: {
 
   if (finalCostKobo !== undefined && finalCostKobo > 0n) {
     await recordProviderDebit({
-      provider: RECONCILE_PROVIDER,
+      provider: resolvedProvider,
       amountKobo: finalCostKobo,
       relatedTransactionId: transaction.id,
       description: `${transaction.description} (reconciled manually)`
@@ -180,12 +202,15 @@ export async function resolveReconciliationAsFailed(params: { transactionId: str
   }
 
   const existingMetadata = (transaction.metadata as Record<string, unknown> | null) ?? {};
+  // Same as resolveReconciliationAsSuccess - keep the provider that was
+  // already stamped on this row rather than guessing.
+  const resolvedProvider = transaction.provider ?? 'unknown';
 
   await prisma.transaction.update({
     where: { id: transaction.id },
     data: {
       status: TransactionStatus.FAILED,
-      provider: RECONCILE_PROVIDER,
+      provider: resolvedProvider,
       metadata: {
         ...existingMetadata,
         reconciliation: {

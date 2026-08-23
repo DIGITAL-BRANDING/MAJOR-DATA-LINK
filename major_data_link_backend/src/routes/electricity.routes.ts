@@ -159,6 +159,7 @@ electricityRoutes.post('/purchase', async (req, res) => {
   if (provider.pending) {
     await flagPendingReconciliation({
       transactionId: debit.transaction.id,
+      provider: 'bilalsadasub',
       providerRef: provider.providerRef,
       providerMessage: provider.message
     });

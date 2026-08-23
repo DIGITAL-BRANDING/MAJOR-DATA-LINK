@@ -46,7 +46,7 @@ const quickLinks: QuickLink[] = [
   },
   {
     label: 'Provider Reconciliation',
-    description: 'BilalSadaSub transactions stuck "processing" - confirm success/failure by hand',
+    description: 'Transactions stuck "processing" at any provider - confirm success/failure by hand',
     href: `${ADMIN_ROOT_PATH}/provider-reconciliation`,
     icon: 'AlertTriangle'
   },
