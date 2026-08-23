@@ -149,15 +149,26 @@ function networkId(network: string): number {
 /**
  * Every purchase-style BilalSadaSub response shares one shape (see the
  * docs' "Common patterns" section): status "success"/"fail"/"process",
- * message, oldbal/newbal. "process" is treated as NOT yet a confirmed
- * success - same conservative handling as an outright failure, since this
- * app has no mechanism to poll/requery a pending BilalSadaSub transaction
- * later. amount/oldbal/newbal are all sent as strings OR numbers
- * inconsistently across the doc's own examples, hence Number(...) rather
- * than assuming either.
+ * message, oldbal/newbal. amount/oldbal/newbal are all sent as strings OR
+ * numbers inconsistently across the doc's own examples, hence Number(...)
+ * rather than assuming either.
+ *
+ * "process" is NOT a confirmed success (`status` stays `false`), but it is
+ * also NOT a confirmed failure - BilalSadaSub is telling us the request is
+ * still being worked on their end, and this app has no requery endpoint
+ * confirmed/available to poll it later (see provider-reconciliation.service.ts's
+ * doc-comment). Treating it the same as an outright "fail" - i.e. refunding
+ * the customer immediately - risks the provider ALSO fulfilling the
+ * purchase afterward: the customer gets both a refund and the data/token/
+ * cable renewal, and the company eats the cost with no transaction to
+ * charge it against. So `pending: true` is set here instead, and every
+ * caller (cable.routes.ts, electricity.routes.ts, vtu.routes.ts's
+ * processProviderPurchase, result-pin.service.ts) must check it and route
+ * to manual admin reconciliation instead of auto-refunding.
  */
 function normalize(body: BilalResponse): NormalizedProviderResponse {
   const success = body.status === 'success';
+  const pending = !success && body.status === 'process';
   const oldbal = body.oldbal !== undefined ? Number(body.oldbal) : undefined;
   const newbal = body.newbal !== undefined ? Number(body.newbal) : undefined;
   const costKobo =
@@ -167,8 +178,9 @@ function normalize(body: BilalResponse): NormalizedProviderResponse {
 
   return {
     status: success,
+    pending,
     providerRef: body['request-id'],
-    message: body.message ?? (success ? 'Transaction processed' : 'Transaction failed'),
+    message: body.message ?? (success ? 'Transaction processed' : pending ? 'Transaction is still processing' : 'Transaction failed'),
     costKobo
   };
 }

@@ -9,6 +9,7 @@ import { authenticateAdmin } from './auth.js';
 import { registerBulkPricingRoutes } from './bulk-pricing.js';
 import { registerCompanyWalletRoutes } from './company-wallet.js';
 import { registerProviderLedgerRoutes } from './provider-ledger.js';
+import { registerProviderReconciliationRoutes } from './provider-reconciliation.js';
 import { registerUserWalletRoutes } from './user-wallet.js';
 import { registerNinModificationRoutes } from './nin-modification.js';
 import { registerBvnLicenseRoutes } from './bvn-license-onboarding.js';
@@ -169,6 +170,7 @@ export async function buildAdminRouter() {
   registerBulkPricingRoutes(router);
   registerCompanyWalletRoutes(router);
   registerProviderLedgerRoutes(router);
+  registerProviderReconciliationRoutes(router);
   registerUserWalletRoutes(router);
   registerNinModificationRoutes(router);
   registerBvnLicenseRoutes(router);

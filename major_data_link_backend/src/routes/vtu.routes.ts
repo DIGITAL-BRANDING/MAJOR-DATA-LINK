@@ -12,6 +12,7 @@ import type { NormalizedProviderResponse } from '../services/provider-types.js';
 import { debitWallet, refundWallet } from '../services/wallet.service.js';
 import { recordProviderDebit } from '../services/provider-ledger.service.js';
 import { awardReferralCommission } from '../services/referral.service.js';
+import { flagPendingReconciliation } from '../services/provider-reconciliation.service.js';
 
 export const vtuRoutes = Router();
 
@@ -85,8 +86,7 @@ export async function processProviderPurchase(params: {
 
   const provider = await params.callProvider(debit.reference);
 
-  if (provider.status) {
-    const finalCostKobo = provider.costKobo ?? params.costKobo;
+  if (provider.status) {    const finalCostKobo = provider.costKobo ?? params.costKobo;
 
     await prisma.transaction.update({
       where: { id: debit.transaction.id },
@@ -128,6 +128,24 @@ export async function processProviderPurchase(params: {
     return {
       status: 'success' as const,
       message: provider.message ?? 'Transaction processed',
+      reference: debit.reference,
+      balanceAfter: debit.balanceAfter
+    };
+  }
+
+  // BilalSadaSub's "process" status - not a confirmed failure, so DON'T
+  // auto-refund (see flagPendingReconciliation()'s doc-comment for why).
+  // Alrahuz's provider.service.ts never sets `pending`, so this branch is
+  // unreachable for that provider - existing Alrahuz behavior is unchanged.
+  if (provider.pending) {
+    await flagPendingReconciliation({
+      transactionId: debit.transaction.id,
+      providerRef: provider.providerRef,
+      providerMessage: provider.message
+    });
+    return {
+      status: false as const,
+      message: 'Your purchase is still being confirmed by the provider. If it does not complete shortly, please contact support with your reference.',
       reference: debit.reference,
       balanceAfter: debit.balanceAfter
     };

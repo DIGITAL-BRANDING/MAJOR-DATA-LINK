@@ -10,6 +10,7 @@ import { getPricingSettings } from '../services/pricing-settings.service.js';
 import { debitWallet, refundWallet } from '../services/wallet.service.js';
 import { recordProviderDebit } from '../services/provider-ledger.service.js';
 import { awardReferralCommission } from '../services/referral.service.js';
+import { flagPendingReconciliation } from '../services/provider-reconciliation.service.js';
 
 // Electricity has no Alrahuz equivalent anywhere in this codebase - always
 // BilalSadaSub, same as cable.routes.ts. Request/response shapes here are
@@ -149,6 +150,23 @@ electricityRoutes.post('/purchase', async (req, res) => {
       balance_after: debit.balanceAfter,
       token: provider.token,
       units: provider.units
+    });
+  }
+
+  // Same reasoning as cable.routes.ts's equivalent branch - "process" is not
+  // a confirmed failure, so don't auto-refund. Left PENDING for
+  // /admin/provider-reconciliation.
+  if (provider.pending) {
+    await flagPendingReconciliation({
+      transactionId: debit.transaction.id,
+      providerRef: provider.providerRef,
+      providerMessage: provider.message
+    });
+    return res.json({
+      status: false,
+      message: 'Your electricity purchase is still being confirmed by the provider. If your token does not arrive shortly, please contact support with your reference.',
+      reference: debit.reference,
+      balance_after: koboToNaira(debit.transaction.balanceAfterKobo)
     });
   }
 

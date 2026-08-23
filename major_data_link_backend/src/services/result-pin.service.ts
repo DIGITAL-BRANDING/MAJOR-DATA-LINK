@@ -8,6 +8,7 @@ import * as bilalsadasub from './bilalsadasub.service.js';
 import { getPricingSettings } from './pricing-settings.service.js';
 import { debitWallet, refundWallet } from './wallet.service.js';
 import { recordProviderDebit } from './provider-ledger.service.js';
+import { flagPendingReconciliation } from './provider-reconciliation.service.js';
 
 export type ExamPinType = 'WAEC' | 'NECO' | 'NABTEB';
 
@@ -252,6 +253,27 @@ export async function purchaseResultPin(params: {
       reference: debit.reference,
       pin: providerResult.pin,
       serial: providerResult.serial,
+      balanceAfter: debit.balanceAfter
+    };
+  }
+
+  // BilalSadaSub's "process" status - not a confirmed failure, so DON'T
+  // auto-refund (see flagPendingReconciliation()'s doc-comment for why).
+  // Result-pin PINs are single-use secrets the provider generates - if this
+  // purchase DID succeed, the admin resolving it in
+  // /admin/provider-reconciliation must copy the real pin/serial from
+  // BilalSadaSub's own dashboard, since there's no requery endpoint to pull
+  // it from automatically.
+  if ('pending' in providerResult && providerResult.pending) {
+    await flagPendingReconciliation({
+      transactionId: debit.transaction.id,
+      providerRef: providerResult.providerRef,
+      providerMessage: providerResult.message
+    });
+    return {
+      status: false as const,
+      message: 'Your PIN purchase is still being confirmed by the provider. If it does not complete shortly, please contact support with your reference.',
+      reference: debit.reference,
       balanceAfter: debit.balanceAfter
     };
   }

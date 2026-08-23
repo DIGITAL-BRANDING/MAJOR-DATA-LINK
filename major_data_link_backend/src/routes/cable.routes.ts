@@ -10,6 +10,7 @@ import { getPricingSettings } from '../services/pricing-settings.service.js';
 import { debitWallet, refundWallet } from '../services/wallet.service.js';
 import { recordProviderDebit } from '../services/provider-ledger.service.js';
 import { awardReferralCommission } from '../services/referral.service.js';
+import { flagPendingReconciliation } from '../services/provider-reconciliation.service.js';
 
 // Cable TV has no Alrahuz equivalent anywhere in this codebase - always
 // BilalSadaSub, unlike data/airtime/result-pins which check PricingSettings.
@@ -133,6 +134,25 @@ cableRoutes.post('/subscribe', async (req, res) => {
       message: provider.message ?? 'Cable subscription renewed',
       reference: debit.reference,
       balance_after: debit.balanceAfter
+    });
+  }
+
+  // BilalSadaSub's "process" status - not a confirmed failure, so DON'T
+  // auto-refund (the provider might still fulfil it and the customer would
+  // be paid twice). Leave the debit as PENDING for manual admin review at
+  // /admin/provider-reconciliation. See flagPendingReconciliation()'s
+  // doc-comment for why.
+  if (provider.pending) {
+    await flagPendingReconciliation({
+      transactionId: debit.transaction.id,
+      providerRef: provider.providerRef,
+      providerMessage: provider.message
+    });
+    return res.json({
+      status: false,
+      message: 'Your cable subscription is still being confirmed by the provider. If it is not resolved shortly, please contact support with your reference.',
+      reference: debit.reference,
+      balance_after: koboToNaira(debit.transaction.balanceAfterKobo)
     });
   }
 

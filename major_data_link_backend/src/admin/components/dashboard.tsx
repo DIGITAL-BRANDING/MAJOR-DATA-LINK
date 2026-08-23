@@ -45,6 +45,12 @@ const quickLinks: QuickLink[] = [
     icon: 'Repeat'
   },
   {
+    label: 'Provider Reconciliation',
+    description: 'BilalSadaSub transactions stuck "processing" - confirm success/failure by hand',
+    href: `${ADMIN_ROOT_PATH}/provider-reconciliation`,
+    icon: 'AlertTriangle'
+  },
+  {
     label: 'Data Plan Pricing',
     description: 'Set prices for data plans',
     resourceId: 'DataPlanPricing',
