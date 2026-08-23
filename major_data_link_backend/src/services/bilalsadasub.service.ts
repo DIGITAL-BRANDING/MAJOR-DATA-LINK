@@ -187,7 +187,34 @@ function normalize(body: BilalResponse): NormalizedProviderResponse {
 
 // ---- Data ----
 
-async function fetchLiveDataPlans(network: string, planType?: string): Promise<DataPlan[]> {
+// BilalSadaSub's own docs only ever show `plan_type` paired WITH `network`
+// in every example (`?network=MTN&plan_type=GIFTING`) - never network
+// alone. In production, fetching with just `network` and no `plan_type`
+// silently returned an incomplete catalog (missing plans users could
+// confirm existed) rather than every type merged together, contradicting
+// the docs' "and/or" framing of the filter. Fetching each known type
+// explicitly and merging is the reliable way to get the full catalog.
+//
+// This list is only the types the docs happened to mention as filter
+// examples - not guaranteed exhaustive across every network, so an
+// unfiltered network-only call is ALSO fetched and merged in below as a
+// safety net for any plan_type this list doesn't know about yet.
+const KNOWN_DATA_PLAN_TYPES = ['SME', 'GIFTING', 'COOPERATE GIFTING'];
+
+async function fetchLiveDataPlans(network: string): Promise<DataPlan[]> {
+  const [unfiltered, ...byType] = await Promise.all([
+    fetchLiveDataPlansForType(network),
+    ...KNOWN_DATA_PLAN_TYPES.map((planType) => fetchLiveDataPlansForType(network, planType))
+  ]);
+
+  const byPlanId = new Map<string, DataPlan>();
+  for (const plans of [unfiltered, ...byType]) {
+    for (const plan of plans) byPlanId.set(plan.id, plan);
+  }
+  return Array.from(byPlanId.values());
+}
+
+async function fetchLiveDataPlansForType(network: string, planType?: string): Promise<DataPlan[]> {
   const query = new URLSearchParams({ network: network.toUpperCase() });
   if (planType) query.set('plan_type', planType);
   const body = await publicGet(`/api/v1/plans/data?${query.toString()}`);
@@ -204,7 +231,12 @@ async function fetchLiveDataPlans(network: string, planType?: string): Promise<D
     // names sometimes are - applyPricing()'s planTypeFrom() only reads a
     // "TYPE - rest" prefix, so it's added explicitly to make plan_type
     // (SME/GIFTING/COOPERATE GIFTING) actually show up as a category.
-    name: `${row.plan_type ?? ''}${row.plan_type ? ' - ' : ''}${row.plan_name}`,
+    // Falls back to the requested planType (if any) when the row itself
+    // doesn't echo one back, and finally to 'OTHER' for the fully
+    // unfiltered call so an uncategorized plan still gets SOME grouping
+    // rather than silently losing its "TYPE - " prefix (which would make
+    // planTypeFrom() treat it as having no category at all).
+    name: `${row.plan_type ?? planType ?? 'OTHER'} - ${row.plan_name}`,
     amount: Number(row.amount),
     validity: typeof row.plan_day === 'string' ? row.plan_day : '30 days'
   }));
@@ -222,6 +254,7 @@ async function getAllDataPlans(network: string) {
   if (cached && cached.expiresAt > Date.now()) return cached.plans;
 
   const rawPlans = await fetchLiveDataPlans(network);
+  console.log(`[bilalsadasub] ${key}: ${rawPlans.length} plan(s) after merging unfiltered + per-type fetches`);
   const priced = await dataPlanPricingService.applyPricing(rawPlans, key, PROVIDER);
   planCache.set(key, { expiresAt: Date.now() + CACHE_MS, plans: priced });
   return priced;
