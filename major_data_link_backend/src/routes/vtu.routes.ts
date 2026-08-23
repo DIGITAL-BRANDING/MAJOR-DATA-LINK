@@ -189,7 +189,13 @@ vtuRoutes.get('/data/plans/:network', async (req, res) => {
     provider === 'bilalsadasub'
       ? await bilalsadasub.getDataPlans(req.params.network, category)
       : await providerService.getDataPlans(req.params.network, category);
-  res.json({ status: true, data: plans });
+  // Cheapest first, regardless of which provider/category this came from -
+  // sorted here (not inside each provider service) so it's guaranteed
+  // consistent no matter which one is active. Sorts on sellingAmount (what
+  // the customer actually pays), not providerAmount (our cost) - those two
+  // can rank differently once markup varies per plan.
+  const sorted = [...plans].sort((a, b) => a.sellingAmount - b.sellingAmount);
+  res.json({ status: true, data: sorted });
 });
 
 vtuRoutes.post('/data/purchase', async (req, res) => {

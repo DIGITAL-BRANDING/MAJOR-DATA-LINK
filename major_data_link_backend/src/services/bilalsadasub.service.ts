@@ -195,11 +195,17 @@ function normalize(body: BilalResponse): NormalizedProviderResponse {
 // the docs' "and/or" framing of the filter. Fetching each known type
 // explicitly and merging is the reliable way to get the full catalog.
 //
-// This list is only the types the docs happened to mention as filter
-// examples - not guaranteed exhaustive across every network, so an
-// unfiltered network-only call is ALSO fetched and merged in below as a
-// safety net for any plan_type this list doesn't know about yet.
-const KNOWN_DATA_PLAN_TYPES = ['SME', 'GIFTING', 'COOPERATE GIFTING'];
+// The docs' own filter EXAMPLE mentioned "SME, GIFTING, COOPERATE GIFTING"
+// - but that turned out to just be illustrative wording, not the real
+// category list: BilalSadaSub's own reseller dashboard (Buy Data ->
+// Category step) shows the actual tabs as PROMO, SME, DAILY, WEEKLY,
+// MONTHLY, 2-MONTHLY. This list is confirmed against that UI. It's still
+// not guaranteed to be the exact literal `plan_type` string their API
+// stores for every one of these (display label vs. stored value can
+// differ, e.g. "2-MONTHLY" vs "2MONTHLY"), so an unfiltered network-only
+// call is ALSO fetched and merged in below as a safety net for any type
+// whose exact string doesn't match one of these.
+const KNOWN_DATA_PLAN_TYPES = ['PROMO', 'SME', 'DAILY', 'WEEKLY', 'MONTHLY', '2-MONTHLY'];
 
 async function fetchLiveDataPlans(network: string): Promise<DataPlan[]> {
   const [unfiltered, ...byType] = await Promise.all([
