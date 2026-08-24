@@ -27,6 +27,12 @@ const quickLinks: QuickLink[] = [
     icon: 'Search'
   },
   {
+    label: 'Customer Activity',
+    description: 'Top customers, what they bought, and reward candidates',
+    href: `${ADMIN_ROOT_PATH}/customer-activity`,
+    icon: 'Award'
+  },
+  {
     label: 'User Deliveries',
     description: 'Upload a manual PDF, image or token file for one customer',
     href: `${ADMIN_ROOT_PATH}/user-deliveries`,
