@@ -26,6 +26,13 @@ final adminProviderBalanceProvider =
       return ref.read(adminPricingRepositoryProvider).getProviderBalances();
     });
 
+final adminCustomerActivityProvider = FutureProvider.autoDispose
+    .family<CustomerActivityBundle, int>((ref, days) {
+      return ref
+          .read(adminPricingRepositoryProvider)
+          .getCustomerActivity(days: days);
+    });
+
 final adminBroadcastHistoryProvider =
     FutureProvider.autoDispose<List<BroadcastEntity>>((ref) {
       return ref.read(adminPricingRepositoryProvider).getBroadcastHistory();

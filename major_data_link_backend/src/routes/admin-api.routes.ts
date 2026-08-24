@@ -1,8 +1,10 @@
 ﻿import { Router } from 'express';
 import { z } from 'zod';
+import { TransactionStatus, TransactionType } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { dataPlanPricingService } from '../services/data-plan-pricing.service.js';
 import { providerService } from '../services/provider.service.js';
+import * as bilalsadasub from '../services/bilalsadasub.service.js';
 import { PROMO_ILLUSTRATIONS, sendAdminBroadcast } from '../services/notification.service.js';
 import { listServicePricesForAdmin, updateServicePrice } from '../services/result-pin.service.js';
 import { listVerificationPricesForAdmin } from '../services/verification.service.js';
@@ -65,11 +67,71 @@ adminApiRoutes.get('/provider-balance', requireFinanceAdmin, async (_req, res) =
   res.json({ status: true, data: payload.balances, funding_account: payload.funding_account });
 });
 
+// Only fulfilled services count toward rewards: funding, refunds, transfers
+// and manual wallet adjustments must never inflate a customer's usage rank.
+const usageTransactionTypes = [
+  TransactionType.DATA_PURCHASE,
+  TransactionType.AIRTIME_PURCHASE,
+  TransactionType.ELECTRICITY_PURCHASE,
+  TransactionType.CABLE_PURCHASE,
+  TransactionType.RESULT_PIN,
+  TransactionType.SMS,
+  TransactionType.NIN_VERIFICATION,
+  TransactionType.BVN_VERIFICATION,
+  TransactionType.IDENTITY_SERVICE_REQUEST,
+  TransactionType.NIN_MODIFICATION,
+  TransactionType.BVN_LICENSE_ONBOARDING
+] as const;
+
+adminApiRoutes.get('/customer-activity', requireFinanceAdmin, async (req, res) => {
+  const query = z.object({
+    days: z.coerce.number().int().min(1).max(3650).default(30),
+    limit: z.coerce.number().int().min(1).max(100).default(20)
+  }).parse(req.query);
+  const since = new Date(Date.now() - query.days * 24 * 60 * 60 * 1000);
+  const where = {
+    status: TransactionStatus.SUCCESS,
+    type: { in: [...usageTransactionTypes] },
+    createdAt: { gte: since }
+  };
+  const [grouped, recent] = await Promise.all([
+    prisma.transaction.groupBy({ by: ['userId'], where, _count: { _all: true }, _sum: { amountKobo: true }, _max: { createdAt: true } }),
+    prisma.transaction.findMany({
+      where, take: query.limit, orderBy: { createdAt: 'desc' },
+      select: { id: true, userId: true, type: true, amountKobo: true, description: true, createdAt: true, user: { select: { fullName: true, email: true } } }
+    })
+  ]);
+  const ranked = [...grouped]
+    .sort((a, b) => Number(b._sum.amountKobo ?? 0n) - Number(a._sum.amountKobo ?? 0n))
+    .slice(0, query.limit);
+  const users = await prisma.user.findMany({
+    where: { id: { in: ranked.map((row) => row.userId) } },
+    select: { id: true, fullName: true, email: true }
+  });
+  const usersById = new Map(users.map((user) => [user.id, user]));
+  const totalUsageKobo = grouped.reduce((total, row) => total + (row._sum.amountKobo ?? 0n), 0n);
+  const totalPurchases = grouped.reduce((total, row) => total + row._count._all, 0);
+
+  res.json({ status: true, data: {
+    period_days: query.days,
+    summary: { active_customers: grouped.length, successful_purchases: totalPurchases, total_usage: Number(totalUsageKobo) / 100 },
+    top_customers: ranked.map((row) => {
+      const user = usersById.get(row.userId);
+      return { user_id: row.userId, full_name: user?.fullName ?? 'Unknown user', email: user?.email ?? '', purchases: row._count._all, total_usage: Number(row._sum.amountKobo ?? 0n) / 100, last_purchase_at: row._max.createdAt?.toISOString() ?? null };
+    }),
+    recent_purchases: recent.map((transaction) => ({
+      id: transaction.id, user_id: transaction.userId, full_name: transaction.user.fullName, email: transaction.user.email,
+      type: transaction.type, description: transaction.description, amount: Number(transaction.amountKobo) / 100, created_at: transaction.createdAt.toISOString()
+    }))
+  } });
+});
+
 adminApiRoutes.post('/provider-balance/refresh', requireFinanceAdmin, async (_req, res) => {
   await providerService.refreshBalance();
+  if (bilalsadasub.isConfigured()) await bilalsadasub.refreshBalance();
   const rows = await prisma.providerBalanceStatus.findMany({ orderBy: { provider: 'asc' } });
   const payload = providerBalancePayload(rows);
-  res.json({ status: true, message: 'Alrahuz balance refreshed', data: payload.balances, funding_account: payload.funding_account });
+  res.json({ status: true, message: 'Provider balances refreshed', data: payload.balances, funding_account: payload.funding_account });
 });
 adminApiRoutes.get('/data-prices', requireFinanceAdmin, async (req, res) => {
   const network = typeof req.query.network === 'string' ? req.query.network : undefined;

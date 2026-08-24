@@ -344,10 +344,18 @@ export type ModificationHistoryEntry = {
 };
 
 export async function listModificationHistory(params: { userId: string; type?: ModificationType }) {
-  const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
   const transactions = await prisma.transaction.findMany({
-    where: { userId: params.userId, type: TransactionType.NIN_MODIFICATION, createdAt: { gte: since } },
-    orderBy: { createdAt: 'desc' },
+    // A modification is a manual/asynchronous service. Do not expose a
+    // pending request as a completed recent activity; begin its seven-day
+    // visibility period only when completeModification() sets SUCCESS.
+    where: {
+      userId: params.userId,
+      type: TransactionType.NIN_MODIFICATION,
+      status: TransactionStatus.SUCCESS,
+      updatedAt: { gte: since }
+    },
+    orderBy: { updatedAt: 'desc' },
     take: 20
   });
 
@@ -363,7 +371,7 @@ export async function listModificationHistory(params: { userId: string; type?: M
       return {
         reference: transaction.reference,
         status: transaction.status.toLowerCase(),
-        created_at: transaction.createdAt.toISOString(),
+        created_at: transaction.updatedAt.toISOString(),
         pdf_base64: typeof pii?.pdf_base64 === 'string' ? pii.pdf_base64 : null,
         modification_type: typeof metadata?.modification_type === 'string' ? metadata.modification_type : null
       };

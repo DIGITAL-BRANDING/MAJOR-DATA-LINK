@@ -71,7 +71,7 @@ const quickLinks: QuickLink[] = [
   { label: 'Coupons', description: 'Discount codes & promotions', resourceId: 'Coupon', icon: 'CreditCard' },
   {
     label: 'Provider Balance',
-    description: 'Alrahuz (VTU) & Techhub (NIN/BVN) wallet status',
+    description: 'Alrahuz, BilalSadaSub & Techhub provider wallet status',
     resourceId: 'ProviderBalanceStatus',
     icon: 'AlertTriangle'
   },

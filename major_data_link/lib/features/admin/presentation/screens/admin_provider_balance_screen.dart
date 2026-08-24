@@ -26,7 +26,7 @@ class _AdminProviderBalanceScreenState
       await ref.read(adminPricingRepositoryProvider).refreshProviderBalance();
       ref.invalidate(adminProviderBalanceProvider);
       if (context.mounted) {
-        context.showSnackBar('Alrahuz balance refreshed');
+        context.showSnackBar('Provider balances refreshed');
       }
     } catch (error) {
       if (context.mounted) {
@@ -121,7 +121,7 @@ class _AdminProviderBalanceScreenState
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    'Tap refresh after funding your Alrahuz account. The previous balance only changes automatically after provider purchases, so a website top-up needs this live refresh.',
+                    'Refresh after funding Alrahuz or BilalSadaSub. The latest balances are fetched directly from each configured VTU provider.',
                     style: context.textTheme.bodySmall?.copyWith(
                       color: AppColors.neutral500,
                     ),
@@ -165,14 +165,14 @@ class _AdminProviderBalanceScreenState
                   if (bundle.rows.isEmpty)
                     const KDCard(
                       child: Text(
-                        'No provider balance recorded yet. Tap refresh to check Alrahuz.',
+                        'No provider balance recorded yet. Tap refresh to check configured providers.',
                       ),
                     ),
                   const SizedBox(height: 12),
                   SizedBox(
                     width: double.infinity,
                     child: KDButton(
-                      label: 'Refresh Alrahuz Balance',
+                      label: 'Refresh Provider Balances',
                       onPressed: () => _refresh(context, ref),
                       isLoading: _isRefreshing,
                       gradient: AppColors.primaryGradient,

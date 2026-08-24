@@ -1,5 +1,6 @@
 import { env } from '../config/env.js';
 import { ApiError } from '../middleware/error.js';
+import { prisma } from '../lib/prisma.js';
 import { dataPlanPricingService } from './data-plan-pricing.service.js';
 import type { DataPlan } from './data-plans.data.js';
 import type { NormalizedProviderResponse, NormalizedResultPinResponse } from './provider-types.js';
@@ -72,12 +73,12 @@ type BilalResponse = {
 let cachedToken: string | null = null;
 let pendingTokenRequest: Promise<string> | null = null;
 
-function credentialsConfigured() {
+export function isConfigured() {
   return Boolean(env.BILALSADASUB_USERNAME && env.BILALSADASUB_PASSWORD);
 }
 
 async function generateToken(): Promise<string> {
-  if (!credentialsConfigured()) {
+  if (!isConfigured()) {
     throw new ApiError(500, 'BilalSadaSub is not configured', 'BILALSADASUB_NOT_CONFIGURED');
   }
 
@@ -94,7 +95,51 @@ async function generateToken(): Promise<string> {
   }
 
   cachedToken = body.AccessToken;
+  if (body.balance !== undefined) {
+    await recordProviderBalance(body.balance);
+  }
   return cachedToken;
+}
+
+/** Refreshes the balance returned by BilalSadaSub's `/api/user` endpoint. */
+export async function refreshBalance() {
+  await generateToken();
+  const status = await prisma.providerBalanceStatus.findUnique({ where: { provider: PROVIDER } });
+  if (!status) {
+    throw new ApiError(502, 'BilalSadaSub balance response did not include a recognizable balance', 'BILALSADASUB_BALANCE_NOT_FOUND');
+  }
+  return status;
+}
+
+async function recordProviderBalance(rawBalance: unknown) {
+  const balance =
+    typeof rawBalance === 'number'
+      ? rawBalance
+      : typeof rawBalance === 'string'
+        ? Number(rawBalance)
+        : undefined;
+  if (balance === undefined || !Number.isFinite(balance)) return null;
+
+  const status = await prisma.providerBalanceStatus.upsert({
+    where: { provider: PROVIDER },
+    create: { provider: PROVIDER, lastKnownBalance: balance },
+    update: { lastKnownBalance: balance }
+  });
+  if (balance >= env.BILALSADASUB_LOW_BALANCE_THRESHOLD) return status;
+
+  const cooldownMs = env.BILALSADASUB_LOW_BALANCE_ALERT_COOLDOWN_MINUTES * 60 * 1000;
+  const alreadyAlerted =
+    status.lowBalanceAlertSentAt && Date.now() - status.lowBalanceAlertSentAt.getTime() < cooldownMs;
+  if (alreadyAlerted) return status;
+
+  console.error(
+    `[bilalsadasub-balance] LOW BALANCE ALERT: only NGN${balance} left at BilalSadaSub ` +
+      `(threshold NGN${env.BILALSADASUB_LOW_BALANCE_THRESHOLD}) - top up now to avoid failed customer purchases.`
+  );
+  return prisma.providerBalanceStatus.update({
+    where: { provider: PROVIDER },
+    data: { lowBalanceAlertSentAt: new Date() }
+  });
 }
 
 async function getToken(): Promise<string> {
@@ -171,6 +216,11 @@ function normalize(body: BilalResponse): NormalizedProviderResponse {
   const pending = !success && body.status === 'process';
   const oldbal = body.oldbal !== undefined ? Number(body.oldbal) : undefined;
   const newbal = body.newbal !== undefined ? Number(body.newbal) : undefined;
+  if (newbal !== undefined && Number.isFinite(newbal)) {
+    void recordProviderBalance(newbal).catch((error) =>
+      console.error('[bilalsadasub-balance] failed to record purchase balance:', error)
+    );
+  }
   const costKobo =
     success && oldbal !== undefined && newbal !== undefined && Number.isFinite(oldbal) && Number.isFinite(newbal)
       ? BigInt(Math.round((oldbal - newbal) * 100))

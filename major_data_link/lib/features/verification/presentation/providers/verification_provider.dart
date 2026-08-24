@@ -148,7 +148,8 @@ class SlipApiResult {
   }
 }
 
-/// A customer's own verification results remain retrievable for 24 hours.
+/// Completed verification results remain retrievable for seven days. Pending
+/// asynchronous jobs appear only after the backend marks them successful.
 /// Identity fields are deliberately not included in this list; only the
 /// generated PDF (when the provider supplied one) can be retrieved.
 class VerificationHistoryItem {

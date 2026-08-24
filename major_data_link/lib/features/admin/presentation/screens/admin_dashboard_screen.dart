@@ -59,6 +59,13 @@ class AdminDashboardScreen extends ConsumerWidget {
             ),
             const SizedBox(height: 10),
             _AdminTile(
+              icon: Icons.emoji_events_outlined,
+              title: 'Customer Activity',
+              subtitle: 'Track top customers, purchases and reward candidates',
+              onTap: () => context.push(RouteNames.adminCustomerActivity),
+            ),
+            const SizedBox(height: 10),
+            _AdminTile(
               icon: Icons.campaign_outlined,
               title: 'Send Notification',
               subtitle: 'Broadcast a push notification to users',
@@ -107,14 +114,16 @@ class _AdminTile extends StatelessWidget {
               children: [
                 Text(
                   title,
-                  style: context.textTheme.titleSmall
-                      ?.copyWith(fontWeight: FontWeight.w800),
+                  style: context.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   subtitle,
-                  style: context.textTheme.bodySmall
-                      ?.copyWith(color: AppColors.neutral500),
+                  style: context.textTheme.bodySmall?.copyWith(
+                    color: AppColors.neutral500,
+                  ),
                 ),
               ],
             ),

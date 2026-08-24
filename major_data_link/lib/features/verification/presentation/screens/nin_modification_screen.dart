@@ -515,7 +515,7 @@ class _ModificationHistoryCard extends ConsumerWidget {
               Text('Recent requests', style: context.textTheme.titleSmall),
               const Spacer(),
               const Text(
-                'Last 24 hours',
+                'Last 7 days',
                 style: TextStyle(fontSize: 12, color: AppColors.neutral500),
               ),
               IconButton(
@@ -539,7 +539,9 @@ class _ModificationHistoryCard extends ConsumerWidget {
               if (items.isEmpty) {
                 return const Padding(
                   padding: EdgeInsets.only(top: 8),
-                  child: Text('No request for this type in the last 24 hours.'),
+                  child: Text(
+                    'No completed request for this type in the last 7 days.',
+                  ),
                 );
               }
               return Column(

@@ -50,6 +50,7 @@ import '../../features/admin/presentation/screens/admin_data_pricing_screen.dart
 import '../../features/admin/presentation/screens/admin_dashboard_screen.dart';
 import '../../features/admin/presentation/screens/admin_service_pricing_screen.dart';
 import '../../features/admin/presentation/screens/admin_provider_balance_screen.dart';
+import '../../features/admin/presentation/screens/admin_customer_activity_screen.dart';
 import '../../features/admin/presentation/screens/admin_broadcast_screen.dart';
 import '../../features/legal/presentation/screens/legal_document_screen.dart';
 import '../../features/verification/presentation/screens/verification_hub_screen.dart';
@@ -414,6 +415,10 @@ final routerProvider = Provider<GoRouter>((ref) {
                   GoRoute(
                     path: 'admin/provider-balance',
                     builder: (_, __) => const AdminProviderBalanceScreen(),
+                  ),
+                  GoRoute(
+                    path: 'admin/customer-activity',
+                    builder: (_, __) => const AdminCustomerActivityScreen(),
                   ),
                   GoRoute(
                     path: 'admin/broadcast',

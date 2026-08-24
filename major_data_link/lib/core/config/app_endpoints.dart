@@ -98,8 +98,10 @@ class AppEndpoints {
   static String ninPersonalizationStatus(String ticketId) =>
       '$_base/verification/personalization/$ticketId';
   static String get bvnRetrieval => '$_base/verification/bvn-retrieval';
-  static String get bvnLicenseOnboarding => '$_base/verification/bvn/license-onboarding';
-  static String get bvnLicenseHistory => '$_base/verification/bvn/license-onboarding/history';
+  static String get bvnLicenseOnboarding =>
+      '$_base/verification/bvn/license-onboarding';
+  static String get bvnLicenseHistory =>
+      '$_base/verification/bvn/license-onboarding/history';
   static String bvnRetrievalStatus(String ticketId) =>
       '$_base/verification/bvn-retrieval/$ticketId';
   static String get ipeClearance => '$_base/verification/ipe-clearance';
@@ -165,7 +167,8 @@ class AppEndpoints {
   static String get assistantBeneficiaries => '$_base/assistant/beneficiaries';
   static String get assistantEvents => '$_base/assistant/events';
   static String get assistantFallback => '$_base/assistant/fallback';
-  static String get assistantLastTransaction => '$_base/assistant/last-transaction';
+  static String get assistantLastTransaction =>
+      '$_base/assistant/last-transaction';
 
   // App config
   static String get appSettings => '$_base/app/settings';
@@ -188,6 +191,8 @@ class AppEndpoints {
   static String get adminProviderBalance => '$_base/admin/provider-balance';
   static String get adminRefreshProviderBalance =>
       '$_base/admin/provider-balance/refresh';
+  static String adminCustomerActivity({int days = 30}) =>
+      '$_base/admin/customer-activity?days=$days';
   static String get adminNotificationBroadcast =>
       '$_base/admin/notifications/broadcast';
 }

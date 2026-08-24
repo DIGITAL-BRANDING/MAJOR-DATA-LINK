@@ -1,6 +1,6 @@
 import { Router, type Request } from 'express';
 import { z } from 'zod';
-import { TransactionType } from '@prisma/client';
+import { TransactionStatus, TransactionType } from '@prisma/client';
 import { requireAuth } from '../middleware/auth.js';
 import { GEO_POLITICAL_ZONES, submitBvnLicense } from '../services/bvn-license-onboarding.service.js';
 import { pinField, requirePinConfirmation } from '../lib/require-pin.js';
@@ -85,28 +85,37 @@ verificationRoutes.post('/bvn/license-onboarding', async (req, res) => {
 });
 
 verificationRoutes.get('/bvn/license-onboarding/history', async (req, res) => {
+  const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
   const rows = await prisma.transaction.findMany({
-    where: { userId: req.user!.id, type: TransactionType.BVN_LICENSE_ONBOARDING },
-    orderBy: { createdAt: 'desc' }, take: 20
+    where: {
+      userId: req.user!.id,
+      type: TransactionType.BVN_LICENSE_ONBOARDING,
+      status: TransactionStatus.SUCCESS,
+      updatedAt: { gte: since }
+    },
+    orderBy: { updatedAt: 'desc' }, take: 20
   });
   res.json({ status: true, data: rows.map((tx) => {
     const metadata = tx.metadata as Record<string, unknown> | null;
     return { reference: tx.reference, tracking_id: metadata?.tracking_id ?? null,
       status: tx.status.toLowerCase(), amount: Number(tx.amountKobo) / 100,
-      created_at: tx.createdAt.toISOString() };
+      // A manual onboarding request may sit pending for days. Its seven-day
+      // activity window starts only once an admin marks it successful.
+      created_at: tx.updatedAt.toISOString() };
   }) });
 });
 
-// A customer can retrieve a verification result for 24 hours without
-// submitting (or paying for) the same request again.  PDFs are stored in the
-// transaction's sealed PII; only the transaction owner can receive them.
+// A customer can retrieve a completed verification result for seven days.
+// Async requests are intentionally absent while PENDING: their window begins
+// when the transaction becomes SUCCESS, using updatedAt as the completion time.
 verificationRoutes.get('/history', async (req, res) => {
   const service = z.string().trim().min(1).max(60).parse(req.query.service);
-  const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
   const transactions = await prisma.transaction.findMany({
     where: {
       userId: req.user!.id,
-      createdAt: { gte: since },
+      status: TransactionStatus.SUCCESS,
+      updatedAt: { gte: since },
       type: {
         in: [
           TransactionType.NIN_VERIFICATION,
@@ -115,7 +124,7 @@ verificationRoutes.get('/history', async (req, res) => {
         ]
       }
     },
-    orderBy: { createdAt: 'desc' },
+    orderBy: { updatedAt: 'desc' },
     take: 50
   });
 
@@ -149,7 +158,7 @@ verificationRoutes.get('/history', async (req, res) => {
       return {
         reference: transaction.reference,
         status: transaction.status.toLowerCase(),
-        created_at: transaction.createdAt.toISOString(),
+        created_at: transaction.updatedAt.toISOString(),
         // Do not return identity details here. The PDF itself is the
         // retrievable document and the rest remains sealed in storage.
         pdf_base64: pdfBase64,

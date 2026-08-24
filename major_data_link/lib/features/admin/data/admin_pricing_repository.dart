@@ -26,6 +26,108 @@ class AdminUserSummary {
   }
 }
 
+class CustomerActivityBundle {
+  const CustomerActivityBundle({
+    required this.days,
+    required this.summary,
+    required this.topCustomers,
+    required this.recentPurchases,
+  });
+  final int days;
+  final CustomerActivitySummary summary;
+  final List<CustomerUsageRow> topCustomers;
+  final List<CustomerPurchaseRow> recentPurchases;
+
+  factory CustomerActivityBundle.fromJson(
+    Map<String, dynamic> json,
+  ) => CustomerActivityBundle(
+    days: int.tryParse(json['period_days']?.toString() ?? '') ?? 30,
+    summary: CustomerActivitySummary.fromJson(
+      Map<String, dynamic>.from(json['summary'] as Map? ?? const {}),
+    ),
+    topCustomers: ((json['top_customers'] ?? const []) as List)
+        .map(
+          (e) => CustomerUsageRow.fromJson(Map<String, dynamic>.from(e as Map)),
+        )
+        .toList(),
+    recentPurchases: ((json['recent_purchases'] ?? const []) as List)
+        .map(
+          (e) =>
+              CustomerPurchaseRow.fromJson(Map<String, dynamic>.from(e as Map)),
+        )
+        .toList(),
+  );
+}
+
+class CustomerActivitySummary {
+  const CustomerActivitySummary({
+    required this.activeCustomers,
+    required this.successfulPurchases,
+    required this.totalUsage,
+  });
+  final int activeCustomers, successfulPurchases;
+  final double totalUsage;
+  factory CustomerActivitySummary.fromJson(Map<String, dynamic> json) =>
+      CustomerActivitySummary(
+        activeCustomers:
+            int.tryParse(json['active_customers']?.toString() ?? '') ?? 0,
+        successfulPurchases:
+            int.tryParse(json['successful_purchases']?.toString() ?? '') ?? 0,
+        totalUsage: _customerNum(json['total_usage']),
+      );
+}
+
+class CustomerUsageRow {
+  const CustomerUsageRow({
+    required this.name,
+    required this.email,
+    required this.purchases,
+    required this.totalUsage,
+    this.lastPurchaseAt,
+  });
+  final String name, email;
+  final int purchases;
+  final double totalUsage;
+  final DateTime? lastPurchaseAt;
+  factory CustomerUsageRow.fromJson(Map<String, dynamic> json) =>
+      CustomerUsageRow(
+        name: json['full_name']?.toString() ?? 'Unknown user',
+        email: json['email']?.toString() ?? '',
+        purchases: int.tryParse(json['purchases']?.toString() ?? '') ?? 0,
+        totalUsage: _customerNum(json['total_usage']),
+        lastPurchaseAt: DateTime.tryParse(
+          json['last_purchase_at']?.toString() ?? '',
+        ),
+      );
+}
+
+class CustomerPurchaseRow {
+  const CustomerPurchaseRow({
+    required this.name,
+    required this.type,
+    required this.description,
+    required this.amount,
+    required this.createdAt,
+  });
+  final String name, type, description;
+  final double amount;
+  final DateTime createdAt;
+  factory CustomerPurchaseRow.fromJson(Map<String, dynamic> json) =>
+      CustomerPurchaseRow(
+        name: json['full_name']?.toString() ?? 'Unknown user',
+        type: json['type']?.toString() ?? '',
+        description: json['description']?.toString() ?? '',
+        amount: _customerNum(json['amount']),
+        createdAt:
+            DateTime.tryParse(json['created_at']?.toString() ?? '') ??
+            DateTime.fromMillisecondsSinceEpoch(0),
+      );
+}
+
+double _customerNum(dynamic value) => value is num
+    ? value.toDouble()
+    : double.tryParse(value?.toString() ?? '') ?? 0;
+
 class DataPriceRow {
   const DataPriceRow({
     required this.id,
@@ -336,6 +438,15 @@ class AdminPricingRepository {
   Future<ProviderBalanceBundle> refreshProviderBalance() async {
     final response = await _dio.post(AppEndpoints.adminRefreshProviderBalance);
     return _providerBalanceBundleFromResponse(response);
+  }
+
+  Future<CustomerActivityBundle> getCustomerActivity({int days = 30}) async {
+    final response = await _dio.get(
+      AppEndpoints.adminCustomerActivity(days: days),
+    );
+    return CustomerActivityBundle.fromJson(
+      Map<String, dynamic>.from(response.data['data'] as Map),
+    );
   }
 
   Future<List<BroadcastEntity>> getBroadcastHistory() async {

@@ -22,6 +22,8 @@ const EnvSchema = z.object({
   BILALSADASUB_BASE_URL: z.string().url().default('https://bilalsadasub.com'),
   BILALSADASUB_USERNAME: z.string().optional(),
   BILALSADASUB_PASSWORD: z.string().optional(),
+  BILALSADASUB_LOW_BALANCE_THRESHOLD: z.coerce.number().positive().default(2000),
+  BILALSADASUB_LOW_BALANCE_ALERT_COOLDOWN_MINUTES: z.coerce.number().int().positive().default(60),
   ALRAHUZ_DATA_PLANS_PATH: z.string().default('/data/'),
   ALRAHUZ_BALANCE_PATH: z.string().default('/user/'),
   ALRAHUZ_FUNDING_ACCOUNT_NUMBER: z.string().default('6651219714'),

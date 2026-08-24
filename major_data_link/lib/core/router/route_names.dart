@@ -94,6 +94,7 @@ abstract class RouteNames {
   static const adminDataPricing = '/home/profile/admin/data-pricing';
   static const adminServicePricing = '/home/profile/admin/service-pricing';
   static const adminProviderBalance = '/home/profile/admin/provider-balance';
+  static const adminCustomerActivity = '/home/profile/admin/customer-activity';
   static const adminBroadcast = '/home/profile/admin/broadcast';
 
   // ── Notifications ─────────────────────────────────────────
