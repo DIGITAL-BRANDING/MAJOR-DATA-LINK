@@ -1,0 +1,685 @@
+diff --git a/major_data_link/lib/features/support/presentation/screens/major_ai_assistant_screen.dart b/major_data_link/lib/features/support/presentation/screens/major_ai_assistant_screen.dart
+index a45b0dd..bbc9f64 100644
+--- a/major_data_link/lib/features/support/presentation/screens/major_ai_assistant_screen.dart
++++ b/major_data_link/lib/features/support/presentation/screens/major_ai_assistant_screen.dart
+@@ -10,6 +10,7 @@ import '../../../../core/config/app_endpoints.dart';
+ import '../../../../core/constants/app_colors.dart';
+ import '../../../../core/di/injection.dart';
+ import '../../../verification/utils/slip_pdf_utils.dart';
++import '../../../../core/utils/receipt_service.dart';
+ import '../../../../shared/widgets/pin_confirmation_sheet.dart';
+ 
+ /// A deterministic, transaction-safe service assistant.
+@@ -106,6 +107,23 @@ class _MajorAiAssistantScreenState
+     });
+   }
+ 
++  /// Shows a short confirmation line plus an instant, tappable receipt card
++  /// - see _ReceiptCard - right in the conversation the moment a purchase
++  /// succeeds, instead of only the plain "Done!" text bubble.
++  void _botReceipt(String text, ReceiptData receipt) {
++    setState(
++      () => _messages.add(_Message(text, false, const [], receipt: receipt)),
++    );
++    WidgetsBinding.instance.addPostFrameCallback((_) {
++      if (_scroll.hasClients)
++        _scroll.animateTo(
++          _scroll.position.maxScrollExtent,
++          duration: const Duration(milliseconds: 220),
++          curve: Curves.easeOut,
++        );
++    });
++  }
++
+   void _user(String text) {
+     setState(() => _messages.add(_Message(text, true, const [])));
+     WidgetsBinding.instance.addPostFrameCallback((_) {
+@@ -178,6 +196,37 @@ class _MajorAiAssistantScreenState
+       await _fallback('Customer requested human support');
+       return;
+     }
++    // "What can you do / what services do you have" - answered directly
++    // from the already-fetched workflow catalog (see _ensureWorkflows()),
++    // never guessed or invented, so the list can never drift from what the
++    // rest of this screen actually knows how to do. Deliberately a
++    // different pattern from the support/human check above it - "help" here
++    // means "show me what's possible", not "connect me to a person".
++    if (RegExp(
++      r'^(help|what can you do|what services|which services|list services|'
++      r'services|menu|options?)\??$|'
++      r'(ayyukan?\s*(da\s*)?ku(ke)?\s*(bayarwa|yi)|wace\s*sabis|wane\s*sabis|'
++      r'me\s*(za\s*ka|kuke)\s*iya\s*(yi|taimaka)|taimako\??$)',
++    ).hasMatch(normalized)) {
++      final workflows = await _ensureWorkflows();
++      if (workflows.isEmpty) {
++        await _fallback(
++          'Customer asked for service list, catalog unavailable',
++        );
++        return;
++      }
++      final active = workflows.where((w) => w['status'] == 'active').toList();
++      final names = active
++          .map((w) => '• ${tr(w['title'] as String, w['titleHa'] as String)}')
++          .join('\n');
++      _bot(
++        tr(
++          "Here's what I can help you do right now:\n\n$names\n\nJust tell me what you need - e.g. \"buy 1GB MTN data\" - and I'll take it from there.",
++          "Ga abubuwan da zan iya taimaka maka da su yanzu:\n\n$names\n\nKawai gaya mini abin da kake bukata - misali \"siyamin 1GB na MTN\" - zan ci gaba daga nan.",
++        ),
++      );
++      return;
++    }
+     // "Why did my transaction fail?" - answered directly, from any step,
+     // with a safe explanation built from GET /assistant/last-transaction
+     // (which deliberately never returns provider/technical details - see
+@@ -1007,25 +1056,52 @@ class _MajorAiAssistantScreenState
+       final ok =
+           response.data['status'] == true ||
+           response.data['status'] == 'success';
++      final resultData = (response.data['data'] as Map?) ?? const {};
++      final reference = resultData['reference']?.toString() ?? '';
+       unawaited(
+         _audit(
+           stage: 'purchase',
+           outcome: ok ? 'success' : 'failed',
+-          transactionRef: (response.data['data'] as Map?)?['reference']
+-              ?.toString(),
++          transactionRef: reference.isEmpty ? null : reference,
+         ),
+       );
+-      _bot(
+-        ok
+-            ? tr(
+-                'Done! ${response.data['message'] ?? 'Your purchase was successful.'}',
+-                'An gama! ${response.data['message'] ?? 'Siyanka ta yi nasara.'}',
+-              )
+-            : tr(
+-                '${response.data['message'] ?? 'Purchase failed.'} Your wallet has not been charged for a failed provider transaction.',
+-                '${response.data['message'] ?? 'Siyan ta gaza.'} Ba za a cire maka kuɗi idan provider ya gaza ba.',
+-              ),
+-      );
++      if (ok) {
++        final isData = _task == _Task.data;
++        final planLabel = isData
++            ? (_plan?['name']?.toString() ??
++                  _plan?['label']?.toString() ??
++                  tr('Data bundle', 'Kunshin Data'))
++            : null;
++        _botReceipt(
++          tr(
++            'Done! ${response.data['message'] ?? 'Your purchase was successful.'}',
++            'An gama! ${response.data['message'] ?? 'Siyanka ta yi nasara.'}',
++          ),
++          ReceiptData(
++            title: isData
++                ? tr('Data Purchase', 'Siyan Data')
++                : tr('Airtime Purchase', 'Siyan Katin Waya'),
++            amount: _amount ?? 0,
++            reference: reference.isEmpty ? '-' : reference,
++            date: DateTime.now(),
++            status: 'success',
++            balanceAfter: (resultData['balance_after'] as num?)?.toDouble(),
++            details: [
++              MapEntry(tr('Network', 'Netwok'), _network ?? '-'),
++              MapEntry(tr('Recipient', 'Wanda aka Aikawa'), _phone ?? '-'),
++              if (planLabel != null)
++                MapEntry(tr('Plan', 'Nau\'in Data'), planLabel),
++            ],
++          ),
++        );
++      } else {
++        _bot(
++          tr(
++            '${response.data['message'] ?? 'Purchase failed.'} Your wallet has not been charged for a failed provider transaction.',
++            '${response.data['message'] ?? 'Siyan ta gaza.'} Ba za a cire maka kuɗi idan provider ya gaza ba.',
++          ),
++        );
++      }
+       _reset(keepMessages: true);
+     } on DioException catch (e) {
+       unawaited(
+@@ -1308,11 +1384,22 @@ class _MajorAiAssistantScreenState
+         unitPrice = _number(data['unitPrice'] ?? data['unit_price']);
+       } else if (priceMode == 'verification') {
+         final template = workflow['priceServiceKeyTemplate'] as String?;
++        final priceValueMap = (workflow['priceValueMap'] as Map?)
++            ?.cast<String, dynamic>();
+         if (template != null) {
+-          final key = template.replaceAllMapped(
+-            RegExp(r'\{(\w+)\}'),
+-            (m) => '${_collected[m.group(1)]}'.toUpperCase(),
+-          );
++          final key = template.replaceAllMapped(RegExp(r'\{(\w+)\}'), (m) {
++            final fieldKey = m.group(1)!;
++            // A missing/skipped optional field must resolve to '' here, not
++            // Dart's own null-to-string interpolation ("null") - that was
++            // silently producing a service key ending in "NULL" (-> no
++            // matching price row -> ₦0 shown) whenever an optional field
++            // like validation_type was left blank.
++            final rawValue = _collected[fieldKey]?.toString() ?? '';
++            final fieldMap = (priceValueMap?[fieldKey] as Map?)
++                ?.cast<String, dynamic>();
++            final mapped = fieldMap?[rawValue] as String?;
++            return mapped ?? rawValue.toUpperCase();
++          });
+           final response = await ref
+               .read(dioClientProvider)
+               .get(AppEndpoints.verificationPrices);
+@@ -1481,17 +1568,33 @@ class _MajorAiAssistantScreenState
+             resultData['reference']?.toString() ?? 'verification-slip',
+           );
+         }
+-        _bot(
+-          ok
+-              ? tr(
+-                  'Done! ${response.data['message'] ?? 'Your request was successful.'}${resultPin == null ? '' : '\n\nYour PIN: $resultPin'}${pdfBase64 == null || pdfBase64.isEmpty ? '' : '\n\nYour PDF has opened for saving/sharing.'}',
+-                  'An gama! ${response.data['message'] ?? 'Buƙatarka ta yi nasara.'}${resultPin == null ? '' : '\n\nPIN ɗinka: $resultPin'}${pdfBase64 == null || pdfBase64.isEmpty ? '' : '\n\nAn buɗe PDF ɗinka domin a adana ko a tura shi.'}',
+-                )
+-              : tr(
+-                  '${response.data['message'] ?? 'Request failed.'} Your wallet has not been charged for a failed request.',
+-                  '${response.data['message'] ?? 'Ya gaza.'} Ba za a cire maka kuɗi ba idan ya gaza.',
+-                ),
+-        );
++        if (ok) {
++          final price = (_genericPrice ?? 0).toDouble();
++          _botReceipt(
++            tr(
++              'Done! ${response.data['message'] ?? 'Your request was successful.'}${resultPin == null ? '' : '\n\nYour PIN: $resultPin'}${pdfBase64 == null || pdfBase64.isEmpty ? '' : '\n\nYour PDF has opened for saving/sharing.'}',
++              'An gama! ${response.data['message'] ?? 'Buƙatarka ta yi nasara.'}${resultPin == null ? '' : '\n\nPIN ɗinka: $resultPin'}${pdfBase64 == null || pdfBase64.isEmpty ? '' : '\n\nAn buɗe PDF ɗinka domin a adana ko a tura shi.'}',
++            ),
++            ReceiptData(
++              title: workflow['title']?.toString() ?? tr('Request', 'Buƙata'),
++              amount: price,
++              reference: resultData['reference']?.toString() ?? '-',
++              date: DateTime.now(),
++              status: 'success',
++              balanceAfter: (resultData['balance_after'] as num?)?.toDouble(),
++              details: [
++                if (resultPin != null) MapEntry(tr('PIN', 'PIN'), resultPin),
++              ],
++            ),
++          );
++        } else {
++          _bot(
++            tr(
++              '${response.data['message'] ?? 'Request failed.'} Your wallet has not been charged for a failed request.',
++              '${response.data['message'] ?? 'Ya gaza.'} Ba za a cire maka kuɗi ba idan ya gaza.',
++            ),
++          );
++        }
+         _reset(keepMessages: true);
+       }
+     } on DioException catch (e) {
+@@ -1537,10 +1640,20 @@ class _MajorAiAssistantScreenState
+         final data = (response.data['data'] as Map?) ?? const {};
+         final status = data['status']?.toString().toLowerCase();
+         if (status == 'success') {
+-          _bot(
++          _botReceipt(
+             tr(
+-              'Your request ($ticketId) is complete. Check Transactions for the full result.',
+-              'Buƙatarka ($ticketId) ta shirya. Duba Transactions don cikakken sakamako.',
++              'Your request ($ticketId) is complete.',
++              'Buƙatarka ($ticketId) ta shirya.',
++            ),
++            ReceiptData(
++              title:
++                  _activeWorkflow?['title']?.toString() ??
++                  tr('Request', 'Buƙata'),
++              amount: (_genericPrice ?? 0).toDouble(),
++              reference: ticketId,
++              date: DateTime.now(),
++              status: 'success',
++              details: const [],
+             ),
+           );
+           _reset(keepMessages: true);
+@@ -1649,7 +1762,11 @@ class _MajorAiAssistantScreenState
+             padding: const EdgeInsets.all(16),
+             itemCount: _messages.length,
+             itemBuilder: (_, i) =>
+-                _Bubble(message: _messages[i], onOption: _answer),
++                _Bubble(
++                  message: _messages[i],
++                  onOption: _answer,
++                  hausa: _hausa,
++                ),
+           ),
+         ),
+         if (_busy) const LinearProgressIndicator(),
+@@ -1684,16 +1801,22 @@ class _MajorAiAssistantScreenState
+ }
+ 
+ class _Message {
+-  const _Message(this.text, this.user, this.options);
++  const _Message(this.text, this.user, this.options, {this.receipt});
+   final String text;
+   final bool user;
+   final List<String> options;
++  final ReceiptData? receipt;
+ }
+ 
+ class _Bubble extends StatelessWidget {
+-  const _Bubble({required this.message, required this.onOption});
++  const _Bubble({
++    required this.message,
++    required this.onOption,
++    required this.hausa,
++  });
+   final _Message message;
+   final ValueChanged<String> onOption;
++  final bool hausa;
+   @override
+   Widget build(BuildContext context) => Align(
+     alignment: message.user ? Alignment.centerRight : Alignment.centerLeft,
+@@ -1715,6 +1838,10 @@ class _Bubble extends StatelessWidget {
+               height: 1.35,
+             ),
+           ),
++          if (message.receipt != null) ...[
++            const SizedBox(height: 10),
++            _ReceiptCard(receipt: message.receipt!, hausa: hausa),
++          ],
+           if (message.options.isNotEmpty) ...[
+             const SizedBox(height: 10),
+             Wrap(
+@@ -1735,3 +1862,126 @@ class _Bubble extends StatelessWidget {
+     ),
+   );
+ }
++
++/// Shown instantly in-chat the moment a purchase/request succeeds - no need
++/// to leave the conversation or open Transactions to see what just
++/// happened. Shares the same [ReceiptData]/[ReceiptService] the dedicated
++/// transaction detail screen uses, so "Share" and "Download" here produce
++/// the exact same branded PDF as everywhere else in the app.
++class _ReceiptCard extends StatelessWidget {
++  const _ReceiptCard({required this.receipt, required this.hausa});
++  final ReceiptData receipt;
++  final bool hausa;
++
++  @override
++  Widget build(BuildContext context) {
++    final isSuccess = receipt.status.toLowerCase() == 'success';
++    return Container(
++      padding: const EdgeInsets.all(14),
++      decoration: BoxDecoration(
++        color: Colors.white,
++        borderRadius: BorderRadius.circular(12),
++        border: Border.all(color: AppColors.neutral200),
++      ),
++      child: Column(
++        crossAxisAlignment: CrossAxisAlignment.start,
++        children: [
++          Row(
++            children: [
++              Container(
++                padding: const EdgeInsets.all(6),
++                decoration: BoxDecoration(
++                  color: (isSuccess
++                          ? AppColors.success500
++                          : AppColors.error500)
++                      .withValues(alpha: 0.12),
++                  shape: BoxShape.circle,
++                ),
++                child: Icon(
++                  isSuccess ? Icons.check_rounded : Icons.close_rounded,
++                  size: 16,
++                  color: isSuccess
++                      ? AppColors.success500
++                      : AppColors.error500,
++                ),
++              ),
++              const SizedBox(width: 8),
++              Expanded(
++                child: Text(
++                  receipt.title,
++                  style: const TextStyle(
++                    fontWeight: FontWeight.w700,
++                    color: AppColors.neutral900,
++                  ),
++                ),
++              ),
++            ],
++          ),
++          const SizedBox(height: 10),
++          Text(
++            '₦${receipt.amount.toStringAsFixed(0)}',
++            style: const TextStyle(
++              fontSize: 22,
++              fontWeight: FontWeight.w800,
++              color: AppColors.neutral900,
++            ),
++          ),
++          const SizedBox(height: 8),
++          for (final entry in receipt.details)
++            Padding(
++              padding: const EdgeInsets.only(bottom: 3),
++              child: Row(
++                mainAxisAlignment: MainAxisAlignment.spaceBetween,
++                children: [
++                  Text(
++                    entry.key,
++                    style: const TextStyle(
++                      fontSize: 12,
++                      color: AppColors.neutral500,
++                    ),
++                  ),
++                  Flexible(
++                    child: Text(
++                      entry.value,
++                      textAlign: TextAlign.end,
++                      style: const TextStyle(
++                        fontSize: 12,
++                        fontWeight: FontWeight.w600,
++                        color: AppColors.neutral800,
++                      ),
++                    ),
++                  ),
++                ],
++              ),
++            ),
++          const SizedBox(height: 10),
++          Row(
++            children: [
++              Expanded(
++                child: OutlinedButton.icon(
++                  onPressed: () => ReceiptService.shareReceipt(receipt),
++                  icon: const Icon(Icons.share_rounded, size: 15),
++                  label: Text(
++                    hausa ? 'Turawa' : 'Share',
++                    style: const TextStyle(fontSize: 12),
++                  ),
++                ),
++              ),
++              const SizedBox(width: 8),
++              Expanded(
++                child: OutlinedButton.icon(
++                  onPressed: () => ReceiptService.downloadReceipt(receipt),
++                  icon: const Icon(Icons.download_rounded, size: 15),
++                  label: Text(
++                    hausa ? 'Ajiyewa' : 'Save',
++                    style: const TextStyle(fontSize: 12),
++                  ),
++                ),
++              ),
++            ],
++          ),
++        ],
++      ),
++    );
++  }
++}
+diff --git a/major_data_link/lib/features/verification/presentation/providers/verification_provider.dart b/major_data_link/lib/features/verification/presentation/providers/verification_provider.dart
+index 741f599..293e13a 100644
+--- a/major_data_link/lib/features/verification/presentation/providers/verification_provider.dart
++++ b/major_data_link/lib/features/verification/presentation/providers/verification_provider.dart
+@@ -54,6 +54,25 @@ extension NinValidationTypeX on NinValidationType {
+     NinValidationType.updateRecords => 'update_records',
+   };
+ 
++  /// Matches NIN_VALIDATION_SERVICE_BY_TYPE in the backend's
++  /// verification.service.ts and VALIDATION_TYPES in the web app's
++  /// VerificationPage.tsx. Each validation_type is its own priced service
++  /// and its own history bucket — NIN Validation used to be one flat-priced
++  /// service (plain 'NIN_VALIDATION') regardless of type, which is why this
++  /// didn't exist before; using the stale flat key here now would show
++  /// ₦0 for every type (the backend price list no longer has a
++  /// 'NIN_VALIDATION' row at all) and an empty "recent requests" list.
++  String get serviceKey => switch (this) {
++    NinValidationType.ninValidation => 'NIN_VALIDATION_GENERAL',
++    NinValidationType.noRecord => 'NIN_VALIDATION_NO_RECORD',
++    NinValidationType.sim => 'NIN_VALIDATION_SIM',
++    NinValidationType.modification => 'NIN_VALIDATION_MODIFICATION',
++    NinValidationType.photoError => 'NIN_VALIDATION_PHOTO_ERROR',
++    NinValidationType.bankValidation => 'NIN_VALIDATION_BANK',
++    NinValidationType.vNinValidation => 'NIN_VALIDATION_VNIN',
++    NinValidationType.updateRecords => 'NIN_VALIDATION_UPDATE_RECORDS',
++  };
++
+   String get label => switch (this) {
+     NinValidationType.ninValidation => 'General NIN Validation',
+     NinValidationType.noRecord => 'No Record Found',
+@@ -82,7 +101,6 @@ enum VerificationService {
+   bvnSlipPremium,
+   bvnSlipStandard,
+   ninDelinking,
+-  ninValidation,
+   ninPersonalization,
+   bvnRetrieval,
+   ipeClearance,
+@@ -102,7 +120,11 @@ extension VerificationServiceX on VerificationService {
+     VerificationService.bvnSlipPremium => 'BVN_SLIP_PREMIUM',
+     VerificationService.bvnSlipStandard => 'BVN_SLIP_STANDARD',
+     VerificationService.ninDelinking => 'NIN_DELINKING',
+-    VerificationService.ninValidation => 'NIN_VALIDATION',
++    // No ninValidation case: NIN Validation is priced per validation_type,
++    // not as one flat service - see NinValidationType.serviceKey instead
++    // (this enum used to have a ninValidation case mapping to a flat
++    // 'NIN_VALIDATION' key, which stopped matching any real backend price
++    // row once validation pricing was split by type).
+     VerificationService.ninPersonalization => 'NIN_PERSONALIZATION',
+     VerificationService.bvnRetrieval => 'BVN_RETRIEVAL',
+     VerificationService.ipeClearance => 'IPE_CLEARANCE',
+diff --git a/major_data_link/lib/features/verification/presentation/screens/nin_validation_screen.dart b/major_data_link/lib/features/verification/presentation/screens/nin_validation_screen.dart
+index a88b982..120ffe6 100644
+--- a/major_data_link/lib/features/verification/presentation/screens/nin_validation_screen.dart
++++ b/major_data_link/lib/features/verification/presentation/screens/nin_validation_screen.dart
+@@ -67,8 +67,7 @@ class _NinValidationScreenState extends ConsumerState<NinValidationScreen>
+   Widget build(BuildContext context) {
+     final state = ref.watch(asyncFlowProvider);
+     final prices = ref.watch(verificationPricesProvider);
+-    final price =
+-        prices.valueOrNull?[VerificationService.ninValidation.key] ?? 0;
++    final price = prices.valueOrNull?[_type.serviceKey] ?? 0;
+     final locked = state.isSubmitted;
+ 
+     return Scaffold(
+@@ -83,8 +82,8 @@ class _NinValidationScreenState extends ConsumerState<NinValidationScreen>
+               crossAxisAlignment: CrossAxisAlignment.start,
+               children: [
+                 Text(
+-                  'Validate a NIN against a specific issue type. Price is the '
+-                  'same regardless of the type chosen.',
++                  'Validate a NIN against a specific issue type. Price '
++                  'depends on the type chosen.',
+                   style: const TextStyle(fontSize: 12),
+                 ),
+                 const SizedBox(height: 16),
+@@ -168,7 +167,7 @@ class _NinValidationScreenState extends ConsumerState<NinValidationScreen>
+                     },
+                   ),
+                 const SizedBox(height: 24),
+-                const VerificationHistoryCard(service: 'NIN_VALIDATION'),
++                VerificationHistoryCard(service: _type.serviceKey),
+               ],
+             ),
+           ),
+diff --git a/major_data_link_backend/src/services/assistant-workflow.service.ts b/major_data_link_backend/src/services/assistant-workflow.service.ts
+index cb2d7e7..ad45f41 100644
+--- a/major_data_link_backend/src/services/assistant-workflow.service.ts
++++ b/major_data_link_backend/src/services/assistant-workflow.service.ts
+@@ -16,7 +16,15 @@
+  *  - 'verification': GET /api/verification/prices (one flat list of
+  *    { service, unitPrice } for every verification service) and find the
+  *    row whose `service` matches `priceServiceKeyTemplate` with any `{field}`
+- *    placeholders substituted by the collected field values, upper-cased.
++ *    placeholders substituted by the collected field values. For a field
++ *    with an entry in `priceValueMap`, the substituted segment is
++ *    `priceValueMap[field][collectedValue]` (falling back to the raw
++ *    value upper-cased if that exact value isn't in the map); a field with
++ *    no `priceValueMap` entry at all is just upper-cased directly, as
++ *    before. `priceValueMap` only needs to be set for fields whose values
++ *    don't upper-case into their matching service-key suffix cleanly (e.g.
++ *    NIN Validation's 'bank_validation' -> 'BANK', not 'BANK_VALIDATION';
++ *    'v.nin_validation' -> 'VNIN', not 'V.NIN_VALIDATION').
+  *  - 'none': no separate price call - workflow-specific screens quote inline
+  *    or the price is fixed and shown in the field label.
+  */
+@@ -62,6 +70,8 @@ export type AssistantWorkflow = {
+   priceMode: 'result' | 'verification' | 'none';
+   /** For priceMode 'verification': e.g. "NIN_SLIP_{tier}". */
+   priceServiceKeyTemplate?: string;
++  /** See priceMode's 'verification' case above. Keyed by field key, then by that field's collected value. */
++  priceValueMap?: Record<string, Record<string, string>>;
+   status: 'active' | 'guided';
+ };
+ 
+@@ -158,16 +168,32 @@ export const assistantWorkflows: AssistantWorkflow[] = [
+     // NIN Validation used to be one flat-priced service ('NIN_VALIDATION')
+     // regardless of validation_type - it's now 8 separately-priced services
+     // (NIN_VALIDATION_GENERAL/NO_RECORD/SIM/BANK/UPDATE_RECORDS/MODIFICATION/
+-    // PHOTO_ERROR/VNIN - see verification.service.ts). This assistant contract
+-    // doesn't have per-type pricing yet because whatever client consumes it
+-    // does its own '{field}' placeholder substitution (per this file's header
+-    // comment) that lives outside this repo, and the 8 new key suffixes don't
+-    // all match a naive validation_type.toUpperCase() (e.g. 'bank_validation'
+-    // -> BANK, not BANK_VALIDATION; 'v.nin_validation' -> VNIN). Falling back
+-    // to the GENERAL rate here is the same conservative behavior this had
+-    // before (validation_type was already optional/often omitted) - update
+-    // this once the consuming client's substitution logic is confirmed.
+-    priceServiceKeyTemplate: 'NIN_VALIDATION_GENERAL', status: 'active'
++    // PHOTO_ERROR/VNIN - see verification.service.ts). priceValueMap gives
++    // the client the exact suffix for each validation_type value, since a
++    // naive uppercase doesn't work for two of them ('bank_validation' would
++    // uppercase to 'BANK_VALIDATION' not 'BANK'; 'v.nin_validation' isn't
++    // even a valid key segment as-is). Falls back to 'GENERAL' when
++    // validation_type is omitted (it's an optional field), matching
++    // Techhub's own default.
++    priceServiceKeyTemplate: 'NIN_VALIDATION_{validation_type}',
++    priceValueMap: {
++      validation_type: {
++        // Empty string is the sentinel a client should substitute when this
++        // optional field was skipped entirely (not collected at all), not
++        // just when it holds an unrecognized value - same default Techhub
++        // itself applies when validation_type is omitted from the request.
++        '': 'GENERAL',
++        nin_validation: 'GENERAL',
++        no_record: 'NO_RECORD',
++        sim: 'SIM',
++        bank_validation: 'BANK',
++        update_records: 'UPDATE_RECORDS',
++        modification: 'MODIFICATION',
++        photo_error: 'PHOTO_ERROR',
++        'v.nin_validation': 'VNIN'
++      }
++    },
++    status: 'active'
+   },
+   {
+     id: 'nin_personalization', title: 'NIN Personalization', titleHa: 'NIN Personalization',
+diff --git a/web/src/components/MajorAssistant.tsx b/web/src/components/MajorAssistant.tsx
+index f564e0c..d3366c6 100644
+--- a/web/src/components/MajorAssistant.tsx
++++ b/web/src/components/MajorAssistant.tsx
+@@ -5,14 +5,15 @@ import { PinConfirmDialog } from './PinConfirmDialog';
+ 
+ type Language = 'choose' | 'ha' | 'en';
+ type Task = 'choose' | 'data' | 'airtime' | 'fund' | 'generic';
+-type Message = { text: string; user?: boolean; options?: string[] };
++type Receipt = { title: string; amount: number; reference: string; status: 'success' | 'failed'; details: [string, string][] };
++type Message = { text: string; user?: boolean; options?: string[]; receipt?: Receipt };
+ type Plan = { id?: string; plan_id?: string; name?: string; size?: string; price?: number; amount?: number };
+ // Mirrors AssistantField/AssistantWorkflow in the backend's
+ // assistant-workflow.service.ts - one config drives result checker PIN and
+ // every NIN/BVN verification service, so a new service needs no new stage.
+ type WorkflowFieldOption = { value: string; label: string; labelHa: string };
+ type WorkflowField = { key: string; label: string; labelHa: string; required: boolean; input: string; options?: WorkflowFieldOption[] };
+-type Workflow = { id: string; title: string; titleHa: string; fields: WorkflowField[]; purchaseEndpoint?: string; submitEndpoint?: string; statusEndpoint?: string; async: boolean; priceMode: 'result' | 'verification' | 'none'; priceServiceKeyTemplate?: string; status: 'active' | 'guided' };
++type Workflow = { id: string; title: string; titleHa: string; fields: WorkflowField[]; purchaseEndpoint?: string; submitEndpoint?: string; statusEndpoint?: string; async: boolean; priceMode: 'result' | 'verification' | 'none'; priceServiceKeyTemplate?: string; priceValueMap?: Record<string, Record<string, string>>; status: 'active' | 'guided' };
+ type SpeechRecognitionLike = { lang: string; interimResults: boolean; onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null; onerror: (() => void) | null; onend: (() => void) | null; start: () => void; stop: () => void };
+ type SpeechWindow = Window & { SpeechRecognition?: new () => SpeechRecognitionLike; webkitSpeechRecognition?: new () => SpeechRecognitionLike };
+ const networks = ['MTN', 'AIRTEL', 'GLO', '9MOBILE'];
+@@ -39,7 +40,7 @@ function planLabel(p: Plan): string {
+ export default function MajorAssistant() {
+   const [open, setOpen] = useState(false); const [language, setLanguage] = useState<Language>('choose'); const [task, setTask] = useState<Task>('choose'); const [stage, setStage] = useState<'language'|'task'|'network'|'dataType'|'phone'|'plan'|'amount'|'review'|'genericField'|'genericReview'|'done'>('language');
+   const [workflows, setWorkflows] = useState<Workflow[]>([]); const [activeWorkflow, setActiveWorkflow] = useState<Workflow | null>(null); const [collected, setCollected] = useState<Record<string, unknown>>({}); const [fieldIndex, setFieldIndex] = useState(0);
+-  const [messages, setMessages] = useState<Message[]>([{ text: 'Sannu! Welcome to MAJOR AI Assistant.\nChoose a language / Zaɓi yare:', options: ['Hausa', 'English'] }]); const [text, setText] = useState(''); const [network, setNetwork] = useState(''); const [phone, setPhone] = useState(''); const [plans, setPlans] = useState<Plan[]>([]); const [plan, setPlan] = useState<Plan | null>(null); const [amount, setAmount] = useState(0); const [pinOpen, setPinOpen] = useState(false); const [busy, setBusy] = useState(false); const [listening, setListening] = useState(false); const [fabPosition, setFabPosition] = useState({ x: Math.max(16, window.innerWidth - 150), y: Math.max(16, window.innerHeight - 80) }); const inputRef = useRef<HTMLInputElement>(null);
++  const [messages, setMessages] = useState<Message[]>([{ text: 'Sannu! Welcome to MAJOR AI Assistant.\nChoose a language / Zaɓi yare:', options: ['Hausa', 'English'] }]); const [text, setText] = useState(''); const [network, setNetwork] = useState(''); const [phone, setPhone] = useState(''); const [plans, setPlans] = useState<Plan[]>([]); const [plan, setPlan] = useState<Plan | null>(null); const [amount, setAmount] = useState(0); const [pinOpen, setPinOpen] = useState(false); const [busy, setBusy] = useState(false); const [listening, setListening] = useState(false); const [fabPosition, setFabPosition] = useState({ x: Math.max(16, window.innerWidth - 150), y: Math.max(16, window.innerHeight - 80) }); const inputRef = useRef<HTMLInputElement>(null); const genericPriceRef = useRef(0);
+   const [dataType, setDataType] = useState('');
+   const ha = language === 'ha'; const tr = (en: string, h: string) => ha ? h : en;
+   useEffect(() => { inputRef.current?.focus(); }, [stage, open]);
+@@ -81,6 +82,13 @@ export default function MajorAssistant() {
+   async function answer(raw: string) {
+     const value = raw.trim(); if (!value || busy) return; setText(''); add({ text: value, user: true }); const lower = value.toLowerCase();
+     if (/(human|support|agent|live chat|ma'aikaci|mutum)/.test(lower)) { await handoff('Customer requested human support'); return; }
++    if (/^(help|what can you do|what services|which services|list services|services|menu|options?)\??$|(ayyukan?\s*(da\s*)?ku(ke)?\s*(bayarwa|yi)|wace\s*sabis|wane\s*sabis|me\s*(za\s*ka|kuke)\s*iya\s*(yi|taimaka)|taimako\??$)/.test(lower)) {
++      const list = await ensureWorkflows();
++      if (list.length === 0) { await handoff('Customer asked for service list, catalog unavailable'); return; }
++      const names = list.filter((w) => w.status === 'active').map((w) => `• ${tr(w.title, w.titleHa)}`).join('\n');
++      add({ text: tr(`Here's what I can help you do right now:\n\n${names}\n\nJust tell me what you need - e.g. "buy 1GB MTN data" - and I'll take it from there.`, `Ga abubuwan da zan iya taimaka maka da su yanzu:\n\n${names}\n\nKawai gaya mini abin da kake bukata - misali "siyamin 1GB na MTN" - zan ci gaba daga nan.`) });
++      return;
++    }
+     if (/(why.*(fail|failed|not work|didn.?t work)|transaction.*(fail|status)|me\s*yasa.*(gaza|kasa|bai\s*yi\s*ba|bai\s*shiga\s*ba)|ban\s*samu\s*ba|ban\s*same\s*ba)/.test(lower)) { await explainLastTransaction(); return; }
+     const mentionedNetwork = networks.find((item) => new RegExp(`(?<![a-z0-9])${item.toLowerCase()}(?![a-z0-9])`).test(lower));
+     if (mentionedNetwork && network && mentionedNetwork !== network && stage !== 'language' && stage !== 'task') { setNetwork(mentionedNetwork); setDataType(''); setPlans([]); setPlan(null); setStage(task === 'data' ? 'dataType' : 'phone'); add({ text: tr(`Okay, I changed the network from ${network} to ${mentionedNetwork}. Let us continue.`, `To, na canza network daga ${network} zuwa ${mentionedNetwork}. Mu ci gaba.`), options: task === 'data' ? ['Corporate','Data Share','Gifting','SME','SME 2','Data Coupon'] : undefined }); return; }
+@@ -180,13 +188,24 @@ export default function MajorAssistant() {
+         const res = await api.get<{ data?: { unitPrice?: number; unit_price?: number } }>(`/result/${exam}/price`);
+         unitPrice = Number(res.data?.unitPrice ?? res.data?.unit_price ?? 0);
+       } else if (workflow.priceMode === 'verification' && workflow.priceServiceKeyTemplate) {
+-        const key = workflow.priceServiceKeyTemplate.replace(/\{(\w+)\}/g, (_m, k: string) => String(current[k] ?? '').toUpperCase());
++        // A value with an entry in priceValueMap[field] substitutes that
++        // exact suffix (e.g. NIN Validation's 'bank_validation' -> 'BANK',
++        // not the naive uppercase 'BANK_VALIDATION'; a missing/skipped
++        // optional field resolves via the '' entry). Any field without a
++        // priceValueMap entry at all just gets upper-cased directly, same
++        // as before.
++        const key = workflow.priceServiceKeyTemplate.replace(/\{(\w+)\}/g, (_m, k: string) => {
++          const raw = String(current[k] ?? '');
++          const mapped = workflow.priceValueMap?.[k]?.[raw];
++          return mapped ?? raw.toUpperCase();
++        });
+         const res = await api.get<{ data?: { service: string; unitPrice?: number; unit_price?: number }[] }>('/verification/prices');
+         const row = (res.data ?? []).find((r) => r.service === key);
+         unitPrice = row ? Number(row.unitPrice ?? row.unit_price ?? 0) : 0;
+       }
+       const quantity = typeof current.quantity === 'number' ? current.quantity : 1;
+       const total = unitPrice * quantity;
++      genericPriceRef.current = total;
+       const wallet = await api.get<{ balance?: number; data?: { balance?: number } }>('/wallet/balance');
+       const balance = Number(wallet.balance ?? wallet.data?.balance ?? 0);
+       if (total > 0 && balance < total) {
+@@ -228,7 +247,7 @@ export default function MajorAssistant() {
+         const pdf = res.data?.pdf_base64?.replace(/^data:application\/pdf;base64,/i, '');
+         if (res.status && pdf) { const link = document.createElement('a'); link.href = `data:application/pdf;base64,${pdf}`; link.download = `${res.data?.reference ?? 'verification-slip'}.pdf`; link.click(); }
+         const delivery = res.data?.pin ? `\n\n${tr('Your PIN:', 'PIN ɗinka:')} ${res.data.pin}` : pdf ? `\n\n${tr('Your PDF download has started.', 'An fara sauke PDF ɗinka.')}` : '';
+-        add({ text: res.status ? `${tr(res.message ?? 'Your request was successful.', res.message ?? 'Buƙatarka ta yi nasara.')}${delivery}` : tr(`${res.message ?? 'Request failed.'} Your wallet has not been charged for a failed request.`, `${res.message ?? 'Ya gaza.'} Ba za a cire maka kuɗi ba idan ya gaza.`) });
++        add({ text: res.status ? `${tr(res.message ?? 'Your request was successful.', res.message ?? 'Buƙatarka ta yi nasara.')}${delivery}` : tr(`${res.message ?? 'Request failed.'} Your wallet has not been charged for a failed request.`, `${res.message ?? 'Ya gaza.'} Ba za a cire maka kuɗi ba idan ya gaza.`), receipt: res.status ? { title: tr(activeWorkflow.title, activeWorkflow.titleHa), amount: genericPriceRef.current, reference: res.data?.reference ?? '-', status: 'success', details: res.data?.pin ? [[tr('PIN','PIN'), res.data.pin]] : [] } : undefined });
+         reset();
+       }
+     } catch (error) {
+@@ -244,7 +263,7 @@ export default function MajorAssistant() {
+       try {
+         const res = await api.get<{ data?: { status?: string } }>(endpoint);
+         const status = res.data?.status?.toLowerCase();
+-        if (status === 'success') { add({ text: tr(`Your request (${ticketId}) is complete. Check Transactions for the full result.`, `Buƙatarka (${ticketId}) ta shirya. Duba Transactions don cikakken sakamako.`) }); reset(); return; }
++        if (status === 'success') { add({ text: tr(`Your request (${ticketId}) is complete.`, `Buƙatarka (${ticketId}) ta shirya.`), receipt: { title: tr(activeWorkflow?.title ?? 'Request', activeWorkflow?.titleHa ?? 'Buƙata'), amount: genericPriceRef.current, reference: ticketId, status: 'success', details: [] } }); reset(); return; }
+         if (status === 'failed') { add({ text: tr(`Your request (${ticketId}) could not be completed. Any charge has been refunded — check Transactions, or contact support if unsure.`, `Ba a iya kammala buƙatar (${ticketId}) ba. An mayar da duk wani caji — duba Transactions, ko tuntuɓi support idan ba ka tabbata ba.`) }); reset(); return; }
+         if (attempt === 4) add({ text: tr(`Still processing ${ticketId}… I will keep watching.`, `Ana ci gaba da aiwatar da ${ticketId}… Zan ci gaba da bibiya.`) });
+       } catch { /* transient network hiccup — keep trying on the next interval */ }
+@@ -253,5 +272,24 @@ export default function MajorAssistant() {
+     reset();
+   }
+   async function purchase(pin: string) { setPinOpen(false); setBusy(true); try { const res = task === 'data' ? await api.post<{status:boolean;message?:string;data?:{reference?:string}}>('/data/purchase',{network,plan_id:plan?.id ?? plan?.plan_id,phone,amount,pin}) : await api.post<{status:boolean;message?:string;data?:{reference?:string}}>('/airtime/purchase',{network,phone,amount,pin}); void audit({ stage: 'purchase', outcome: res.status ? 'success' : 'failed', transaction_ref: res.data?.reference }); add({ text: res.status ? tr(res.message ?? 'Purchase complete.', res.message ?? 'An gama siya.') : tr(res.message ?? 'Purchase failed.', res.message ?? 'Siyan ta gaza.') }); } catch (error) { void audit({ stage: 'purchase', outcome: 'failed', error_code: error instanceof ApiError ? error.code : 'PURCHASE_ERROR' }); add({ text: error instanceof ApiError ? error.message : tr('Purchase failed. Please try again.','Siyan ta gaza. Sake gwadawa.') }); } finally { setBusy(false); reset(); } }
+-  return <><button aria-label="Open MAJOR AI Assistant" onPointerDown={moveFab} onClick={()=>setOpen(true)} style={{ left: fabPosition.x, top: fabPosition.y, touchAction: 'none' }} className="fixed z-[60] flex items-center gap-2 rounded-full bg-brand-600 px-4 py-3 text-sm font-bold text-white shadow-2xl shadow-brand-900/40 transition hover:scale-105"><Sparkles size={18} className="animate-pulse"/> AI Help</button>{open && <section className="fixed bottom-4 right-4 z-50 flex h-[min(680px,calc(100vh-32px))] w-[min(410px,calc(100vw-32px))] flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl"><header className="flex items-center justify-between bg-brand-700 px-4 py-4 text-white"><div className="flex items-center gap-2"><Bot/><div><b>MAJOR AI Assistant</b><p className="text-xs text-white/75">Secure service guide</p></div></div><button onClick={()=>setOpen(false)} aria-label="Close assistant"><X/></button></header><div className="bg-brand-50 px-4 py-2 text-center text-[11px] text-brand-800">No external AI • PIN is never typed in chat</div><div className="flex-1 space-y-3 overflow-y-auto p-4">{messages.map((m,i)=><div key={i} className={m.user?'ml-10 text-right':'mr-6'}><div className={`inline-block whitespace-pre-line rounded-2xl px-3 py-2 text-sm ${m.user?'bg-brand-600 text-white':'bg-slate-100 text-slate-800'}`}>{m.text}</div>{m.options && <div className="mt-2 flex flex-wrap gap-2">{m.options.map(o=><button key={o} onClick={()=>answer(o)} className="rounded-full border border-brand-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-50">{o}</button>)}</div>}</div>)}</div>{busy && <div className="h-1 animate-pulse bg-brand-500"/>}<form onSubmit={e=>{e.preventDefault();answer(text)}} className="flex gap-2 border-t p-3"><button type="button" aria-label="Speak" onClick={startVoice} className={`rounded-xl p-2 ${listening?'bg-rose-100 text-rose-700':'bg-brand-50 text-brand-700'}`}>{listening ? '●' : '🎙️'}</button><input ref={inputRef} autoComplete="tel" inputMode={stage === 'phone' ? 'tel' : stage === 'amount' ? 'decimal' : 'text'} value={text} onChange={e=>setText(e.target.value)} placeholder={stage === 'phone' ? tr('Enter phone number…','Rubuta lambar waya…') : tr('Type your reply…','Rubuta amsarka…')} className="min-w-0 flex-1 rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500"/><button disabled={busy} className="rounded-xl bg-brand-600 p-2 text-white disabled:opacity-50"><Send size={18}/></button></form></section>}<PinConfirmDialog open={pinOpen} onClose={()=>setPinOpen(false)} onVerified={task === 'generic' ? confirmGenericPurchase : purchase}/></>;
++  return <><button aria-label="Open MAJOR AI Assistant" onPointerDown={moveFab} onClick={()=>setOpen(true)} style={{ left: fabPosition.x, top: fabPosition.y, touchAction: 'none' }} className="fixed z-[60] flex items-center gap-2 rounded-full bg-brand-600 px-4 py-3 text-sm font-bold text-white shadow-2xl shadow-brand-900/40 transition hover:scale-105"><Sparkles size={18} className="animate-pulse"/> AI Help</button>{open && <section className="fixed bottom-4 right-4 z-50 flex h-[min(680px,calc(100vh-32px))] w-[min(410px,calc(100vw-32px))] flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl"><header className="flex items-center justify-between bg-brand-700 px-4 py-4 text-white"><div className="flex items-center gap-2"><Bot/><div><b>MAJOR AI Assistant</b><p className="text-xs text-white/75">Secure service guide</p></div></div><button onClick={()=>setOpen(false)} aria-label="Close assistant"><X/></button></header><div className="bg-brand-50 px-4 py-2 text-center text-[11px] text-brand-800">No external AI • PIN is never typed in chat</div><div className="flex-1 space-y-3 overflow-y-auto p-4">{messages.map((m,i)=><div key={i} className={m.user?'ml-10 text-right':'mr-6'}><div className={`inline-block whitespace-pre-line rounded-2xl px-3 py-2 text-sm ${m.user?'bg-brand-600 text-white':'bg-slate-100 text-slate-800'}`}>{m.text}</div>{m.receipt && <ReceiptCard receipt={m.receipt} ha={ha} />}{m.options && <div className="mt-2 flex flex-wrap gap-2">{m.options.map(o=><button key={o} onClick={()=>answer(o)} className="rounded-full border border-brand-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-50">{o}</button>)}</div>}</div>)}</div>{busy && <div className="h-1 animate-pulse bg-brand-500"/>}<form onSubmit={e=>{e.preventDefault();answer(text)}} className="flex gap-2 border-t p-3"><button type="button" aria-label="Speak" onClick={startVoice} className={`rounded-xl p-2 ${listening?'bg-rose-100 text-rose-700':'bg-brand-50 text-brand-700'}`}>{listening ? '●' : '🎙️'}</button><input ref={inputRef} autoComplete="tel" inputMode={stage === 'phone' ? 'tel' : stage === 'amount' ? 'decimal' : 'text'} value={text} onChange={e=>setText(e.target.value)} placeholder={stage === 'phone' ? tr('Enter phone number…','Rubuta lambar waya…') : tr('Type your reply…','Rubuta amsarka…')} className="min-w-0 flex-1 rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500"/><button disabled={busy} className="rounded-xl bg-brand-600 p-2 text-white disabled:opacity-50"><Send size={18}/></button></form></section>}<PinConfirmDialog open={pinOpen} onClose={()=>setPinOpen(false)} onVerified={task === 'generic' ? confirmGenericPurchase : purchase}/></>;
++}
++
++// Shown instantly in the conversation the moment a purchase succeeds - the
++// web equivalent of the Flutter app's _ReceiptCard (major_ai_assistant_screen.dart).
++// No PDF/share here (browsers have no native share sheet the way the app
++// does) - "Copy reference" covers the same "I need to prove this to someone"
++// need well enough for the web surface.
++function ReceiptCard({ receipt, ha }: { receipt: Receipt; ha: boolean }) {
++  const ok = receipt.status === 'success';
++  return <div className="mt-2 rounded-xl border border-slate-200 bg-white p-3">
++    <div className="flex items-center gap-2">
++      <span className={`flex h-6 w-6 items-center justify-center rounded-full text-xs ${ok ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>{ok ? '✓' : '✕'}</span>
++      <b className="text-sm text-slate-800">{receipt.title}</b>
++    </div>
++    <div className="mt-2 text-lg font-extrabold text-slate-900">₦{receipt.amount.toLocaleString()}</div>
++    {receipt.details.map(([k, v]) => <div key={k} className="mt-1 flex justify-between text-xs"><span className="text-slate-500">{k}</span><span className="font-semibold text-slate-700">{v}</span></div>)}
++    <div className="mt-1 flex justify-between text-xs"><span className="text-slate-500">{ha ? 'Lambar Reference' : 'Reference'}</span><span className="font-mono font-semibold text-slate-700">{receipt.reference}</span></div>
++    <button onClick={() => navigator.clipboard.writeText(receipt.reference)} className="mt-2 w-full rounded-lg border border-brand-200 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-50">{ha ? 'Kwafi Reference' : 'Copy reference'}</button>
++  </div>;
+ }

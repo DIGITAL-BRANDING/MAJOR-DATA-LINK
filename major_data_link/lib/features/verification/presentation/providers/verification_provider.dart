@@ -54,6 +54,25 @@ extension NinValidationTypeX on NinValidationType {
     NinValidationType.updateRecords => 'update_records',
   };
 
+  /// Matches NIN_VALIDATION_SERVICE_BY_TYPE in the backend's
+  /// verification.service.ts and VALIDATION_TYPES in the web app's
+  /// VerificationPage.tsx. Each validation_type is its own priced service
+  /// and its own history bucket — NIN Validation used to be one flat-priced
+  /// service (plain 'NIN_VALIDATION') regardless of type, which is why this
+  /// didn't exist before; using the stale flat key here now would show
+  /// ₦0 for every type (the backend price list no longer has a
+  /// 'NIN_VALIDATION' row at all) and an empty "recent requests" list.
+  String get serviceKey => switch (this) {
+    NinValidationType.ninValidation => 'NIN_VALIDATION_GENERAL',
+    NinValidationType.noRecord => 'NIN_VALIDATION_NO_RECORD',
+    NinValidationType.sim => 'NIN_VALIDATION_SIM',
+    NinValidationType.modification => 'NIN_VALIDATION_MODIFICATION',
+    NinValidationType.photoError => 'NIN_VALIDATION_PHOTO_ERROR',
+    NinValidationType.bankValidation => 'NIN_VALIDATION_BANK',
+    NinValidationType.vNinValidation => 'NIN_VALIDATION_VNIN',
+    NinValidationType.updateRecords => 'NIN_VALIDATION_UPDATE_RECORDS',
+  };
+
   String get label => switch (this) {
     NinValidationType.ninValidation => 'General NIN Validation',
     NinValidationType.noRecord => 'No Record Found',
@@ -82,7 +101,6 @@ enum VerificationService {
   bvnSlipPremium,
   bvnSlipStandard,
   ninDelinking,
-  ninValidation,
   ninPersonalization,
   bvnRetrieval,
   ipeClearance,
@@ -102,7 +120,11 @@ extension VerificationServiceX on VerificationService {
     VerificationService.bvnSlipPremium => 'BVN_SLIP_PREMIUM',
     VerificationService.bvnSlipStandard => 'BVN_SLIP_STANDARD',
     VerificationService.ninDelinking => 'NIN_DELINKING',
-    VerificationService.ninValidation => 'NIN_VALIDATION',
+    // No ninValidation case: NIN Validation is priced per validation_type,
+    // not as one flat service - see NinValidationType.serviceKey instead
+    // (this enum used to have a ninValidation case mapping to a flat
+    // 'NIN_VALIDATION' key, which stopped matching any real backend price
+    // row once validation pricing was split by type).
     VerificationService.ninPersonalization => 'NIN_PERSONALIZATION',
     VerificationService.bvnRetrieval => 'BVN_RETRIEVAL',
     VerificationService.ipeClearance => 'IPE_CLEARANCE',

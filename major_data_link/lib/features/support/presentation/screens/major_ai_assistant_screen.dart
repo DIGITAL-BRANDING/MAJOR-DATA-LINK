@@ -10,6 +10,7 @@ import '../../../../core/config/app_endpoints.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/di/injection.dart';
 import '../../../verification/utils/slip_pdf_utils.dart';
+import '../../../../core/utils/receipt_service.dart';
 import '../../../../shared/widgets/pin_confirmation_sheet.dart';
 
 /// A deterministic, transaction-safe service assistant.
@@ -106,6 +107,23 @@ class _MajorAiAssistantScreenState
     });
   }
 
+  /// Shows a short confirmation line plus an instant, tappable receipt card
+  /// - see _ReceiptCard - right in the conversation the moment a purchase
+  /// succeeds, instead of only the plain "Done!" text bubble.
+  void _botReceipt(String text, ReceiptData receipt) {
+    setState(
+      () => _messages.add(_Message(text, false, const [], receipt: receipt)),
+    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scroll.hasClients)
+        _scroll.animateTo(
+          _scroll.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOut,
+        );
+    });
+  }
+
   void _user(String text) {
     setState(() => _messages.add(_Message(text, true, const [])));
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -176,6 +194,37 @@ class _MajorAiAssistantScreenState
       r"(support|agent|human|live chat|ma'aikaci|mutum)",
     ).hasMatch(normalized)) {
       await _fallback('Customer requested human support');
+      return;
+    }
+    // "What can you do / what services do you have" - answered directly
+    // from the already-fetched workflow catalog (see _ensureWorkflows()),
+    // never guessed or invented, so the list can never drift from what the
+    // rest of this screen actually knows how to do. Deliberately a
+    // different pattern from the support/human check above it - "help" here
+    // means "show me what's possible", not "connect me to a person".
+    if (RegExp(
+      r'^(help|what can you do|what services|which services|list services|'
+      r'services|menu|options?)\??$|'
+      r'(ayyukan?\s*(da\s*)?ku(ke)?\s*(bayarwa|yi)|wace\s*sabis|wane\s*sabis|'
+      r'me\s*(za\s*ka|kuke)\s*iya\s*(yi|taimaka)|taimako\??$)',
+    ).hasMatch(normalized)) {
+      final workflows = await _ensureWorkflows();
+      if (workflows.isEmpty) {
+        await _fallback(
+          'Customer asked for service list, catalog unavailable',
+        );
+        return;
+      }
+      final active = workflows.where((w) => w['status'] == 'active').toList();
+      final names = active
+          .map((w) => '• ${tr(w['title'] as String, w['titleHa'] as String)}')
+          .join('\n');
+      _bot(
+        tr(
+          "Here's what I can help you do right now:\n\n$names\n\nJust tell me what you need - e.g. \"buy 1GB MTN data\" - and I'll take it from there.",
+          "Ga abubuwan da zan iya taimaka maka da su yanzu:\n\n$names\n\nKawai gaya mini abin da kake bukata - misali \"siyamin 1GB na MTN\" - zan ci gaba daga nan.",
+        ),
+      );
       return;
     }
     // "Why did my transaction fail?" - answered directly, from any step,
@@ -1007,25 +1056,52 @@ class _MajorAiAssistantScreenState
       final ok =
           response.data['status'] == true ||
           response.data['status'] == 'success';
+      final resultData = (response.data['data'] as Map?) ?? const {};
+      final reference = resultData['reference']?.toString() ?? '';
       unawaited(
         _audit(
           stage: 'purchase',
           outcome: ok ? 'success' : 'failed',
-          transactionRef: (response.data['data'] as Map?)?['reference']
-              ?.toString(),
+          transactionRef: reference.isEmpty ? null : reference,
         ),
       );
-      _bot(
-        ok
-            ? tr(
-                'Done! ${response.data['message'] ?? 'Your purchase was successful.'}',
-                'An gama! ${response.data['message'] ?? 'Siyanka ta yi nasara.'}',
-              )
-            : tr(
-                '${response.data['message'] ?? 'Purchase failed.'} Your wallet has not been charged for a failed provider transaction.',
-                '${response.data['message'] ?? 'Siyan ta gaza.'} Ba za a cire maka kuɗi idan provider ya gaza ba.',
-              ),
-      );
+      if (ok) {
+        final isData = _task == _Task.data;
+        final planLabel = isData
+            ? (_plan?['name']?.toString() ??
+                  _plan?['label']?.toString() ??
+                  tr('Data bundle', 'Kunshin Data'))
+            : null;
+        _botReceipt(
+          tr(
+            'Done! ${response.data['message'] ?? 'Your purchase was successful.'}',
+            'An gama! ${response.data['message'] ?? 'Siyanka ta yi nasara.'}',
+          ),
+          ReceiptData(
+            title: isData
+                ? tr('Data Purchase', 'Siyan Data')
+                : tr('Airtime Purchase', 'Siyan Katin Waya'),
+            amount: _amount ?? 0,
+            reference: reference.isEmpty ? '-' : reference,
+            date: DateTime.now(),
+            status: 'success',
+            balanceAfter: (resultData['balance_after'] as num?)?.toDouble(),
+            details: [
+              MapEntry(tr('Network', 'Netwok'), _network ?? '-'),
+              MapEntry(tr('Recipient', 'Wanda aka Aikawa'), _phone ?? '-'),
+              if (planLabel != null)
+                MapEntry(tr('Plan', 'Nau\'in Data'), planLabel),
+            ],
+          ),
+        );
+      } else {
+        _bot(
+          tr(
+            '${response.data['message'] ?? 'Purchase failed.'} Your wallet has not been charged for a failed provider transaction.',
+            '${response.data['message'] ?? 'Siyan ta gaza.'} Ba za a cire maka kuɗi idan provider ya gaza ba.',
+          ),
+        );
+      }
       _reset(keepMessages: true);
     } on DioException catch (e) {
       unawaited(
@@ -1308,11 +1384,22 @@ class _MajorAiAssistantScreenState
         unitPrice = _number(data['unitPrice'] ?? data['unit_price']);
       } else if (priceMode == 'verification') {
         final template = workflow['priceServiceKeyTemplate'] as String?;
+        final priceValueMap = (workflow['priceValueMap'] as Map?)
+            ?.cast<String, dynamic>();
         if (template != null) {
-          final key = template.replaceAllMapped(
-            RegExp(r'\{(\w+)\}'),
-            (m) => '${_collected[m.group(1)]}'.toUpperCase(),
-          );
+          final key = template.replaceAllMapped(RegExp(r'\{(\w+)\}'), (m) {
+            final fieldKey = m.group(1)!;
+            // A missing/skipped optional field must resolve to '' here, not
+            // Dart's own null-to-string interpolation ("null") - that was
+            // silently producing a service key ending in "NULL" (-> no
+            // matching price row -> ₦0 shown) whenever an optional field
+            // like validation_type was left blank.
+            final rawValue = _collected[fieldKey]?.toString() ?? '';
+            final fieldMap = (priceValueMap?[fieldKey] as Map?)
+                ?.cast<String, dynamic>();
+            final mapped = fieldMap?[rawValue] as String?;
+            return mapped ?? rawValue.toUpperCase();
+          });
           final response = await ref
               .read(dioClientProvider)
               .get(AppEndpoints.verificationPrices);
@@ -1481,17 +1568,33 @@ class _MajorAiAssistantScreenState
             resultData['reference']?.toString() ?? 'verification-slip',
           );
         }
-        _bot(
-          ok
-              ? tr(
-                  'Done! ${response.data['message'] ?? 'Your request was successful.'}${resultPin == null ? '' : '\n\nYour PIN: $resultPin'}${pdfBase64 == null || pdfBase64.isEmpty ? '' : '\n\nYour PDF has opened for saving/sharing.'}',
-                  'An gama! ${response.data['message'] ?? 'Buƙatarka ta yi nasara.'}${resultPin == null ? '' : '\n\nPIN ɗinka: $resultPin'}${pdfBase64 == null || pdfBase64.isEmpty ? '' : '\n\nAn buɗe PDF ɗinka domin a adana ko a tura shi.'}',
-                )
-              : tr(
-                  '${response.data['message'] ?? 'Request failed.'} Your wallet has not been charged for a failed request.',
-                  '${response.data['message'] ?? 'Ya gaza.'} Ba za a cire maka kuɗi ba idan ya gaza.',
-                ),
-        );
+        if (ok) {
+          final price = (_genericPrice ?? 0).toDouble();
+          _botReceipt(
+            tr(
+              'Done! ${response.data['message'] ?? 'Your request was successful.'}${resultPin == null ? '' : '\n\nYour PIN: $resultPin'}${pdfBase64 == null || pdfBase64.isEmpty ? '' : '\n\nYour PDF has opened for saving/sharing.'}',
+              'An gama! ${response.data['message'] ?? 'Buƙatarka ta yi nasara.'}${resultPin == null ? '' : '\n\nPIN ɗinka: $resultPin'}${pdfBase64 == null || pdfBase64.isEmpty ? '' : '\n\nAn buɗe PDF ɗinka domin a adana ko a tura shi.'}',
+            ),
+            ReceiptData(
+              title: workflow['title']?.toString() ?? tr('Request', 'Buƙata'),
+              amount: price,
+              reference: resultData['reference']?.toString() ?? '-',
+              date: DateTime.now(),
+              status: 'success',
+              balanceAfter: (resultData['balance_after'] as num?)?.toDouble(),
+              details: [
+                if (resultPin != null) MapEntry(tr('PIN', 'PIN'), resultPin),
+              ],
+            ),
+          );
+        } else {
+          _bot(
+            tr(
+              '${response.data['message'] ?? 'Request failed.'} Your wallet has not been charged for a failed request.',
+              '${response.data['message'] ?? 'Ya gaza.'} Ba za a cire maka kuɗi ba idan ya gaza.',
+            ),
+          );
+        }
         _reset(keepMessages: true);
       }
     } on DioException catch (e) {
@@ -1537,10 +1640,20 @@ class _MajorAiAssistantScreenState
         final data = (response.data['data'] as Map?) ?? const {};
         final status = data['status']?.toString().toLowerCase();
         if (status == 'success') {
-          _bot(
+          _botReceipt(
             tr(
-              'Your request ($ticketId) is complete. Check Transactions for the full result.',
-              'Buƙatarka ($ticketId) ta shirya. Duba Transactions don cikakken sakamako.',
+              'Your request ($ticketId) is complete.',
+              'Buƙatarka ($ticketId) ta shirya.',
+            ),
+            ReceiptData(
+              title:
+                  _activeWorkflow?['title']?.toString() ??
+                  tr('Request', 'Buƙata'),
+              amount: (_genericPrice ?? 0).toDouble(),
+              reference: ticketId,
+              date: DateTime.now(),
+              status: 'success',
+              details: const [],
             ),
           );
           _reset(keepMessages: true);
@@ -1649,7 +1762,11 @@ class _MajorAiAssistantScreenState
             padding: const EdgeInsets.all(16),
             itemCount: _messages.length,
             itemBuilder: (_, i) =>
-                _Bubble(message: _messages[i], onOption: _answer),
+                _Bubble(
+                  message: _messages[i],
+                  onOption: _answer,
+                  hausa: _hausa,
+                ),
           ),
         ),
         if (_busy) const LinearProgressIndicator(),
@@ -1684,16 +1801,22 @@ class _MajorAiAssistantScreenState
 }
 
 class _Message {
-  const _Message(this.text, this.user, this.options);
+  const _Message(this.text, this.user, this.options, {this.receipt});
   final String text;
   final bool user;
   final List<String> options;
+  final ReceiptData? receipt;
 }
 
 class _Bubble extends StatelessWidget {
-  const _Bubble({required this.message, required this.onOption});
+  const _Bubble({
+    required this.message,
+    required this.onOption,
+    required this.hausa,
+  });
   final _Message message;
   final ValueChanged<String> onOption;
+  final bool hausa;
   @override
   Widget build(BuildContext context) => Align(
     alignment: message.user ? Alignment.centerRight : Alignment.centerLeft,
@@ -1715,6 +1838,10 @@ class _Bubble extends StatelessWidget {
               height: 1.35,
             ),
           ),
+          if (message.receipt != null) ...[
+            const SizedBox(height: 10),
+            _ReceiptCard(receipt: message.receipt!, hausa: hausa),
+          ],
           if (message.options.isNotEmpty) ...[
             const SizedBox(height: 10),
             Wrap(
@@ -1734,4 +1861,127 @@ class _Bubble extends StatelessWidget {
       ),
     ),
   );
+}
+
+/// Shown instantly in-chat the moment a purchase/request succeeds - no need
+/// to leave the conversation or open Transactions to see what just
+/// happened. Shares the same [ReceiptData]/[ReceiptService] the dedicated
+/// transaction detail screen uses, so "Share" and "Download" here produce
+/// the exact same branded PDF as everywhere else in the app.
+class _ReceiptCard extends StatelessWidget {
+  const _ReceiptCard({required this.receipt, required this.hausa});
+  final ReceiptData receipt;
+  final bool hausa;
+
+  @override
+  Widget build(BuildContext context) {
+    final isSuccess = receipt.status.toLowerCase() == 'success';
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.neutral200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: (isSuccess
+                          ? AppColors.success500
+                          : AppColors.error500)
+                      .withValues(alpha: 0.12),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  isSuccess ? Icons.check_rounded : Icons.close_rounded,
+                  size: 16,
+                  color: isSuccess
+                      ? AppColors.success500
+                      : AppColors.error500,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  receipt.title,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.neutral900,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            '₦${receipt.amount.toStringAsFixed(0)}',
+            style: const TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.w800,
+              color: AppColors.neutral900,
+            ),
+          ),
+          const SizedBox(height: 8),
+          for (final entry in receipt.details)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 3),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    entry.key,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: AppColors.neutral500,
+                    ),
+                  ),
+                  Flexible(
+                    child: Text(
+                      entry.value,
+                      textAlign: TextAlign.end,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.neutral800,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => ReceiptService.shareReceipt(receipt),
+                  icon: const Icon(Icons.share_rounded, size: 15),
+                  label: Text(
+                    hausa ? 'Turawa' : 'Share',
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => ReceiptService.downloadReceipt(receipt),
+                  icon: const Icon(Icons.download_rounded, size: 15),
+                  label: Text(
+                    hausa ? 'Ajiyewa' : 'Save',
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
 }

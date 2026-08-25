@@ -16,7 +16,15 @@
  *  - 'verification': GET /api/verification/prices (one flat list of
  *    { service, unitPrice } for every verification service) and find the
  *    row whose `service` matches `priceServiceKeyTemplate` with any `{field}`
- *    placeholders substituted by the collected field values, upper-cased.
+ *    placeholders substituted by the collected field values. For a field
+ *    with an entry in `priceValueMap`, the substituted segment is
+ *    `priceValueMap[field][collectedValue]` (falling back to the raw
+ *    value upper-cased if that exact value isn't in the map); a field with
+ *    no `priceValueMap` entry at all is just upper-cased directly, as
+ *    before. `priceValueMap` only needs to be set for fields whose values
+ *    don't upper-case into their matching service-key suffix cleanly (e.g.
+ *    NIN Validation's 'bank_validation' -> 'BANK', not 'BANK_VALIDATION';
+ *    'v.nin_validation' -> 'VNIN', not 'V.NIN_VALIDATION').
  *  - 'none': no separate price call - workflow-specific screens quote inline
  *    or the price is fixed and shown in the field label.
  */
@@ -62,6 +70,8 @@ export type AssistantWorkflow = {
   priceMode: 'result' | 'verification' | 'none';
   /** For priceMode 'verification': e.g. "NIN_SLIP_{tier}". */
   priceServiceKeyTemplate?: string;
+  /** See priceMode's 'verification' case above. Keyed by field key, then by that field's collected value. */
+  priceValueMap?: Record<string, Record<string, string>>;
   status: 'active' | 'guided';
 };
 
@@ -158,16 +168,32 @@ export const assistantWorkflows: AssistantWorkflow[] = [
     // NIN Validation used to be one flat-priced service ('NIN_VALIDATION')
     // regardless of validation_type - it's now 8 separately-priced services
     // (NIN_VALIDATION_GENERAL/NO_RECORD/SIM/BANK/UPDATE_RECORDS/MODIFICATION/
-    // PHOTO_ERROR/VNIN - see verification.service.ts). This assistant contract
-    // doesn't have per-type pricing yet because whatever client consumes it
-    // does its own '{field}' placeholder substitution (per this file's header
-    // comment) that lives outside this repo, and the 8 new key suffixes don't
-    // all match a naive validation_type.toUpperCase() (e.g. 'bank_validation'
-    // -> BANK, not BANK_VALIDATION; 'v.nin_validation' -> VNIN). Falling back
-    // to the GENERAL rate here is the same conservative behavior this had
-    // before (validation_type was already optional/often omitted) - update
-    // this once the consuming client's substitution logic is confirmed.
-    priceServiceKeyTemplate: 'NIN_VALIDATION_GENERAL', status: 'active'
+    // PHOTO_ERROR/VNIN - see verification.service.ts). priceValueMap gives
+    // the client the exact suffix for each validation_type value, since a
+    // naive uppercase doesn't work for two of them ('bank_validation' would
+    // uppercase to 'BANK_VALIDATION' not 'BANK'; 'v.nin_validation' isn't
+    // even a valid key segment as-is). Falls back to 'GENERAL' when
+    // validation_type is omitted (it's an optional field), matching
+    // Techhub's own default.
+    priceServiceKeyTemplate: 'NIN_VALIDATION_{validation_type}',
+    priceValueMap: {
+      validation_type: {
+        // Empty string is the sentinel a client should substitute when this
+        // optional field was skipped entirely (not collected at all), not
+        // just when it holds an unrecognized value - same default Techhub
+        // itself applies when validation_type is omitted from the request.
+        '': 'GENERAL',
+        nin_validation: 'GENERAL',
+        no_record: 'NO_RECORD',
+        sim: 'SIM',
+        bank_validation: 'BANK',
+        update_records: 'UPDATE_RECORDS',
+        modification: 'MODIFICATION',
+        photo_error: 'PHOTO_ERROR',
+        'v.nin_validation': 'VNIN'
+      }
+    },
+    status: 'active'
   },
   {
     id: 'nin_personalization', title: 'NIN Personalization', titleHa: 'NIN Personalization',

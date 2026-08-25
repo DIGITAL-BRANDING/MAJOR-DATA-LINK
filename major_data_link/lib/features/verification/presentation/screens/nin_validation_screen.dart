@@ -67,8 +67,7 @@ class _NinValidationScreenState extends ConsumerState<NinValidationScreen>
   Widget build(BuildContext context) {
     final state = ref.watch(asyncFlowProvider);
     final prices = ref.watch(verificationPricesProvider);
-    final price =
-        prices.valueOrNull?[VerificationService.ninValidation.key] ?? 0;
+    final price = prices.valueOrNull?[_type.serviceKey] ?? 0;
     final locked = state.isSubmitted;
 
     return Scaffold(
@@ -83,8 +82,8 @@ class _NinValidationScreenState extends ConsumerState<NinValidationScreen>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Validate a NIN against a specific issue type. Price is the '
-                  'same regardless of the type chosen.',
+                  'Validate a NIN against a specific issue type. Price '
+                  'depends on the type chosen.',
                   style: const TextStyle(fontSize: 12),
                 ),
                 const SizedBox(height: 16),
@@ -168,7 +167,7 @@ class _NinValidationScreenState extends ConsumerState<NinValidationScreen>
                     },
                   ),
                 const SizedBox(height: 24),
-                const VerificationHistoryCard(service: 'NIN_VALIDATION'),
+                VerificationHistoryCard(service: _type.serviceKey),
               ],
             ),
           ),
