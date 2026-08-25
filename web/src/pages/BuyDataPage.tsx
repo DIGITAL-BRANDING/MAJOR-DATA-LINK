@@ -1,6 +1,6 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, CheckCircle2, ReceiptText } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, ReceiptText, Search } from 'lucide-react';
 import AppShell from '../components/AppShell';
 import { api, ApiError } from '../lib/api';
 import { findLatestTransactionId } from '../lib/receipt';
@@ -25,6 +25,7 @@ export default function BuyDataPage() {
   const [category, setCategory] = useState<string | null>(null);
   const [plans, setPlans] = useState<Plan[]>([]);
   const [planId, setPlanId] = useState<string | null>(null);
+  const [planSearch, setPlanSearch] = useState('');
 
   const [loadingCategories, setLoadingCategories] = useState(false);
   const [loadingPlans, setLoadingPlans] = useState(false);
@@ -42,7 +43,13 @@ export default function BuyDataPage() {
     setLoadingCategories(true);
     api
       .get<{ status: boolean; data: Category[] }>(`/data/plans/${network}/categories`)
-      .then((res) => setCategories(res.data ?? []))
+      .then((res) => {
+        const list = res.data ?? [];
+        setCategories(list);
+        // Auto-select the first category, same as the reference UI always
+        // landing on a category (PROMO) rather than an empty "pick one" state.
+        if (list.length > 0) setCategory(list[0].category);
+      })
       .catch(() => setCategories([]))
       .finally(() => setLoadingCategories(false));
   }, [network]);
@@ -51,6 +58,7 @@ export default function BuyDataPage() {
   useEffect(() => {
     if (!category) return;
     setPlanId(null);
+    setPlanSearch('');
     setLoadingPlans(true);
     api
       .get<{ status: boolean; data: Plan[] }>(
@@ -60,6 +68,14 @@ export default function BuyDataPage() {
       .catch(() => setPlans([]))
       .finally(() => setLoadingPlans(false));
   }, [network, category]);
+
+  const filteredPlans = useMemo(() => {
+    const q = planSearch.trim().toLowerCase();
+    if (!q) return plans;
+    return plans.filter(
+      (p) => p.name.toLowerCase().includes(q) || p.validity.toLowerCase().includes(q) || String(p.amount).includes(q)
+    );
+  }, [plans, planSearch]);
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -129,131 +145,170 @@ export default function BuyDataPage() {
       >
         <ArrowLeft size={15} /> Back
       </button>
-      <h1 className="font-display text-2xl font-bold text-ink">Buy Data</h1>
 
-      <form onSubmit={handleSubmit} className="mt-6 max-w-md space-y-6">
-        <div>
-          <span className="mb-2 block font-body text-xs font-medium text-ink-600">Network</span>
-          <div className="grid grid-cols-4 gap-2">
-            {NETWORKS.map((n) => (
-              <button
-                key={n.code}
-                type="button"
-                onClick={() => setNetwork(n.code)}
-                className={`flex flex-col items-center gap-1.5 rounded-xl border-2 py-3 transition ${
-                  network === n.code ? 'border-gold-500' : 'border-transparent'
-                }`}
-              >
-                <span className={`flex h-9 w-9 items-center justify-center rounded-full font-display text-[10px] font-bold ${n.bg} ${n.text}`}>
-                  {n.label.slice(0, 3).toUpperCase()}
-                </span>
-                <span className="font-body text-[11px] text-ink-600">{n.label}</span>
-              </button>
-            ))}
-          </div>
-        </div>
+      <div className="max-w-xl rounded-2xl border border-parchment-line bg-parchment p-5 sm:p-6">
+        <h1 className="font-display text-2xl font-bold text-ink">Buy Data</h1>
+        <p className="mt-1 font-body text-sm text-ink-600">
+          Instant data bundles on every network — delivered in seconds
+        </p>
 
-        <label className="block">
-          <span className="mb-1.5 block font-body text-xs font-medium text-ink-600">
-            Phone number
-          </span>
-          <input
-            type="tel"
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            placeholder="080..."
-            required
-            className="w-full rounded-lg border border-parchment-line bg-parchment px-3.5 py-2.5 font-body text-sm text-ink outline-none focus:border-gold-500"
-          />
-        </label>
-
-        <div>
-          <span className="mb-2 block font-body text-xs font-medium text-ink-600">Data type</span>
-          {loadingCategories ? (
-            <SkeletonRow />
-          ) : categories.length === 0 ? (
-            <p className="font-body text-sm text-ink-600">No plans available for this network right now.</p>
-          ) : (
-            <div className="flex flex-wrap gap-2">
-              {categories.map((c) => (
+        <form onSubmit={handleSubmit} className="mt-6 space-y-7">
+          <div>
+            <StepLabel n={1} label="Choose network" />
+            <div className="grid grid-cols-2 gap-3">
+              {NETWORKS.map((n) => (
                 <button
-                  key={c.category}
+                  key={n.code}
                   type="button"
-                  onClick={() => setCategory(c.category)}
-                  className={`rounded-full border px-3.5 py-1.5 font-body text-xs font-medium transition ${
-                    category === c.category
-                      ? 'border-gold-500 bg-gold-500/10 text-gold-700'
-                      : 'border-parchment-line text-ink-600'
+                  onClick={() => setNetwork(n.code)}
+                  className={`flex items-center gap-3 rounded-xl border-2 bg-cream px-4 py-3.5 text-left transition ${
+                    network === n.code ? 'border-gold-500' : 'border-parchment-line'
                   }`}
                 >
-                  {c.category}
+                  <span
+                    className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full font-display text-[11px] font-bold ${n.bg} ${n.text}`}
+                  >
+                    {n.label.slice(0, 3).toUpperCase()}
+                  </span>
+                  <span className="font-body text-sm font-semibold text-ink">{n.label}</span>
                 </button>
               ))}
             </div>
-          )}
-        </div>
+          </div>
 
-        {category && (
           <div>
-            <span className="mb-2 block font-body text-xs font-medium text-ink-600">Plan</span>
-            {loadingPlans ? (
-              <SkeletonRow />
+            <StepLabel n={2} label="Category" />
+            {loadingCategories ? (
+              <SkeletonPills />
+            ) : categories.length === 0 ? (
+              <p className="font-body text-sm text-ink-600">No plans available for this network right now.</p>
             ) : (
-              <div className="space-y-2">
-                {plans.map((p) => (
+              <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
+                {categories.map((c) => (
                   <button
-                    key={p.id}
+                    key={c.category}
                     type="button"
-                    onClick={() => setPlanId(p.id)}
-                    className={`flex w-full items-center justify-between rounded-lg border px-3.5 py-2.5 text-left transition ${
-                      planId === p.id
-                        ? 'border-gold-500 bg-gold-500/10'
-                        : 'border-parchment-line bg-parchment'
+                    onClick={() => setCategory(c.category)}
+                    className={`shrink-0 rounded-full px-4 py-2 font-body text-xs font-bold tracking-wide uppercase transition ${
+                      category === c.category
+                        ? 'bg-gold-500 text-ink'
+                        : 'border border-parchment-line bg-cream text-ink-600'
                     }`}
                   >
-                    <span>
-                      <span className="block font-body text-sm font-medium text-ink">{p.name}</span>
-                      <span className="block font-mono text-[11px] text-ink-600">{p.validity}</span>
-                    </span>
-                    <span className="font-mono text-sm font-semibold text-gold-700">
-                      ₦{p.amount.toLocaleString()}
-                    </span>
+                    {c.category}
                   </button>
                 ))}
               </div>
             )}
           </div>
-        )}
 
-        {error && (
-          <p className="rounded-lg bg-ember-500/10 px-3 py-2 font-body text-sm text-ember-600">
-            {error}
-          </p>
-        )}
+          {category && (
+            <div>
+              <StepLabel n={3} label="Pick a data plan" />
 
-        <button
-          type="submit"
-          disabled={isSubmitting || !phone || !planId}
-          className="flex w-full items-center justify-center rounded-lg bg-gold-500 py-3 font-display text-sm font-semibold text-ink transition hover:bg-gold-400 disabled:opacity-50"
-        >
-          {isSubmitting ? (
-            <div className="h-4 w-4 animate-spin rounded-full border-2 border-ink border-t-transparent" />
-          ) : selectedPlan ? (
-            `Buy data — ₦${selectedPlan.amount.toLocaleString()}`
-          ) : (
-            'Select a plan'
+              {plans.length > 0 && (
+                <div className="relative mb-3">
+                  <Search size={15} className="absolute top-1/2 left-3.5 -translate-y-1/2 text-ink-600/50" />
+                  <input
+                    type="text"
+                    value={planSearch}
+                    onChange={(e) => setPlanSearch(e.target.value)}
+                    placeholder={`Search ${plans.length} plan${plans.length === 1 ? '' : 's'} — try "1GB", "30 days"`}
+                    className="w-full rounded-full border border-parchment-line bg-cream py-2.5 pr-4 pl-9 font-body text-sm text-ink outline-none focus:border-gold-500"
+                  />
+                </div>
+              )}
+
+              {loadingPlans ? (
+                <SkeletonGrid />
+              ) : filteredPlans.length === 0 ? (
+                <p className="font-body text-sm text-ink-600">
+                  {plans.length === 0 ? 'No plans in this category right now.' : 'No plans match your search.'}
+                </p>
+              ) : (
+                <div className="grid grid-cols-2 gap-2.5">
+                  {filteredPlans.map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => setPlanId(p.id)}
+                      className={`rounded-xl border px-3.5 py-3 text-left transition ${
+                        planId === p.id ? 'border-gold-500 bg-gold-500/10' : 'border-parchment-line bg-cream'
+                      }`}
+                    >
+                      <span className="block font-display text-base font-bold text-ink">{p.name}</span>
+                      <span className="block font-mono text-[11px] text-ink-600">{p.validity}</span>
+                      <span className="mt-1.5 block font-mono text-sm font-semibold text-gold-700">
+                        ₦{p.amount.toLocaleString()}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
-        </button>
-      </form>
+
+          <div>
+            <StepLabel n={4} label="Recipient details" />
+            <input
+              type="tel"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder="Phone number"
+              required
+              className="w-full rounded-lg border border-parchment-line bg-cream px-3.5 py-2.5 font-body text-sm text-ink outline-none focus:border-gold-500"
+            />
+          </div>
+
+          {error && (
+            <p className="rounded-lg bg-ember-500/10 px-3 py-2 font-body text-sm text-ember-600">
+              {error}
+            </p>
+          )}
+
+          <button
+            type="submit"
+            disabled={isSubmitting || !phone || !planId}
+            className="flex w-full items-center justify-center rounded-lg bg-gold-500 py-3 font-display text-sm font-semibold text-ink transition hover:bg-gold-400 disabled:opacity-50"
+          >
+            {isSubmitting ? (
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-ink border-t-transparent" />
+            ) : selectedPlan ? (
+              `Buy data — ₦${selectedPlan.amount.toLocaleString()}`
+            ) : (
+              'Select a plan'
+            )}
+          </button>
+        </form>
+      </div>
     <PinConfirmDialog open={showPin} onClose={() => setShowPin(false)} onVerified={purchase} /></AppShell>
   );
 }
 
-function SkeletonRow() {
+function StepLabel({ n, label }: { n: number; label: string }) {
+  return (
+    <span className="mb-2.5 flex items-center gap-2 font-mono text-[11px] font-bold tracking-widest text-ink-600 uppercase">
+      <span className="flex h-4 w-4 items-center justify-center rounded-full bg-ink text-[9px] text-cream">{n}</span>
+      {label}
+    </span>
+  );
+}
+
+function SkeletonPills() {
   return (
     <div className="flex gap-2">
-      {[0, 1, 2].map((i) => (
-        <div key={i} className="h-8 w-20 animate-pulse rounded-full bg-parchment-line" />
+      {[0, 1, 2, 3].map((i) => (
+        <div key={i} className="h-8 w-20 shrink-0 animate-pulse rounded-full bg-parchment-line" />
+      ))}
+    </div>
+  );
+}
+
+function SkeletonGrid() {
+  return (
+    <div className="grid grid-cols-2 gap-2.5">
+      {[0, 1, 2, 3].map((i) => (
+        <div key={i} className="h-[72px] animate-pulse rounded-xl bg-parchment-line" />
       ))}
     </div>
   );
