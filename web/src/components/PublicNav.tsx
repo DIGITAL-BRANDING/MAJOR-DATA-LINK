@@ -41,7 +41,7 @@ export default function PublicNav() {
                 to="/register"
                 className="rounded-lg bg-gold-500 px-4 py-2 font-display text-sm font-semibold text-ink transition hover:bg-gold-400"
               >
-                Open free wallet
+                Create Account
               </Link>
             </>
           )}

@@ -104,7 +104,7 @@ export default function LoginPage() {
         <p className="mt-6 text-center font-body text-sm text-ink-600">
           Don't have an account?{' '}
           <Link to="/register" className="font-semibold text-gold-600 hover:text-gold-700">
-            Open your wallet
+            Create Account
           </Link>
         </p>
         <Link

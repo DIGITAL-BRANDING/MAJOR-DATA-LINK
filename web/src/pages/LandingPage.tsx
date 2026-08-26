@@ -215,7 +215,7 @@ export default function LandingPage() {
                 to="/register"
                 className="rounded-lg bg-gold-500 px-6 py-3.5 font-display text-sm font-semibold text-ink transition hover:bg-gold-400"
               >
-                Open your wallet — it's free
+                Get Started
               </Link>
               <a
                 href="#download"
