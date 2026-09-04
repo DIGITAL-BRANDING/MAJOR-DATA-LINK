@@ -82,6 +82,49 @@ partnerApiRoutes.get('/wallet/balance', async (req, res) => {
   res.json({ status: true, data: { balance: koboToNaira(partner.walletBalanceKobo), currency: 'NGN' } });
 });
 
+partnerApiRoutes.get('/dashboard', async (req, res) => {
+  const now = new Date();
+  const today = new Date(now); today.setHours(0, 0, 0, 0);
+  const thirtyDaysAgo = new Date(now); thirtyDaysAgo.setDate(now.getDate() - 29); thirtyDaysAgo.setHours(0, 0, 0, 0);
+  const [partner, all, recent, verificationPrices] = await Promise.all([
+    prisma.partner.findUniqueOrThrow({ where: { id: req.partner!.id } }),
+    prisma.partnerTransaction.findMany({
+      where: { partnerId: req.partner!.id, createdAt: { gte: thirtyDaysAgo }, type: { not: TransactionType.REFUND } },
+      select: { status: true, amountKobo: true, createdAt: true }
+    }),
+    prisma.partnerTransaction.findMany({
+      where: { partnerId: req.partner!.id }, orderBy: { createdAt: 'desc' }, take: 20
+    }),
+    listVerificationPrices()
+  ]);
+  const calls = all.length;
+  const successful = all.filter((tx) => tx.status === TransactionStatus.SUCCESS).length;
+  const failed = all.filter((tx) => tx.status === TransactionStatus.FAILED || tx.status === TransactionStatus.REVERSED).length;
+  const todayCalls = all.filter((tx) => tx.createdAt >= today).length;
+  const totalSpendKobo = all.filter((tx) => tx.status === TransactionStatus.SUCCESS).reduce((sum, tx) => sum + tx.amountKobo, 0n);
+  const byDay = Array.from({ length: 30 }, (_, index) => {
+    const date = new Date(thirtyDaysAgo); date.setDate(thirtyDaysAgo.getDate() + index);
+    const next = new Date(date); next.setDate(date.getDate() + 1);
+    const dayTransactions = all.filter((tx) => tx.createdAt >= date && tx.createdAt < next);
+    return { date: date.toISOString().slice(0, 10), total: dayTransactions.length,
+      successful: dayTransactions.filter((tx) => tx.status === TransactionStatus.SUCCESS).length,
+      failed: dayTransactions.filter((tx) => tx.status === TransactionStatus.FAILED || tx.status === TransactionStatus.REVERSED).length };
+  });
+  res.json({ status: true, data: {
+    partner: { business_name: partner.businessName, email: partner.email },
+    wallet: { balance: koboToNaira(partner.walletBalanceKobo), currency: 'NGN' },
+    summary: { today_calls: todayCalls, total_calls: calls, total_spend: koboToNaira(totalSpendKobo), successful_calls: successful, failed_calls: failed },
+    chart: byDay, recent_transactions: recent.map(partnerTransactionResponse),
+    service_pricing: verificationPrices.filter((price) => price.isActive).map((price) => ({ service: price.service, label: price.label, price: price.unitPrice }))
+  }});
+});
+
+partnerApiRoutes.get('/transactions', async (req, res) => {
+  const limit = Math.min(Math.max(Number(req.query.limit) || 20, 1), 100);
+  const transactions = await prisma.partnerTransaction.findMany({ where: { partnerId: req.partner!.id }, orderBy: { createdAt: 'desc' }, take: limit });
+  res.json({ status: true, data: transactions.map(partnerTransactionResponse) });
+});
+
 partnerApiRoutes.get('/data/plans/:network/categories', async (req, res) => {
   const provider = await activeDataAirtimeProvider();
   const data = provider === 'bilalsadasub'
