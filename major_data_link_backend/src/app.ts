@@ -184,13 +184,15 @@ export function createApp() {
   app.use('/api/public', publicRoutes);
   app.use('/api/verification', verificationRoutes);
   app.use('/api/nin-modification', ninModificationRoutes);
+  // This MUST be mounted before the catch-all customer VTU router below.
+  // `vtuRoutes` is mounted at /api and applies customer JWT auth to every
+  // request it sees; mounting /api/v1 after it would make partner API-key
+  // calls fail with "Missing auth token" before they reach partnerApiRoutes.
+  app.use('/api/v1', partnerApiRoutes);
   app.use('/api', vtuRoutes);
   app.use('/api/cable', cableRoutes);
   app.use('/api/electricity', electricityRoutes);
   app.use('/api/transactions', transactionRoutes);
-  // Commercial reseller API. It has its own API-key auth and partner wallet;
-  // never mount it under a customer-authenticated route.
-  app.use('/api/v1', partnerApiRoutes);
 
   let adminRouterPromise: Promise<express.Router> | null = null;
   const getAdminRouter = () => {
