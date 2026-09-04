@@ -35,6 +35,13 @@ enum TransactionStatus {
   REVERSED
 }
 
+/// A commercial API customer. This is deliberately separate from User: a
+/// partner's prepaid float must never be mixed with a retail customer's wallet.
+enum PartnerStatus {
+  ACTIVE
+  SUSPENDED
+}
+
 enum TransactionType {
   WALLET_FUNDING
   WALLET_TRANSFER
@@ -167,6 +174,64 @@ model User {
   notifications        Notification[]
   assistantAuditEvents  AssistantAuditEvent[]
   deliveries            UserDelivery[]
+}
+
+model Partner {
+  id                String        @id @default(uuid())
+  businessName      String
+  email             String        @unique
+  walletBalanceKobo BigInt        @default(0)
+  status            PartnerStatus @default(ACTIVE)
+  webhookUrl        String?
+  webhookSecretHash String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  apiKeys           PartnerApiKey[]
+  transactions      PartnerTransaction[]
+
+  @@index([status])
+}
+
+/// Only a SHA-256 hash of the issued API key is stored. The plaintext key is
+/// printed once by the provisioning script and cannot be recovered later.
+model PartnerApiKey {
+  id             String   @id @default(uuid())
+  partnerId      String
+  name           String
+  keyPrefix      String
+  secretHash     String   @unique
+  lastUsedAt     DateTime?
+  revokedAt      DateTime?
+  createdAt      DateTime @default(now())
+  partner        Partner  @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+
+  @@index([partnerId, revokedAt])
+  @@index([keyPrefix])
+}
+
+/// Append-only ledger for commercial API usage. It mirrors the safety
+/// properties of the retail Transaction table but belongs solely to a Partner.
+model PartnerTransaction {
+  id                String            @id @default(uuid())
+  partnerId         String
+  type              TransactionType
+  status            TransactionStatus @default(PENDING)
+  amountKobo        BigInt
+  balanceBeforeKobo BigInt
+  balanceAfterKobo  BigInt
+  provider          String?
+  providerRef       String?
+  reference         String            @unique
+  idempotencyKey    String
+  description       String
+  metadata          Json?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  partner           Partner           @relation(fields: [partnerId], references: [id])
+
+  @@unique([partnerId, idempotencyKey])
+  @@index([partnerId, createdAt])
+  @@index([partnerId, status, createdAt])
 }
 
 model UserDelivery {

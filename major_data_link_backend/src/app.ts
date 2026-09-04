@@ -40,6 +40,7 @@ import { electricityRoutes } from './routes/electricity.routes.js';
 import { walletRoutes } from './routes/wallet.routes.js';
 import { webhookRoutes } from './routes/webhook.routes.js';
 import { deliveryRoutes } from './routes/delivery.routes.js';
+import { partnerApiRoutes } from './routes/partner-api.routes.js';
 
 const ADMIN_ROOT_PATH = '/admin';
 
@@ -187,6 +188,9 @@ export function createApp() {
   app.use('/api/cable', cableRoutes);
   app.use('/api/electricity', electricityRoutes);
   app.use('/api/transactions', transactionRoutes);
+  // Commercial reseller API. It has its own API-key auth and partner wallet;
+  // never mount it under a customer-authenticated route.
+  app.use('/api/v1', partnerApiRoutes);
 
   let adminRouterPromise: Promise<express.Router> | null = null;
   const getAdminRouter = () => {
