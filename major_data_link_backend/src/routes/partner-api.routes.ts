@@ -156,6 +156,14 @@ function verificationResponse(result: Awaited<ReturnType<typeof partnerVerificat
   }};
 }
 
+function asyncVerificationResponse(result: { reference: string; ticketId: string; balanceAfter?: number; status: 'pending' | 'success' | 'failed'; response?: Record<string, unknown> | null }) {
+  return { status: result.status !== 'failed', data: {
+    reference: result.reference, ticket_id: result.ticketId, status: result.status,
+    ...(result.balanceAfter === undefined ? {} : { balance_after: result.balanceAfter }),
+    ...(result.response === undefined ? {} : { response: result.response })
+  }};
+}
+
 partnerApiRoutes.post('/verification/nin/by-nin', async (req, res) => {
   const body = z.object({ nin: z.string().trim().length(11), tier: z.enum(['premium', 'standard', 'regular', 'vnin']) }).parse(req.body);
   const result = await partnerVerification.ninByNin(req.partner!.id, body.nin, body.tier, idempotencyKeyFrom(req));
@@ -175,6 +183,49 @@ partnerApiRoutes.post('/verification/nin/by-demographic', async (req, res) => {
   const result = await partnerVerification.ninByDemographic(req.partner!.id, body, idempotencyKeyFrom(req));
   res.set('Cache-Control', 'no-store');
   res.json(verificationResponse(result));
+});
+
+// Async NIN services: submit once with Idempotency-Key, then poll the returned
+// ticket endpoint. A pending request must never be re-submitted as a new order.
+const ninValidationType = z.enum(['nin_validation', 'no_record', 'sim', 'modification', 'photo_error', 'bank_validation', 'v.nin_validation', 'update_records']);
+
+partnerApiRoutes.post('/verification/nin/validation', async (req, res) => {
+  const body = z.object({ nin: z.string().trim().length(11), validation_type: ninValidationType.optional() }).parse(req.body);
+  const result = await partnerVerification.submitNinValidation(req.partner!.id, body.nin, body.validation_type, idempotencyKeyFrom(req));
+  res.set('Cache-Control', 'no-store');
+  res.status(202).json(asyncVerificationResponse(result));
+});
+
+partnerApiRoutes.get('/verification/nin/validation/:ticketId', async (req, res) => {
+  const result = await partnerVerification.checkNinValidation(req.partner!.id, req.params.ticketId);
+  res.set('Cache-Control', 'no-store');
+  res.json(asyncVerificationResponse(result));
+});
+
+partnerApiRoutes.post('/verification/nin/ipe-clearance', async (req, res) => {
+  const body = z.object({ tracking_id: z.string().trim().min(1).max(50) }).parse(req.body);
+  const result = await partnerVerification.submitIpeClearance(req.partner!.id, body.tracking_id, idempotencyKeyFrom(req));
+  res.set('Cache-Control', 'no-store');
+  res.status(202).json(asyncVerificationResponse(result));
+});
+
+partnerApiRoutes.get('/verification/nin/ipe-clearance/:ticketId', async (req, res) => {
+  const result = await partnerVerification.checkIpeClearance(req.partner!.id, req.params.ticketId);
+  res.set('Cache-Control', 'no-store');
+  res.json(asyncVerificationResponse(result));
+});
+
+partnerApiRoutes.post('/verification/nin/personalization', async (req, res) => {
+  const body = z.object({ tracking_id: z.string().trim().min(1).max(50) }).parse(req.body);
+  const result = await partnerVerification.submitPersonalization(req.partner!.id, body.tracking_id, idempotencyKeyFrom(req));
+  res.set('Cache-Control', 'no-store');
+  res.status(202).json(asyncVerificationResponse(result));
+});
+
+partnerApiRoutes.get('/verification/nin/personalization/:ticketId', async (req, res) => {
+  const result = await partnerVerification.checkPersonalization(req.partner!.id, req.params.ticketId);
+  res.set('Cache-Control', 'no-store');
+  res.json(asyncVerificationResponse(result));
 });
 
 partnerApiRoutes.post('/verification/bvn/slip', async (req, res) => {

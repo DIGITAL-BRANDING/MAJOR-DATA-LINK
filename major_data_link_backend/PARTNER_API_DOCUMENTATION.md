@@ -240,6 +240,34 @@ Kowane verification request yana buƙatar `Idempotency-Key`. Response na iya
 matuƙar sirri. Partner ya adana su ne kawai idan yana da doka/consent, kada ya
 rubuta su a application logs, kuma ya mayar da response da `Cache-Control: no-store`.
 
+### 5b. Async NIN services
+
+Waɗannan services suna mayar da `202 Accepted` tare da `ticket_id`. Partner ya
+riƙa poll status endpoint da ticket ɗin; kada ya sake submit da sabon
+`Idempotency-Key` yayin da `status` yake `pending`.
+
+| Service | Submit | Status |
+| --- | --- | --- |
+| NIN Validation | `POST /verification/nin/validation` | `GET /verification/nin/validation/{ticket_id}` |
+| NIN IPE Clearance | `POST /verification/nin/ipe-clearance` | `GET /verification/nin/ipe-clearance/{ticket_id}` |
+| NIN Personalization | `POST /verification/nin/personalization` | `GET /verification/nin/personalization/{ticket_id}` |
+
+NIN Validation body:
+
+```json
+{ "nin": "12345678901", "validation_type": "nin_validation" }
+```
+
+`validation_type` zai iya zama: `nin_validation`, `no_record`, `sim`,
+`bank_validation`, `update_records`, `modification`, `photo_error`, ko
+`v.nin_validation`.
+
+IPE Clearance ko Personalization body:
+
+```json
+{ "tracking_id": "your-tracking-id" }
+```
+
 ### 6. Cable TV *(planned)*
 
 **Plans:** `GET /cable/plans/{provider}`
