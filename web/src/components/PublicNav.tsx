@@ -11,6 +11,9 @@ export default function PublicNav() {
           <Logo dark />
         </Link>
         <nav className="hidden items-center gap-7 md:flex">
+          <Link to="/partner-dashboard" className="font-body text-sm text-gold-200 transition hover:text-cream">
+            API Portal
+          </Link>
           <a href="#result-checkers" className="font-body text-sm text-cream/70 transition hover:text-cream">
             Results
           </a>
