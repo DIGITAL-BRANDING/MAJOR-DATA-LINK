@@ -84,9 +84,11 @@ export const partnerApiKeyResource: ResourceWithOptions = {
   resource: { model: getModelByName('PartnerApiKey'), client: prisma },
   options: {
     id: 'PartnerApiKey', navigation: { name: 'API Integrators', icon: 'Key' },
-    listProperties: ['partnerId', 'name', 'keyPrefix', 'lastUsedAt', 'revokedAt', 'createdAt'],
-    showProperties: ['id', 'partnerId', 'name', 'keyPrefix', 'lastUsedAt', 'revokedAt', 'createdAt'],
-    filterProperties: ['partnerId', 'keyPrefix', 'revokedAt', 'createdAt'],
+    // `partnerId` is the scalar FK backing the relation. AdminJS Prisma hides
+    // such read-only scalar FKs; use the relation property instead.
+    listProperties: ['partner', 'name', 'keyPrefix', 'lastUsedAt', 'revokedAt', 'createdAt'],
+    showProperties: ['id', 'partner', 'name', 'keyPrefix', 'lastUsedAt', 'revokedAt', 'createdAt'],
+    filterProperties: ['partner', 'keyPrefix', 'revokedAt', 'createdAt'],
     properties: { secretHash: { isVisible: false } },
     actions: {
       new: { isAccessible: false }, edit: { isAccessible: false }, delete: { isAccessible: false },
@@ -110,9 +112,9 @@ export const partnerTransactionResource: ResourceWithOptions = {
   resource: { model: getModelByName('PartnerTransaction'), client: prisma },
   options: {
     id: 'PartnerTransaction', navigation: { name: 'API Integrators', icon: 'Activity' },
-    listProperties: ['partnerId', 'reference', 'type', 'status', 'amountKobo', 'createdAt'],
-    showProperties: ['id', 'partnerId', 'reference', 'type', 'status', 'amountKobo', 'balanceBeforeKobo', 'balanceAfterKobo', 'provider', 'providerRef', 'description', 'createdAt', 'updatedAt'],
-    filterProperties: ['partnerId', 'reference', 'type', 'status', 'provider', 'createdAt'],
+    listProperties: ['partner', 'reference', 'type', 'status', 'amountKobo', 'createdAt'],
+    showProperties: ['id', 'partner', 'reference', 'type', 'status', 'amountKobo', 'balanceBeforeKobo', 'balanceAfterKobo', 'provider', 'providerRef', 'description', 'createdAt', 'updatedAt'],
+    filterProperties: ['partner', 'reference', 'type', 'status', 'provider', 'createdAt'],
     properties: { idempotencyKey: { isVisible: false }, metadata: { isVisible: false } },
     actions: { new: { isAccessible: false }, edit: { isAccessible: false }, delete: { isAccessible: false }, list: { isAccessible: canManagePartners }, show: { isAccessible: canManagePartners } }
   }

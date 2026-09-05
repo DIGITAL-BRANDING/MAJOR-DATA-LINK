@@ -134,12 +134,18 @@ partnerApiRoutes.get('/dashboard', async (req, res) => {
       failed: dayTransactions.filter((tx) => tx.status === TransactionStatus.FAILED || tx.status === TransactionStatus.REVERSED).length };
   });
   res.json({ status: true, data: {
-    partner: { business_name: partner.businessName, email: partner.email },
+    partner: { business_name: partner.businessName, email: partner.email, phone: partner.phone },
     wallet: partnerFundingResponse(partner),
     summary: { today_calls: todayCalls, total_calls: calls, total_spend: koboToNaira(totalSpendKobo), successful_calls: successful, failed_calls: failed },
     chart: byDay, recent_transactions: recent.map(partnerTransactionResponse),
     service_pricing: verificationPrices.filter((price) => price.isActive).map((price) => ({ service: price.service, label: price.label, price: price.unitPrice }))
   }});
+});
+
+partnerApiRoutes.post('/partner/phone', async (req, res) => {
+  const body = z.object({ phone: z.string().trim().min(6).max(20) }).parse(req.body);
+  const partner = await prisma.partner.update({ where: { id: req.partner!.id }, data: { phone: body.phone } });
+  res.json({ status: true, message: 'Partner phone number saved', data: { phone: partner.phone } });
 });
 
 partnerApiRoutes.get('/transactions', async (req, res) => {
