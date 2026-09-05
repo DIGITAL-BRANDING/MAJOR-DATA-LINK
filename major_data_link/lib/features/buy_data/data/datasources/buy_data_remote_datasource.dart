@@ -51,9 +51,13 @@ abstract class BuyDataRemoteDataSource {
   Future<List<DataPlanEntity>> getDataPlans(
     NetworkProvider network, {
     String? category,
+    String? provider,
   });
 
-  Future<List<DataTypeOption>> getDataTypes(NetworkProvider network);
+  Future<List<DataTypeOption>> getDataTypes(
+    NetworkProvider network, {
+    String? provider,
+  });
 
   Future<PurchaseResult> purchaseData({
     required NetworkProvider network,
@@ -61,6 +65,7 @@ abstract class BuyDataRemoteDataSource {
     required String phone,
     required double amount,
     required String pin,
+    String? provider,
   });
 }
 
@@ -72,12 +77,15 @@ class BuyDataRemoteDataSourceImpl implements BuyDataRemoteDataSource {
   Future<List<DataPlanEntity>> getDataPlans(
     NetworkProvider network, {
     String? category,
+    String? provider,
   }) async {
     try {
       final response = await _dio.get(
         AppEndpoints.dataPlans(network.code),
-        queryParameters:
-            (category != null && category.isNotEmpty) ? {'category': category} : null,
+        queryParameters: {
+          if (category != null && category.isNotEmpty) 'category': category,
+          if (provider != null && provider.isNotEmpty) 'provider': provider,
+        },
       );
       final list = (response.data['data'] ?? response.data) as List<dynamic>;
       return list
@@ -90,10 +98,17 @@ class BuyDataRemoteDataSourceImpl implements BuyDataRemoteDataSource {
   }
 
   @override
-  Future<List<DataTypeOption>> getDataTypes(NetworkProvider network) async {
+  Future<List<DataTypeOption>> getDataTypes(
+    NetworkProvider network, {
+    String? provider,
+  }) async {
     try {
-      final response =
-          await _dio.get(AppEndpoints.dataPlanCategories(network.code));
+      final response = await _dio.get(
+        AppEndpoints.dataPlanCategories(network.code),
+        queryParameters: {
+          if (provider != null && provider.isNotEmpty) 'provider': provider,
+        },
+      );
       final list = (response.data['data'] ?? response.data) as List<dynamic>;
       return list
           .map((e) => DataTypeOption.fromJson(e as Map<String, dynamic>))
@@ -110,6 +125,7 @@ class BuyDataRemoteDataSourceImpl implements BuyDataRemoteDataSource {
     required String phone,
     required double amount,
     required String pin,
+    String? provider,
   }) async {
     try {
       final response = await _dio.post(
@@ -120,6 +136,7 @@ class BuyDataRemoteDataSourceImpl implements BuyDataRemoteDataSource {
           'phone': phone,
           'amount': amount,
           'pin': pin,
+          if (provider != null && provider.isNotEmpty) 'provider': provider,
         },
         options: Options(headers: {'Idempotency-Key': const Uuid().v4()}),
       );

@@ -28,25 +28,47 @@ final buyDataRepositoryProvider = Provider<BuyDataRepository>((ref) {
   );
 });
 
+// ── Promo Plans (BilalSadaSub) vs Data Plans (Alrahuz) chooser ─────────
+// The Buy Data page now opens on a chooser step - see BuyDataScreen. This
+// stays null until the user picks one, same lifecycle as
+// selectedCategoryProvider below.
+enum PlanMode { promo, data }
+
+extension PlanModeX on PlanMode {
+  /// The actual backend provider key this mode sends on every request -
+  /// kept in one place so the promo/data mapping can never drift between
+  /// call sites.
+  String get providerKey => this == PlanMode.promo ? 'bilalsadasub' : 'alrahuz';
+}
+
+final selectedPlanModeProvider =
+    StateProvider.autoDispose<PlanMode?>((ref) => null);
+
 // ── Selected network state (persists across plan reload) ──
 final selectedNetworkProvider =
     StateProvider.autoDispose<NetworkProvider>((ref) => NetworkProvider.mtn);
 
-// ── Selected Data Type (category) - resets whenever network changes ────
+// ── Selected Data Type (category) - resets whenever network or the
+// Promo/Data chooser changes, since each provider has its own category set ──
 final selectedCategoryProvider =
     StateProvider.autoDispose<String?>((ref) {
-  // Re-run whenever the network changes, so switching networks clears the
-  // previously selected Data Type rather than carrying over a category that
-  // might not exist for the new network.
+  // Re-run whenever the network or plan mode changes, so switching either
+  // clears the previously selected Data Type rather than carrying over a
+  // category that might not exist under the new network/provider.
   ref.watch(selectedNetworkProvider);
+  ref.watch(selectedPlanModeProvider);
   return null;
 });
 
 // ── Available Data Types (SME, GIFTING, etc.) for the selected network ──
 final dataTypesProvider = FutureProvider.autoDispose
-    .family<List<DataTypeOption>, NetworkProvider>((ref, network) async {
+    .family<List<DataTypeOption>, ({NetworkProvider network, PlanMode mode})>(
+        (ref, params) async {
   final repository = ref.read(buyDataRepositoryProvider);
-  final result = await repository.getDataTypes(network);
+  final result = await repository.getDataTypes(
+    params.network,
+    provider: params.mode.providerKey,
+  );
   return result.fold(
     (failure) => throw failure,
     (types) => types,
@@ -54,13 +76,14 @@ final dataTypesProvider = FutureProvider.autoDispose
 });
 
 // ── Data plans for selected network + Data Type ────────────────────────
-final dataPlansProvider = FutureProvider.autoDispose
-    .family<List<DataPlanEntity>, ({NetworkProvider network, String? category})>(
+final dataPlansProvider = FutureProvider.autoDispose.family<List<DataPlanEntity>,
+    ({NetworkProvider network, String? category, PlanMode mode})>(
         (ref, params) async {
   final repository = ref.read(buyDataRepositoryProvider);
   final result = await repository.getDataPlans(
     params.network,
     category: params.category,
+    provider: params.mode.providerKey,
   );
   return result.fold(
     (failure) => throw failure,
@@ -139,7 +162,11 @@ class BuyDataNotifier extends StateNotifier<BuyDataState> {
     state = const BuyDataState();
   }
 
-  Future<DataPurchaseResult?> purchase(NetworkProvider network, {required String pin}) async {
+  Future<DataPurchaseResult?> purchase(
+    NetworkProvider network, {
+    required PlanMode mode,
+    required String pin,
+  }) async {
     if (!state.canProceed) return null;
     state = state.copyWith(isProcessing: true, clearError: true);
 
@@ -149,6 +176,7 @@ class BuyDataNotifier extends StateNotifier<BuyDataState> {
       plan: state.selectedPlan!,
       phone: state.phone,
       pin: pin,
+      provider: mode.providerKey,
     );
 
     return result.fold(

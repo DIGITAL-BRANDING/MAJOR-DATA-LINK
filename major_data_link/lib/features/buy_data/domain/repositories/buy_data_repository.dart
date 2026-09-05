@@ -23,17 +23,20 @@ abstract class BuyDataRepository {
     NetworkProvider network, {
     String? category,
     bool forceRefresh = false,
+    String? provider,
   });
 
   Future<Either<Failure, List<DataTypeOption>>> getDataTypes(
-    NetworkProvider network,
-  );
+    NetworkProvider network, {
+    String? provider,
+  });
 
   Future<Either<Failure, DataPurchaseResult>> purchaseData({
     required NetworkProvider network,
     required DataPlanEntity plan,
     required String phone,
     required String pin,
+    String? provider,
   });
 
   Future<List<BeneficiaryEntity>> getBeneficiaries();

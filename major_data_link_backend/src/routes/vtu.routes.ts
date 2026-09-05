@@ -36,6 +36,21 @@ async function activeDataAirtimeProvider(): Promise<'alrahuz' | 'bilalsadasub'> 
 }
 
 /**
+ * Resolves which provider serves a single data-plan request/purchase. An
+ * explicit `provider` from the client - sent by the web/Flutter Buy Data
+ * UI's "Promo Plans" (bilalsadasub) vs "Data Plans" (alrahuz) chooser step -
+ * always wins, so the customer's own choice is never silently overridden by
+ * the admin's global toggle. Falls back to activeDataAirtimeProvider()
+ * (PricingSettings.dataAirtimeProvider) when the client doesn't send one,
+ * so older app builds and any other caller of these endpoints keep working
+ * exactly as before this chooser step existed.
+ */
+async function resolveDataProvider(explicit?: string): Promise<'alrahuz' | 'bilalsadasub'> {
+  if (explicit === 'alrahuz' || explicit === 'bilalsadasub') return explicit;
+  return activeDataAirtimeProvider();
+}
+
+/**
  * Shared purchase flow for anything that debits the wallet then calls the provider
  * (data, airtime, and later electricity/cable). Handles:
  *  - idempotent replay: if this request was already processed, return the cached result
@@ -174,7 +189,7 @@ export async function processProviderPurchase(params: {
 }
 
 vtuRoutes.get('/data/plans/:network/categories', async (req, res) => {
-  const provider = await activeDataAirtimeProvider();
+  const provider = await resolveDataProvider(typeof req.query.provider === 'string' ? req.query.provider : undefined);
   const categories =
     provider === 'bilalsadasub'
       ? await bilalsadasub.getDataPlanCategories(req.params.network)
@@ -184,7 +199,7 @@ vtuRoutes.get('/data/plans/:network/categories', async (req, res) => {
 
 vtuRoutes.get('/data/plans/:network', async (req, res) => {
   const category = typeof req.query.category === 'string' ? req.query.category : undefined;
-  const provider = await activeDataAirtimeProvider();
+  const provider = await resolveDataProvider(typeof req.query.provider === 'string' ? req.query.provider : undefined);
   const plans =
     provider === 'bilalsadasub'
       ? await bilalsadasub.getDataPlans(req.params.network, category)
@@ -204,11 +219,14 @@ vtuRoutes.post('/data/purchase', async (req, res) => {
     plan_id: z.string(),
     phone: z.string(),
     amount: z.number().positive().optional(),
+    // Explicit choice from the Buy Data chooser step ("Promo Plans" vs
+    // "Data Plans") - see resolveDataProvider()'s doc-comment above.
+    provider: z.enum(['alrahuz', 'bilalsadasub']).optional(),
     ...pinField
   }).parse(req.body);
   await requirePinConfirmation(req.user!.id, body.pin);
 
-  const provider = await activeDataAirtimeProvider();
+  const provider = await resolveDataProvider(body.provider);
   const plan =
     provider === 'bilalsadasub'
       ? await bilalsadasub.getDataPlan(body.network, body.plan_id)

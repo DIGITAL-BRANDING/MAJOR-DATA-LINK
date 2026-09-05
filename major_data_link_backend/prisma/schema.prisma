@@ -42,6 +42,13 @@ enum PartnerStatus {
   SUSPENDED
 }
 
+enum PartnerWebhookDeliveryStatus {
+  PENDING
+  PROCESSING
+  DELIVERED
+  FAILED
+}
+
 enum TransactionType {
   WALLET_FUNDING
   WALLET_TRANSFER
@@ -188,11 +195,15 @@ model Partner {
   virtualAccountProvider String?
   paystackCustomerCode String?    @unique
   webhookUrl        String?
+  /// Encrypted with PII_ENCRYPTION_KEY; required because outgoing HMAC signing
+  /// needs the secret value, unlike an inbound password check.
+  webhookSecretEncrypted Json?
   webhookSecretHash String?
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
   apiKeys           PartnerApiKey[]
   transactions      PartnerTransaction[]
+  webhookDeliveries PartnerWebhookDelivery[]
 
   @@index([status])
 }
@@ -237,6 +248,36 @@ model PartnerTransaction {
   @@unique([partnerId, idempotencyKey])
   @@index([partnerId, createdAt])
   @@index([partnerId, status, createdAt])
+}
+
+/// Durable transactional outbox for outbound partner webhooks. An event is
+/// committed before it is sent, so transient network failures/restarts cannot
+/// silently lose a completed purchase notification.
+model PartnerWebhookDelivery {
+  id                  String                       @id @default(uuid())
+  partnerId           String
+  eventId             String                       @unique @default(uuid())
+  eventKey            String
+  event               String
+  payload             Json
+  /// Encrypted secret snapshot: rotating a partner's current secret does not
+  /// make retries of an already queued delivery unverifiable.
+  signingSecret       Json
+  status              PartnerWebhookDeliveryStatus @default(PENDING)
+  attemptCount        Int                          @default(0)
+  nextAttemptAt       DateTime                     @default(now())
+  lockedAt            DateTime?
+  deliveredAt         DateTime?
+  lastAttemptAt       DateTime?
+  lastResponseStatus  Int?
+  lastError           String?
+  createdAt           DateTime                     @default(now())
+  updatedAt           DateTime                     @updatedAt
+  partner             Partner                      @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+
+  @@unique([partnerId, eventKey])
+  @@index([status, nextAttemptAt])
+  @@index([partnerId, createdAt])
 }
 
 model UserDelivery {

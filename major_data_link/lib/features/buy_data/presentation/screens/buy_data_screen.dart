@@ -62,14 +62,15 @@ class _BuyDataScreenState extends ConsumerState<BuyDataScreen> {
     }
   }
 
-  Future<void> _showDataTypeSheet(NetworkProvider network) async {
-    final typesAsync = ref.read(dataTypesProvider(network));
+  Future<void> _showDataTypeSheet(NetworkProvider network, PlanMode mode) async {
+    final typesAsync = ref.read(dataTypesProvider((network: network, mode: mode)));
     final selected = await showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       builder: (_) => _DataTypeSheet(
         network: network,
+        mode: mode,
         initialTypes: typesAsync.valueOrNull,
       ),
     );
@@ -93,6 +94,8 @@ class _BuyDataScreenState extends ConsumerState<BuyDataScreen> {
     context.hideKeyboard();
     final state = ref.read(buyDataNotifierProvider);
     final network = ref.read(selectedNetworkProvider);
+    final mode = ref.read(selectedPlanModeProvider);
+    if (mode == null) return;
 
     if (!state.canProceed) {
       context.showSnackBar('Please select a plan and enter a phone number',
@@ -123,8 +126,9 @@ class _BuyDataScreenState extends ConsumerState<BuyDataScreen> {
     );
     if (pin == null || !mounted) return;
 
-    final result =
-        await ref.read(buyDataNotifierProvider.notifier).purchase(network, pin: pin);
+    final result = await ref
+        .read(buyDataNotifierProvider.notifier)
+        .purchase(network, mode: mode, pin: pin);
 
     if (!mounted) return;
 
@@ -226,17 +230,23 @@ class _BuyDataScreenState extends ConsumerState<BuyDataScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final mode = ref.watch(selectedPlanModeProvider);
+
+    if (mode == null) {
+      return const _PlanModeChooser();
+    }
+
     final network = ref.watch(selectedNetworkProvider);
     final category = ref.watch(selectedCategoryProvider);
     final plansAsync = category == null
         ? const AsyncValue<List<DataPlanEntity>>.loading()
-        : ref.watch(
-            dataPlansProvider((network: network, category: category)));
+        : ref.watch(dataPlansProvider(
+            (network: network, category: category, mode: mode)));
     final buyState = ref.watch(buyDataNotifierProvider);
 
     // Default to the first available Data Type once the list loads for this
     // network (mirrors Alrahuz defaulting to a preselected category).
-    ref.listen(dataTypesProvider(network), (prev, next) {
+    ref.listen(dataTypesProvider((network: network, mode: mode)), (prev, next) {
       next.whenData((types) {
         if (types.isNotEmpty && ref.read(selectedCategoryProvider) == null) {
           ref.read(selectedCategoryProvider.notifier).state =
@@ -263,7 +273,19 @@ class _BuyDataScreenState extends ConsumerState<BuyDataScreen> {
     });
 
     return Scaffold(
-      appBar: AppBar(title: const Text(AppStrings.buyData)),
+      appBar: AppBar(
+        title: Text(mode == PlanMode.promo
+            ? 'Buy Data — Promo Plans'
+            : 'Buy Data — Data Plans'),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_rounded),
+          // Back goes to the Promo/Data chooser, not straight off the
+          // screen - mirrors the web Buy Data page's same back-to-chooser
+          // step.
+          onPressed: () =>
+              ref.read(selectedPlanModeProvider.notifier).state = null,
+        ),
+      ),
       body: SafeArea(
         top: false,
         child: SingleChildScrollView(
@@ -271,6 +293,45 @@ class _BuyDataScreenState extends ConsumerState<BuyDataScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const SizedBox(height: 12),
+              if (mode == PlanMode.promo) ...[
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: AppDimensions.screenPaddingH),
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: context.colors.primary.withValues(alpha: 0.08),
+                      borderRadius:
+                          BorderRadius.circular(AppDimensions.radiusMD),
+                      border: Border.all(
+                        color: context.colors.primary.withValues(alpha: 0.35),
+                      ),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(Icons.info_outline_rounded,
+                            size: 18, color: context.colors.primary),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'Most promo plans are not available for every '
+                            'phone number — this depends on your network '
+                            'operator, not on us. Try your number; if '
+                            "you're lucky, you can get the cheapest plan. "
+                            'If a plan fails outright, any deduction is '
+                            'reversed to your wallet automatically.',
+                            style: context.textTheme.bodySmall?.copyWith(
+                              height: 1.4,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
               Padding(
                 padding: const EdgeInsets.symmetric(
                     horizontal: AppDimensions.screenPaddingH),
@@ -365,7 +426,7 @@ class _BuyDataScreenState extends ConsumerState<BuyDataScreen> {
                     Text('Data Types', style: context.textTheme.titleSmall),
                     const SizedBox(height: 10),
                     InkWell(
-                      onTap: () => _showDataTypeSheet(network),
+                      onTap: () => _showDataTypeSheet(network, mode),
                       borderRadius: BorderRadius.circular(AppDimensions.radiusMD),
                       child: Container(
                         width: double.infinity,
@@ -425,8 +486,8 @@ class _BuyDataScreenState extends ConsumerState<BuyDataScreen> {
                     message: 'Failed to load data plans',
                     onRetry: () => category != null
                         ? ref.invalidate(dataPlansProvider(
-                            (network: network, category: category)))
-                        : ref.invalidate(dataTypesProvider(network)),
+                            (network: network, category: category, mode: mode)))
+                        : ref.invalidate(dataTypesProvider((network: network, mode: mode))),
                   ),
                   data: (plans) {
                     if (plans.isEmpty) {
@@ -497,14 +558,15 @@ class _BuyDataScreenState extends ConsumerState<BuyDataScreen> {
 
 // ── Data Type picker bottom sheet (mirrors Alrahuz's own UI) ─────────
 class _DataTypeSheet extends ConsumerWidget {
-  const _DataTypeSheet({required this.network, this.initialTypes});
+  const _DataTypeSheet({required this.network, required this.mode, this.initialTypes});
 
   final NetworkProvider network;
+  final PlanMode mode;
   final List<DataTypeOption>? initialTypes;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final typesAsync = ref.watch(dataTypesProvider(network));
+    final typesAsync = ref.watch(dataTypesProvider((network: network, mode: mode)));
 
     return Container(
       constraints: BoxConstraints(
@@ -547,7 +609,8 @@ class _DataTypeSheet extends ConsumerWidget {
                 padding: const EdgeInsets.symmetric(vertical: 32),
                 child: KDErrorState(
                   message: 'Could not load data types',
-                  onRetry: () => ref.invalidate(dataTypesProvider(network)),
+                  onRetry: () => ref.invalidate(
+                      dataTypesProvider((network: network, mode: mode))),
                 ),
               ),
               data: (types) {
@@ -717,6 +780,117 @@ class _BeneficiarySheet extends ConsumerWidget {
               },
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Promo Plans vs Data Plans chooser - the Buy Data page's entry step.
+// "Promo Plans" routes into the same screen with PlanMode.promo (backed by
+// BilalSadaSub), "Data Plans" with PlanMode.data (backed by Alrahuz,
+// unchanged from before this chooser existed). ──────────────────────────
+class _PlanModeChooser extends ConsumerWidget {
+  const _PlanModeChooser();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Scaffold(
+      appBar: AppBar(title: const Text(AppStrings.buyData)),
+      body: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.all(AppDimensions.screenPaddingH),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const SizedBox(height: 8),
+              Text(
+                'Pick the kind of data plan you want to buy',
+                style: context.textTheme.titleSmall,
+              ),
+              const SizedBox(height: 16),
+              _PlanModeTile(
+                icon: Icons.auto_awesome_rounded,
+                title: 'Promo Plans',
+                subtitle:
+                    'Cheaper, discounted bundles. Availability depends on '
+                    "your number - try your luck.",
+                onTap: () => ref.read(selectedPlanModeProvider.notifier).state =
+                    PlanMode.promo,
+              ),
+              const SizedBox(height: 12),
+              _PlanModeTile(
+                icon: Icons.wifi_rounded,
+                title: 'Data Plans',
+                subtitle:
+                    'Regular data bundles across every network - always available.',
+                onTap: () => ref.read(selectedPlanModeProvider.notifier).state =
+                    PlanMode.data,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PlanModeTile extends StatelessWidget {
+  const _PlanModeTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return KDCard(
+      onTap: onTap,
+      padding: const EdgeInsets.all(18),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: AppColors.primary500.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, color: AppColors.primary600),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 15,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  subtitle,
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    height: 1.35,
+                    color: AppColors.neutral500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Icon(Icons.chevron_right_rounded, color: AppColors.neutral400),
         ],
       ),
     );

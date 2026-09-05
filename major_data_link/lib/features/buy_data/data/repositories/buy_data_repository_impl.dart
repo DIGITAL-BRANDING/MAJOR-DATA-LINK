@@ -32,10 +32,16 @@ class BuyDataRepositoryImpl implements BuyDataRepository {
     NetworkProvider network, {
     String? category,
     bool forceRefresh = false,
+    String? provider,
   }) async {
+    // Cache key is namespaced by provider (bilalsadasub/alrahuz) so
+    // switching between the Buy Data page's "Promo Plans" and "Data Plans"
+    // chooser never serves one provider's cached catalog under the other's
+    // label - their plan IDs and category sets are entirely different.
+    final providerSegment = (provider == null || provider.isEmpty) ? '' : '_$provider';
     final cacheKey = category == null || category.isEmpty
-        ? 'data_plans_${network.code}'
-        : 'data_plans_${network.code}_${category.toUpperCase()}';
+        ? 'data_plans_${network.code}$providerSegment'
+        : 'data_plans_${network.code}_${category.toUpperCase()}$providerSegment';
 
     try {
       if (!forceRefresh) {
@@ -59,8 +65,11 @@ class BuyDataRepositoryImpl implements BuyDataRepository {
         return const Left(NetworkFailure());
       }
 
-      final plans =
-          await _remote.getDataPlans(network, category: category);
+      final plans = await _remote.getDataPlans(
+        network,
+        category: category,
+        provider: provider,
+      );
       await _hive.set(
         cacheKey,
         plans
@@ -87,13 +96,14 @@ class BuyDataRepositoryImpl implements BuyDataRepository {
 
   @override
   Future<Either<Failure, List<DataTypeOption>>> getDataTypes(
-    NetworkProvider network,
-  ) async {
+    NetworkProvider network, {
+    String? provider,
+  }) async {
     try {
       if (!await _networkInfo.isConnected) {
         return const Left(NetworkFailure());
       }
-      final types = await _remote.getDataTypes(network);
+      final types = await _remote.getDataTypes(network, provider: provider);
       return Right(types);
     } on AppException catch (e) {
       return Left(ErrorHandler.exceptionToFailure(e));
@@ -108,6 +118,7 @@ class BuyDataRepositoryImpl implements BuyDataRepository {
     required DataPlanEntity plan,
     required String phone,
     required String pin,
+    String? provider,
   }) async {
     if (!await _networkInfo.isConnected) {
       return const Left(NetworkFailure());
@@ -119,6 +130,7 @@ class BuyDataRepositoryImpl implements BuyDataRepository {
         phone: phone,
         amount: plan.price,
         pin: pin,
+        provider: provider,
       );
 
       if (result.success) {

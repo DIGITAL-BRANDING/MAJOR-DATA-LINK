@@ -80,6 +80,31 @@ async function checkPartnerAsync(params: {
   return { reference: transaction.reference, ticketId: result.ticketId, status: 'failed', response: result.response };
 }
 
+/**
+ * Server-side reconciliation for pending async requests. Without this, a
+ * webhook could only be emitted after the partner happened to poll its own
+ * ticket, which defeats the point of a notification system. The worker only
+ * handles services whose upstream status endpoints are already implemented.
+ */
+export async function reconcilePendingPartnerVerificationTickets(limit = 20) {
+  const transactions = await prisma.partnerTransaction.findMany({
+    where: { status: TransactionStatus.PENDING, provider: 'techhub', type: TransactionType.IDENTITY_SERVICE_REQUEST, providerRef: { not: null } },
+    orderBy: { updatedAt: 'asc' }, take: limit
+  });
+  await Promise.allSettled(transactions.map(async (transaction) => {
+    const metadata = transaction.metadata as Record<string, unknown> | null;
+    const service = metadata?.service;
+    const ticketId = transaction.providerRef!;
+    if (service === 'NIN_PERSONALIZATION') {
+      await checkPartnerAsync({ partnerId: transaction.partnerId, ticketId, call: (id) => techhubService.checkPersonalization(id) });
+    } else if (service === 'IPE_CLEARANCE') {
+      await checkPartnerAsync({ partnerId: transaction.partnerId, ticketId, call: (id) => techhubService.checkIpeClearance(id) });
+    } else if (typeof service === 'string' && service.startsWith('NIN_VALIDATION_')) {
+      await checkPartnerAsync({ partnerId: transaction.partnerId, ticketId, call: (id) => techhubService.checkNinValidation(id) });
+    }
+  }));
+}
+
 export async function purchasePartnerSlip(params: {
   partnerId: string; service: VerificationServiceKey; type: TransactionType;
   description: string; operational: Record<string, unknown>; pii: Record<string, unknown>;

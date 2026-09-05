@@ -54,6 +54,13 @@ async function startServer() {
 
     console.log('[server] Creating Express app');
     const app = createApp();
+    const { startPartnerWebhookWorker } = await import('./services/partner-webhook.service.js');
+    const { reconcilePendingPartnerVerificationTickets } = await import('./services/partner-verification.service.js');
+    const stopPartnerWebhookWorker = startPartnerWebhookWorker();
+    const reconcilePartnerTickets = () => void reconcilePendingPartnerVerificationTickets().catch((error) => console.error('[partner-verification] reconciliation run failed', error));
+    reconcilePartnerTickets();
+    const partnerTicketTimer = setInterval(reconcilePartnerTickets, 30_000);
+    partnerTicketTimer.unref();
 
     // Eagerly create every ServicePricing row (both Techhub NIN/BVN services
     // and Alrahuz result-pin exam types) right now, instead of waiting for
@@ -98,6 +105,8 @@ async function startServer() {
       process.on(signal, () => {
         console.log(`[server] Received ${signal}, shutting down gracefully`);
         server.close(async () => {
+          stopPartnerWebhookWorker();
+          clearInterval(partnerTicketTimer);
           await prisma.$disconnect();
           console.log('[server] Server closed, database disconnected');
           process.exit(0);

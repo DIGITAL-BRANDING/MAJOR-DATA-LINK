@@ -53,13 +53,17 @@ export async function createPartnerDynamicFunding(partnerId: string, amount: num
 
 /** Credits a partner's wallet exactly once after the payment gateway is verified. */
 export async function creditPartnerFundingByReference(reference: string) {
-  return prisma.$transaction(async (tx) => {
+  const transaction = await prisma.$transaction(async (tx) => {
     const funding = await tx.partnerTransaction.findUnique({ where: { reference } });
     if (!funding || funding.type !== TransactionType.WALLET_FUNDING) throw new ApiError(404, 'Partner funding transaction not found', 'PARTNER_FUNDING_NOT_FOUND');
     if (funding.status === TransactionStatus.SUCCESS) return funding;
     const partner = await tx.partner.update({ where: { id: funding.partnerId }, data: { walletBalanceKobo: { increment: funding.amountKobo } } });
     return tx.partnerTransaction.update({ where: { id: funding.id }, data: { status: TransactionStatus.SUCCESS, balanceAfterKobo: partner.walletBalanceKobo } });
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  void import('./partner-webhook.service.js').then(({ enqueuePartnerTransactionWebhook, deliverDuePartnerWebhooks }) =>
+    enqueuePartnerTransactionWebhook(transaction).then(() => deliverDuePartnerWebhooks(1)).catch((error) => console.error('[partner-webhooks] could not queue funding event', error))
+  );
+  return transaction;
 }
 
 export async function verifyPartnerFunding(reference: string) {
@@ -75,7 +79,7 @@ export async function creditPartnerDirectDeposit(params: { reference: string; am
   const providerRef = `${params.provider}:virtual-account:${params.reference}`;
   const existing = await prisma.partnerTransaction.findFirst({ where: { partnerId: params.partnerId, provider: params.provider, providerRef, type: TransactionType.WALLET_FUNDING } });
   if (existing) return existing;
-  return prisma.$transaction(async (tx) => {
+  const transaction = await prisma.$transaction(async (tx) => {
     const partner = await tx.partner.findUniqueOrThrow({ where: { id: params.partnerId } });
     const updated = await tx.partner.update({ where: { id: partner.id }, data: { walletBalanceKobo: { increment: params.amountKobo } } });
     return tx.partnerTransaction.create({ data: {
@@ -85,6 +89,10 @@ export async function creditPartnerDirectDeposit(params: { reference: string; am
       idempotencyKey: `direct:${providerRef}`, description: `Partner wallet funded via direct bank transfer (${params.channel})`, metadata: { channel: params.channel }
     }});
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  void import('./partner-webhook.service.js').then(({ enqueuePartnerTransactionWebhook, deliverDuePartnerWebhooks }) =>
+    enqueuePartnerTransactionWebhook(transaction).then(() => deliverDuePartnerWebhooks(1)).catch((error) => console.error('[partner-webhooks] could not queue direct-deposit event', error))
+  );
+  return transaction;
 }
 
 export function partnerFundingResponse(partner: { walletBalanceKobo: bigint; virtualAccountNumber: string | null; virtualAccountBank: string | null; virtualAccountProvider: string | null }) {

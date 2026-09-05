@@ -37,10 +37,12 @@ export const partnerResource: ResourceWithOptions = {
         isVisible: { list: true, show: true, edit: false, filter: false },
         description: 'Partner prepaid wallet in kobo. Fund/adjust through finance controls only; it is separate from Customer wallets.'
       },
-      webhookSecretHash: { isVisible: false },
       apiKeys: { isVisible: false },
       transactions: { isVisible: false },
-      paystackCustomerCode: { isVisible: false }
+      paystackCustomerCode: { isVisible: false },
+      webhookSecretEncrypted: { isVisible: false },
+      webhookSecretHash: { isVisible: false },
+      webhookDeliveries: { isVisible: false }
     },
     actions: {
       list: { isAccessible: canManagePartners },
@@ -116,6 +118,19 @@ export const partnerTransactionResource: ResourceWithOptions = {
     showProperties: ['id', 'partner', 'reference', 'type', 'status', 'amountKobo', 'balanceBeforeKobo', 'balanceAfterKobo', 'provider', 'providerRef', 'description', 'createdAt', 'updatedAt'],
     filterProperties: ['partner', 'reference', 'type', 'status', 'provider', 'createdAt'],
     properties: { idempotencyKey: { isVisible: false }, metadata: { isVisible: false } },
+    actions: { new: { isAccessible: false }, edit: { isAccessible: false }, delete: { isAccessible: false }, list: { isAccessible: canManagePartners }, show: { isAccessible: canManagePartners } }
+  }
+};
+
+/** Delivery history is operational evidence: it never exposes payloads or signing secrets. */
+export const partnerWebhookDeliveryResource: ResourceWithOptions = {
+  resource: { model: getModelByName('PartnerWebhookDelivery'), client: prisma },
+  options: {
+    id: 'PartnerWebhookDelivery', navigation: { name: 'API Integrators', icon: 'Send' },
+    listProperties: ['partner', 'event', 'status', 'attemptCount', 'lastResponseStatus', 'createdAt'],
+    showProperties: ['id', 'partner', 'eventId', 'event', 'status', 'attemptCount', 'nextAttemptAt', 'deliveredAt', 'lastAttemptAt', 'lastResponseStatus', 'lastError', 'createdAt'],
+    filterProperties: ['partner', 'event', 'status', 'createdAt'],
+    properties: { payload: { isVisible: false }, signingSecret: { isVisible: false }, eventKey: { isVisible: false }, lockedAt: { isVisible: false } },
     actions: { new: { isAccessible: false }, edit: { isAccessible: false }, delete: { isAccessible: false }, list: { isAccessible: canManagePartners }, show: { isAccessible: canManagePartners } }
   }
 };

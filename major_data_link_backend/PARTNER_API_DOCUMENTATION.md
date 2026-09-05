@@ -17,14 +17,14 @@ partner wallet dinsa a Major Data Link.
 
 ## Production access
 
-Za a ba partner abubuwa uku bayan an amince da shi kuma an biya kuɗin fara
-amfani/ya saka kuɗi a partner wallet:
+Za a ba partner `base_url` da `X-API-Key` bayan an amince da shi kuma an biya
+kuɗin fara amfani/ya saka kuɗi a partner wallet. `webhook_secret` sai partner
+ya saita webhook URL dinsa; secret ɗin yana bayyana sau ɗaya ne kawai.
 
 | Abu | Ma'ana |
 | --- | --- |
 | `base_url` | Production URL, misali `https://api.yourdomain.com/api/v1` |
 | `X-API-Key` | Sirrin key na wannan partner kawai |
-| `webhook_secret` | Sirrin HMAC don tabbatar da webhook da aka aika masa |
 
 Ana amfani da **HTTPS kawai**. Kar a sa API key a Flutter/web frontend ko a
 public GitHub repository; a ajiye shi a server/environment variable na partner.
@@ -384,44 +384,84 @@ Response na successful prepaid purchase zai iya ƙunsar `token` da `units`:
 ```
 
 `status` zai zama `pending`, `success`, `failed`, ko `reversed`. Idan purchase
-ya dawo `pending`, partner ya duba wannan endpoint ko ya jira webhook; kada ya
-sake sayar da order ɗin da sabon idempotency key.
+ya dawo `pending`, partner ya duba wannan endpoint; backend kuma yana reconcile
+pending NIN Validation/IPE/Personalization tickets a background kuma zai aika
+webhook da zarar upstream ta ba terminal result. Kada ya sake sayar da order
+ɗin da sabon idempotency key.
 
 ## Webhooks
 
-Partner zai iya samar da HTTPS webhook URL. Major Data Link zai tura event
-idan transaction da farko ya tsaya `pending` sannan aka tabbatar da sakamakonsa.
+Webhooks suna aiki ne bayan partner ya saita public HTTPS callback URL. Major
+Data Link yana ajiye event a durable delivery queue kafin ya aika shi; don haka
+restart ko temporary network failure ba zai ɓatar da event ba.
+
+### Saita webhook
+
+`POST /webhook`
+
+```json
+{ "webhook_url": "https://partner.example.com/webhooks/major-data-link" }
+```
+
+Response zai ƙunshi `webhook_secret` sau ɗaya kawai. A ajiye shi a server
+environment variable. Sake kiran endpoint ɗin yana rotate secret; queued old
+deliveries za su ci gaba da amfani da old secret snapshot har su gama retry.
+
+`GET /webhook` yana nuna URL da ko webhook an saita (`configured`), amma ba ya
+taɓa mayar da secret.
+
+Don gwaji: `POST /webhook/test`. Don delivery history: `GET /webhook/deliveries`.
+
+URL dole ne HTTPS kuma ya nuna public internet host; localhost, private IP,
+credentials a URL, da URL fragment ba a amince da su ba.
+
+### Event da signature
+
+Ana aika `transaction.updated` ga kowane terminal partner ledger transaction
+(`success` ko `reversed`), ciki har da purchase da wallet funding. Ba a aika
+NIN/BVN/PDF ko sauran PII a webhook payload ba; a samu irin bayanan ta secure
+API request ɗin partner idan doka/consent ta bada dama.
 
 Headers:
 
 ```http
 X-MDL-Event: transaction.updated
-X-MDL-Signature: sha256=<HMAC-SHA256 raw request body>
+X-MDL-Event-ID: 018f...
+X-MDL-Timestamp: 1767600000
+X-MDL-Signature: sha256=<HMAC-SHA256("<timestamp>.<raw request body>")>
 ```
 
 Payload:
 
 ```json
 {
+  "id": "018f...",
   "event": "transaction.updated",
+  "created_at": "2026-09-05T10:30:00.000Z",
   "data": {
     "reference": "MDL-20260904-ABC123",
     "status": "success",
     "type": "data_purchase",
     "amount": 350,
-    "message": "Transaction processed"
+      "balance_after": 12150,
+      "provider": "techhub"
   }
 }
 ```
 
-Partner ya tabbatar da HMAC da `webhook_secret`, ya mayar da HTTP `200` cikin
-seconds 10, kuma ya sarrafa event sau da yawa (idempotently). Kada a dogara da
-webhook kaɗai; a rika iya kiran transaction status.
+Partner ya tabbatar da HMAC-SHA256 da `webhook_secret` a kan **raw bytes** na
+body tare da timestamp (`timestamp + '.' + rawBody`). Ya ƙi stale timestamp
+(misali fiye da minti 5), ya deduplicate da `X-MDL-Event-ID`/payload `id`, kuma
+ya mayar da HTTP 2xx cikin seconds 10. Duk non-2xx ko timeout ana retry sau 8:
+1, 2, 4, 8, 16, 32, sannan 60 minutes. Delivery semantics **at-least-once** ne,
+don haka partner ya zama idempotent. Status API shi ne source of truth idan
+delivery ta gaza.
 
 ## Rate limits da operational rules
 
 - Suggested limit: 60 requests/minute/partner; purchase endpoint 30/minute.
-- A yi exponential backoff a 429/5xx: 1s, 2s, 4s, 8s (max 4 retries).
+- Webhook retry ana sarrafa shi da backend: 1, 2, 4, 8, 16, 32, 60 minutes;
+  max attempts 8. Partner zai maida 2xx bayan ya queue event a nasa side.
 - A yi amfani da amount da plan ID daga latest plans response; kar a hard-code
   plan price.
 - Phone/meter/smartcard da partner ya aiko na iya zama personal data. A yi
@@ -429,23 +469,18 @@ webhook kaɗai; a rika iya kiran transaction status.
 - Refund ba automatic bane ga duk `pending`; a tabbatar da status da reference
   kafin a yi reverse ko a sake kaya.
 
-## Abubuwan da ake bukata kafin a wallafa wannan ga partners
+## Abubuwan da ke bukatar ƙarin planning kafin a faɗaɗa API
 
 Backend ɗin na yanzu yana da `/api` endpoints na **customer app**, masu amfani
 da `Authorization: Bearer <user JWT>` da transaction PIN. Ba daidai ba ne a
 sayar da waɗancan endpoints kai tsaye ga resellers. A aiwatar da waɗannan kafin
 production partner launch:
 
-1. Ƙirƙiri `Partner` da `PartnerApiKey` tables (key hash kawai, ba plain key).
-2. Ƙirƙiri partner-auth middleware da `/api/v1` routes masu zaman kansu.
-3. Yi partner wallet/ledger daban da user wallet; duk debit/refund ya zama
-   atomic kuma idempotent.
-4. Ƙara transaction lookup da `reference`, audit log, rate-limit per API key,
-   key revoke/rotate, da optional IP allow-list.
-5. Ƙara signed outbound webhooks, retry queue, sandbox keys, da partner portal
-   don funding, usage, da API-key rotation.
-6. Yi review na legal/compliance da agreement kafin fara caji ko sarrafa bayanan
-   masu amfani.
+An riga an gina partner/auth, partner wallet/ledger, rate limits, status lookup,
+partner portal, da signed outbound webhook queue. Abubuwan da suka rage kafin
+faɗaɗa commercial program sun haɗa da sandbox environment daban, optional IP
+allow-list, da review na legal/compliance/agreement kafin fara caji ko sarrafa bayanan
+masu amfani.
 
 ## Support
 

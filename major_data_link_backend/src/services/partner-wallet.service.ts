@@ -49,14 +49,18 @@ export async function debitPartnerWallet(input: {
 }
 
 export async function completePartnerPurchase(transactionId: string, provider: string, providerRef?: string) {
-  return prisma.partnerTransaction.update({
+  const transaction = await prisma.partnerTransaction.update({
     where: { id: transactionId },
     data: { status: TransactionStatus.SUCCESS, provider, providerRef: providerRef ?? null }
   });
+  void import('./partner-webhook.service.js').then(({ enqueuePartnerTransactionWebhook, deliverDuePartnerWebhooks }) =>
+    enqueuePartnerTransactionWebhook(transaction).then(() => deliverDuePartnerWebhooks(1)).catch((error) => console.error('[partner-webhooks] could not queue success event', error))
+  );
+  return transaction;
 }
 
 export async function reversePartnerPurchase(transactionId: string, message: string) {
-  return prisma.$transaction(async (tx) => {
+  const transaction = await prisma.$transaction(async (tx) => {
     const original = await tx.partnerTransaction.findUniqueOrThrow({ where: { id: transactionId } });
     if (original.status !== TransactionStatus.PENDING) return original;
     const partner = await tx.partner.findUniqueOrThrow({ where: { id: original.partnerId } });
@@ -79,6 +83,10 @@ export async function reversePartnerPurchase(transactionId: string, message: str
     });
     return { ...original, status: TransactionStatus.REVERSED, balanceAfterKobo };
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  void import('./partner-webhook.service.js').then(({ enqueuePartnerTransactionWebhook, deliverDuePartnerWebhooks }) =>
+    enqueuePartnerTransactionWebhook(transaction).then(() => deliverDuePartnerWebhooks(1)).catch((error) => console.error('[partner-webhooks] could not queue reversal event', error))
+  );
+  return transaction;
 }
 
 export function partnerTransactionResponse(tx: { reference: string; status: TransactionStatus; amountKobo: bigint; balanceAfterKobo: bigint; type: TransactionType; createdAt: Date }) {

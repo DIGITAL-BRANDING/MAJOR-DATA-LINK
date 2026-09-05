@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, CheckCircle2, ReceiptText, Search } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Info, ReceiptText, Search, Sparkles, Wifi } from 'lucide-react';
 import AppShell from '../components/AppShell';
 import { api, ApiError } from '../lib/api';
 import { findLatestTransactionId } from '../lib/receipt';
@@ -13,11 +13,20 @@ const NETWORKS = [
   { code: '9MOBILE', label: '9mobile', bg: 'bg-[#00A99D]', text: 'text-white' },
 ];
 
+// 'promo' -> BilalSadaSub, 'data' -> Alrahuz. Kept as this app-facing
+// 'promo'/'data' pair (not the raw provider name) so the chooser step reads
+// naturally and the provider mapping stays in one place if it ever changes.
+type PlanMode = 'promo' | 'data';
+function providerFor(mode: PlanMode): 'bilalsadasub' | 'alrahuz' {
+  return mode === 'promo' ? 'bilalsadasub' : 'alrahuz';
+}
+
 type Category = { category: string; count: number };
 type Plan = { id: string; name: string; amount: number; validity: string; planType?: string };
 
 export default function BuyDataPage() {
   const navigate = useNavigate();
+  const [planMode, setPlanMode] = useState<PlanMode | null>(null);
   const [network, setNetwork] = useState('MTN');
   const [phone, setPhone] = useState('');
 
@@ -35,14 +44,17 @@ export default function BuyDataPage() {
   const [receiptId, setReceiptId] = useState<string | null>(null);
   const [showPin, setShowPin] = useState(false);
 
-  // Reload categories whenever network changes
+  // Reload categories whenever network or the promo/data chooser changes
   useEffect(() => {
+    if (!planMode) return;
     setCategory(null);
     setPlans([]);
     setPlanId(null);
     setLoadingCategories(true);
     api
-      .get<{ status: boolean; data: Category[] }>(`/data/plans/${network}/categories`)
+      .get<{ status: boolean; data: Category[] }>(
+        `/data/plans/${network}/categories?provider=${providerFor(planMode)}`
+      )
       .then((res) => {
         const list = res.data ?? [];
         setCategories(list);
@@ -52,22 +64,22 @@ export default function BuyDataPage() {
       })
       .catch(() => setCategories([]))
       .finally(() => setLoadingCategories(false));
-  }, [network]);
+  }, [network, planMode]);
 
   // Reload plans whenever category changes
   useEffect(() => {
-    if (!category) return;
+    if (!category || !planMode) return;
     setPlanId(null);
     setPlanSearch('');
     setLoadingPlans(true);
     api
       .get<{ status: boolean; data: Plan[] }>(
-        `/data/plans/${network}?category=${encodeURIComponent(category)}`
+        `/data/plans/${network}?category=${encodeURIComponent(category)}&provider=${providerFor(planMode)}`
       )
       .then((res) => setPlans(res.data ?? []))
       .catch(() => setPlans([]))
       .finally(() => setLoadingPlans(false));
-  }, [network, category]);
+  }, [network, category, planMode]);
 
   const filteredPlans = useMemo(() => {
     const q = planSearch.trim().toLowerCase();
@@ -83,12 +95,18 @@ export default function BuyDataPage() {
   }
 
   async function purchase(pin: string) {
-    if (!planId) return;
+    if (!planId || !planMode) return;
     setShowPin(false);
     setError(null);
     setIsSubmitting(true);
     try {
-      const res = await api.post<{ status: boolean; message: string }>('/data/purchase', { network, plan_id: planId, phone, pin });
+      const res = await api.post<{ status: boolean; message: string }>('/data/purchase', {
+        network,
+        plan_id: planId,
+        phone,
+        pin,
+        provider: providerFor(planMode)
+      });
       if (res.status) {
         setSuccess(res.message || 'Data delivered successfully');
         findLatestTransactionId().then(setReceiptId);
@@ -137,20 +155,83 @@ export default function BuyDataPage() {
     );
   }
 
+  if (!planMode) {
+    return (
+      <AppShell>
+        <button
+          onClick={() => navigate('/dashboard')}
+          className="mb-4 flex items-center gap-1.5 font-body text-sm text-ink-600 hover:text-ink"
+        >
+          <ArrowLeft size={15} /> Back
+        </button>
+
+        <div className="max-w-xl rounded-2xl border border-parchment-line bg-parchment p-5 sm:p-6">
+          <h1 className="font-display text-2xl font-bold text-ink">Buy Data</h1>
+          <p className="mt-1 font-body text-sm text-ink-600">Pick the kind of data plan you want to buy</p>
+
+          <div className="mt-6 grid grid-cols-1 gap-3.5 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => setPlanMode('promo')}
+              className="flex flex-col items-start gap-3 rounded-xl border-2 border-parchment-line bg-cream p-5 text-left transition hover:border-gold-500"
+            >
+              <span className="flex h-11 w-11 items-center justify-center rounded-full bg-gold-500/15 text-gold-700">
+                <Sparkles size={20} />
+              </span>
+              <span className="font-display text-base font-bold text-ink">Promo Plans</span>
+              <span className="font-body text-xs text-ink-600">
+                Cheaper, discounted bundles. Availability depends on your number - try your luck.
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setPlanMode('data')}
+              className="flex flex-col items-start gap-3 rounded-xl border-2 border-parchment-line bg-cream p-5 text-left transition hover:border-gold-500"
+            >
+              <span className="flex h-11 w-11 items-center justify-center rounded-full bg-gold-500/15 text-gold-700">
+                <Wifi size={20} />
+              </span>
+              <span className="font-display text-base font-bold text-ink">Data Plans</span>
+              <span className="font-body text-xs text-ink-600">
+                Regular data bundles across every network - always available.
+              </span>
+            </button>
+          </div>
+        </div>
+      </AppShell>
+    );
+  }
+
   return (
     <AppShell>
       <button
-        onClick={() => navigate('/dashboard')}
+        onClick={() => setPlanMode(null)}
         className="mb-4 flex items-center gap-1.5 font-body text-sm text-ink-600 hover:text-ink"
       >
         <ArrowLeft size={15} /> Back
       </button>
 
       <div className="max-w-xl rounded-2xl border border-parchment-line bg-parchment p-5 sm:p-6">
-        <h1 className="font-display text-2xl font-bold text-ink">Buy Data</h1>
+        <h1 className="font-display text-2xl font-bold text-ink">
+          {planMode === 'promo' ? 'Buy Data — Promo Plans' : 'Buy Data — Data Plans'}
+        </h1>
         <p className="mt-1 font-body text-sm text-ink-600">
-          Instant data bundles on every network — delivered in seconds
+          {planMode === 'promo'
+            ? 'Discounted bundles at the lowest prices we offer'
+            : 'Instant data bundles on every network — delivered in seconds'}
         </p>
+
+        {planMode === 'promo' && (
+          <div className="mt-4 flex gap-2.5 rounded-xl border border-gold-500/40 bg-gold-50 px-4 py-3">
+            <Info size={16} className="mt-0.5 shrink-0 text-gold-700" />
+            <p className="font-body text-xs leading-relaxed text-ink-600">
+              Most promo plans are not available for every phone number — this depends on your network
+              operator, not on us. Try your number; if you're lucky, you can get the cheapest plan. If a
+              plan fails outright, any deduction is reversed to your wallet automatically.
+            </p>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="mt-6 space-y-7">
           <div>

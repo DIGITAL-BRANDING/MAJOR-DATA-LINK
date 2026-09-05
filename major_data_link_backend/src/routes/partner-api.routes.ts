@@ -19,6 +19,7 @@ import type { NormalizedProviderResponse } from '../services/provider-types.js';
 import { listVerificationPrices } from '../services/verification.service.js';
 import { partnerVerification } from '../services/partner-verification.service.js';
 import { createPartnerDynamicFunding, partnerFundingResponse, provisionPartnerVirtualAccount, verifyPartnerFunding } from '../services/partner-funding.service.js';
+import { configurePartnerWebhook, queuePartnerWebhookTest, webhookConfiguration } from '../services/partner-webhook.service.js';
 
 export const partnerApiRoutes = Router();
 
@@ -146,6 +147,28 @@ partnerApiRoutes.post('/partner/phone', async (req, res) => {
   const body = z.object({ phone: z.string().trim().min(6).max(20) }).parse(req.body);
   const partner = await prisma.partner.update({ where: { id: req.partner!.id }, data: { phone: body.phone } });
   res.json({ status: true, message: 'Partner phone number saved', data: { phone: partner.phone } });
+});
+
+partnerApiRoutes.get('/webhook', async (req, res) => {
+  res.json({ status: true, data: await webhookConfiguration(req.partner!.id) });
+});
+
+partnerApiRoutes.post('/webhook', async (req, res) => {
+  const body = z.object({ webhook_url: z.string().trim().url().max(2048) }).parse(req.body);
+  const config = await configurePartnerWebhook(req.partner!.id, body.webhook_url);
+  res.status(201).json({ status: true, message: 'Webhook configured. Save the secret now; it will not be shown again.', data: { webhook_url: config.webhookUrl, webhook_secret: config.secret } });
+});
+
+partnerApiRoutes.post('/webhook/test', async (req, res) => {
+  const delivery = await queuePartnerWebhookTest(req.partner!.id);
+  if (!delivery) return res.status(422).json({ status: false, message: 'Configure a webhook URL before sending a test event.', code: 'WEBHOOK_NOT_CONFIGURED' });
+  res.status(202).json({ status: true, message: 'Webhook test queued', data: { event_id: delivery.eventId, status: delivery.status.toLowerCase(), attempts: delivery.attemptCount } });
+});
+
+partnerApiRoutes.get('/webhook/deliveries', async (req, res) => {
+  const limit = Math.min(Math.max(Number(req.query.limit) || 20, 1), 100);
+  const rows = await prisma.partnerWebhookDelivery.findMany({ where: { partnerId: req.partner!.id }, orderBy: { createdAt: 'desc' }, take: limit });
+  res.json({ status: true, data: rows.map((row) => ({ event_id: row.eventId, event: row.event, status: row.status.toLowerCase(), attempts: row.attemptCount, response_status: row.lastResponseStatus, last_error: row.lastError, created_at: row.createdAt.toISOString(), delivered_at: row.deliveredAt?.toISOString() ?? null, next_attempt_at: row.status === 'PENDING' ? row.nextAttemptAt.toISOString() : null })) });
 });
 
 partnerApiRoutes.get('/transactions', async (req, res) => {
