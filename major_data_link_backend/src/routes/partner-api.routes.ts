@@ -2,7 +2,7 @@ import { Router, type Request } from 'express';
 import rateLimit from 'express-rate-limit';
 import { Prisma, TransactionStatus, TransactionType } from '@prisma/client';
 import { z } from 'zod';
-import { koboToNaira } from '../lib/money.js';
+import { koboToNaira, nairaToKobo } from '../lib/money.js';
 import { prisma } from '../lib/prisma.js';
 import { ApiError } from '../middleware/error.js';
 import { requirePartnerApiKey } from '../middleware/partner-auth.js';
@@ -20,6 +20,7 @@ import { listVerificationPrices } from '../services/verification.service.js';
 import { partnerVerification } from '../services/partner-verification.service.js';
 import { createPartnerDynamicFunding, partnerFundingResponse, provisionPartnerVirtualAccount, verifyPartnerFunding } from '../services/partner-funding.service.js';
 import { configurePartnerWebhook, queuePartnerWebhookTest, webhookConfiguration } from '../services/partner-webhook.service.js';
+import { flagPartnerPendingReconciliation } from '../services/partner-reconciliation.service.js';
 
 export const partnerApiRoutes = Router();
 
@@ -53,12 +54,30 @@ async function purchaseForPartner(input: {
 
   const upstream = await input.callProvider(debit.transaction.reference);
   if (upstream.status) {
-    const transaction = await completePartnerPurchase(debit.transaction.id, input.provider, upstream.providerRef);
+    // For data/airtime the partner is already charged our exact wholesale
+    // cost with no markup (see PARTNER_API_DOCUMENTATION.md's pricing
+    // section) - input.amount IS our cost basis unless the provider's own
+    // response reveals a more precise figure (upstream.costKobo, from a
+    // balance-delta - see bilalsadasub.service.ts/provider.service.ts).
+    const finalCostKobo = upstream.costKobo ?? nairaToKobo(input.amount);
+    const transaction = await completePartnerPurchase(debit.transaction.id, input.provider, upstream.providerRef, finalCostKobo);
     return { transaction, message: upstream.message ?? 'Transaction processed' };
   }
   if (upstream.pending) {
-    // The exact same upstream reference is retained, so a status reconciler can
-    // safely complete it later without asking the partner to submit a new order.
+    // Ambiguous "still processing" provider status - not a confirmed
+    // failure, so don't auto-refund (the provider might still fulfil it and
+    // the partner would be refunded AND charged). Unlike the Techhub-backed
+    // verification flow, there's no confirmed BilalSadaSub requery endpoint
+    // to self-resolve this (see bilalsadasub.service.ts's normalize() for
+    // why), so it's flagged here for a human admin to resolve manually at
+    // /admin/provider-reconciliation - the exact same upstream reference is
+    // retained, so resolving it later needs no new order from the partner.
+    await flagPartnerPendingReconciliation({
+      transactionId: debit.transaction.id,
+      provider: input.provider,
+      providerRef: upstream.providerRef,
+      providerMessage: upstream.message
+    });
     return { transaction: debit.transaction, message: upstream.message ?? 'Transaction is pending confirmation' };
   }
   const transaction = await reversePartnerPurchase(debit.transaction.id, upstream.message ?? 'Provider rejected transaction');
@@ -78,6 +97,21 @@ partnerApiRoutes.use(rateLimit({
   keyGenerator: (req) => `partner:${req.partner!.id}`,
   message: { status: false, message: 'Partner API rate limit exceeded', code: 'RATE_LIMITED' }
 }));
+
+// Stricter limit on the two purchase endpoints specifically, matching
+// PARTNER_API_DOCUMENTATION.md's "purchase endpoint 30/minute" - the
+// blanket 60/min above still applies to everything else (balance checks,
+// transaction lookups, verification, wallet funding, etc). Applied as extra
+// middleware on just those two routes rather than a second router-wide
+// limiter, so it stacks with (not replaces) the general limit.
+const purchaseLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: 30,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  keyGenerator: (req) => `partner:purchase:${req.partner!.id}`,
+  message: { status: false, message: 'Partner API purchase rate limit exceeded', code: 'RATE_LIMITED' }
+});
 
 partnerApiRoutes.get('/wallet/balance', async (req, res) => {
   const partner = await prisma.partner.findUniqueOrThrow({ where: { id: req.partner!.id } });
@@ -287,7 +321,7 @@ partnerApiRoutes.post('/verification/bvn/slip', async (req, res) => {
   res.json(verificationResponse(result));
 });
 
-partnerApiRoutes.post('/data/purchase', async (req, res) => {
+partnerApiRoutes.post('/data/purchase', purchaseLimiter, async (req, res) => {
   const body = z.object({ network: z.string().min(1), plan_id: z.string().min(1), phone: z.string().trim().min(6).max(20) }).parse(req.body);
   const provider = await activeDataAirtimeProvider();
   const plan = provider === 'bilalsadasub'
@@ -308,7 +342,7 @@ partnerApiRoutes.post('/data/purchase', async (req, res) => {
   res.json({ status: result.transaction.status === TransactionStatus.SUCCESS, message: result.message, data: partnerTransactionResponse(result.transaction) });
 });
 
-partnerApiRoutes.post('/airtime/purchase', async (req, res) => {
+partnerApiRoutes.post('/airtime/purchase', purchaseLimiter, async (req, res) => {
   const body = z.object({ network: z.string().min(1), phone: z.string().trim().min(6).max(20), amount: z.number().positive().max(500000) }).parse(req.body);
   const provider = await activeDataAirtimeProvider();
   const result = await purchaseForPartner({

@@ -1,0 +1,526 @@
+diff --git a/major_data_link_backend/src/admin/provider-reconciliation.ts b/major_data_link_backend/src/admin/provider-reconciliation.ts
+index bfdc391..5a44e57 100644
+--- a/major_data_link_backend/src/admin/provider-reconciliation.ts
++++ b/major_data_link_backend/src/admin/provider-reconciliation.ts
+@@ -7,6 +7,12 @@ import {
+   resolveReconciliationAsFailed,
+   type PendingReconciliationRow
+ } from '../services/provider-reconciliation.service.js';
++import {
++  listPendingPartnerReconciliations,
++  resolvePartnerReconciliationAsSuccess,
++  resolvePartnerReconciliationAsFailed,
++  type PendingPartnerReconciliationRow
++} from '../services/partner-reconciliation.service.js';
+ 
+ declare module 'express-session' {
+   interface SessionData {
+@@ -45,12 +51,16 @@ export function registerProviderReconciliationRoutes(router: Router) {
+     const admin = requireFinanceOrSuper(req);
+     if (!admin) return res.redirect('/admin/login');
+ 
+-    const pending = await listPendingReconciliations();
++    const [pending, pendingPartner] = await Promise.all([
++      listPendingReconciliations(),
++      listPendingPartnerReconciliations()
++    ]);
+ 
+     res.type('html').send(
+       renderPage({
+         admin,
+         pending,
++        pendingPartner,
+         notice: typeof req.query.notice === 'string' ? req.query.notice : undefined,
+         error: typeof req.query.error === 'string' ? req.query.error : undefined
+       })
+@@ -103,6 +113,49 @@ export function registerProviderReconciliationRoutes(router: Router) {
+       res.redirect(`/admin/provider-reconciliation?error=${encodeURIComponent((error as Error).message)}`);
+     }
+   });
++
++  router.post('/provider-reconciliation/partner/:id/success', async (req, res) => {
++    const admin = requireFinanceOrSuper(req);
++    if (!admin) return res.redirect('/admin/login');
++
++    try {
++      const providerRef = field(req, 'provider_ref').trim() || undefined;
++      const costAmount = field(req, 'cost_amount').trim();
++      const note = field(req, 'note').trim() || undefined;
++
++      await resolvePartnerReconciliationAsSuccess({
++        transactionId: req.params.id,
++        adminId: admin.id,
++        providerRef,
++        costKobo: costAmount ? nairaToKobo(Number(costAmount)) : undefined,
++        note
++      });
++
++      res.redirect('/admin/provider-reconciliation?notice=Partner transaction marked as successful');
++    } catch (error) {
++      res.redirect(`/admin/provider-reconciliation?error=${encodeURIComponent((error as Error).message)}`);
++    }
++  });
++
++  router.post('/provider-reconciliation/partner/:id/failed', async (req, res) => {
++    const admin = requireFinanceOrSuper(req);
++    if (!admin) return res.redirect('/admin/login');
++
++    try {
++      const reason = field(req, 'reason').trim();
++      if (!reason) throw new Error('A reason is required to refund a partner');
++
++      await resolvePartnerReconciliationAsFailed({
++        transactionId: req.params.id,
++        adminId: admin.id,
++        reason
++      });
++
++      res.redirect('/admin/provider-reconciliation?notice=Partner transaction marked as failed and refunded');
++    } catch (error) {
++      res.redirect(`/admin/provider-reconciliation?error=${encodeURIComponent((error as Error).message)}`);
++    }
++  });
+ }
+ 
+ function requireFinanceOrSuper(req: Request): AdminSessionUser | null {
+@@ -130,10 +183,11 @@ function ageLabel(createdAt: Date): string {
+ function renderPage(params: {
+   admin: AdminSessionUser;
+   pending: PendingReconciliationRow[];
++  pendingPartner: PendingPartnerReconciliationRow[];
+   notice?: string;
+   error?: string;
+ }) {
+-  const { admin, pending } = params;
++  const { admin, pending, pendingPartner } = params;
+ 
+   const rows = pending
+     .map((t) => {
+@@ -170,6 +224,40 @@ function renderPage(params: {
+     })
+     .join('');
+ 
++  const partnerRows = pendingPartner
++    .map((t) => {
++      const metadata = (t.metadata as Record<string, unknown> | null) ?? {};
++      const reconciliation = (metadata.reconciliation as Record<string, unknown> | undefined) ?? {};
++      const stale = Date.now() - new Date(t.createdAt).getTime() > 10 * 60 * 1000; // > 10 minutes
++      return `<div class="card txn-card ${stale ? 'stale' : ''}">
++        <div class="txn-head">
++          <div>
++            <strong>${escape(t.description)}</strong>
++            <div class="muted">Ref: ${escape(t.reference)} · ${escape(t.type)} · <span class="provider-tag">${escape(t.provider ?? 'unknown')}</span> · ${ageLabel(t.createdAt)}${stale ? ' <span class="stale-tag">STALE</span>' : ''}</div>
++          </div>
++          <div class="amount">${naira(koboToNaira(t.amountKobo))}</div>
++        </div>
++        <div class="txn-meta">
++          <span>Partner: ${escape(t.partner.businessName)} (${escape(t.partner.email)})</span>
++          <span>Provider ref: ${t.providerRef ? escape(t.providerRef) : '—'}</span>
++          ${reconciliation.providerMessage ? `<span>Provider said: "${escape(String(reconciliation.providerMessage))}"</span>` : ''}
++        </div>
++        <div class="forms">
++          <form class="action-form" method="POST" action="/admin/provider-reconciliation/partner/${t.id}/success">
++            <label>Provider ref (optional, if different)<input type="text" name="provider_ref" placeholder="${t.providerRef ? escape(t.providerRef) : ''}"></label>
++            <label>Actual cost ₦ (optional)<input type="number" name="cost_amount" min="0" step="0.01" placeholder="Leave blank to use amount charged"></label>
++            <label>Note (optional)<input type="text" name="note" placeholder="e.g. Confirmed on provider dashboard"></label>
++            <button type="submit" class="btn-success">Mark Success</button>
++          </form>
++          <form class="action-form" method="POST" action="/admin/provider-reconciliation/partner/${t.id}/failed">
++            <label>Reason (required)<input type="text" name="reason" required placeholder="e.g. Confirmed not delivered, refunding"></label>
++            <button type="submit" class="btn-fail">Mark Failed &amp; Refund</button>
++          </form>
++        </div>
++      </div>`;
++    })
++    .join('');
++
+   return `<!DOCTYPE html>
+ <html lang="en">
+ <head>
+@@ -208,6 +296,8 @@ function renderPage(params: {
+   .btn-fail:hover { opacity: 0.85; }
+   .empty { text-align: center; color: var(--muted); padding: 40px 0; }
+   .current { font-size: 13px; color: var(--muted); margin-top: 4px; }
++  .section-title { font-size: 15px; font-weight: 700; margin: 28px 0 12px; padding-top: 4px; border-top: 1px solid var(--border); }
++  .section-title:first-of-type { border-top: none; padding-top: 0; margin-top: 0; }
+ </style>
+ </head>
+ <body>
+@@ -216,13 +306,17 @@ function renderPage(params: {
+     <h1>Provider Reconciliation</h1>
+     <a class="back" href="/admin">&larr; Back to admin panel</a>
+   </header>
+-  <p class="intro">Transactions where a provider responded with an ambiguous "still processing" status instead of a clear success or failure. Check that provider's own merchant dashboard or contact their support for the real outcome, then resolve here - do not guess.</p>
++  <p class="intro">Transactions where a provider responded with an ambiguous "still processing" status instead of a clear success or failure. Check that provider's own merchant dashboard or contact their support for the real outcome, then resolve here - do not guess. (Partner API NIN/BVN verification tickets aren't listed here - those self-resolve automatically via reconcilePendingPartnerVerificationTickets; only partner data/airtime purchases need a human.)</p>
+ 
+   ${params.notice ? `<div class="notice">${escape(params.notice)}</div>` : ''}
+   ${params.error ? `<div class="error-banner">${escape(params.error)}</div>` : ''}
+ 
++  <p class="section-title">Customer Transactions</p>
+   ${rows || '<div class="card empty">Nothing awaiting reconciliation right now.</div>'}
+ 
++  <p class="section-title">Partner API Transactions</p>
++  ${partnerRows || '<div class="card empty">Nothing awaiting reconciliation right now.</div>'}
++
+   <p class="current">Signed in as ${escape(admin.fullName)} (${escape(admin.role)})</p>
+ </div>
+ </body>
+diff --git a/major_data_link_backend/src/routes/partner-api.routes.ts b/major_data_link_backend/src/routes/partner-api.routes.ts
+index 8d3c2a0..741c803 100644
+--- a/major_data_link_backend/src/routes/partner-api.routes.ts
++++ b/major_data_link_backend/src/routes/partner-api.routes.ts
+@@ -2,7 +2,7 @@ import { Router, type Request } from 'express';
+ import rateLimit from 'express-rate-limit';
+ import { Prisma, TransactionStatus, TransactionType } from '@prisma/client';
+ import { z } from 'zod';
+-import { koboToNaira } from '../lib/money.js';
++import { koboToNaira, nairaToKobo } from '../lib/money.js';
+ import { prisma } from '../lib/prisma.js';
+ import { ApiError } from '../middleware/error.js';
+ import { requirePartnerApiKey } from '../middleware/partner-auth.js';
+@@ -20,6 +20,7 @@ import { listVerificationPrices } from '../services/verification.service.js';
+ import { partnerVerification } from '../services/partner-verification.service.js';
+ import { createPartnerDynamicFunding, partnerFundingResponse, provisionPartnerVirtualAccount, verifyPartnerFunding } from '../services/partner-funding.service.js';
+ import { configurePartnerWebhook, queuePartnerWebhookTest, webhookConfiguration } from '../services/partner-webhook.service.js';
++import { flagPartnerPendingReconciliation } from '../services/partner-reconciliation.service.js';
+ 
+ export const partnerApiRoutes = Router();
+ 
+@@ -53,12 +54,30 @@ async function purchaseForPartner(input: {
+ 
+   const upstream = await input.callProvider(debit.transaction.reference);
+   if (upstream.status) {
+-    const transaction = await completePartnerPurchase(debit.transaction.id, input.provider, upstream.providerRef);
++    // For data/airtime the partner is already charged our exact wholesale
++    // cost with no markup (see PARTNER_API_DOCUMENTATION.md's pricing
++    // section) - input.amount IS our cost basis unless the provider's own
++    // response reveals a more precise figure (upstream.costKobo, from a
++    // balance-delta - see bilalsadasub.service.ts/provider.service.ts).
++    const finalCostKobo = upstream.costKobo ?? nairaToKobo(input.amount);
++    const transaction = await completePartnerPurchase(debit.transaction.id, input.provider, upstream.providerRef, finalCostKobo);
+     return { transaction, message: upstream.message ?? 'Transaction processed' };
+   }
+   if (upstream.pending) {
+-    // The exact same upstream reference is retained, so a status reconciler can
+-    // safely complete it later without asking the partner to submit a new order.
++    // Ambiguous "still processing" provider status - not a confirmed
++    // failure, so don't auto-refund (the provider might still fulfil it and
++    // the partner would be refunded AND charged). Unlike the Techhub-backed
++    // verification flow, there's no confirmed BilalSadaSub requery endpoint
++    // to self-resolve this (see bilalsadasub.service.ts's normalize() for
++    // why), so it's flagged here for a human admin to resolve manually at
++    // /admin/provider-reconciliation - the exact same upstream reference is
++    // retained, so resolving it later needs no new order from the partner.
++    await flagPartnerPendingReconciliation({
++      transactionId: debit.transaction.id,
++      provider: input.provider,
++      providerRef: upstream.providerRef,
++      providerMessage: upstream.message
++    });
+     return { transaction: debit.transaction, message: upstream.message ?? 'Transaction is pending confirmation' };
+   }
+   const transaction = await reversePartnerPurchase(debit.transaction.id, upstream.message ?? 'Provider rejected transaction');
+@@ -79,6 +98,21 @@ partnerApiRoutes.use(rateLimit({
+   message: { status: false, message: 'Partner API rate limit exceeded', code: 'RATE_LIMITED' }
+ }));
+ 
++// Stricter limit on the two purchase endpoints specifically, matching
++// PARTNER_API_DOCUMENTATION.md's "purchase endpoint 30/minute" - the
++// blanket 60/min above still applies to everything else (balance checks,
++// transaction lookups, verification, wallet funding, etc). Applied as extra
++// middleware on just those two routes rather than a second router-wide
++// limiter, so it stacks with (not replaces) the general limit.
++const purchaseLimiter = rateLimit({
++  windowMs: 60_000,
++  limit: 30,
++  standardHeaders: 'draft-7',
++  legacyHeaders: false,
++  keyGenerator: (req) => `partner:purchase:${req.partner!.id}`,
++  message: { status: false, message: 'Partner API purchase rate limit exceeded', code: 'RATE_LIMITED' }
++});
++
+ partnerApiRoutes.get('/wallet/balance', async (req, res) => {
+   const partner = await prisma.partner.findUniqueOrThrow({ where: { id: req.partner!.id } });
+   res.json({ status: true, data: partnerFundingResponse(partner) });
+@@ -287,7 +321,7 @@ partnerApiRoutes.post('/verification/bvn/slip', async (req, res) => {
+   res.json(verificationResponse(result));
+ });
+ 
+-partnerApiRoutes.post('/data/purchase', async (req, res) => {
++partnerApiRoutes.post('/data/purchase', purchaseLimiter, async (req, res) => {
+   const body = z.object({ network: z.string().min(1), plan_id: z.string().min(1), phone: z.string().trim().min(6).max(20) }).parse(req.body);
+   const provider = await activeDataAirtimeProvider();
+   const plan = provider === 'bilalsadasub'
+@@ -308,7 +342,7 @@ partnerApiRoutes.post('/data/purchase', async (req, res) => {
+   res.json({ status: result.transaction.status === TransactionStatus.SUCCESS, message: result.message, data: partnerTransactionResponse(result.transaction) });
+ });
+ 
+-partnerApiRoutes.post('/airtime/purchase', async (req, res) => {
++partnerApiRoutes.post('/airtime/purchase', purchaseLimiter, async (req, res) => {
+   const body = z.object({ network: z.string().min(1), phone: z.string().trim().min(6).max(20), amount: z.number().positive().max(500000) }).parse(req.body);
+   const provider = await activeDataAirtimeProvider();
+   const result = await purchaseForPartner({
+diff --git a/major_data_link_backend/src/services/partner-reconciliation.service.ts b/major_data_link_backend/src/services/partner-reconciliation.service.ts
+new file mode 100644
+index 0000000..c5628c1
+--- /dev/null
++++ b/major_data_link_backend/src/services/partner-reconciliation.service.ts
+@@ -0,0 +1,159 @@
++import { Prisma, TransactionStatus } from '@prisma/client';
++import { ApiError } from '../middleware/error.js';
++import { koboToNaira } from '../lib/money.js';
++import { prisma } from '../lib/prisma.js';
++import { completePartnerPurchase, reversePartnerPurchase } from './partner-wallet.service.js';
++
++/**
++ * Manual reconciliation for partner data/airtime purchases left PENDING by
++ * an ambiguous provider status (BilalSadaSub's "process" - see the
++ * doc-comment on normalize() in bilalsadasub.service.ts). This is the
++ * data/airtime counterpart to reconcilePendingPartnerVerificationTickets()
++ * in partner-verification.service.ts - that one self-resolves by actively
++ * re-polling Techhub, which has a real ticket-status endpoint; BilalSadaSub
++ * has no confirmed requery endpoint, so there is nothing to poll here, and
++ * a human admin has to check BilalSadaSub's own merchant dashboard/support
++ * for the real outcome instead. Scoped ONLY to type DATA_PURCHASE/
++ * AIRTIME_PURCHASE with provider bilalsadasub - verification tickets never
++ * need this path, since they already self-resolve automatically.
++ */
++
++export async function flagPartnerPendingReconciliation(params: {
++  transactionId: string;
++  provider: string;
++  providerRef?: string;
++  providerMessage?: string;
++  rawStatus?: unknown;
++}) {
++  const existing = await prisma.partnerTransaction.findUniqueOrThrow({ where: { id: params.transactionId } });
++  const existingMetadata = (existing.metadata as Record<string, unknown> | null) ?? {};
++
++  await prisma.partnerTransaction.update({
++    where: { id: params.transactionId },
++    data: {
++      provider: params.provider,
++      providerRef: params.providerRef ?? null,
++      metadata: {
++        ...existingMetadata,
++        reconciliation: {
++          flaggedAt: new Date().toISOString(),
++          providerMessage: params.providerMessage ?? null,
++          rawStatus: params.rawStatus ?? null
++        }
++      } as Prisma.InputJsonValue
++    }
++  });
++
++  console.error(
++    `[reconcile][partner][${params.provider}] partner transaction ${params.transactionId} left PENDING - provider returned an ambiguous in-progress status, needs manual review at /admin/provider-reconciliation`
++  );
++}
++
++export type PendingPartnerReconciliationRow = Prisma.PartnerTransactionGetPayload<{
++  include: { partner: { select: { id: true; businessName: true; email: true } } };
++}>;
++
++export async function listPendingPartnerReconciliations(): Promise<PendingPartnerReconciliationRow[]> {
++  return prisma.partnerTransaction.findMany({
++    where: {
++      status: TransactionStatus.PENDING,
++      // Only rows flagPendingReconciliation() above actually flagged -
++      // reconcilePendingPartnerVerificationTickets() handles the
++      // Techhub/IDENTITY_SERVICE_REQUEST side entirely on its own, so those
++      // never get this metadata key and never need to show up here.
++      metadata: { path: ['reconciliation'], not: Prisma.JsonNull }
++    },
++    orderBy: { createdAt: 'asc' },
++    include: { partner: { select: { id: true, businessName: true, email: true } } }
++  });
++}
++
++async function loadResolvablePartnerTransaction(transactionId: string) {
++  const transaction = await prisma.partnerTransaction.findUnique({ where: { id: transactionId } });
++  if (!transaction) throw new ApiError(404, 'Partner transaction not found', 'TRANSACTION_NOT_FOUND');
++  return transaction;
++}
++
++/**
++ * Admin has confirmed (via BilalSadaSub's own dashboard/support) that the
++ * partner's purchase actually went through. Delegates to
++ * completePartnerPurchase() - the same function the live purchase route
++ * uses on a confirmed success - so the provider ledger debit and the
++ * partner's `transaction.updated` webhook happen exactly the same way here
++ * as they would have for an immediate success.
++ */
++export async function resolvePartnerReconciliationAsSuccess(params: {
++  transactionId: string;
++  adminId: string;
++  providerRef?: string;
++  costKobo?: bigint;
++  note?: string;
++}) {
++  const transaction = await loadResolvablePartnerTransaction(params.transactionId);
++  if (transaction.status !== TransactionStatus.PENDING) {
++    return { transaction, alreadyResolved: true as const };
++  }
++
++  const existingMetadata = (transaction.metadata as Record<string, unknown> | null) ?? {};
++  // For data/airtime the partner is charged our exact wholesale cost with no
++  // markup (see PARTNER_API_DOCUMENTATION.md's pricing section), so
++  // amountKobo already IS our cost when no more specific figure was given.
++  const finalCostKobo = params.costKobo ?? transaction.costKobo ?? transaction.amountKobo;
++  const resolvedProvider = transaction.provider ?? 'unknown';
++
++  await prisma.partnerTransaction.update({
++    where: { id: transaction.id },
++    data: {
++      metadata: {
++        ...existingMetadata,
++        reconciliation: {
++          ...((existingMetadata.reconciliation as Record<string, unknown> | undefined) ?? {}),
++          resolvedAt: new Date().toISOString(),
++          resolvedByAdminId: params.adminId,
++          resolvedAs: 'success',
++          note: params.note ?? null
++        }
++      } as Prisma.InputJsonValue
++    }
++  });
++
++  const updated = await completePartnerPurchase(transaction.id, resolvedProvider, params.providerRef ?? transaction.providerRef ?? undefined, finalCostKobo);
++  return { transaction: updated, alreadyResolved: false as const };
++}
++
++/**
++ * Admin has confirmed the partner's purchase did NOT go through. Delegates
++ * to reversePartnerPurchase() - the same refund path (and webhook) the live
++ * purchase route uses on a confirmed failure.
++ */
++export async function resolvePartnerReconciliationAsFailed(params: {
++  transactionId: string;
++  adminId: string;
++  reason: string;
++}) {
++  const transaction = await loadResolvablePartnerTransaction(params.transactionId);
++  if (transaction.status !== TransactionStatus.PENDING) {
++    return { transaction, alreadyResolved: true as const };
++  }
++
++  const existingMetadata = (transaction.metadata as Record<string, unknown> | null) ?? {};
++
++  await prisma.partnerTransaction.update({
++    where: { id: transaction.id },
++    data: {
++      metadata: {
++        ...existingMetadata,
++        reconciliation: {
++          ...((existingMetadata.reconciliation as Record<string, unknown> | undefined) ?? {}),
++          resolvedAt: new Date().toISOString(),
++          resolvedByAdminId: params.adminId,
++          resolvedAs: 'failed',
++          note: params.reason
++        }
++      } as Prisma.InputJsonValue
++    }
++  });
++
++  const reversed = await reversePartnerPurchase(transaction.id, params.reason);
++  return { transaction: reversed, alreadyResolved: false as const, balanceAfter: koboToNaira(reversed.balanceAfterKobo) };
++}
+diff --git a/major_data_link_backend/src/services/partner-verification.service.ts b/major_data_link_backend/src/services/partner-verification.service.ts
+index b1deba5..b715e9e 100644
+--- a/major_data_link_backend/src/services/partner-verification.service.ts
++++ b/major_data_link_backend/src/services/partner-verification.service.ts
+@@ -30,6 +30,10 @@ async function submitPartnerAsync(params: {
+   const debit = await debitPartnerWallet({
+     partnerId: params.partnerId, amount: price.unitPrice, type: TransactionType.IDENTITY_SERVICE_REQUEST,
+     description: params.description, idempotencyKey: params.idempotencyKey,
++    // Captured up front (same reasoning as the identical note in
++    // verification.service.ts's submitAsyncService) - reused at check-time
++    // below rather than re-derived, since pricing could change in between.
++    costKobo: price.providerCostKobo,
+     metadata: { service: params.service, ...params.operational, unit_price: price.unitPrice, pii: sealPII(params.pii) } as Prisma.InputJsonValue
+   });
+   if (debit.reused) {
+@@ -72,7 +76,10 @@ async function checkPartnerAsync(params: {
+   const nextMetadata = { ...metadata, pii: mergeSealedPII(metadata.pii, { response: result.response, check_raw: result.raw }) } as Prisma.InputJsonValue;
+   if (result.status === 'success') {
+     await prisma.partnerTransaction.update({ where: { id: transaction.id }, data: { metadata: nextMetadata } });
+-    await completePartnerPurchase(transaction.id, 'techhub', transaction.providerRef ?? undefined);
++    // transaction.costKobo was captured at submit time in submitPartnerAsync()
++    // above (Techhub's actual cost, not the partner's unit_price) - reuse it
++    // rather than re-deriving.
++    await completePartnerPurchase(transaction.id, 'techhub', transaction.providerRef ?? undefined, transaction.costKobo ?? undefined);
+     return { reference: transaction.reference, ticketId: result.ticketId, status: 'success', response: result.response };
+   }
+   await prisma.partnerTransaction.update({ where: { id: transaction.id }, data: { metadata: nextMetadata } });
+@@ -132,7 +139,7 @@ export async function purchasePartnerSlip(params: {
+     metadata: { service: params.service, ...params.operational, unit_price: price.unitPrice,
+       pii: mergeSealedPII(current?.pii, { ...params.pii, user_data: provider.userData, pdf_base64: provider.pdfBase64, pdf_url: provider.pdfUrl }) } as Prisma.InputJsonValue
+   }});
+-  const transaction = await completePartnerPurchase(debit.transaction.id, 'techhub');
++  const transaction = await completePartnerPurchase(debit.transaction.id, 'techhub', undefined, price.providerCostKobo);
+   return { status: true, message: provider.message, reference: transaction.reference, balanceAfter: koboToNaira(transaction.balanceAfterKobo), userData: provider.userData, pdfBase64: provider.pdfBase64, pdfUrl: provider.pdfUrl };
+ }
+ 
+diff --git a/major_data_link_backend/src/services/partner-wallet.service.ts b/major_data_link_backend/src/services/partner-wallet.service.ts
+index c570356..f6b0ee0 100644
+--- a/major_data_link_backend/src/services/partner-wallet.service.ts
++++ b/major_data_link_backend/src/services/partner-wallet.service.ts
+@@ -11,6 +11,11 @@ export async function debitPartnerWallet(input: {
+   description: string;
+   metadata: Prisma.InputJsonValue;
+   idempotencyKey: string;
++  /** Our own upstream cost, captured up front when known (e.g. Techhub's
++   * providerCostKobo for verification services) - see PartnerTransaction.
++   * costKobo's doc-comment in schema.prisma. Omit when unknown; the
++   * eventual success path can still set it later via completePartnerPurchase. */
++  costKobo?: bigint;
+ }) {
+   const existing = await prisma.partnerTransaction.findUnique({
+     where: { partnerId_idempotencyKey: { partnerId: input.partnerId, idempotencyKey: input.idempotencyKey } }
+@@ -41,18 +46,43 @@ export async function debitPartnerWallet(input: {
+         reference: `MDL-${Date.now()}-${nanoid(8).toUpperCase()}`,
+         idempotencyKey: input.idempotencyKey,
+         description: input.description,
+-        metadata: input.metadata
++        metadata: input.metadata,
++        ...(input.costKobo !== undefined ? { costKobo: input.costKobo } : {})
+       }
+     });
+     return { transaction, reused: false };
+   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+ }
+ 
+-export async function completePartnerPurchase(transactionId: string, provider: string, providerRef?: string) {
++export async function completePartnerPurchase(
++  transactionId: string,
++  provider: string,
++  providerRef?: string,
++  /** Our own upstream cost, when known - see PartnerTransaction.costKobo's
++   * doc-comment in schema.prisma. Recorded to the Provider Ledger here so
++   * every success path (data/airtime purchase, verification slip, async
++   * ticket resolution) keeps it accurate with a single call site, instead
++   * of each caller needing to remember to do it separately. */
++  costKobo?: bigint
++) {
+   const transaction = await prisma.partnerTransaction.update({
+     where: { id: transactionId },
+-    data: { status: TransactionStatus.SUCCESS, provider, providerRef: providerRef ?? null }
++    data: {
++      status: TransactionStatus.SUCCESS,
++      provider,
++      providerRef: providerRef ?? null,
++      ...(costKobo !== undefined ? { costKobo } : {})
++    }
+   });
++  if (costKobo !== undefined && costKobo > 0n) {
++    const { recordProviderDebit } = await import('./provider-ledger.service.js');
++    await recordProviderDebit({
++      provider,
++      amountKobo: costKobo,
++      relatedTransactionId: transaction.id,
++      description: `${transaction.description} (partner API)`
++    }).catch((error) => console.error('[provider-ledger] failed to record debit for', transaction.id, error));
++  }
+   void import('./partner-webhook.service.js').then(({ enqueuePartnerTransactionWebhook, deliverDuePartnerWebhooks }) =>
+     enqueuePartnerTransactionWebhook(transaction).then(() => deliverDuePartnerWebhooks(1)).catch((error) => console.error('[partner-webhooks] could not queue success event', error))
+   );

@@ -7,6 +7,12 @@ import {
   resolveReconciliationAsFailed,
   type PendingReconciliationRow
 } from '../services/provider-reconciliation.service.js';
+import {
+  listPendingPartnerReconciliations,
+  resolvePartnerReconciliationAsSuccess,
+  resolvePartnerReconciliationAsFailed,
+  type PendingPartnerReconciliationRow
+} from '../services/partner-reconciliation.service.js';
 
 declare module 'express-session' {
   interface SessionData {
@@ -45,12 +51,16 @@ export function registerProviderReconciliationRoutes(router: Router) {
     const admin = requireFinanceOrSuper(req);
     if (!admin) return res.redirect('/admin/login');
 
-    const pending = await listPendingReconciliations();
+    const [pending, pendingPartner] = await Promise.all([
+      listPendingReconciliations(),
+      listPendingPartnerReconciliations()
+    ]);
 
     res.type('html').send(
       renderPage({
         admin,
         pending,
+        pendingPartner,
         notice: typeof req.query.notice === 'string' ? req.query.notice : undefined,
         error: typeof req.query.error === 'string' ? req.query.error : undefined
       })
@@ -103,6 +113,49 @@ export function registerProviderReconciliationRoutes(router: Router) {
       res.redirect(`/admin/provider-reconciliation?error=${encodeURIComponent((error as Error).message)}`);
     }
   });
+
+  router.post('/provider-reconciliation/partner/:id/success', async (req, res) => {
+    const admin = requireFinanceOrSuper(req);
+    if (!admin) return res.redirect('/admin/login');
+
+    try {
+      const providerRef = field(req, 'provider_ref').trim() || undefined;
+      const costAmount = field(req, 'cost_amount').trim();
+      const note = field(req, 'note').trim() || undefined;
+
+      await resolvePartnerReconciliationAsSuccess({
+        transactionId: req.params.id,
+        adminId: admin.id,
+        providerRef,
+        costKobo: costAmount ? nairaToKobo(Number(costAmount)) : undefined,
+        note
+      });
+
+      res.redirect('/admin/provider-reconciliation?notice=Partner transaction marked as successful');
+    } catch (error) {
+      res.redirect(`/admin/provider-reconciliation?error=${encodeURIComponent((error as Error).message)}`);
+    }
+  });
+
+  router.post('/provider-reconciliation/partner/:id/failed', async (req, res) => {
+    const admin = requireFinanceOrSuper(req);
+    if (!admin) return res.redirect('/admin/login');
+
+    try {
+      const reason = field(req, 'reason').trim();
+      if (!reason) throw new Error('A reason is required to refund a partner');
+
+      await resolvePartnerReconciliationAsFailed({
+        transactionId: req.params.id,
+        adminId: admin.id,
+        reason
+      });
+
+      res.redirect('/admin/provider-reconciliation?notice=Partner transaction marked as failed and refunded');
+    } catch (error) {
+      res.redirect(`/admin/provider-reconciliation?error=${encodeURIComponent((error as Error).message)}`);
+    }
+  });
 }
 
 function requireFinanceOrSuper(req: Request): AdminSessionUser | null {
@@ -130,10 +183,11 @@ function ageLabel(createdAt: Date): string {
 function renderPage(params: {
   admin: AdminSessionUser;
   pending: PendingReconciliationRow[];
+  pendingPartner: PendingPartnerReconciliationRow[];
   notice?: string;
   error?: string;
 }) {
-  const { admin, pending } = params;
+  const { admin, pending, pendingPartner } = params;
 
   const rows = pending
     .map((t) => {
@@ -162,6 +216,40 @@ function renderPage(params: {
             <button type="submit" class="btn-success">Mark Success</button>
           </form>
           <form class="action-form" method="POST" action="/admin/provider-reconciliation/${t.id}/failed">
+            <label>Reason (required)<input type="text" name="reason" required placeholder="e.g. Confirmed not delivered, refunding"></label>
+            <button type="submit" class="btn-fail">Mark Failed &amp; Refund</button>
+          </form>
+        </div>
+      </div>`;
+    })
+    .join('');
+
+  const partnerRows = pendingPartner
+    .map((t) => {
+      const metadata = (t.metadata as Record<string, unknown> | null) ?? {};
+      const reconciliation = (metadata.reconciliation as Record<string, unknown> | undefined) ?? {};
+      const stale = Date.now() - new Date(t.createdAt).getTime() > 10 * 60 * 1000; // > 10 minutes
+      return `<div class="card txn-card ${stale ? 'stale' : ''}">
+        <div class="txn-head">
+          <div>
+            <strong>${escape(t.description)}</strong>
+            <div class="muted">Ref: ${escape(t.reference)} · ${escape(t.type)} · <span class="provider-tag">${escape(t.provider ?? 'unknown')}</span> · ${ageLabel(t.createdAt)}${stale ? ' <span class="stale-tag">STALE</span>' : ''}</div>
+          </div>
+          <div class="amount">${naira(koboToNaira(t.amountKobo))}</div>
+        </div>
+        <div class="txn-meta">
+          <span>Partner: ${escape(t.partner.businessName)} (${escape(t.partner.email)})</span>
+          <span>Provider ref: ${t.providerRef ? escape(t.providerRef) : '—'}</span>
+          ${reconciliation.providerMessage ? `<span>Provider said: "${escape(String(reconciliation.providerMessage))}"</span>` : ''}
+        </div>
+        <div class="forms">
+          <form class="action-form" method="POST" action="/admin/provider-reconciliation/partner/${t.id}/success">
+            <label>Provider ref (optional, if different)<input type="text" name="provider_ref" placeholder="${t.providerRef ? escape(t.providerRef) : ''}"></label>
+            <label>Actual cost ₦ (optional)<input type="number" name="cost_amount" min="0" step="0.01" placeholder="Leave blank to use amount charged"></label>
+            <label>Note (optional)<input type="text" name="note" placeholder="e.g. Confirmed on provider dashboard"></label>
+            <button type="submit" class="btn-success">Mark Success</button>
+          </form>
+          <form class="action-form" method="POST" action="/admin/provider-reconciliation/partner/${t.id}/failed">
             <label>Reason (required)<input type="text" name="reason" required placeholder="e.g. Confirmed not delivered, refunding"></label>
             <button type="submit" class="btn-fail">Mark Failed &amp; Refund</button>
           </form>
@@ -208,6 +296,8 @@ function renderPage(params: {
   .btn-fail:hover { opacity: 0.85; }
   .empty { text-align: center; color: var(--muted); padding: 40px 0; }
   .current { font-size: 13px; color: var(--muted); margin-top: 4px; }
+  .section-title { font-size: 15px; font-weight: 700; margin: 28px 0 12px; padding-top: 4px; border-top: 1px solid var(--border); }
+  .section-title:first-of-type { border-top: none; padding-top: 0; margin-top: 0; }
 </style>
 </head>
 <body>
@@ -216,12 +306,16 @@ function renderPage(params: {
     <h1>Provider Reconciliation</h1>
     <a class="back" href="/admin">&larr; Back to admin panel</a>
   </header>
-  <p class="intro">Transactions where a provider responded with an ambiguous "still processing" status instead of a clear success or failure. Check that provider's own merchant dashboard or contact their support for the real outcome, then resolve here - do not guess.</p>
+  <p class="intro">Transactions where a provider responded with an ambiguous "still processing" status instead of a clear success or failure. Check that provider's own merchant dashboard or contact their support for the real outcome, then resolve here - do not guess. (Partner API NIN/BVN verification tickets aren't listed here - those self-resolve automatically via reconcilePendingPartnerVerificationTickets; only partner data/airtime purchases need a human.)</p>
 
   ${params.notice ? `<div class="notice">${escape(params.notice)}</div>` : ''}
   ${params.error ? `<div class="error-banner">${escape(params.error)}</div>` : ''}
 
+  <p class="section-title">Customer Transactions</p>
   ${rows || '<div class="card empty">Nothing awaiting reconciliation right now.</div>'}
+
+  <p class="section-title">Partner API Transactions</p>
+  ${partnerRows || '<div class="card empty">Nothing awaiting reconciliation right now.</div>'}
 
   <p class="current">Signed in as ${escape(admin.fullName)} (${escape(admin.role)})</p>
 </div>

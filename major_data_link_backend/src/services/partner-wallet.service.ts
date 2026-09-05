@@ -11,6 +11,11 @@ export async function debitPartnerWallet(input: {
   description: string;
   metadata: Prisma.InputJsonValue;
   idempotencyKey: string;
+  /** Our own upstream cost, captured up front when known (e.g. Techhub's
+   * providerCostKobo for verification services) - see PartnerTransaction.
+   * costKobo's doc-comment in schema.prisma. Omit when unknown; the
+   * eventual success path can still set it later via completePartnerPurchase. */
+  costKobo?: bigint;
 }) {
   const existing = await prisma.partnerTransaction.findUnique({
     where: { partnerId_idempotencyKey: { partnerId: input.partnerId, idempotencyKey: input.idempotencyKey } }
@@ -41,18 +46,43 @@ export async function debitPartnerWallet(input: {
         reference: `MDL-${Date.now()}-${nanoid(8).toUpperCase()}`,
         idempotencyKey: input.idempotencyKey,
         description: input.description,
-        metadata: input.metadata
+        metadata: input.metadata,
+        ...(input.costKobo !== undefined ? { costKobo: input.costKobo } : {})
       }
     });
     return { transaction, reused: false };
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 }
 
-export async function completePartnerPurchase(transactionId: string, provider: string, providerRef?: string) {
+export async function completePartnerPurchase(
+  transactionId: string,
+  provider: string,
+  providerRef?: string,
+  /** Our own upstream cost, when known - see PartnerTransaction.costKobo's
+   * doc-comment in schema.prisma. Recorded to the Provider Ledger here so
+   * every success path (data/airtime purchase, verification slip, async
+   * ticket resolution) keeps it accurate with a single call site, instead
+   * of each caller needing to remember to do it separately. */
+  costKobo?: bigint
+) {
   const transaction = await prisma.partnerTransaction.update({
     where: { id: transactionId },
-    data: { status: TransactionStatus.SUCCESS, provider, providerRef: providerRef ?? null }
+    data: {
+      status: TransactionStatus.SUCCESS,
+      provider,
+      providerRef: providerRef ?? null,
+      ...(costKobo !== undefined ? { costKobo } : {})
+    }
   });
+  if (costKobo !== undefined && costKobo > 0n) {
+    const { recordProviderDebit } = await import('./provider-ledger.service.js');
+    await recordProviderDebit({
+      provider,
+      amountKobo: costKobo,
+      relatedTransactionId: transaction.id,
+      description: `${transaction.description} (partner API)`
+    }).catch((error) => console.error('[provider-ledger] failed to record debit for', transaction.id, error));
+  }
   void import('./partner-webhook.service.js').then(({ enqueuePartnerTransactionWebhook, deliverDuePartnerWebhooks }) =>
     enqueuePartnerTransactionWebhook(transaction).then(() => deliverDuePartnerWebhooks(1)).catch((error) => console.error('[partner-webhooks] could not queue success event', error))
   );

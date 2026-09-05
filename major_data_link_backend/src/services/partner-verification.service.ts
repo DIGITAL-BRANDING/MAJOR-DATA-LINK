@@ -30,6 +30,10 @@ async function submitPartnerAsync(params: {
   const debit = await debitPartnerWallet({
     partnerId: params.partnerId, amount: price.unitPrice, type: TransactionType.IDENTITY_SERVICE_REQUEST,
     description: params.description, idempotencyKey: params.idempotencyKey,
+    // Captured up front (same reasoning as the identical note in
+    // verification.service.ts's submitAsyncService) - reused at check-time
+    // below rather than re-derived, since pricing could change in between.
+    costKobo: price.providerCostKobo,
     metadata: { service: params.service, ...params.operational, unit_price: price.unitPrice, pii: sealPII(params.pii) } as Prisma.InputJsonValue
   });
   if (debit.reused) {
@@ -72,7 +76,10 @@ async function checkPartnerAsync(params: {
   const nextMetadata = { ...metadata, pii: mergeSealedPII(metadata.pii, { response: result.response, check_raw: result.raw }) } as Prisma.InputJsonValue;
   if (result.status === 'success') {
     await prisma.partnerTransaction.update({ where: { id: transaction.id }, data: { metadata: nextMetadata } });
-    await completePartnerPurchase(transaction.id, 'techhub', transaction.providerRef ?? undefined);
+    // transaction.costKobo was captured at submit time in submitPartnerAsync()
+    // above (Techhub's actual cost, not the partner's unit_price) - reuse it
+    // rather than re-deriving.
+    await completePartnerPurchase(transaction.id, 'techhub', transaction.providerRef ?? undefined, transaction.costKobo ?? undefined);
     return { reference: transaction.reference, ticketId: result.ticketId, status: 'success', response: result.response };
   }
   await prisma.partnerTransaction.update({ where: { id: transaction.id }, data: { metadata: nextMetadata } });
@@ -132,7 +139,7 @@ export async function purchasePartnerSlip(params: {
     metadata: { service: params.service, ...params.operational, unit_price: price.unitPrice,
       pii: mergeSealedPII(current?.pii, { ...params.pii, user_data: provider.userData, pdf_base64: provider.pdfBase64, pdf_url: provider.pdfUrl }) } as Prisma.InputJsonValue
   }});
-  const transaction = await completePartnerPurchase(debit.transaction.id, 'techhub');
+  const transaction = await completePartnerPurchase(debit.transaction.id, 'techhub', undefined, price.providerCostKobo);
   return { status: true, message: provider.message, reference: transaction.reference, balanceAfter: koboToNaira(transaction.balanceAfterKobo), userData: provider.userData, pdfBase64: provider.pdfBase64, pdfUrl: provider.pdfUrl };
 }
 
