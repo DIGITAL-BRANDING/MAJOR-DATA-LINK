@@ -1,0 +1,23 @@
+/* Scoped through a body class that is only present while PartnerDashboardPage is mounted. */
+body.partner-dashboard main > div > section.mt-6.grid > article {
+  background: linear-gradient(135deg, #1d4ed8, #1e3a8a);
+  border-color: #3b82f6;
+  color: #fff;
+}
+
+body.partner-dashboard main > div > section.mt-6.grid > article:first-child > .mt-4.rounded-xl.bg-blue-50 {
+  background: rgba(255, 255, 255, .14);
+  border: 1px solid rgba(255, 255, 255, .3);
+}
+
+body.partner-dashboard main > div > section.mt-6.grid > article:first-child > .mt-4.rounded-xl.bg-blue-50 > p:nth-child(2) {
+  color: #fff;
+  font-size: 1.5rem;
+  font-weight: 800;
+  letter-spacing: .08em;
+}
+
+body.partner-dashboard main > div > section.mt-6.grid > article .text-slate-500,
+body.partner-dashboard main > div > section.mt-6.grid > article .text-slate-600 {
+  color: #dbeafe;
+}
