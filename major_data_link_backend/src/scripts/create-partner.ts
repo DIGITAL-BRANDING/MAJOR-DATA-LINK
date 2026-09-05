@@ -1,15 +1,15 @@
 /**
  * Creates a commercial API partner and prints its plaintext key ONCE.
- * Usage: npx tsx src/scripts/create-partner.ts "Business Name" email@example.com [opening-balance-naira]
+ * Usage: npx tsx src/scripts/create-partner.ts "Business Name" email@example.com [opening-balance-naira] [phone]
  */
 import 'dotenv/config';
 import { createHash, randomBytes } from 'node:crypto';
 import { nairaToKobo } from '../lib/money.js';
 import { prisma } from '../lib/prisma.js';
 
-const [businessName, emailArg, openingBalanceArg] = process.argv.slice(2);
+const [businessName, emailArg, openingBalanceArg, phoneArg] = process.argv.slice(2);
 if (!businessName || !emailArg) {
-  console.error('Usage: npx tsx src/scripts/create-partner.ts "Business Name" email@example.com [opening-balance-naira]');
+  console.error('Usage: npx tsx src/scripts/create-partner.ts "Business Name" email@example.com [opening-balance-naira] [phone]');
   process.exit(1);
 }
 const email = emailArg.trim().toLowerCase();
@@ -27,6 +27,7 @@ try {
     data: {
       businessName: businessName.trim(),
       email,
+      phone: phoneArg?.trim() || null,
       walletBalanceKobo: openingBalance > 0 ? nairaToKobo(openingBalance) : 0n,
       apiKeys: { create: { name: 'Initial production key', keyPrefix: key.slice(0, 16), secretHash } }
     }

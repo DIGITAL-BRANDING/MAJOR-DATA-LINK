@@ -10,6 +10,7 @@ import {
 } from '../services/wallet.service.js';
 import { paystackService } from '../services/paystack.service.js';
 import { katpayService } from '../services/katpay.service.js';
+import { creditPartnerDirectDeposit, creditPartnerFundingByReference } from '../services/partner-funding.service.js';
 import { advanceSession } from '../services/whatsapp-session.service.js';
 
 function normalizeKatpayStatus(value: unknown): string | undefined {
@@ -73,9 +74,13 @@ webhookRoutes.post('/paystack', async (req, res) => {
       const verified = await paystackService.verifyTransaction(reference);
 
       if (verified.status === 'success') {
+        const existingPartnerFunding = await prisma.partnerTransaction.findUnique({ where: { reference } });
         const existingTransaction = await prisma.transaction.findUnique({ where: { reference } });
 
-        if (existingTransaction) {
+        if (existingPartnerFunding?.type === 'WALLET_FUNDING') {
+          // Exact Transfer funding initiated from a partner dashboard.
+          await creditPartnerFundingByReference(reference);
+        } else if (existingTransaction) {
           // A funding attempt WE initiated — card charge (/wallet/fund) or a
           // Pay-with-Transfer dynamic account (/wallet/fund/dynamic) — already has
           // a PENDING row waiting for this exact reference. Credit it as before.
@@ -100,12 +105,12 @@ webhookRoutes.post('/paystack', async (req, res) => {
           // is the "just transfer to the account on your dashboard" flow. Credit
           // it on the fly, matched by the Paystack customer_code stored on the
           // user's record.
-          await creditDirectDeposit({
-            reference,
-            amountKobo: BigInt(verified.amount),
-            customerCode,
-            channel
-          });
+          const partner = await prisma.partner.findUnique({ where: { paystackCustomerCode: customerCode } });
+          if (partner) {
+            await creditPartnerDirectDeposit({ reference, amountKobo: BigInt(verified.amount), partnerId: partner.id, provider: 'paystack', channel });
+          } else {
+            await creditDirectDeposit({ reference, amountKobo: BigInt(verified.amount), customerCode, channel });
+          }
         }
         // Any other charge.success with no matching transaction and no
         // recognizable channel/customer is ignored rather than guessed at.
@@ -273,12 +278,12 @@ webhookRoutes.post('/katpay', async (req, res) => {
         // whether it's a genuine mismatch (wrong/stale number saved at
         // provisioning time) versus some other failure entirely.
         try {
-          await creditDirectDepositByAccountNumber({
-            reference,
-            amountKobo,
-            accountNumber,
-            channel: 'katpay_virtual_account'
-          });
+          const partner = await prisma.partner.findUnique({ where: { virtualAccountNumber: accountNumber } });
+          if (partner) {
+            await creditPartnerDirectDeposit({ reference, amountKobo, partnerId: partner.id, provider: 'katpay', channel: 'katpay_virtual_account' });
+          } else {
+            await creditDirectDepositByAccountNumber({ reference, amountKobo, accountNumber, channel: 'katpay_virtual_account' });
+          }
         } catch (creditError) {
           console.error(
             '[katpay-webhook] FAILED to credit virtual_account.payment_received',
@@ -317,15 +322,17 @@ webhookRoutes.post('/katpay', async (req, res) => {
         // rather than trusting event.data.transfer_payment.status as-is. Needs the
         // KatPay uuid, which was stored in the pending Transaction's metadata when
         // /wallet/fund/dynamic created it (see payment-provider.service.ts).
+        const partnerFunding = await prisma.partnerTransaction.findUnique({ where: { reference } });
         const pending = await prisma.transaction.findUnique({ where: { reference } });
-        const uuid = (pending?.metadata as { provider_reference?: string } | null)?.provider_reference;
+        const uuid = ((partnerFunding?.metadata ?? pending?.metadata) as { provider_reference?: string } | null)?.provider_reference;
 
         if (uuid) {
           const verified = await katpayService.getTransferPaymentStatus(uuid);
           // Accept both 'success' and 'completed' - see the comment on
           // KatpayTransferPayment['status'] in katpay.service.ts for why.
           if (verified.status === 'success' || verified.status === 'completed') {
-            await creditWalletByReference(reference);
+            if (partnerFunding?.type === 'WALLET_FUNDING') await creditPartnerFundingByReference(reference);
+            else await creditWalletByReference(reference);
           } else if (verified.status === 'failed' || verified.status === 'expired') {
             await markFundingFailed(reference);
           }

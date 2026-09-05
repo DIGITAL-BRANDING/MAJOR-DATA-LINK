@@ -18,6 +18,7 @@ import {
 import type { NormalizedProviderResponse } from '../services/provider-types.js';
 import { listVerificationPrices } from '../services/verification.service.js';
 import { partnerVerification } from '../services/partner-verification.service.js';
+import { createPartnerDynamicFunding, partnerFundingResponse, provisionPartnerVirtualAccount, verifyPartnerFunding } from '../services/partner-funding.service.js';
 
 export const partnerApiRoutes = Router();
 
@@ -79,7 +80,29 @@ partnerApiRoutes.use(rateLimit({
 
 partnerApiRoutes.get('/wallet/balance', async (req, res) => {
   const partner = await prisma.partner.findUniqueOrThrow({ where: { id: req.partner!.id } });
-  res.json({ status: true, data: { balance: koboToNaira(partner.walletBalanceKobo), currency: 'NGN' } });
+  res.json({ status: true, data: partnerFundingResponse(partner) });
+});
+
+partnerApiRoutes.post('/wallet/funding-account', async (req, res) => {
+  const partner = await provisionPartnerVirtualAccount(req.partner!.id);
+  res.json({ status: true, message: 'Partner funding account is ready', data: partnerFundingResponse(partner) });
+});
+
+partnerApiRoutes.post('/wallet/fund/dynamic', async (req, res) => {
+  const body = z.object({ amount: z.number().positive().max(5_000_000) }).parse(req.body);
+  const funding = await createPartnerDynamicFunding(req.partner!.id, body.amount);
+  res.status(201).json({ status: true, message: 'Transfer this exact amount to fund your partner wallet', data: {
+    amount: body.amount, reference: funding.reference, account_number: funding.accountNumber,
+    account_name: funding.accountName, bank_name: funding.bankName ?? null, expires_at: funding.expiresAt ?? null
+  }});
+});
+
+partnerApiRoutes.post('/wallet/fund/verify', async (req, res) => {
+  const body = z.object({ reference: z.string().trim().min(1) }).parse(req.body);
+  const owned = await prisma.partnerTransaction.findFirst({ where: { partnerId: req.partner!.id, reference: body.reference, type: TransactionType.WALLET_FUNDING } });
+  if (!owned) return res.status(404).json({ status: false, message: 'Partner funding transaction not found', code: 'PARTNER_FUNDING_NOT_FOUND' });
+  const result = await verifyPartnerFunding(body.reference);
+  res.json({ status: result.status === 'success', message: result.status === 'success' ? 'Partner wallet funded' : `Payment ${result.status}`, data: partnerTransactionResponse(result.transaction) });
 });
 
 partnerApiRoutes.get('/dashboard', async (req, res) => {
@@ -112,7 +135,7 @@ partnerApiRoutes.get('/dashboard', async (req, res) => {
   });
   res.json({ status: true, data: {
     partner: { business_name: partner.businessName, email: partner.email },
-    wallet: { balance: koboToNaira(partner.walletBalanceKobo), currency: 'NGN' },
+    wallet: partnerFundingResponse(partner),
     summary: { today_calls: todayCalls, total_calls: calls, total_spend: koboToNaira(totalSpendKobo), successful_calls: successful, failed_calls: failed },
     chart: byDay, recent_transactions: recent.map(partnerTransactionResponse),
     service_pricing: verificationPrices.filter((price) => price.isActive).map((price) => ({ service: price.service, label: price.label, price: price.unitPrice }))

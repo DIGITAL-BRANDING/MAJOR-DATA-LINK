@@ -28,10 +28,10 @@ export const partnerResource: ResourceWithOptions = {
   options: {
     id: 'Partner',
     navigation: { name: 'API Integrators', icon: 'Code' },
-    listProperties: ['businessName', 'email', 'walletBalanceKobo', 'status', 'createdAt'],
-    showProperties: ['id', 'businessName', 'email', 'walletBalanceKobo', 'status', 'webhookUrl', 'createdAt', 'updatedAt'],
-    editProperties: ['businessName', 'email', 'status', 'webhookUrl'],
-    filterProperties: ['businessName', 'email', 'status', 'createdAt'],
+    listProperties: ['businessName', 'email', 'phone', 'walletBalanceKobo', 'status', 'createdAt'],
+    showProperties: ['id', 'businessName', 'email', 'phone', 'walletBalanceKobo', 'status', 'virtualAccountNumber', 'virtualAccountBank', 'virtualAccountProvider', 'webhookUrl', 'createdAt', 'updatedAt'],
+    editProperties: ['businessName', 'email', 'phone', 'status', 'webhookUrl'],
+    filterProperties: ['businessName', 'email', 'phone', 'status', 'createdAt'],
     properties: {
       walletBalanceKobo: {
         isVisible: { list: true, show: true, edit: false, filter: false },
@@ -39,7 +39,8 @@ export const partnerResource: ResourceWithOptions = {
       },
       webhookSecretHash: { isVisible: false },
       apiKeys: { isVisible: false },
-      transactions: { isVisible: false }
+      transactions: { isVisible: false },
+      paystackCustomerCode: { isVisible: false }
     },
     actions: {
       list: { isAccessible: canManagePartners },

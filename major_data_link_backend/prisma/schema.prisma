@@ -180,8 +180,13 @@ model Partner {
   id                String        @id @default(uuid())
   businessName      String
   email             String        @unique
+  phone             String?
   walletBalanceKobo BigInt        @default(0)
   status            PartnerStatus @default(ACTIVE)
+  virtualAccountNumber String?    @unique
+  virtualAccountBank   String?
+  virtualAccountProvider String?
+  paystackCustomerCode String?    @unique
   webhookUrl        String?
   webhookSecretHash String?
   createdAt         DateTime      @default(now())

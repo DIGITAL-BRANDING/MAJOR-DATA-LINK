@@ -36,11 +36,13 @@ backend directory:
 
 ```bash
 npm run prisma:migrate:deploy
-npm run partner:create -- "Sunan Kasuwanci" partner@example.com 50000
+npm run partner:create -- "Sunan Kasuwanci" partner@example.com 50000 08012345678
 ```
 
 Command ɗin zai nuna API key **sau ɗaya kawai**. A ba partner key ɗin ta hanya
 mai tsaro, kuma a saka opening balance a Naira a argument na uku (misali `50000`).
+Phone number na huɗu yana da muhimmanci idan partner zai sami permanent funding
+account.
 Idan key ya zube, a revoke shi a database/admin tooling sannan a ƙirƙiri sabo;
 ba a ajiye plaintext key a database.
 
@@ -150,6 +152,42 @@ Ana amfani da shi don sanin ko service tana aiki.
   "data": { "balance": 25000, "currency": "NGN" }
 }
 ```
+
+### 2a. Partner wallet funding
+
+`GET /wallet/balance` kuma yana iya dawo da permanent partner funding account:
+
+```json
+{
+  "status": true,
+  "data": {
+    "balance": 25000,
+    "currency": "NGN",
+    "virtual_account_number": "0123456789",
+    "virtual_account_bank": "PalmPay"
+  }
+}
+```
+
+Idan `virtual_account_number` babu, partner zai iya kiran:
+
+`POST /wallet/funding-account`
+
+Wannan yana ƙirƙirar permanent virtual account idan payment gateway ta yarda
+da partner profile. Ana buƙatar phone number a partner profile.
+
+Idan permanent account bai samu ba saboda KYC/gateway policy, yi amfani da
+Exact Transfer:
+
+`POST /wallet/fund/dynamic`
+
+```json
+{ "amount": 50000 }
+```
+
+Response zai ba da temporary account number, reference, da expiry. Partner zai
+biya exact amount, sannan zai iya duba transaction da `POST /wallet/fund/verify`
+da `{ "reference": "..." }`.
 
 ### 3. Data networks/plans
 
