@@ -247,7 +247,8 @@ partnerPortalRoutes.post('/api-keys', requirePartnerSession, async (req, res) =>
 });
 
 partnerPortalRoutes.post('/api-keys/:id/revoke', requirePartnerSession, async (req, res) => {
-  const key = await prisma.partnerApiKey.findUnique({ where: { id: req.params.id } });
+  const keyId = String(req.params.id);
+  const key = await prisma.partnerApiKey.findUnique({ where: { id: keyId } });
   if (!key || key.partnerId !== req.partner!.id) {
     throw new ApiError(404, 'API key not found', 'API_KEY_NOT_FOUND');
   }

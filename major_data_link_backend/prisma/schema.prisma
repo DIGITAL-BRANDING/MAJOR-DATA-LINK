@@ -268,6 +268,14 @@ model PartnerTransaction {
   type              TransactionType
   status            TransactionStatus @default(PENDING)
   amountKobo        BigInt
+  /// Our own upstream cost, when it differs from amountKobo (the partner's
+  /// wholesale charge) - e.g. Techhub's providerCostKobo for verification
+  /// services, where amountKobo already carries our margin. For data/airtime,
+  /// where the partner is charged our exact wholesale cost with no markup
+  /// (see PARTNER_API_DOCUMENTATION.md's pricing section), this equals
+  /// amountKobo. Same purpose as the retail Transaction.costKobo field - see
+  /// its doc-comment in wallet.service.ts for the full reasoning.
+  costKobo          BigInt?
   balanceBeforeKobo BigInt
   balanceAfterKobo  BigInt
   provider          String?

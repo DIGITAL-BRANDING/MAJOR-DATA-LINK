@@ -1,0 +1,45 @@
+diff --git a/major_data_link_backend/prisma/migrations/20260906160000_add_partner_transaction_cost_kobo/migration.sql b/major_data_link_backend/prisma/migrations/20260906160000_add_partner_transaction_cost_kobo/migration.sql
+new file mode 100644
+index 0000000..b6fbb15
+--- /dev/null
++++ b/major_data_link_backend/prisma/migrations/20260906160000_add_partner_transaction_cost_kobo/migration.sql
+@@ -0,0 +1,6 @@
++-- PartnerTransaction.costKobo was referenced in application code
++-- (partner-reconciliation.service.ts, partner-verification.service.ts,
++-- partner-wallet.service.ts) but no migration for it had ever been
++-- committed, so `prisma generate` correctly reported it as missing. This
++-- adds the actual column - see the field's doc-comment in schema.prisma.
++ALTER TABLE "PartnerTransaction" ADD COLUMN "costKobo" BIGINT;
+diff --git a/major_data_link_backend/prisma/schema.prisma b/major_data_link_backend/prisma/schema.prisma
+index 8d05e9c..c437d14 100644
+--- a/major_data_link_backend/prisma/schema.prisma
++++ b/major_data_link_backend/prisma/schema.prisma
+@@ -268,6 +268,14 @@ model PartnerTransaction {
+   type              TransactionType
+   status            TransactionStatus @default(PENDING)
+   amountKobo        BigInt
++  /// Our own upstream cost, when it differs from amountKobo (the partner's
++  /// wholesale charge) - e.g. Techhub's providerCostKobo for verification
++  /// services, where amountKobo already carries our margin. For data/airtime,
++  /// where the partner is charged our exact wholesale cost with no markup
++  /// (see PARTNER_API_DOCUMENTATION.md's pricing section), this equals
++  /// amountKobo. Same purpose as the retail Transaction.costKobo field - see
++  /// its doc-comment in wallet.service.ts for the full reasoning.
++  costKobo          BigInt?
+   balanceBeforeKobo BigInt
+   balanceAfterKobo  BigInt
+   provider          String?
+diff --git a/major_data_link_backend/src/routes/partner-portal.routes.ts b/major_data_link_backend/src/routes/partner-portal.routes.ts
+index 141aa3a..f45f88c 100644
+--- a/major_data_link_backend/src/routes/partner-portal.routes.ts
++++ b/major_data_link_backend/src/routes/partner-portal.routes.ts
+@@ -247,7 +247,8 @@ partnerPortalRoutes.post('/api-keys', requirePartnerSession, async (req, res) =>
+ });
+ 
+ partnerPortalRoutes.post('/api-keys/:id/revoke', requirePartnerSession, async (req, res) => {
+-  const key = await prisma.partnerApiKey.findUnique({ where: { id: req.params.id } });
++  const keyId = String(req.params.id);
++  const key = await prisma.partnerApiKey.findUnique({ where: { id: keyId } });
+   if (!key || key.partnerId !== req.partner!.id) {
+     throw new ApiError(404, 'API key not found', 'API_KEY_NOT_FOUND');
+   }
