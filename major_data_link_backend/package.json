@@ -8,6 +8,7 @@
     },
     "scripts": {
         "dev": "tsx watch src/server.ts",
+        "postinstall": "prisma generate",
         "build": "tsc",
         "start": "node dist/server.js",
         "start:prod": "node scripts/start-prod.mjs",

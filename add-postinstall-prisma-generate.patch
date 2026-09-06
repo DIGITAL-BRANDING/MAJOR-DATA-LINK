@@ -1,0 +1,12 @@
+diff --git a/major_data_link_backend/package.json b/major_data_link_backend/package.json
+index 4f278e1..d1ee0d6 100644
+--- a/major_data_link_backend/package.json
++++ b/major_data_link_backend/package.json
+@@ -8,6 +8,7 @@
+     },
+     "scripts": {
+         "dev": "tsx watch src/server.ts",
++        "postinstall": "prisma generate",
+         "build": "tsc",
+         "start": "node dist/server.js",
+         "start:prod": "node scripts/start-prod.mjs",
