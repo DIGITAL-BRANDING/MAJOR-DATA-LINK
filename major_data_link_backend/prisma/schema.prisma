@@ -38,6 +38,11 @@ enum TransactionStatus {
 /// A commercial API customer. This is deliberately separate from User: a
 /// partner's prepaid float must never be mixed with a retail customer's wallet.
 enum PartnerStatus {
+  /// Self-registered via the partner portal but not yet vetted by an admin.
+  /// Can log in and see the dashboard, but cannot generate live API keys or
+  /// have any purchase succeed (requirePartnerApiKey already rejects any
+  /// status other than ACTIVE - see middleware/partner-auth.ts).
+  PENDING_REVIEW
   ACTIVE
   SUSPENDED
 }
@@ -189,7 +194,11 @@ model Partner {
   email             String        @unique
   phone             String?
   walletBalanceKobo BigInt        @default(0)
-  status            PartnerStatus @default(ACTIVE)
+  /// Self-registered partners start PENDING_REVIEW (see the enum's
+  /// doc-comment); create-partner.ts (admin-provisioned) explicitly passes
+  /// ACTIVE instead, since an admin creating one by hand has already vetted
+  /// them.
+  status            PartnerStatus @default(PENDING_REVIEW)
   virtualAccountNumber String?    @unique
   virtualAccountBank   String?
   virtualAccountProvider String?
@@ -199,13 +208,39 @@ model Partner {
   /// needs the secret value, unlike an inbound password check.
   webhookSecretEncrypted Json?
   webhookSecretHash String?
+  /// Portal login (see partner-portal-auth.routes.ts) - null until the
+  /// partner sets one, either by self-registering or via the admin-issued
+  /// "Set portal password" action for partners provisioned the old way.
+  /// Mirrors User.passwordHash and its lockout fields exactly (see
+  /// lib/lockout.ts) - same bcrypt cost, same brute-force protection.
+  passwordHash        String?
+  passwordFailures     Int       @default(0)
+  passwordFailureAt    DateTime?
+  passwordLockedUntil  DateTime?
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
   apiKeys           PartnerApiKey[]
   transactions      PartnerTransaction[]
   webhookDeliveries PartnerWebhookDelivery[]
+  refreshTokens     PartnerRefreshToken[]
 
   @@index([status])
+}
+
+/// Partner portal session tokens (see lib/auth-token.ts's createAuthToken/
+/// verifyAuthToken, reused as-is - only the persistence side differs from
+/// the customer app's RefreshToken table, since a Partner is a different
+/// model with no FK relationship to User).
+model PartnerRefreshToken {
+  id        String    @id @default(uuid())
+  partnerId String
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+  partner   Partner   @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+
+  @@index([partnerId])
 }
 
 /// Only a SHA-256 hash of the issued API key is stored. The plaintext key is

@@ -137,3 +137,59 @@ export async function revokeRefreshToken(token: string) {
     data: { revokedAt: new Date() }
   });
 }
+
+// ── Partner portal session tokens ──────────────────────────────────────
+// Same createAuthToken/verifyAuthToken primitives above (they're already
+// generic - just a userId/email pair to sign), but persisted against
+// PartnerRefreshToken instead of RefreshToken, since a Partner has no FK
+// relationship to User. See partner-portal-auth.routes.ts for where these
+// are actually called from.
+
+export async function issuePartnerAuthTokens(partner: { id: string; email: string }) {
+  const accessToken = createAuthToken({
+    userId: partner.id,
+    email: partner.email,
+    type: 'access',
+    ttlSeconds: env.ACCESS_TOKEN_TTL_SECONDS
+  });
+  const refreshToken = createAuthToken({
+    userId: partner.id,
+    email: partner.email,
+    type: 'refresh',
+    ttlSeconds: env.REFRESH_TOKEN_TTL_SECONDS
+  });
+
+  await prisma.partnerRefreshToken.create({
+    data: {
+      id: nanoid(),
+      partnerId: partner.id,
+      tokenHash: hashToken(refreshToken),
+      expiresAt: new Date(Date.now() + env.REFRESH_TOKEN_TTL_SECONDS * 1000)
+    }
+  });
+
+  return { accessToken, refreshToken, expiresIn: env.ACCESS_TOKEN_TTL_SECONDS };
+}
+
+export async function rotatePartnerRefreshToken(oldToken: string) {
+  const payload = verifyAuthToken(oldToken, 'refresh');
+  const tokenHash = hashToken(oldToken);
+
+  const stored = await prisma.partnerRefreshToken.findUnique({ where: { tokenHash } });
+  if (!stored || stored.revokedAt || stored.expiresAt < new Date()) {
+    throw new ApiError(401, 'Refresh token is invalid or has been revoked', 'INVALID_REFRESH_TOKEN');
+  }
+
+  await prisma.partnerRefreshToken.update({ where: { id: stored.id }, data: { revokedAt: new Date() } });
+
+  const partner = await prisma.partner.findUniqueOrThrow({ where: { id: payload.sub } });
+  return { partner, tokens: await issuePartnerAuthTokens(partner) };
+}
+
+export async function revokePartnerRefreshToken(token: string) {
+  const tokenHash = hashToken(token);
+  await prisma.partnerRefreshToken.updateMany({
+    where: { tokenHash, revokedAt: null },
+    data: { revokedAt: new Date() }
+  });
+}

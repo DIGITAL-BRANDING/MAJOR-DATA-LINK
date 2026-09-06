@@ -29,6 +29,10 @@ try {
       email,
       phone: phoneArg?.trim() || null,
       walletBalanceKobo: openingBalance > 0 ? nairaToKobo(openingBalance) : 0n,
+      // An admin running this script has already vetted the partner by hand -
+      // skip the self-registration PENDING_REVIEW step (see PartnerStatus's
+      // doc-comment in schema.prisma).
+      status: 'ACTIVE',
       apiKeys: { create: { name: 'Initial production key', keyPrefix: key.slice(0, 16), secretHash } }
     }
   });

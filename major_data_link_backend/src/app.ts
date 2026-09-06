@@ -41,6 +41,7 @@ import { walletRoutes } from './routes/wallet.routes.js';
 import { webhookRoutes } from './routes/webhook.routes.js';
 import { deliveryRoutes } from './routes/delivery.routes.js';
 import { partnerApiRoutes } from './routes/partner-api.routes.js';
+import { partnerPortalRoutes } from './routes/partner-portal.routes.js';
 
 const ADMIN_ROOT_PATH = '/admin';
 
@@ -188,7 +189,10 @@ export function createApp() {
   // `vtuRoutes` is mounted at /api and applies customer JWT auth to every
   // request it sees; mounting /api/v1 after it would make partner API-key
   // calls fail with "Missing auth token" before they reach partnerApiRoutes.
+  // Same reasoning applies to /api/partner-portal - it needs its own path
+  // segment ahead of the /api catch-all for the exact same reason.
   app.use('/api/v1', partnerApiRoutes);
+  app.use('/api/partner-portal', authLimiter, partnerPortalRoutes);
   app.use('/api', vtuRoutes);
   app.use('/api/cable', cableRoutes);
   app.use('/api/electricity', electricityRoutes);

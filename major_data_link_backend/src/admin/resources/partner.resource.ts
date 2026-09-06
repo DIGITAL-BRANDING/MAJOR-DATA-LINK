@@ -1,23 +1,16 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { getModelByName } from '@adminjs/prisma';
 import type { ResourceWithOptions } from 'adminjs';
+import bcrypt from 'bcryptjs';
 import { prisma } from '../../lib/prisma.js';
 import { logAdminAction } from '../audit.js';
 import type { AdminSessionUser } from '../auth.js';
+import { createPartnerApiKey } from '../../lib/partner-api-key.js';
 
 const canManagePartners = ({ currentAdmin }: { currentAdmin?: Record<string, unknown> }) => {
   const admin = currentAdmin as unknown as AdminSessionUser | undefined;
   return admin?.role === 'SUPER_ADMIN' || admin?.role === 'FINANCE';
 };
-
-function createApiKey() {
-  const plaintext = `mdl_live_${randomBytes(32).toString('hex')}`;
-  return {
-    plaintext,
-    keyPrefix: plaintext.slice(0, 16),
-    secretHash: createHash('sha256').update(plaintext, 'utf8').digest('hex')
-  };
-}
 
 /**
  * Deliberately separate from UserResource. API integrators are businesses with
@@ -42,7 +35,11 @@ export const partnerResource: ResourceWithOptions = {
       paystackCustomerCode: { isVisible: false },
       webhookSecretEncrypted: { isVisible: false },
       webhookSecretHash: { isVisible: false },
-      webhookDeliveries: { isVisible: false }
+      webhookDeliveries: { isVisible: false },
+      passwordHash: { isVisible: false },
+      passwordFailures: { isVisible: false },
+      passwordFailureAt: { isVisible: false },
+      passwordLockedUntil: { isVisible: false }
     },
     actions: {
       list: { isAccessible: canManagePartners },
@@ -58,7 +55,7 @@ export const partnerResource: ResourceWithOptions = {
           const record = context.record;
           const admin = context.currentAdmin as unknown as AdminSessionUser | undefined;
           if (!record || !admin) throw new Error('Missing partner or admin context');
-          const key = createApiKey();
+          const key = createPartnerApiKey();
           await prisma.partnerApiKey.create({ data: { partnerId: record.params.id as string, name: 'Live key', keyPrefix: key.keyPrefix, secretHash: key.secretHash } });
           await logAdminAction({ adminId: admin.id, action: 'CREATE_PARTNER_API_KEY', targetType: 'Partner', targetId: record.params.id as string });
           return { record: record.toJSON(context.currentAdmin), notice: { type: 'success', message: `Live API key (show once): ${key.plaintext}` } };
@@ -72,10 +69,60 @@ export const partnerResource: ResourceWithOptions = {
           const admin = context.currentAdmin as unknown as AdminSessionUser | undefined;
           if (!record || !admin) throw new Error('Missing partner or admin context');
           const partner = await prisma.partner.findUniqueOrThrow({ where: { id: record.params.id as string } });
+          if (partner.status === 'PENDING_REVIEW') {
+            return {
+              record: record.toJSON(context.currentAdmin),
+              notice: { type: 'error', message: 'This partner is still pending review - use "Approve Partner" first.' }
+            };
+          }
           const status = partner.status === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE';
           await prisma.partner.update({ where: { id: partner.id }, data: { status } });
           await logAdminAction({ adminId: admin.id, action: `${status}_PARTNER`, targetType: 'Partner', targetId: partner.id });
           return { record: record.toJSON(context.currentAdmin), notice: { type: 'success', message: `Partner is now ${status.toLowerCase()}.` } };
+        }
+      },
+      approvePartner: {
+        actionType: 'record', icon: 'CheckCircle', component: false,
+        guard: "This approves the partner's self-registration, moving them from Pending Review to Active. They'll then be able to generate live API keys from their own portal login. Continue?",
+        isAccessible: canManagePartners,
+        handler: async (_request, _response, context) => {
+          const record = context.record;
+          const admin = context.currentAdmin as unknown as AdminSessionUser | undefined;
+          if (!record || !admin) throw new Error('Missing partner or admin context');
+          const partner = await prisma.partner.findUniqueOrThrow({ where: { id: record.params.id as string } });
+          if (partner.status !== 'PENDING_REVIEW') {
+            return {
+              record: record.toJSON(context.currentAdmin),
+              notice: { type: 'error', message: 'Only a partner still pending review can be approved.' }
+            };
+          }
+          await prisma.partner.update({ where: { id: partner.id }, data: { status: 'ACTIVE' } });
+          await logAdminAction({ adminId: admin.id, action: 'APPROVE_PARTNER', targetType: 'Partner', targetId: partner.id });
+          return { record: record.toJSON(context.currentAdmin), notice: { type: 'success', message: 'Partner approved and active. They can now generate live API keys from their portal login.' } };
+        }
+      },
+      resetPortalPassword: {
+        actionType: 'record', icon: 'Key', component: false,
+        guard:
+          "This sets a new random portal login password for this partner, replacing any password they've set " +
+          'themselves. Use only when a partner has lost access and asked for a reset out of band. Continue?',
+        isAccessible: canManagePartners,
+        handler: async (_request, _response, context) => {
+          const record = context.record;
+          const admin = context.currentAdmin as unknown as AdminSessionUser | undefined;
+          if (!record || !admin) throw new Error('Missing partner or admin context');
+          const partner = await prisma.partner.findUniqueOrThrow({ where: { id: record.params.id as string } });
+          const newPassword = randomBytes(9).toString('base64url');
+          const passwordHash = await bcrypt.hash(newPassword, 12);
+          await prisma.partner.update({
+            where: { id: partner.id },
+            data: { passwordHash, passwordFailures: 0, passwordFailureAt: null, passwordLockedUntil: null }
+          });
+          await logAdminAction({ adminId: admin.id, action: 'RESET_PARTNER_PORTAL_PASSWORD', targetType: 'Partner', targetId: partner.id });
+          return {
+            record: record.toJSON(context.currentAdmin),
+            notice: { type: 'success', message: `New portal password (show once, hand off to partner): ${newPassword}` }
+          };
         }
       }
     }
