@@ -10,10 +10,12 @@ ALTER TABLE "Partner"
   ADD COLUMN "passwordFailureAt" TIMESTAMP(3),
   ADD COLUMN "passwordLockedUntil" TIMESTAMP(3);
 
--- The new default only takes effect for partners created after this
--- migration - see PartnerStatus's doc-comment in schema.prisma for why
--- create-partner.ts explicitly overrides it back to ACTIVE.
-ALTER TABLE "Partner" ALTER COLUMN "status" SET DEFAULT 'PENDING_REVIEW';
+-- Deliberately do NOT use PENDING_REVIEW as a column default in this
+-- migration. PostgreSQL makes a newly-added enum value unavailable until the
+-- transaction containing ALTER TYPE has committed. Prisma runs each migration
+-- in a transaction, so using it here causes "unsafe use of new value" and
+-- leaves a failed migration record (P3009). The default is installed by the
+-- immediately following migration, after this transaction has committed.
 
 CREATE TABLE "PartnerRefreshToken" (
   "id"        TEXT NOT NULL,
