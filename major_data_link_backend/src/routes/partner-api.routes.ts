@@ -16,7 +16,7 @@ import {
   reversePartnerPurchase
 } from '../services/partner-wallet.service.js';
 import type { NormalizedProviderResponse } from '../services/provider-types.js';
-import { listVerificationPrices } from '../services/verification.service.js';
+import { listVerificationPricesForPartner } from '../services/verification.service.js';
 import { partnerVerification } from '../services/partner-verification.service.js';
 import { createPartnerDynamicFunding, partnerFundingResponse, provisionPartnerVirtualAccount, verifyPartnerFunding } from '../services/partner-funding.service.js';
 import { configurePartnerWebhook, queuePartnerWebhookTest, webhookConfiguration } from '../services/partner-webhook.service.js';
@@ -153,7 +153,7 @@ partnerApiRoutes.get('/dashboard', async (req, res) => {
     prisma.partnerTransaction.findMany({
       where: { partnerId: req.partner!.id }, orderBy: { createdAt: 'desc' }, take: 20
     }),
-    listVerificationPrices()
+    listVerificationPricesForPartner()
   ]);
   const calls = all.length;
   const successful = all.filter((tx) => tx.status === TransactionStatus.SUCCESS).length;
@@ -229,7 +229,7 @@ partnerApiRoutes.get('/data/plans/:network', async (req, res) => {
 });
 
 partnerApiRoutes.get('/verification/prices', async (_req, res) => {
-  const prices = await listVerificationPrices();
+  const prices = await listVerificationPricesForPartner();
   res.json({ status: true, data: prices });
 });
 

@@ -252,11 +252,13 @@ export default function PartnerDashboardPage() {
           </p>
         )}
 
-        <section className="rounded-3xl bg-gradient-to-br from-brand-800 to-brand-600 p-6 text-white">
-          <p className="text-sm text-blue-100">{t('partnerPortal.hero.welcomeBack')}</p>
-          <h1 className="mt-1 text-2xl font-bold">{partner.business_name}</h1>
-          <p className="mt-3 text-3xl font-bold">₦{partner.wallet_balance.toLocaleString()}</p>
-          <p className="text-sm text-blue-100">{t('partnerPortal.hero.walletBalance')}</p>
+        <section className="rounded-3xl border border-brand-900/40 bg-brand-800 bg-gradient-to-br from-brand-800 to-brand-600 p-6 text-white shadow-lg shadow-brand-900/20">
+          <p className="text-sm font-medium text-blue-100">{t('partnerPortal.hero.welcomeBack')}</p>
+          <h1 className="mt-1 text-2xl font-bold text-white">{partner.business_name}</h1>
+          <p className="mt-4 text-4xl font-extrabold tabular-nums tracking-tight text-white sm:text-5xl">
+            ₦{partner.wallet_balance.toLocaleString()}
+          </p>
+          <p className="mt-1 text-sm font-medium text-blue-100">{t('partnerPortal.hero.walletBalance')}</p>
         </section>
 
         {partner.status !== 'active' && (
@@ -412,10 +414,12 @@ function MetricCard({
   value: string | number;
 }) {
   return (
-    <article className={`rounded-xl border-l-4 bg-white p-4 shadow-sm ${border}`}>
-      <Icon size={18} className={iconColor} />
-      <p className="mt-2 text-2xl font-bold text-slate-900">{value}</p>
-      <p className="text-xs text-slate-500">{label}</p>
+    <article className={`rounded-xl border border-slate-200 border-l-4 bg-white p-4 shadow-sm ${border}`}>
+      <span className={`inline-flex h-8 w-8 items-center justify-center rounded-lg bg-slate-50 ${iconColor}`}>
+        <Icon size={18} />
+      </span>
+      <p className="mt-3 text-xl font-bold tabular-nums text-slate-900 sm:text-2xl">{value}</p>
+      <p className="mt-0.5 text-xs font-medium text-slate-500">{label}</p>
     </article>
   );
 }

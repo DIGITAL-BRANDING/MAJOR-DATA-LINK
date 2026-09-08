@@ -117,15 +117,17 @@ export async function listServicePricesForAdmin() {
     label: row.label,
     provider_cost: koboToNaira(row.providerCostKobo),
     selling_price: row.sellingPriceKobo ? koboToNaira(row.sellingPriceKobo) : null,
+    partner_selling_price: row.partnerSellingPriceKobo ? koboToNaira(row.partnerSellingPriceKobo) : null,
     is_active: row.isActive
   }));
 }
 
-export async function updateServicePrice(service: string, input: { sellingPrice?: number | null; providerCost?: number; isActive?: boolean }) {
+export async function updateServicePrice(service: string, input: { sellingPrice?: number | null; partnerSellingPrice?: number | null; providerCost?: number; isActive?: boolean }) {
   return prisma.servicePricing.update({
     where: { service },
     data: {
       ...(input.sellingPrice !== undefined ? { sellingPriceKobo: input.sellingPrice === null ? null : priceToKobo(input.sellingPrice) } : {}),
+      ...(input.partnerSellingPrice !== undefined ? { partnerSellingPriceKobo: input.partnerSellingPrice === null ? null : priceToKobo(input.partnerSellingPrice) } : {}),
       ...(input.providerCost !== undefined ? { providerCostKobo: priceToKobo(input.providerCost) } : {}),
       ...(input.isActive !== undefined ? { isActive: input.isActive } : {})
     }

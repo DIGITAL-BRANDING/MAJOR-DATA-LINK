@@ -4,6 +4,14 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/png" href="/branding/favicon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- This app has its own light gold/cream/bronze theme (see src/index.css).
+         Without this, some Android browsers (Chrome's "Force Dark" / auto
+         dark theme for sites without one) heuristically re-color the whole
+         page, turning the light backgrounds and blue/white cards into an
+         illegible dark-brown mush. Declaring an explicit light-only scheme
+         tells the browser this page already has a considered color scheme,
+         so it leaves our colors alone. -->
+    <meta name="color-scheme" content="only light" />
     <meta name="theme-color" content="#15100A" />
     <meta name="description" content="MAJOR DATA-LINK — instant airtime, data, cable TV, electricity and bill payments. Fund your wallet, top up in seconds." />
     <title>MAJOR DATA-LINK — Instant Top-Up, Every Time</title>

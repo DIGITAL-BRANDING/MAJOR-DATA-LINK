@@ -247,7 +247,12 @@ curl -X POST "$BASE_URL/data/purchase" \
 ### 5a. NIN/BVN verification
 
 **Farashi:** `GET /verification/prices` — a kira wannan kafin request saboda
-farashi da availability na iya canzawa.
+farashi da availability na iya canzawa. Wannan endpoint yana nuna farashin da
+ka (partner) za a caje ka, wanda admin zai iya saita daban da farashin da
+retail web/app users ke biya (duba "Verification Pricing" a AdminJS ko
+`PATCH /api/admin/service-prices/:service`'s `partner_selling_price` field).
+Idan admin bai saita partner price ba, za a yi amfani da retail price a
+maimako.
 
 **NIN Slip by NIN:** `POST /verification/nin/by-nin`
 

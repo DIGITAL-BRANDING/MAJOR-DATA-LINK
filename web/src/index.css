@@ -1,5 +1,13 @@
 @import "tailwindcss";
 
+/* Belt-and-suspenders alongside the <meta name="color-scheme"> tag in
+   index.html: tells every browser (not just ones that read the meta tag)
+   that this site is light-only, so it isn't auto-inverted by a phone's
+   system-wide dark mode. */
+:root {
+  color-scheme: light only;
+}
+
 @theme {
   /* Brand: Gold / Bronze / Ember - matches the Flutter app's identity */
   --color-ink: #15100a;

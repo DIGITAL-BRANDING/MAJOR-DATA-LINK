@@ -178,12 +178,14 @@ adminApiRoutes.get('/service-prices', requireFinanceAdmin, async (_req, res) => 
 adminApiRoutes.patch('/service-prices/:service', requireFinanceAdmin, async (req, res) => {
   const body = z.object({
     selling_price: z.number().positive().nullable().optional(),
+    partner_selling_price: z.number().positive().nullable().optional(),
     provider_cost: z.number().positive().optional(),
     is_active: z.boolean().optional()
   }).parse(req.body);
 
   const row = await updateServicePrice(routeParam(req.params.service).toUpperCase(), {
     sellingPrice: body.selling_price,
+    partnerSellingPrice: body.partner_selling_price,
     providerCost: body.provider_cost,
     isActive: body.is_active
   });
@@ -195,6 +197,7 @@ adminApiRoutes.patch('/service-prices/:service', requireFinanceAdmin, async (req
       label: row.label,
       provider_cost: Number(row.providerCostKobo) / 100,
       selling_price: row.sellingPriceKobo ? Number(row.sellingPriceKobo) / 100 : null,
+      partner_selling_price: row.partnerSellingPriceKobo ? Number(row.partnerSellingPriceKobo) / 100 : null,
       is_active: row.isActive
     }
   });

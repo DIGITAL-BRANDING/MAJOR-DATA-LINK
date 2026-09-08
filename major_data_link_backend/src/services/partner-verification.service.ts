@@ -26,7 +26,7 @@ async function submitPartnerAsync(params: {
   operational: Record<string, unknown>; pii: Record<string, unknown>; idempotencyKey: string;
   call: () => ReturnType<typeof techhubService.submitNinValidation>;
 }): Promise<PartnerAsyncSubmitResult> {
-  const price = await getVerificationPrice(params.service);
+  const price = await getVerificationPrice(params.service, { forPartner: true });
   const debit = await debitPartnerWallet({
     partnerId: params.partnerId, amount: price.unitPrice, type: TransactionType.IDENTITY_SERVICE_REQUEST,
     description: params.description, idempotencyKey: params.idempotencyKey,
@@ -117,7 +117,7 @@ export async function purchasePartnerSlip(params: {
   description: string; operational: Record<string, unknown>; pii: Record<string, unknown>;
   idempotencyKey: string; call: () => ReturnType<typeof techhubService.ninByNin>;
 }): Promise<PartnerSlipResult> {
-  const price = await getVerificationPrice(params.service);
+  const price = await getVerificationPrice(params.service, { forPartner: true });
   const debit = await debitPartnerWallet({
     partnerId: params.partnerId, amount: price.unitPrice, type: params.type,
     description: params.description, idempotencyKey: params.idempotencyKey,

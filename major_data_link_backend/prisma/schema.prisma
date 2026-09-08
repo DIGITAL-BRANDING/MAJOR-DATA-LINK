@@ -480,6 +480,14 @@ model ServicePricing {
   label            String
   providerCostKobo BigInt
   sellingPriceKobo BigInt?
+  /// What an API Partner (major_data_link_backend/PARTNER_API_DOCUMENTATION.md)
+  /// is charged for this service, in kobo - deliberately separate from
+  /// sellingPriceKobo (the retail/web-app price) so an admin can set a
+  /// different rate for partners without touching what web/app users pay.
+  /// Null falls back to sellingPriceKobo, then providerCostKobo - see
+  /// getVerificationPrice(service, { forPartner: true }) in
+  /// verification.service.ts.
+  partnerSellingPriceKobo BigInt?
   isActive         Boolean  @default(true)
   metadata         Json?
   lastSyncedAt     DateTime?

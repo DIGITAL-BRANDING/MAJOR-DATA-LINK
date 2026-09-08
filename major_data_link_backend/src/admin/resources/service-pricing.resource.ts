@@ -29,7 +29,7 @@ export const servicePricingResource: ResourceWithOptions = {
   options: {
     id: 'ServicePricing',
     navigation: { name: 'Products', icon: 'Tag' },
-    listProperties: ['provider', 'service', 'label', 'providerCostKobo', 'sellingPriceKobo', 'isActive'],
+    listProperties: ['provider', 'service', 'label', 'providerCostKobo', 'sellingPriceKobo', 'partnerSellingPriceKobo', 'isActive'],
     showProperties: [
       'id',
       'provider',
@@ -37,12 +37,13 @@ export const servicePricingResource: ResourceWithOptions = {
       'label',
       'providerCostKobo',
       'sellingPriceKobo',
+      'partnerSellingPriceKobo',
       'isActive',
       'lastSyncedAt',
       'createdAt',
       'updatedAt'
     ],
-    editProperties: ['sellingPriceKobo', 'isActive'],
+    editProperties: ['sellingPriceKobo', 'partnerSellingPriceKobo', 'isActive'],
     filterProperties: ['provider', 'service', 'isActive'],
     actions: {
       new: { isAccessible: false },
@@ -66,7 +67,11 @@ export const servicePricingResource: ResourceWithOptions = {
       },
       sellingPriceKobo: {
         description:
-          'What we charge the user, in kobo. Example: 15000 = NGN 150. Leave empty to sell at zero markup (provider cost).'
+          'What we charge a retail web/app user, in kobo. Example: 15000 = NGN 150. Leave empty to sell at zero markup (provider cost).'
+      },
+      partnerSellingPriceKobo: {
+        description:
+          'What we charge an API Partner for this same service, in kobo. Leave empty to charge partners the same as the web selling price above. Set this to give partners a different (usually lower/wholesale-leaning) rate without changing what web/app users pay.'
       }
     }
   }

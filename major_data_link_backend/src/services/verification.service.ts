@@ -143,13 +143,26 @@ async function getOrCreateVerificationPricingRow(service: VerificationServiceKey
   }
 }
 
-/** Throws SERVICE_INACTIVE if disabled - use right before spending money on this service. */
-export async function getVerificationPrice(service: VerificationServiceKey) {
+/**
+ * Throws SERVICE_INACTIVE if disabled - use right before spending money on
+ * this service.
+ *
+ * `forPartner: true` charges the API Partner rate (partnerSellingPriceKobo)
+ * instead of the retail web/app rate (sellingPriceKobo). An admin can leave
+ * partnerSellingPriceKobo unset to keep charging partners the same as
+ * retail, or set it (usually lower, since a partner is closer to
+ * wholesale/provider cost) via the "Verification Pricing" admin page or
+ * PATCH /api/admin/service-prices/:service. Falls all the way back to
+ * providerCostKobo if neither price is configured yet.
+ */
+export async function getVerificationPrice(service: VerificationServiceKey, opts: { forPartner?: boolean } = {}) {
   const row = await getOrCreateVerificationPricingRow(service);
   if (!row.isActive) {
     throw new ApiError(422, `${row.label} is currently unavailable`, 'SERVICE_INACTIVE');
   }
-  const unitKobo = row.sellingPriceKobo ?? row.providerCostKobo;
+  const unitKobo = opts.forPartner
+    ? row.partnerSellingPriceKobo ?? row.sellingPriceKobo ?? row.providerCostKobo
+    : row.sellingPriceKobo ?? row.providerCostKobo;
   return {
     service: row.service,
     label: row.label,
@@ -169,6 +182,22 @@ export async function listVerificationPrices() {
   }));
 }
 
+/**
+ * Same shape as listVerificationPrices(), but for the API Partner-facing
+ * dashboard/`/verification/prices` endpoint - reflects what a partner is
+ * actually charged (partnerSellingPriceKobo when an admin has set one),
+ * not the retail web price.
+ */
+export async function listVerificationPricesForPartner() {
+  const rows = await Promise.all(SERVICE_KEYS.map((key) => getOrCreateVerificationPricingRow(key)));
+  return rows.map((row) => ({
+    service: row.service,
+    label: row.label,
+    unitPrice: koboToNaira(row.partnerSellingPriceKobo ?? row.sellingPriceKobo ?? row.providerCostKobo),
+    isActive: row.isActive
+  }));
+}
+
 /** Admin-facing listing, merged into the same /api/admin/service-prices endpoint as result pins. */
 export async function listVerificationPricesForAdmin() {
   const rows = await Promise.all(SERVICE_KEYS.map((key) => getOrCreateVerificationPricingRow(key)));
@@ -177,6 +206,7 @@ export async function listVerificationPricesForAdmin() {
     label: row.label,
     provider_cost: koboToNaira(row.providerCostKobo),
     selling_price: row.sellingPriceKobo ? koboToNaira(row.sellingPriceKobo) : null,
+    partner_selling_price: row.partnerSellingPriceKobo ? koboToNaira(row.partnerSellingPriceKobo) : null,
     is_active: row.isActive
   }));
 }
