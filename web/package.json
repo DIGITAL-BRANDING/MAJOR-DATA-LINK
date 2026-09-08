@@ -31,6 +31,9 @@
   "overrides": {
     "react-i18next": {
       "typescript": "$typescript"
+    },
+    "i18next": {
+      "typescript": "$typescript"
     }
   }
 }
