@@ -23,7 +23,8 @@ import {
   provisionPartnerVirtualAccount,
   verifyPartnerFunding
 } from '../services/partner-funding.service.js';
-import { TransactionType } from '@prisma/client';
+import { TransactionStatus, TransactionType } from '@prisma/client';
+import { listVerificationPrices } from '../services/verification.service.js';
 
 /**
  * Self-service partner portal - a normal email+password login for the
@@ -175,25 +176,9 @@ partnerPortalRoutes.get('/me', requirePartnerSession, async (req, res) => {
   res.json({ status: true, data: { ...partnerProfile(partner), webhook } });
 });
 
-partnerPortalRoutes.get('/recent-transactions', requirePartnerSession, async (req, res) => {
-  const limit = Math.min(Number(req.query.limit) || 20, 50);
-  const transactions = await prisma.partnerTransaction.findMany({
-    where: { partnerId: req.partner!.id },
-    orderBy: { createdAt: 'desc' },
-    take: limit
-  });
-  res.json({
-    status: true,
-    data: transactions.map((t) => ({
-      reference: t.reference,
-      type: t.type.toLowerCase(),
-      status: t.status.toLowerCase(),
-      amount: koboToNaira(t.amountKobo),
-      description: t.description,
-      created_at: t.createdAt.toISOString()
-    }))
-  });
-});
+// GET /transactions below (in the "Dashboard" section further down) is a
+// superset of what this used to do - search + more columns - so the
+// dashboard UI calls that instead of a separate "recent" endpoint.
 
 // ── Self-service API key management ──────────────────────────────────
 // Everything below requires an ACTIVE partner - a PENDING_REVIEW company
@@ -350,6 +335,104 @@ partnerPortalRoutes.get('/webhook/deliveries', requirePartnerSession, async (req
       created_at: row.createdAt.toISOString(),
       delivered_at: row.deliveredAt?.toISOString() ?? null,
       next_attempt_at: row.status === 'PENDING' ? row.nextAttemptAt.toISOString() : null
+    }))
+  });
+});
+
+// ── Dashboard: metrics, calls-over-time, pricing, searchable history ───
+// Everything below is read-only and purely for the portal's own dashboard
+// UI - none of this is part of the commercial /api/v1 surface partners
+// integrate against programmatically.
+
+partnerPortalRoutes.get('/summary', requirePartnerSession, async (req, res) => {
+  const partnerId = req.partner!.id;
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+
+  const [todayCalls, totalCalls, successAgg, successfulCalls, failedCalls] = await Promise.all([
+    prisma.partnerTransaction.count({ where: { partnerId, createdAt: { gte: startOfToday } } }),
+    prisma.partnerTransaction.count({ where: { partnerId } }),
+    prisma.partnerTransaction.aggregate({ where: { partnerId, status: TransactionStatus.SUCCESS }, _sum: { amountKobo: true } }),
+    prisma.partnerTransaction.count({ where: { partnerId, status: TransactionStatus.SUCCESS } }),
+    prisma.partnerTransaction.count({ where: { partnerId, status: TransactionStatus.FAILED } })
+  ]);
+
+  res.json({
+    status: true,
+    data: {
+      today_calls: todayCalls,
+      total_calls: totalCalls,
+      total_spend: koboToNaira(successAgg._sum.amountKobo ?? 0n),
+      successful_calls: successfulCalls,
+      failed_calls: failedCalls
+    }
+  });
+});
+
+partnerPortalRoutes.get('/calls-overview', requirePartnerSession, async (req, res) => {
+  const days = 30;
+  const since = new Date();
+  since.setDate(since.getDate() - (days - 1));
+  since.setHours(0, 0, 0, 0);
+
+  const rows = await prisma.partnerTransaction.findMany({
+    where: { partnerId: req.partner!.id, createdAt: { gte: since } },
+    select: { createdAt: true }
+  });
+
+  // Bucketed in JS rather than a DB date_trunc, since PartnerTransaction
+  // rows for a single partner over 30 days is a small enough set that this
+  // never needs its own SQL - keeps this endpoint DB-flavor-agnostic.
+  const counts = new Map<string, number>();
+  for (let i = 0; i < days; i++) {
+    const d = new Date(since);
+    d.setDate(d.getDate() + i);
+    counts.set(d.toISOString().slice(0, 10), 0);
+  }
+  for (const row of rows) {
+    const key = row.createdAt.toISOString().slice(0, 10);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+
+  res.json({ status: true, data: Array.from(counts, ([date, calls]) => ({ date, calls })) });
+});
+
+partnerPortalRoutes.get('/pricing', requirePartnerSession, async (_req, res) => {
+  // Verification services only - data/airtime pricing is per plan (hundreds
+  // of network/plan combinations), so it doesn't fit a fixed tile grid the
+  // way a handful of flat-rate verification services do. See
+  // GET /data/plans/:network on the commercial API for live plan pricing.
+  const prices = await listVerificationPrices();
+  res.json({
+    status: true,
+    data: prices.filter((p) => p.isActive).map((p) => ({ service: p.service, label: p.label, unit_price: p.unitPrice }))
+  });
+});
+
+partnerPortalRoutes.get('/transactions', requirePartnerSession, async (req, res) => {
+  const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
+  const limit = Math.min(Math.max(Number(req.query.limit) || 25, 1), 100);
+
+  const transactions = await prisma.partnerTransaction.findMany({
+    where: {
+      partnerId: req.partner!.id,
+      ...(search ? { reference: { contains: search, mode: 'insensitive' } } : {})
+    },
+    orderBy: { createdAt: 'desc' },
+    take: limit
+  });
+
+  res.json({
+    status: true,
+    data: transactions.map((t) => ({
+      reference: t.reference,
+      type: t.type.toLowerCase(),
+      status: t.status.toLowerCase(),
+      amount: koboToNaira(t.amountKobo),
+      balance_before: koboToNaira(t.balanceBeforeKobo),
+      balance_after: koboToNaira(t.balanceAfterKobo),
+      description: t.description,
+      created_at: t.createdAt.toISOString()
     }))
   });
 });

@@ -23,6 +23,7 @@ import ReceiptPage from './pages/ReceiptPage';
 import ReferralPage from './pages/ReferralPage';
 import PinSetupPage from './pages/PinSetupPage';
 import PartnerDashboardPage from './pages/PartnerDashboardPage';
+import PartnerApiDocsPage from './pages/PartnerApiDocsPage';
 
 function ProtectedRoute({ children }: { children: ReactNode }) {
   const { user, isLoading, mustChangePassword, requiresLoginPinSetup, requiresTransactionPinSetup } = useAuth();
@@ -58,6 +59,7 @@ export default function App() {
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/partner-dashboard" element={<PartnerDashboardPage />} />
+          <Route path="/partner-docs" element={<PartnerApiDocsPage />} />
           <Route path="/privacy-policy" element={<PrivacyRedirect page="privacy-policy" />} />
           <Route path="/result-checkers" element={<ProtectedRoute><ResultCheckersPage /></ProtectedRoute>} />
           <Route path="/waec-result" element={<ProtectedRoute><ResultPinPage exam="WAEC" /></ProtectedRoute>} />

@@ -10,9 +10,11 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "i18next": "^24.2.0",
     "lucide-react": "^1.31.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
+    "react-i18next": "^15.4.0",
     "react-router-dom": "^7.18.2"
   },
   "devDependencies": {
@@ -25,5 +27,10 @@
     "tailwindcss": "^4.3.3",
     "typescript": "~6.0.2",
     "vite": "^8.2.0"
+  },
+  "overrides": {
+    "react-i18next": {
+      "typescript": "$typescript"
+    }
   }
 }

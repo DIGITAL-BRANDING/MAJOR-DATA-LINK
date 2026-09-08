@@ -1,0 +1,2075 @@
+diff --git a/major_data_link_backend/src/routes/partner-portal.routes.ts b/major_data_link_backend/src/routes/partner-portal.routes.ts
+index f45f88c..d197c2e 100644
+--- a/major_data_link_backend/src/routes/partner-portal.routes.ts
++++ b/major_data_link_backend/src/routes/partner-portal.routes.ts
+@@ -23,7 +23,8 @@ import {
+   provisionPartnerVirtualAccount,
+   verifyPartnerFunding
+ } from '../services/partner-funding.service.js';
+-import { TransactionType } from '@prisma/client';
++import { TransactionStatus, TransactionType } from '@prisma/client';
++import { listVerificationPrices } from '../services/verification.service.js';
+ 
+ /**
+  * Self-service partner portal - a normal email+password login for the
+@@ -175,25 +176,9 @@ partnerPortalRoutes.get('/me', requirePartnerSession, async (req, res) => {
+   res.json({ status: true, data: { ...partnerProfile(partner), webhook } });
+ });
+ 
+-partnerPortalRoutes.get('/recent-transactions', requirePartnerSession, async (req, res) => {
+-  const limit = Math.min(Number(req.query.limit) || 20, 50);
+-  const transactions = await prisma.partnerTransaction.findMany({
+-    where: { partnerId: req.partner!.id },
+-    orderBy: { createdAt: 'desc' },
+-    take: limit
+-  });
+-  res.json({
+-    status: true,
+-    data: transactions.map((t) => ({
+-      reference: t.reference,
+-      type: t.type.toLowerCase(),
+-      status: t.status.toLowerCase(),
+-      amount: koboToNaira(t.amountKobo),
+-      description: t.description,
+-      created_at: t.createdAt.toISOString()
+-    }))
+-  });
+-});
++// GET /transactions below (in the "Dashboard" section further down) is a
++// superset of what this used to do - search + more columns - so the
++// dashboard UI calls that instead of a separate "recent" endpoint.
+ 
+ // ── Self-service API key management ──────────────────────────────────
+ // Everything below requires an ACTIVE partner - a PENDING_REVIEW company
+@@ -353,3 +338,101 @@ partnerPortalRoutes.get('/webhook/deliveries', requirePartnerSession, async (req
+     }))
+   });
+ });
++
++// ── Dashboard: metrics, calls-over-time, pricing, searchable history ───
++// Everything below is read-only and purely for the portal's own dashboard
++// UI - none of this is part of the commercial /api/v1 surface partners
++// integrate against programmatically.
++
++partnerPortalRoutes.get('/summary', requirePartnerSession, async (req, res) => {
++  const partnerId = req.partner!.id;
++  const startOfToday = new Date();
++  startOfToday.setHours(0, 0, 0, 0);
++
++  const [todayCalls, totalCalls, successAgg, successfulCalls, failedCalls] = await Promise.all([
++    prisma.partnerTransaction.count({ where: { partnerId, createdAt: { gte: startOfToday } } }),
++    prisma.partnerTransaction.count({ where: { partnerId } }),
++    prisma.partnerTransaction.aggregate({ where: { partnerId, status: TransactionStatus.SUCCESS }, _sum: { amountKobo: true } }),
++    prisma.partnerTransaction.count({ where: { partnerId, status: TransactionStatus.SUCCESS } }),
++    prisma.partnerTransaction.count({ where: { partnerId, status: TransactionStatus.FAILED } })
++  ]);
++
++  res.json({
++    status: true,
++    data: {
++      today_calls: todayCalls,
++      total_calls: totalCalls,
++      total_spend: koboToNaira(successAgg._sum.amountKobo ?? 0n),
++      successful_calls: successfulCalls,
++      failed_calls: failedCalls
++    }
++  });
++});
++
++partnerPortalRoutes.get('/calls-overview', requirePartnerSession, async (req, res) => {
++  const days = 30;
++  const since = new Date();
++  since.setDate(since.getDate() - (days - 1));
++  since.setHours(0, 0, 0, 0);
++
++  const rows = await prisma.partnerTransaction.findMany({
++    where: { partnerId: req.partner!.id, createdAt: { gte: since } },
++    select: { createdAt: true }
++  });
++
++  // Bucketed in JS rather than a DB date_trunc, since PartnerTransaction
++  // rows for a single partner over 30 days is a small enough set that this
++  // never needs its own SQL - keeps this endpoint DB-flavor-agnostic.
++  const counts = new Map<string, number>();
++  for (let i = 0; i < days; i++) {
++    const d = new Date(since);
++    d.setDate(d.getDate() + i);
++    counts.set(d.toISOString().slice(0, 10), 0);
++  }
++  for (const row of rows) {
++    const key = row.createdAt.toISOString().slice(0, 10);
++    counts.set(key, (counts.get(key) ?? 0) + 1);
++  }
++
++  res.json({ status: true, data: Array.from(counts, ([date, calls]) => ({ date, calls })) });
++});
++
++partnerPortalRoutes.get('/pricing', requirePartnerSession, async (_req, res) => {
++  // Verification services only - data/airtime pricing is per plan (hundreds
++  // of network/plan combinations), so it doesn't fit a fixed tile grid the
++  // way a handful of flat-rate verification services do. See
++  // GET /data/plans/:network on the commercial API for live plan pricing.
++  const prices = await listVerificationPrices();
++  res.json({
++    status: true,
++    data: prices.filter((p) => p.isActive).map((p) => ({ service: p.service, label: p.label, unit_price: p.unitPrice }))
++  });
++});
++
++partnerPortalRoutes.get('/transactions', requirePartnerSession, async (req, res) => {
++  const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
++  const limit = Math.min(Math.max(Number(req.query.limit) || 25, 1), 100);
++
++  const transactions = await prisma.partnerTransaction.findMany({
++    where: {
++      partnerId: req.partner!.id,
++      ...(search ? { reference: { contains: search, mode: 'insensitive' } } : {})
++    },
++    orderBy: { createdAt: 'desc' },
++    take: limit
++  });
++
++  res.json({
++    status: true,
++    data: transactions.map((t) => ({
++      reference: t.reference,
++      type: t.type.toLowerCase(),
++      status: t.status.toLowerCase(),
++      amount: koboToNaira(t.amountKobo),
++      balance_before: koboToNaira(t.balanceBeforeKobo),
++      balance_after: koboToNaira(t.balanceAfterKobo),
++      description: t.description,
++      created_at: t.createdAt.toISOString()
++    }))
++  });
++});
+diff --git a/web/package.json b/web/package.json
+index 45bba30..07e6234 100644
+--- a/web/package.json
++++ b/web/package.json
+@@ -10,9 +10,11 @@
+     "preview": "vite preview"
+   },
+   "dependencies": {
++    "i18next": "^24.2.0",
+     "lucide-react": "^1.31.0",
+     "react": "^19.2.8",
+     "react-dom": "^19.2.8",
++    "react-i18next": "^15.4.0",
+     "react-router-dom": "^7.18.2"
+   },
+   "devDependencies": {
+@@ -25,5 +27,10 @@
+     "tailwindcss": "^4.3.3",
+     "typescript": "~6.0.2",
+     "vite": "^8.2.0"
++  },
++  "overrides": {
++    "react-i18next": {
++      "typescript": "$typescript"
++    }
+   }
+ }
+diff --git a/web/src/App.tsx b/web/src/App.tsx
+index 0de13c7..630444a 100644
+--- a/web/src/App.tsx
++++ b/web/src/App.tsx
+@@ -23,6 +23,7 @@ import ReceiptPage from './pages/ReceiptPage';
+ import ReferralPage from './pages/ReferralPage';
+ import PinSetupPage from './pages/PinSetupPage';
+ import PartnerDashboardPage from './pages/PartnerDashboardPage';
++import PartnerApiDocsPage from './pages/PartnerApiDocsPage';
+ 
+ function ProtectedRoute({ children }: { children: ReactNode }) {
+   const { user, isLoading, mustChangePassword, requiresLoginPinSetup, requiresTransactionPinSetup } = useAuth();
+@@ -58,6 +59,7 @@ export default function App() {
+           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+           <Route path="/register" element={<RegisterPage />} />
+           <Route path="/partner-dashboard" element={<PartnerDashboardPage />} />
++          <Route path="/partner-docs" element={<PartnerApiDocsPage />} />
+           <Route path="/privacy-policy" element={<PrivacyRedirect page="privacy-policy" />} />
+           <Route path="/result-checkers" element={<ProtectedRoute><ResultCheckersPage /></ProtectedRoute>} />
+           <Route path="/waec-result" element={<ProtectedRoute><ResultPinPage exam="WAEC" /></ProtectedRoute>} />
+diff --git a/web/src/components/LanguageSwitcher.tsx b/web/src/components/LanguageSwitcher.tsx
+new file mode 100644
+index 0000000..2d01386
+--- /dev/null
++++ b/web/src/components/LanguageSwitcher.tsx
+@@ -0,0 +1,29 @@
++import { useTranslation } from 'react-i18next';
++import { Languages } from 'lucide-react';
++import { setPortalLanguage } from '../i18n';
++
++export default function LanguageSwitcher() {
++  const { i18n, t } = useTranslation();
++  const current = i18n.language === 'ha' ? 'ha' : 'en';
++
++  return (
++    <div className="flex items-center gap-1.5 rounded-lg border border-slate-300 px-2 py-1.5 text-xs font-semibold text-slate-600">
++      <Languages size={14} className="text-slate-400" />
++      <button
++        onClick={() => setPortalLanguage('en')}
++        className={current === 'en' ? 'text-brand-700' : 'text-slate-400'}
++        aria-label={t('partnerPortal.language.en')}
++      >
++        EN
++      </button>
++      <span className="text-slate-300">/</span>
++      <button
++        onClick={() => setPortalLanguage('ha')}
++        className={current === 'ha' ? 'text-brand-700' : 'text-slate-400'}
++        aria-label={t('partnerPortal.language.ha')}
++      >
++        HA
++      </button>
++    </div>
++  );
++}
+diff --git a/web/src/i18n/index.ts b/web/src/i18n/index.ts
+new file mode 100644
+index 0000000..0e18fae
+--- /dev/null
++++ b/web/src/i18n/index.ts
+@@ -0,0 +1,26 @@
++import i18n from 'i18next';
++import { initReactI18next } from 'react-i18next';
++import en from './locales/en';
++import ha from './locales/ha';
++
++const STORAGE_KEY = 'mdl_partner_portal_lang';
++
++function initialLanguage(): 'en' | 'ha' {
++  const saved = localStorage.getItem(STORAGE_KEY);
++  return saved === 'ha' ? 'ha' : 'en';
++}
++
++void i18n.use(initReactI18next).init({
++  resources: { en: { translation: en }, ha: { translation: ha } },
++  lng: initialLanguage(),
++  fallbackLng: 'en',
++  interpolation: { escapeValue: false }
++});
++
++/** Switches language and remembers the choice for next visit - called from LanguageSwitcher. */
++export function setPortalLanguage(lang: 'en' | 'ha') {
++  localStorage.setItem(STORAGE_KEY, lang);
++  void i18n.changeLanguage(lang);
++}
++
++export default i18n;
+diff --git a/web/src/i18n/locales/en.ts b/web/src/i18n/locales/en.ts
+new file mode 100644
+index 0000000..73a52f2
+--- /dev/null
++++ b/web/src/i18n/locales/en.ts
+@@ -0,0 +1,199 @@
++const en = {
++  partnerPortal: {
++    common: {
++      loading: 'Loading…',
++      copy: 'Copy',
++      copied: 'Copied.',
++      save: 'Save',
++      generate: 'Generate',
++      revoke: 'Revoke'
++    },
++    header: {
++      appName: 'Major Data Link',
++      tagline: 'Partner Portal',
++      documentation: 'Documentation',
++      dashboard: 'Dashboard',
++      logout: 'Log out'
++    },
++    auth: {
++      login: 'Log in',
++      register: 'Register',
++      businessName: 'Business name',
++      businessNamePlaceholder: 'e.g. Kindness Digital Branding',
++      email: 'Email',
++      emailPlaceholder: 'you@company.com',
++      phone: 'Phone number (optional)',
++      phonePlaceholder: '08012345678',
++      password: 'Password',
++      passwordPlaceholderRegister: 'At least 8 characters',
++      loginCta: 'Log in',
++      registerCta: 'Create company account',
++      registerNotice:
++        "After registering, a Major Data Link admin will review your company before you can generate a live API key or process transactions - but you can log into the dashboard right away to check your registration status.",
++      genericError: 'Something went wrong. Please try again.'
++    },
++    banner: {
++      pendingTitle: 'Your registration is under review',
++      pendingBody:
++        'We\'re reviewing your company before you can generate a live API key or start processing transactions. We\'ll reach out to you by email ({{email}}) once approved.',
++      suspendedTitle: 'This account has been suspended',
++      suspendedBody: 'Contact Major Data Link for more information about this account.'
++    },
++    hero: {
++      welcomeBack: 'Welcome back',
++      walletBalance: 'Partner wallet balance'
++    },
++    metrics: {
++      todayCalls: "Today's Calls",
++      totalCalls: 'Total Calls',
++      totalSpend: 'Total Spend',
++      successfulCalls: 'Successful Calls',
++      failedCalls: 'Failed Calls'
++    },
++    callsOverview: {
++      title: 'API Calls Overview (Last 30 Days)',
++      empty: 'No data yet.'
++    },
++    wallet: {
++      title: 'Partner funding account',
++      permanentAccount: 'Permanent account',
++      bankTransferFallback: 'Bank transfer',
++      transferHint: 'Transfer to this account to fund your Partner wallet.',
++      copyAccountNumber: 'Copy account number',
++      createAccount: 'Create funding account',
++      creating: 'Please wait…',
++      exactTransferLabel: 'Exact Transfer (fallback, one-off amount)',
++      amountPlaceholder: 'Amount (₦)',
++      refLabel: 'Ref',
++      expiresLabel: 'Expires',
++      fundingAccountCreated: 'Your permanent funding account is ready.',
++      fundingAccountFailed: 'Could not create funding account',
++      exactTransferFailed: 'Could not create Exact Transfer account'
++    },
++    apiKeys: {
++      title: 'API keys',
++      newKey: 'New key',
++      pendingApprovalTooltip: 'Your company needs to be approved before you can generate a live key',
++      revealNotice: 'Save this key now - it will not be shown again:',
++      savedIt: "I've saved it",
++      noKeys: 'No API key yet.',
++      revokedOn: 'Revoked {{date}}',
++      lastUsedOn: 'Last used {{date}}',
++      neverUsed: 'Never used yet',
++      revokeTitle: 'Revoke',
++      revokedNotice: 'Key revoked.',
++      generateFailed: 'Could not generate API key',
++      revokeFailed: 'Could not revoke key'
++    },
++    webhook: {
++      title: 'Webhook',
++      description: "We'll send you a <code>transaction.updated</code> event whenever a transaction that first came back \"pending\" resolves.",
++      urlPlaceholder: 'https://yourapp.com/webhooks/mdl',
++      secretNotice: 'Webhook secret (save it now, it will not be shown again):',
++      sendTest: 'Send test event',
++      testQueued: 'Test event queued - check your endpoint in a moment.',
++      saveFailed: 'Could not save webhook URL',
++      testFailed: 'Could not queue test event',
++      configuredNotice: 'Webhook configured. Save the secret now; it will not be shown again.'
++    },
++    pricing: {
++      title: 'Service Pricing',
++      subtitle:
++        'Wholesale price - data/airtime pricing varies by plan, see <code>GET /data/plans/:network</code> in the documentation for current pricing.'
++    },
++    callsSummary: {
++      title: 'API Calls Summary',
++      searchPlaceholder: 'Search by reference',
++      colReference: 'Reference',
++      colType: 'Type',
++      colAmount: 'Amount',
++      colBalanceBefore: 'Balance before',
++      colBalanceAfter: 'Balance after',
++      colStatus: 'Status',
++      colDate: 'Date',
++      empty: 'No API calls found.'
++    },
++    language: {
++      label: 'Language',
++      en: 'English',
++      ha: 'Hausa'
++    },
++    docs: {
++      pageTitle: 'API Documentation',
++      pageSubtitle: 'Major Data Link Partner Platform',
++      intro:
++        'Everything you need to integrate Major Data Link into your own application — data & airtime, NIN/BVN verification slips, wallet funding, and async identity services. All endpoints accept JSON and are authenticated with your API key.',
++      keyNotice:
++        "We can't show your live API key here (it's stored as a hash only, never in plain text after it's created) —",
++      keyNoticeLink: 'go to your dashboard',
++      keyNoticeSuffix: 'to generate/view your API keys.',
++      sections: {
++        auth: 'Authentication',
++        wallet: 'Wallet & Funding',
++        dataAirtime: 'Data & Airtime',
++        nin: 'NIN Slips',
++        bvn: 'BVN Slips',
++        async: 'Async Services',
++        transactions: 'Transactions',
++        webhooks: 'Webhooks',
++        errors: 'Error Handling'
++      },
++      auth: {
++        body: 'Include your API key in the <code>X-API-Key</code> header on every request. Never send it as a body or query parameter, and never embed it in a mobile app or public frontend.',
++        idempotencyNote:
++          '<code>Idempotency-Key</code> is required on every purchase/submit endpoint (8-128 characters, unique per order on your side). Retry the exact same request with the same key any time - it will never be charged twice.'
++      },
++      wallet: {
++        intro: 'Every purchase debits your partner wallet directly - fund it via a permanent virtual account or a one-off Exact Transfer.',
++        balance: 'Check wallet balance',
++        createAccount: 'Create a permanent funding account',
++        createAccountBody: "Provisions a dedicated bank account number - any transfer to it credits your wallet automatically.",
++        dynamic: 'One-off Exact Transfer'
++      },
++      dataAirtime: {
++        categories: 'List data plan categories',
++        plans: 'List data plans',
++        buyData: 'Buy data',
++        buyAirtime: 'Buy airtime',
++        pendingNote:
++          'A purchase can come back <code>"status": false</code> with <code>"pending"</code> reflected in a later <code>GET /transactions/:reference</code> call, if the provider itself is still confirming the order. Never re-submit as a new order when this happens - your Idempotency-Key already covers a retry.'
++      },
++      nin: { intro: 'Instant slip generation - returns a PDF (base64) and the underlying record.' },
++      async: {
++        intro:
++          "NIN Validation, Personalization, and IPE Clearance don't return an instant result: a request is <bold>submitted</bold> (this deducts your balance and returns a <code>ticket_id</code>), an admin processes it, and you <bold>check status</bold> later with that <code>ticket_id</code> to see the outcome.",
++        pollNote: "Poll a ticket at a reasonable interval (e.g. every 1-2 minutes) - not in a tight loop. Configure a",
++        pollNoteLink: 'webhook',
++        pollNoteSuffix: 'to be notified the moment a ticket resolves instead of polling at all.',
++        submitRequest: 'Submit request',
++        checkStatus: 'Check status'
++      },
++      transactions: {
++        lookup: 'Look up a single transaction',
++        list: 'List recent transactions'
++      },
++      webhooks: {
++        intro: 'Configure a webhook URL from your',
++        introLink: 'dashboard',
++        introSuffix: "to get notified when a transaction that first came back pending later resolves.",
++        headers: 'Headers',
++        payload: 'Payload',
++        note:
++          "Verify the HMAC signature with your webhook secret, respond <code>200</code> within 10 seconds, and handle the event idempotently - a delivery may be retried (30s, 2m, 10m, 1h, then 6h) if your endpoint doesn't acknowledge it in time."
++      },
++      errors: {
++        intro: 'All API responses share a consistent shape. Check the <code>status</code> field for success or failure.',
++        code200: 'Success',
++        code400: 'Bad request - invalid parameters, insufficient balance, or record not found',
++        code401: 'Unauthorized - missing or invalid API key',
++        code404: 'Not found - unknown ticket_id or transaction reference',
++        code422: 'Missing/invalid Idempotency-Key',
++        code429: 'Too many requests - rate limit exceeded'
++      },
++      params: { parameter: 'Parameter', type: 'Type', required: 'Required', description: 'Description', yes: 'Yes', no: 'No' },
++      response: 'Response'
++    }
++  }
++} as const;
++
++export default en;
+diff --git a/web/src/i18n/locales/ha.ts b/web/src/i18n/locales/ha.ts
+new file mode 100644
+index 0000000..a0431b3
+--- /dev/null
++++ b/web/src/i18n/locales/ha.ts
+@@ -0,0 +1,198 @@
++const ha = {
++  partnerPortal: {
++    common: {
++      loading: 'Ana lodawa…',
++      copy: 'Kwafi',
++      copied: 'An kwafi.',
++      save: 'Ajiye',
++      generate: 'Ƙirƙira',
++      revoke: 'Soke'
++    },
++    header: {
++      appName: 'Major Data Link',
++      tagline: 'Partner Portal',
++      documentation: 'Documentation',
++      dashboard: 'Dashboard',
++      logout: 'Fita'
++    },
++    auth: {
++      login: 'Shiga',
++      register: 'Yi rajista',
++      businessName: 'Sunan kamfani',
++      businessNamePlaceholder: 'misali Kindness Digital Branding',
++      email: 'Email',
++      emailPlaceholder: 'you@company.com',
++      phone: 'Lambar waya (na zaɓi)',
++      phonePlaceholder: '08012345678',
++      password: 'Password',
++      passwordPlaceholderRegister: 'Aƙalla haruffa 8',
++      loginCta: 'Shiga',
++      registerCta: 'Ƙirƙiri asusun kamfani',
++      registerNotice:
++        'Bayan rajista, admin din Major Data Link zai fara duba kamfaninku kafin ku iya ƙirƙirar live API key ko sarrafa transactions - amma za ku iya shiga dashboard ɗin nan take don duba matsayin rajistarku.',
++      genericError: 'Wani abu ya faru. Da fatan za a sake gwadawa.'
++    },
++    banner: {
++      pendingTitle: 'Ana bitar rajistarku',
++      pendingBody:
++        'Za a fara duba kamfaninku kafin ku iya ƙirƙirar live API key ko fara sarrafa transactions. Za mu tuntube ku ta imel ({{email}}) idan an amince.',
++      suspendedTitle: 'An dakatar da wannan asusun',
++      suspendedBody: 'Tuntuɓi Major Data Link don ƙarin bayani game da wannan asusun.'
++    },
++    hero: {
++      welcomeBack: 'Barka da dawowa',
++      walletBalance: 'Ma\'aunin wallet na Partner'
++    },
++    metrics: {
++      todayCalls: 'Calls na Yau',
++      totalCalls: 'Jimlar Calls',
++      totalSpend: 'Jimlar Kashewa',
++      successfulCalls: 'Calls masu Nasara',
++      failedCalls: 'Calls da suka Kasa'
++    },
++    callsOverview: {
++      title: 'Bayanin API Calls (Kwana 30 na Baya)',
++      empty: 'Babu bayanai tukuna.'
++    },
++    wallet: {
++      title: 'Asusun caji na Partner',
++      permanentAccount: 'Dindindin account',
++      bankTransferFallback: 'Bank transfer',
++      transferHint: 'Yi transfer zuwa wannan account don cajin wallet ɗinku na Partner.',
++      copyAccountNumber: 'Kwafi lambar account',
++      createAccount: 'Ƙirƙiri funding account',
++      creating: 'Da fatan za a jira…',
++      exactTransferLabel: 'Exact Transfer (zaɓi na dabam, adadin sau ɗaya)',
++      amountPlaceholder: 'Adadin kuɗi (₦)',
++      refLabel: 'Ref',
++      expiresLabel: 'Zai ƙare',
++      fundingAccountCreated: 'An kirkiri permanent funding account ɗinku.',
++      fundingAccountFailed: 'An kasa ƙirƙirar funding account',
++      exactTransferFailed: 'An kasa ƙirƙirar Exact Transfer account'
++    },
++    apiKeys: {
++      title: 'API keys',
++      newKey: 'Sabon key',
++      pendingApprovalTooltip: 'Dole a fara amincewa da kamfaninku kafin ku iya ƙirƙirar live key',
++      revealNotice: 'Ajiye wannan key ɗin yanzu - ba za a sake nuna shi ba:',
++      savedIt: 'Na ajiye shi',
++      noKeys: 'Babu API key tukuna.',
++      revokedOn: 'An soke {{date}}',
++      lastUsedOn: 'An yi amfani da shi na ƙarshe {{date}}',
++      neverUsed: 'Ba a taɓa amfani da shi ba tukuna',
++      revokeTitle: 'Soke',
++      revokedNotice: 'An soke key ɗin.',
++      generateFailed: 'An kasa ƙirƙirar API key',
++      revokeFailed: 'An kasa soke key ɗin'
++    },
++    webhook: {
++      title: 'Webhook',
++      description: 'Za a tura muku <code>transaction.updated</code> event idan wani transaction da farko ya tsaya "pending" ya warware.',
++      urlPlaceholder: 'https://yourapp.com/webhooks/mdl',
++      secretNotice: 'Webhook secret (ajiye yanzu, ba za a sake nuna shi ba):',
++      sendTest: 'Tura test event',
++      testQueued: 'An sanya test event a layi - duba endpoint ɗinku a cikin dakiku kaɗan.',
++      saveFailed: 'An kasa ajiye webhook URL',
++      testFailed: 'An kasa sanya test event a layi',
++      configuredNotice: 'An saita webhook. Ajiye secret ɗin yanzu; ba za a sake nuna shi ba.'
++    },
++    pricing: {
++      title: 'Farashin Sabis',
++      subtitle:
++        'Farashin wholesale - farashin data/airtime yana canzawa bisa plan, duba <code>GET /data/plans/:network</code> a documentation don ainihin farashi na yanzu.'
++    },
++    callsSummary: {
++      title: 'Taƙaitawar API Calls',
++      searchPlaceholder: 'Nemo ta reference',
++      colReference: 'Reference',
++      colType: 'Nau\'i',
++      colAmount: 'Adadin kuɗi',
++      colBalanceBefore: 'Balance kafin',
++      colBalanceAfter: 'Balance bayan',
++      colStatus: 'Matsayi',
++      colDate: 'Kwanan wata',
++      empty: 'Babu API call da aka samu.'
++    },
++    language: {
++      label: 'Harshe',
++      en: 'Turanci',
++      ha: 'Hausa'
++    },
++    docs: {
++      pageTitle: 'API Documentation',
++      pageSubtitle: 'Major Data Link Partner Platform',
++      intro:
++        'Duk abin da kuke bukata don haɗa Major Data Link cikin app ɗinku — data & airtime, NIN/BVN verification slips, wallet funding, da async identity services. Duk endpoints suna karɓar JSON kuma ana tantance su ta API key ɗinku.',
++      keyNotice: 'Ba mu iya nuna live API key ɗinku a nan (ana ajiye shi a matsayin hash kaɗai, ba a taɓa ajiye shi a bayyane bayan an ƙirƙira shi ba) —',
++      keyNoticeLink: 'je zuwa dashboard ɗinku',
++      keyNoticeSuffix: 'don ƙirƙira/duba API keys ɗinku.',
++      sections: {
++        auth: 'Authentication',
++        wallet: 'Wallet & Funding',
++        dataAirtime: 'Data & Airtime',
++        nin: 'NIN Slips',
++        bvn: 'BVN Slips',
++        async: 'Async Services',
++        transactions: 'Transactions',
++        webhooks: 'Webhooks',
++        errors: 'Error Handling'
++      },
++      auth: {
++        body: 'Sanya API key ɗinku a cikin <code>X-API-Key</code> header a kowane request. Kada a taɓa turawa a matsayin body ko query parameter, kuma kada a taɓa saka shi a mobile app ko public frontend.',
++        idempotencyNote:
++          '<code>Idempotency-Key</code> ana bukatarsa a kowane purchase/submit endpoint (haruffa 8-128, na musamman ga kowane order a bangarenku). Za ku iya sake tura iri ɗaya request da iri ɗaya key a kowane lokaci - ba za a taɓa cajin ku sau biyu ba.'
++      },
++      wallet: {
++        intro: 'Kowace purchase tana cire kuɗi kai tsaye daga wallet ɗinku na Partner - ku caje shi ta hanyar permanent virtual account ko Exact Transfer sau ɗaya.',
++        balance: 'Duba ma\'aunin wallet',
++        createAccount: 'Ƙirƙiri permanent funding account',
++        createAccountBody: 'Yana samar da wata keɓantacciyar lambar account ta bank - duk wani transfer zuwa gareta yana cajin wallet ɗinku kai tsaye.',
++        dynamic: 'Exact Transfer sau ɗaya'
++      },
++      dataAirtime: {
++        categories: 'Jerin data plan categories',
++        plans: 'Jerin data plans',
++        buyData: 'Sayi data',
++        buyAirtime: 'Sayi airtime',
++        pendingNote:
++          'Purchase na iya dawowa da <code>"status": false</code> tare da <code>"pending"</code> a wani GET /transactions/:reference na baya, idan provider yana ci gaba da tabbatarwa. Kada a sake tura sabon order idan haka ya faru - Idempotency-Key ɗinku ya riga ya rufe retry.'
++      },
++      nin: { intro: 'Slip generation nan take - yana dawo da PDF (base64) da bayanan da ke ƙasa.' },
++      async: {
++        intro:
++          'NIN Validation, Personalization, da IPE Clearance ba sa dawowa da sakamako nan take: ana <bold>tura request</bold> (wannan yana cire kuɗi kuma yana dawo da <code>ticket_id</code>), admin yana sarrafa shi, sannan ku <bold>duba status</bold> daga baya da wancan <code>ticket_id</code> don ganin sakamako.',
++        pollNote: 'Ku bincika ticket a wani lokaci mai kyau (misali kowane minti 1-2) - ba a cikin tight loop ba. Ku saita',
++        pollNoteLink: 'webhook',
++        pollNoteSuffix: 'don a sanar da ku nan take ticket ya warware maimakon ku rika duba shi kullum.',
++        submitRequest: 'Tura request',
++        checkStatus: 'Duba status'
++      },
++      transactions: {
++        lookup: 'Duba wani transaction guda ɗaya',
++        list: 'Jerin transactions na baya-bayan nan'
++      },
++      webhooks: {
++        intro: 'Saita webhook URL daga',
++        introLink: 'dashboard',
++        introSuffix: 'ɗinku don a sanar da ku idan wani transaction da farko ya dawo pending ya warware.',
++        headers: 'Headers',
++        payload: 'Payload',
++        note:
++          'Tabbatar da HMAC signature da webhook secret ɗinku, ku mayar da <code>200</code> cikin seconds 10, kuma ku sarrafa event ɗin idempotently - ana iya sake tura delivery (30s, 2m, 10m, 1h, sannan 6h) idan endpoint ɗinku bai amsa akan lokaci ba.'
++      },
++      errors: {
++        intro: 'Duk amsoshin API suna da tsari iri ɗaya. Duba filin <code>status</code> don sanin nasara ko gazawa.',
++        code200: 'Nasara',
++        code400: 'Bad request - parameters ba daidai ba, balance bai isa ba, ko ba a sami record ba',
++        code401: 'Unauthorized - babu API key ko ba daidai ba',
++        code404: 'Ba a samu ba - ticket_id ko transaction reference ba a sani ba',
++        code422: 'Idempotency-Key ya ɓace ko ba daidai ba',
++        code429: 'Yawan requests da yawa - rate limit ya cika'
++      },
++      params: { parameter: 'Parameter', type: 'Nau\'i', required: 'Ya wajaba', description: 'Bayani', yes: 'Eh', no: "A'a" },
++      response: 'Response'
++    }
++  }
++} as const;
++
++export default ha;
+diff --git a/web/src/main.tsx b/web/src/main.tsx
+index bef5202..cd81cee 100644
+--- a/web/src/main.tsx
++++ b/web/src/main.tsx
+@@ -1,6 +1,7 @@
+ import { StrictMode } from 'react'
+ import { createRoot } from 'react-dom/client'
+ import './index.css'
++import './i18n'
+ import App from './App.tsx'
+ 
+ createRoot(document.getElementById('root')!).render(
+diff --git a/web/src/pages/PartnerApiDocsPage.tsx b/web/src/pages/PartnerApiDocsPage.tsx
+new file mode 100644
+index 0000000..03dc560
+--- /dev/null
++++ b/web/src/pages/PartnerApiDocsPage.tsx
+@@ -0,0 +1,557 @@
++import { useState } from 'react';
++import { Link } from 'react-router-dom';
++import { Trans, useTranslation } from 'react-i18next';
++import LanguageSwitcher from '../components/LanguageSwitcher';
++import {
++  AlertTriangle,
++  ArrowUpRight,
++  BadgeCheck,
++  Banknote,
++  ChevronDown,
++  Copy,
++  Fingerprint,
++  Hourglass,
++  KeyRound,
++  Landmark,
++  LayoutDashboard,
++  ListChecks,
++  Signal,
++  Smartphone,
++  Wallet as WalletIcon,
++  Webhook
++} from 'lucide-react';
++
++const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? '') + '/api/v1';
++
++const SECTIONS = [
++  { id: 'auth', key: 'auth' },
++  { id: 'wallet', key: 'wallet' },
++  { id: 'data-airtime', key: 'dataAirtime' },
++  { id: 'nin', key: 'nin' },
++  { id: 'bvn', key: 'bvn' },
++  { id: 'async', key: 'async' },
++  { id: 'transactions', key: 'transactions' },
++  { id: 'webhooks', key: 'webhooks' },
++  { id: 'errors', key: 'errors' }
++];
++
++export default function PartnerApiDocsPage() {
++  const { t } = useTranslation();
++  const [active, setActive] = useState('auth');
++
++  function scrollTo(id: string) {
++    setActive(id);
++    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
++  }
++
++  return (
++    <main className="min-h-screen bg-slate-50 text-slate-900">
++      <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur">
++        <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-3">
++          <div>
++            <p className="font-bold">{t('partnerPortal.docs.pageTitle')}</p>
++            <p className="text-xs text-slate-500">{t('partnerPortal.docs.pageSubtitle')}</p>
++          </div>
++          <div className="flex items-center gap-2">
++            <LanguageSwitcher />
++            <Link
++              to="/partner-dashboard"
++              className="flex items-center gap-2 rounded-lg bg-brand-700 px-3 py-2 text-sm font-semibold text-white"
++            >
++              <LayoutDashboard size={16} />
++              {t('partnerPortal.header.dashboard')}
++            </Link>
++          </div>
++        </div>
++        <nav className="mx-auto flex max-w-6xl gap-1 overflow-x-auto px-5 pb-3 text-sm">
++          {SECTIONS.map((s) => (
++            <button
++              key={s.id}
++              onClick={() => scrollTo(s.id)}
++              className={`shrink-0 rounded-full px-3 py-1.5 font-semibold transition ${
++                active === s.id ? 'bg-brand-700 text-white' : 'text-slate-500 hover:bg-slate-100'
++              }`}
++            >
++              {t(`partnerPortal.docs.sections.${s.key}`)}
++            </button>
++          ))}
++        </nav>
++      </header>
++
++      <div className="mx-auto max-w-6xl space-y-6 px-5 py-8">
++        <Card>
++          <h1 className="text-2xl font-bold">{t('partnerPortal.docs.pageTitle')}</h1>
++          <p className="mt-2 max-w-2xl text-slate-600">{t('partnerPortal.docs.intro')}</p>
++          <div className="mt-4 flex flex-wrap gap-2 text-xs">
++            <Badge>Base URL: {API_BASE}</Badge>
++            <Badge>JSON over HTTPS</Badge>
++            <Badge tone="green">60 req/min · 30 req/min on purchases</Badge>
++          </div>
++          <p className="mt-4 text-xs text-slate-500">
++            {t('partnerPortal.docs.keyNotice')}{' '}
++            <Link to="/partner-dashboard" className="font-semibold text-brand-700 underline">
++              {t('partnerPortal.docs.keyNoticeLink')}
++            </Link>{' '}
++            {t('partnerPortal.docs.keyNoticeSuffix')}
++          </p>
++        </Card>
++
++        <Section id="auth" icon={KeyRound} title={t('partnerPortal.docs.sections.auth')}>
++          <p className="text-slate-600">
++            <Trans i18nKey="partnerPortal.docs.auth.body" components={{ code: <code /> }} />
++          </p>
++          <CodeTabs
++            curl={`curl -X POST ${API_BASE}/data/purchase \\\n  -H "X-API-Key: mdl_live_xxxxxxxxxxxxxxxxxxxx" \\\n  -H "Idempotency-Key: order-8821" \\\n  -H "Content-Type: application/json" \\\n  -d '{"network":"MTN","plan_id":"mtn-1gb-30d","phone":"08012345678"}'`}
++            javascript={`await fetch("${API_BASE}/data/purchase", {\n  method: "POST",\n  headers: {\n    "X-API-Key": "mdl_live_xxxxxxxxxxxxxxxxxxxx",\n    "Idempotency-Key": "order-8821",\n    "Content-Type": "application/json"\n  },\n  body: JSON.stringify({ network: "MTN", plan_id: "mtn-1gb-30d", phone: "08012345678" })\n});`}
++            php={`$ch = curl_init("${API_BASE}/data/purchase");\ncurl_setopt_array($ch, [\n  CURLOPT_POST => true,\n  CURLOPT_HTTPHEADER => [\n    "X-API-Key: mdl_live_xxxxxxxxxxxxxxxxxxxx",\n    "Idempotency-Key: order-8821",\n    "Content-Type: application/json"\n  ],\n  CURLOPT_POSTFIELDS => json_encode(["network" => "MTN", "plan_id" => "mtn-1gb-30d", "phone" => "08012345678"]),\n  CURLOPT_RETURNTRANSFER => true\n]);\n$response = curl_exec($ch);`}
++          />
++          <p className="mt-3 text-xs text-slate-500">
++            <Trans i18nKey="partnerPortal.docs.auth.idempotencyNote" components={{ code: <code /> }} />
++          </p>
++        </Section>
++
++        <Section id="wallet" icon={WalletIcon} title={t('partnerPortal.docs.sections.wallet')}>
++          <p className="text-slate-600">{t('partnerPortal.docs.wallet.intro')}</p>
++          <EndpointCard method="GET" path="/wallet/balance" title={t('partnerPortal.docs.wallet.balance')} icon={Banknote}>
++            <ResponseExample json={`{\n  "status": true,\n  "data": { "balance": 45250, "currency": "NGN" }\n}`} />
++          </EndpointCard>
++          <EndpointCard method="POST" path="/wallet/funding-account" title={t('partnerPortal.docs.wallet.createAccount')} icon={Landmark}>
++            <p className="text-sm text-slate-600">{t('partnerPortal.docs.wallet.createAccountBody')}</p>
++            <ResponseExample json={`{\n  "status": true,\n  "data": {\n    "balance": 45250,\n    "virtual_account_number": "9012345678",\n    "virtual_account_bank": "Wema Bank"\n  }\n}`} />
++          </EndpointCard>
++          <EndpointCard method="POST" path="/wallet/fund/dynamic" title={t('partnerPortal.docs.wallet.dynamic')} icon={ArrowUpRight}>
++            <ParamsTable rows={[{ name: 'amount', type: 'number', required: true, desc: 'Amount in Naira to fund' }]} />
++            <ResponseExample json={`{\n  "status": true,\n  "data": { "amount": 5000, "reference": "MDL-FUND-8821", "account_number": "9019283746" }\n}`} />
++          </EndpointCard>
++        </Section>
++
++        <Section id="data-airtime" icon={Signal} title={t('partnerPortal.docs.sections.dataAirtime')}>
++          <EndpointCard method="GET" path="/data/plans/:network/categories" title={t('partnerPortal.docs.dataAirtime.categories')} icon={Signal} />
++          <EndpointCard method="GET" path="/data/plans/:network" title={t('partnerPortal.docs.dataAirtime.plans')} icon={Signal}>
++            <ParamsTable rows={[{ name: 'category', type: 'string', required: false, desc: 'Query param - filter by category (e.g. SME, GIFTING)' }]} />
++          </EndpointCard>
++          <EndpointCard method="POST" path="/data/purchase" title={t('partnerPortal.docs.dataAirtime.buyData')} icon={Signal} rateNote="30/min">
++            <ParamsTable
++              rows={[
++                { name: 'network', type: 'string', required: true, desc: 'MTN, GLO, AIRTEL, or 9MOBILE' },
++                { name: 'plan_id', type: 'string', required: true, desc: 'From the plans list above' },
++                { name: 'phone', type: 'string', required: true, desc: 'Recipient phone number' }
++              ]}
++            />
++            <ResponseExample json={`{\n  "status": true,\n  "message": "Transaction processed",\n  "data": { "reference": "MDL-...", "status": "success", "amount": 350, "balance_after": 44900 }\n}`} />
++          </EndpointCard>
++          <EndpointCard method="POST" path="/airtime/purchase" title={t('partnerPortal.docs.dataAirtime.buyAirtime')} icon={Smartphone} rateNote="30/min">
++            <ParamsTable
++              rows={[
++                { name: 'network', type: 'string', required: true, desc: 'MTN, GLO, AIRTEL, or 9MOBILE' },
++                { name: 'phone', type: 'string', required: true, desc: 'Recipient phone number' },
++                { name: 'amount', type: 'number', required: true, desc: 'Naira, up to 500,000' }
++              ]}
++            />
++          </EndpointCard>
++          <Callout>
++            <Trans i18nKey="partnerPortal.docs.dataAirtime.pendingNote" components={{ code: <code /> }} />
++          </Callout>
++        </Section>
++
++        <Section id="nin" icon={Fingerprint} title={t('partnerPortal.docs.sections.nin')}>
++          <p className="text-slate-600">{t('partnerPortal.docs.nin.intro')}</p>
++          <TieredEndpointCard
++            method="POST"
++            path="/verification/nin/by-nin"
++            title="NIN Verification by NIN Number"
++            tiers={['premium', 'standard', 'regular', 'vnin']}
++            rows={[
++              { name: 'nin', type: 'string', required: true, desc: '11-digit NIN' },
++              { name: 'tier', type: 'string', required: true, desc: 'premium, standard, regular, or vnin' }
++            ]}
++          />
++          <TieredEndpointCard
++            method="POST"
++            path="/verification/nin/by-phone"
++            title="NIN Verification by Phone Number"
++            tiers={['premium', 'standard', 'regular']}
++            rows={[
++              { name: 'phone', type: 'string', required: true, desc: 'Phone number registered to the NIN' },
++              { name: 'tier', type: 'string', required: true, desc: 'premium, standard, or regular' }
++            ]}
++          />
++          <EndpointCard method="POST" path="/verification/nin/by-demographic" title="NIN Verification by Demographic Details" icon={Fingerprint}>
++            <ParamsTable
++              rows={[
++                { name: 'firstname', type: 'string', required: true, desc: '' },
++                { name: 'lastname', type: 'string', required: true, desc: '' },
++                { name: 'dob', type: 'string', required: true, desc: 'YYYY-MM-DD' },
++                { name: 'gender', type: 'string', required: false, desc: 'MALE or FEMALE' }
++              ]}
++            />
++          </EndpointCard>
++        </Section>
++
++        <Section id="bvn" icon={BadgeCheck} title={t('partnerPortal.docs.sections.bvn')}>
++          <TieredEndpointCard
++            method="POST"
++            path="/verification/bvn/slip"
++            title="BVN Verification Slip"
++            tiers={['premium', 'standard']}
++            rows={[
++              { name: 'bvn', type: 'string', required: true, desc: '11-digit BVN' },
++              { name: 'tier', type: 'string', required: true, desc: 'premium or standard' }
++            ]}
++          />
++        </Section>
++
++        <Section id="async" icon={Hourglass} title={t('partnerPortal.docs.sections.async')}>
++          <p className="text-slate-600">
++            <Trans i18nKey="partnerPortal.docs.async.intro" components={{ code: <code />, bold: <strong /> }} />
++          </p>
++          <Callout>
++            {t('partnerPortal.docs.async.pollNote')}{' '}
++            <Link to="/partner-dashboard" className="font-semibold underline">
++              {t('partnerPortal.docs.async.pollNoteLink')}
++            </Link>{' '}
++            {t('partnerPortal.docs.async.pollNoteSuffix')}
++          </Callout>
++          <AsyncServiceCard
++            title="NIN Validation"
++            desc="Validate a NIN against a specific issue type."
++            submitPath="/verification/nin/validation"
++            checkPath="/verification/nin/validation/:ticketId"
++            rows={[
++              { name: 'nin', type: 'string', required: true, desc: '11-digit NIN' },
++              { name: 'validation_type', type: 'string', required: false, desc: 'nin_validation, no_record, sim, modification, photo_error, bank_validation, update_records' }
++            ]}
++          />
++          <AsyncServiceCard
++            title="NIN Personalization"
++            desc="Submit a personalization request by NIMC tracking ID."
++            submitPath="/verification/nin/personalization"
++            checkPath="/verification/nin/personalization/:ticketId"
++            rows={[{ name: 'tracking_id', type: 'string', required: true, desc: 'NIMC tracking ID' }]}
++          />
++          <AsyncServiceCard
++            title="IPE Clearance"
++            desc="Submit an IPE clearance request by tracking ID."
++            submitPath="/verification/nin/ipe-clearance"
++            checkPath="/verification/nin/ipe-clearance/:ticketId"
++            rows={[{ name: 'tracking_id', type: 'string', required: true, desc: 'Tracking ID' }]}
++          />
++        </Section>
++
++        <Section id="transactions" icon={ListChecks} title={t('partnerPortal.docs.sections.transactions')}>
++          <EndpointCard method="GET" path="/transactions/:reference" title={t('partnerPortal.docs.transactions.lookup')} icon={ListChecks}>
++            <ResponseExample json={`{\n  "status": true,\n  "data": { "reference": "MDL-...", "status": "success", "type": "data_purchase", "amount": 350, "balance_after": 44900 }\n}`} />
++          </EndpointCard>
++          <EndpointCard method="GET" path="/transactions" title={t('partnerPortal.docs.transactions.list')} icon={ListChecks} />
++        </Section>
++
++        <Section id="webhooks" icon={Webhook} title={t('partnerPortal.docs.sections.webhooks')}>
++          <p className="text-slate-600">
++            {t('partnerPortal.docs.webhooks.intro')}{' '}
++            <Link to="/partner-dashboard" className="font-semibold text-brand-700 underline">
++              {t('partnerPortal.docs.webhooks.introLink')}
++            </Link>{' '}
++            {t('partnerPortal.docs.webhooks.introSuffix')}
++          </p>
++          <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm">
++            <p className="font-semibold">{t('partnerPortal.docs.webhooks.headers')}</p>
++            <CodeBlock code={'X-MDL-Event: transaction.updated\nX-MDL-Signature: sha256=<HMAC-SHA256 of the raw body>'} />
++          </div>
++          <ResponseExample
++            title={t('partnerPortal.docs.webhooks.payload')}
++            json={`{\n  "event": "transaction.updated",\n  "data": {\n    "reference": "MDL-20260904-ABC123",\n    "status": "success",\n    "type": "data_purchase",\n    "amount": 350,\n    "message": "Transaction processed"\n  }\n}`}
++          />
++          <Callout>
++            <Trans i18nKey="partnerPortal.docs.webhooks.note" components={{ code: <code /> }} />
++          </Callout>
++        </Section>
++
++        <Section id="errors" icon={AlertTriangle} title={t('partnerPortal.docs.sections.errors')}>
++          <p className="text-slate-600">
++            <Trans i18nKey="partnerPortal.docs.errors.intro" components={{ code: <code /> }} />
++          </p>
++          <ResponseExample json={`{\n  "status": false,\n  "message": "Insufficient wallet balance",\n  "code": "INSUFFICIENT_BALANCE"\n}`} />
++          <div className="mt-4 space-y-2">
++            {[
++              { code: 200, tone: 'green', desc: t('partnerPortal.docs.errors.code200') },
++              { code: 400, tone: 'red', desc: t('partnerPortal.docs.errors.code400') },
++              { code: 401, tone: 'red', desc: t('partnerPortal.docs.errors.code401') },
++              { code: 404, tone: 'red', desc: t('partnerPortal.docs.errors.code404') },
++              { code: 422, tone: 'amber', desc: t('partnerPortal.docs.errors.code422') },
++              { code: 429, tone: 'amber', desc: t('partnerPortal.docs.errors.code429') }
++            ].map((row) => (
++              <div key={row.code} className="flex items-center gap-3 rounded-lg border border-slate-200 px-3 py-2">
++                <span
++                  className={`w-12 rounded-md px-2 py-0.5 text-center text-xs font-bold text-white ${
++                    row.tone === 'green' ? 'bg-emerald-500' : row.tone === 'amber' ? 'bg-amber-500' : 'bg-rose-500'
++                  }`}
++                >
++                  {row.code}
++                </span>
++                <span className="text-sm text-slate-600">{row.desc}</span>
++              </div>
++            ))}
++          </div>
++        </Section>
++      </div>
++    </main>
++  );
++}
++
++// ── Shared bits ──────────────────────────────────────────────────────
++
++function Card({ children }: { children: React.ReactNode }) {
++  return <section className="rounded-2xl border border-slate-200 bg-white p-6">{children}</section>;
++}
++
++function Badge({ children, tone }: { children: React.ReactNode; tone?: 'green' }) {
++  return (
++    <span
++      className={`rounded-full px-3 py-1 font-semibold ${
++        tone === 'green' ? 'bg-emerald-50 text-emerald-700' : 'bg-blue-50 text-brand-700'
++      }`}
++    >
++      {children}
++    </span>
++  );
++}
++
++function Section({
++  id,
++  icon: Icon,
++  title,
++  children
++}: {
++  id: string;
++  icon: typeof KeyRound;
++  title: string;
++  children: React.ReactNode;
++}) {
++  return (
++    <section id={id} className="scroll-mt-24 rounded-2xl border border-slate-200 bg-white p-6">
++      <div className="flex items-center gap-2">
++        <Icon className="text-brand-700" size={20} />
++        <h2 className="text-lg font-bold">{title}</h2>
++      </div>
++      <div className="mt-3 space-y-4">{children}</div>
++    </section>
++  );
++}
++
++function Callout({ children }: { children: React.ReactNode }) {
++  return (
++    <div className="rounded-xl border border-teal-200 bg-teal-50 p-4 text-sm leading-relaxed text-teal-900">
++      {children}
++    </div>
++  );
++}
++
++function MethodBadge({ method }: { method: 'GET' | 'POST' }) {
++  return (
++    <span
++      className={`rounded-md px-2 py-0.5 font-mono text-xs font-bold text-white ${
++        method === 'GET' ? 'bg-blue-500' : 'bg-emerald-600'
++      }`}
++    >
++      {method}
++    </span>
++  );
++}
++
++function CopyButton({ text }: { text: string }) {
++  const [copied, setCopied] = useState(false);
++  return (
++    <button
++      onClick={() => {
++        void navigator.clipboard.writeText(text);
++        setCopied(true);
++        setTimeout(() => setCopied(false), 1500);
++      }}
++      className="rounded-md bg-white/10 p-1.5 text-slate-300 hover:bg-white/20"
++      title="Copy"
++    >
++      <Copy size={13} />
++      {copied && <span className="ml-1 text-[10px]">Copied</span>}
++    </button>
++  );
++}
++
++function CodeBlock({ code }: { code: string }) {
++  return (
++    <div className="relative mt-2 overflow-x-auto rounded-lg bg-slate-900 p-3 pr-10">
++      <pre className="text-xs leading-relaxed text-slate-100">
++        <code>{code}</code>
++      </pre>
++      <div className="absolute right-2 top-2">
++        <CopyButton text={code} />
++      </div>
++    </div>
++  );
++}
++
++function CodeTabs({ curl, javascript, php }: { curl: string; javascript: string; php: string }) {
++  const [tab, setTab] = useState<'curl' | 'javascript' | 'php'>('curl');
++  const code = tab === 'curl' ? curl : tab === 'javascript' ? javascript : php;
++  return (
++    <div className="mt-3">
++      <div className="flex gap-1 text-xs font-semibold">
++        {(['curl', 'javascript', 'php'] as const).map((t) => (
++          <button
++            key={t}
++            onClick={() => setTab(t)}
++            className={`rounded-t-md px-3 py-1.5 ${tab === t ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-500'}`}
++          >
++            {t === 'curl' ? 'cURL' : t === 'javascript' ? 'JavaScript' : 'PHP'}
++          </button>
++        ))}
++      </div>
++      <CodeBlock code={code} />
++    </div>
++  );
++}
++
++function ParamsTable({ rows }: { rows: { name: string; type: string; required: boolean; desc: string }[] }) {
++  const { t } = useTranslation();
++  return (
++    <table className="mt-3 w-full text-left text-xs">
++      <thead>
++        <tr className="border-b border-slate-200 text-slate-500">
++          <th className="py-2 pr-3 font-semibold">{t('partnerPortal.docs.params.parameter')}</th>
++          <th className="py-2 pr-3 font-semibold">{t('partnerPortal.docs.params.type')}</th>
++          <th className="py-2 pr-3 font-semibold">{t('partnerPortal.docs.params.required')}</th>
++          <th className="py-2 font-semibold">{t('partnerPortal.docs.params.description')}</th>
++        </tr>
++      </thead>
++      <tbody className="divide-y divide-slate-100">
++        {rows.map((r) => (
++          <tr key={r.name}>
++            <td className="py-2 pr-3 font-mono">{r.name}</td>
++            <td className="py-2 pr-3 text-slate-500">{r.type}</td>
++            <td className={`py-2 pr-3 font-semibold ${r.required ? 'text-rose-600' : 'text-slate-400'}`}>
++              {r.required ? t('partnerPortal.docs.params.yes') : t('partnerPortal.docs.params.no')}
++            </td>
++            <td className="py-2 text-slate-600">{r.desc}</td>
++          </tr>
++        ))}
++      </tbody>
++    </table>
++  );
++}
++
++function ResponseExample({ json, title }: { json: string; title?: string }) {
++  const { t } = useTranslation();
++  return (
++    <div className="mt-3">
++      <p className="text-xs font-semibold text-slate-500">{title ?? t('partnerPortal.docs.response')}</p>
++      <CodeBlock code={json} />
++    </div>
++  );
++}
++
++function EndpointCard({
++  method,
++  path,
++  title,
++  icon: Icon,
++  rateNote,
++  children
++}: {
++  method: 'GET' | 'POST';
++  path: string;
++  title: string;
++  icon: typeof KeyRound;
++  rateNote?: string;
++  children?: React.ReactNode;
++}) {
++  const [open, setOpen] = useState(false);
++  return (
++    <div className="rounded-xl border border-slate-200">
++      <button onClick={() => setOpen((v) => !v)} className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left">
++        <div className="flex items-center gap-2.5">
++          <Icon size={16} className="text-brand-700" />
++          <div>
++            <p className="text-sm font-bold">{title}</p>
++            <p className="mt-0.5 flex items-center gap-2 font-mono text-[11px] text-slate-500">
++              <MethodBadge method={method} /> {path}
++              {rateNote && <span className="rounded bg-amber-50 px-1.5 py-0.5 text-amber-700">{rateNote}</span>}
++            </p>
++          </div>
++        </div>
++        <ChevronDown size={16} className={`shrink-0 text-slate-400 transition ${open ? 'rotate-180' : ''}`} />
++      </button>
++      {open && children && <div className="border-t border-slate-100 px-4 py-4">{children}</div>}
++    </div>
++  );
++}
++
++function TieredEndpointCard({
++  method,
++  path,
++  title,
++  tiers,
++  rows
++}: {
++  method: 'GET' | 'POST';
++  path: string;
++  title: string;
++  tiers: string[];
++  rows: { name: string; type: string; required: boolean; desc: string }[];
++}) {
++  const [tier, setTier] = useState(tiers[0]);
++  return (
++    <div className="rounded-xl border border-slate-200 p-4">
++      <p className="text-sm font-bold">{title}</p>
++      <div className="mt-2 flex flex-wrap gap-2">
++        {tiers.map((t) => (
++          <button
++            key={t}
++            onClick={() => setTier(t)}
++            className={`rounded-full border px-3 py-1 text-xs font-semibold capitalize ${
++              tier === t ? 'border-brand-700 bg-brand-700 text-white' : 'border-slate-300 text-slate-600'
++            }`}
++          >
++            {t}
++          </button>
++        ))}
++      </div>
++      <p className="mt-3 flex items-center gap-2 font-mono text-xs text-slate-500">
++        <MethodBadge method={method} /> {path}
++      </p>
++      <ParamsTable rows={rows} />
++      <ResponseExample
++        json={`{\n  "status": true,\n  "message": "PDF generated successfully",\n  "data": { "reference": "MDL-...", "balance_after": 44900, "pdf_base64": "..." }\n}`}
++      />
++    </div>
++  );
++}
++
++function AsyncServiceCard({
++  title,
++  desc,
++  submitPath,
++  checkPath,
++  rows
++}: {
++  title: string;
++  desc: string;
++  submitPath: string;
++  checkPath: string;
++  rows: { name: string; type: string; required: boolean; desc: string }[];
++}) {
++  const { t } = useTranslation();
++  return (
++    <div className="rounded-xl border border-slate-200 p-4">
++      <p className="text-sm font-bold">{title}</p>
++      <p className="mt-1 text-xs text-slate-500">{desc}</p>
++      <div className="mt-3 space-y-2">
++        <EndpointCard method="POST" path={submitPath} title={t('partnerPortal.docs.async.submitRequest')} icon={Hourglass}>
++          <ParamsTable rows={rows} />
++          <ResponseExample json={`{\n  "status": true,\n  "data": { "reference": "MDL-...", "ticket_id": "TCK-8821", "status": "pending" }\n}`} />
++        </EndpointCard>
++        <EndpointCard method="GET" path={checkPath} title={t('partnerPortal.docs.async.checkStatus')} icon={ListChecks}>
++          <ResponseExample json={`{\n  "status": true,\n  "data": { "ticket_id": "TCK-8821", "status": "success", "response": { } }\n}`} />
++        </EndpointCard>
++      </div>
++    </div>
++  );
++}
+diff --git a/web/src/pages/PartnerDashboardPage.tsx b/web/src/pages/PartnerDashboardPage.tsx
+index 3b2d5b1..2c67a3f 100644
+--- a/web/src/pages/PartnerDashboardPage.tsx
++++ b/web/src/pages/PartnerDashboardPage.tsx
+@@ -1,12 +1,19 @@
+ import { useEffect, useState, type FormEvent } from 'react';
++import { Link } from 'react-router-dom';
++import { Trans, useTranslation } from 'react-i18next';
++import LanguageSwitcher from '../components/LanguageSwitcher';
+ import {
+   Activity,
+   AlertTriangle,
++  BookOpen,
+   Building2,
++  CalendarCheck2,
+   CheckCircle2,
++  CircleDollarSign,
+   Copy,
+   Eye,
+   EyeOff,
++  Gauge,
+   KeyRound,
+   Landmark,
+   LoaderCircle,
+@@ -15,10 +22,13 @@ import {
+   Mail,
+   Phone,
+   PlusCircle,
++  Search,
+   ShieldCheck,
++  Tag,
+   Trash2,
+   Wallet as WalletIcon,
+-  Webhook
++  Webhook,
++  XCircle
+ } from 'lucide-react';
+ 
+ // Own base URL + token storage, deliberately separate from lib/api.ts's
+@@ -45,7 +55,19 @@ type Wallet = {
+   virtual_account_bank: string | null;
+ };
+ type ApiKey = { id: string; name: string; key_prefix: string; last_used_at: string | null; revoked_at: string | null; created_at: string };
+-type Transaction = { reference: string; type: string; status: string; amount: number; description: string; created_at: string };
++type Summary = { today_calls: number; total_calls: number; total_spend: number; successful_calls: number; failed_calls: number };
++type CallsOverviewPoint = { date: string; calls: number };
++type PriceRow = { service: string; label: string; unit_price: number };
++type Transaction = {
++  reference: string;
++  type: string;
++  status: string;
++  amount: number;
++  balance_before?: number;
++  balance_after?: number;
++  description: string;
++  created_at: string;
++};
+ type WebhookConfig = { webhook_url: string | null; configured: boolean };
+ type ExactTransfer = { amount: number; reference: string; account_number: string; bank_name: string | null; expires_at: string | null };
+ 
+@@ -98,28 +120,43 @@ async function portalFetch<T>(path: string, options: { method?: string; body?: u
+ }
+ 
+ export default function PartnerDashboardPage() {
++  const { t } = useTranslation();
+   const [checkedSession, setCheckedSession] = useState(false);
+   const [partner, setPartner] = useState<Partner | null>(null);
+   const [wallet, setWallet] = useState<Wallet | null>(null);
+   const [keys, setKeys] = useState<ApiKey[]>([]);
+   const [webhook, setWebhook] = useState<WebhookConfig | null>(null);
++  const [summary, setSummary] = useState<Summary | null>(null);
++  const [callsOverview, setCallsOverview] = useState<CallsOverviewPoint[]>([]);
++  const [prices, setPrices] = useState<PriceRow[]>([]);
+   const [transactions, setTransactions] = useState<Transaction[]>([]);
++  const [search, setSearch] = useState('');
+   const [error, setError] = useState('');
+   const [notice, setNotice] = useState('');
+ 
++  async function loadTransactions(query = '') {
++    const res = await portalFetch<{ data: Transaction[] }>(`/transactions?limit=25${query ? `&search=${encodeURIComponent(query)}` : ''}`).catch(() => null);
++    if (res) setTransactions(res.data);
++  }
++
+   async function loadEverything() {
+     const me = await portalFetch<{ data: Partner }>('/me');
+     setPartner(me.data);
+-    const [walletRes, keysRes, webhookRes, txRes] = await Promise.all([
++    const [walletRes, keysRes, webhookRes, summaryRes, overviewRes, pricesRes] = await Promise.all([
+       portalFetch<{ data: Wallet }>('/wallet').catch(() => null),
+       portalFetch<{ data: ApiKey[] }>('/api-keys').catch(() => null),
+       portalFetch<{ data: WebhookConfig }>('/webhook').catch(() => null),
+-      portalFetch<{ data: Transaction[] }>('/recent-transactions?limit=10').catch(() => null)
++      portalFetch<{ data: Summary }>('/summary').catch(() => null),
++      portalFetch<{ data: CallsOverviewPoint[] }>('/calls-overview').catch(() => null),
++      portalFetch<{ data: PriceRow[] }>('/pricing').catch(() => null)
+     ]);
+     if (walletRes) setWallet(walletRes.data);
+     if (keysRes) setKeys(keysRes.data);
+     if (webhookRes) setWebhook(webhookRes.data);
+-    if (txRes) setTransactions(txRes.data);
++    if (summaryRes) setSummary(summaryRes.data);
++    if (overviewRes) setCallsOverview(overviewRes.data);
++    if (pricesRes) setPrices(pricesRes.data);
++    await loadTransactions();
+   }
+ 
+   useEffect(() => {
+@@ -133,6 +170,13 @@ export default function PartnerDashboardPage() {
+       .finally(() => setCheckedSession(true));
+   }, []);
+ 
++  useEffect(() => {
++    if (!partner) return;
++    const timer = setTimeout(() => void loadTransactions(search), 350);
++    return () => clearTimeout(timer);
++    // eslint-disable-next-line react-hooks/exhaustive-deps
++  }, [search]);
++
+   function onAuthSuccess(data: { access_token: string; refresh_token: string; partner: Partner }) {
+     setTokens(data.access_token, data.refresh_token);
+     setPartner(data.partner);
+@@ -145,6 +189,9 @@ export default function PartnerDashboardPage() {
+     setWallet(null);
+     setKeys([]);
+     setWebhook(null);
++    setSummary(null);
++    setCallsOverview([]);
++    setPrices([]);
+     setTransactions([]);
+     setNotice('');
+     setError('');
+@@ -153,7 +200,7 @@ export default function PartnerDashboardPage() {
+   if (!checkedSession) {
+     return (
+       <main className="flex min-h-screen items-center justify-center gap-2 bg-slate-50 text-slate-600">
+-        <LoaderCircle className="animate-spin" /> Loading…
++        <LoaderCircle className="animate-spin" /> {t('partnerPortal.common.loading')}
+       </main>
+     );
+   }
+@@ -171,17 +218,27 @@ export default function PartnerDashboardPage() {
+               <Activity size={21} />
+             </div>
+             <div>
+-              <p className="font-bold">Major Data Link</p>
+-              <p className="text-xs text-slate-500">Partner Portal</p>
++              <p className="font-bold">{t('partnerPortal.header.appName')}</p>
++              <p className="text-xs text-slate-500">{t('partnerPortal.header.tagline')}</p>
+             </div>
+           </div>
+-          <button
+-            onClick={logout}
+-            className="flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+-          >
+-            <LogOut size={16} />
+-            Log out
+-          </button>
++          <div className="flex items-center gap-2">
++            <LanguageSwitcher />
++            <Link
++              to="/partner-docs"
++              className="flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
++            >
++              <BookOpen size={16} />
++              {t('partnerPortal.header.documentation')}
++            </Link>
++            <button
++              onClick={logout}
++              className="flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
++            >
++              <LogOut size={16} />
++              {t('partnerPortal.header.logout')}
++            </button>
++          </div>
+         </div>
+       </header>
+ 
+@@ -196,10 +253,10 @@ export default function PartnerDashboardPage() {
+         )}
+ 
+         <section className="rounded-3xl bg-gradient-to-br from-brand-800 to-brand-600 p-6 text-white">
+-          <p className="text-sm text-blue-100">Welcome back</p>
++          <p className="text-sm text-blue-100">{t('partnerPortal.hero.welcomeBack')}</p>
+           <h1 className="mt-1 text-2xl font-bold">{partner.business_name}</h1>
+           <p className="mt-3 text-3xl font-bold">₦{partner.wallet_balance.toLocaleString()}</p>
+-          <p className="text-sm text-blue-100">Partner wallet balance</p>
++          <p className="text-sm text-blue-100">{t('partnerPortal.hero.walletBalance')}</p>
+         </section>
+ 
+         {partner.status !== 'active' && (
+@@ -213,19 +270,38 @@ export default function PartnerDashboardPage() {
+             <AlertTriangle size={20} className="mt-0.5 shrink-0" />
+             <div>
+               <p className="font-bold">
+-                {partner.status === 'pending_review' ? 'Ana bitar rajistarku' : 'An dakatar da wannan asusun'}
++                {partner.status === 'pending_review'
++                  ? t('partnerPortal.banner.pendingTitle')
++                  : t('partnerPortal.banner.suspendedTitle')}
+               </p>
+               <p className="mt-1 text-sm leading-relaxed">
+                 {partner.status === 'pending_review'
+-                  ? "Za a fara duba kamfaninku kafin ku iya ƙirƙirar live API key ko fara sarrafa transactions. Za mu tuntube ku ta imel ('" +
+-                    partner.email +
+-                    "') idan an amince."
+-                  : 'Tuntuɓi Major Data Link don ƙarin bayani game da wannan asusun.'}
++                  ? t('partnerPortal.banner.pendingBody', { email: partner.email })
++                  : t('partnerPortal.banner.suspendedBody')}
+               </p>
+             </div>
+           </section>
+         )}
+ 
++        <section className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
++          <MetricCard icon={CalendarCheck2} border="border-l-blue-500" iconColor="text-blue-600" label={t('partnerPortal.metrics.todayCalls')} value={summary?.today_calls ?? 0} />
++          <MetricCard icon={Gauge} border="border-l-amber-500" iconColor="text-amber-600" label={t('partnerPortal.metrics.totalCalls')} value={summary?.total_calls ?? 0} />
++          <MetricCard
++            icon={CircleDollarSign}
++            border="border-l-rose-500"
++            iconColor="text-rose-600"
++            label={t('partnerPortal.metrics.totalSpend')}
++            value={`₦${(summary?.total_spend ?? 0).toLocaleString()}`}
++          />
++          <MetricCard icon={CheckCircle2} border="border-l-emerald-500" iconColor="text-emerald-600" label={t('partnerPortal.metrics.successfulCalls')} value={summary?.successful_calls ?? 0} />
++          <MetricCard icon={XCircle} border="border-l-rose-500" iconColor="text-rose-600" label={t('partnerPortal.metrics.failedCalls')} value={summary?.failed_calls ?? 0} />
++        </section>
++
++        <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-5">
++          <h2 className="font-bold">{t('partnerPortal.callsOverview.title')}</h2>
++          <CallsOverviewChart data={callsOverview} />
++        </section>
++
+         <section className="mt-6 grid gap-6 lg:grid-cols-2">
+           <WalletCard wallet={wallet} onError={setError} onNotice={setNotice} onWallet={setWallet} />
+           <ApiKeysCard
+@@ -241,33 +317,78 @@ export default function PartnerDashboardPage() {
+           <WebhookCard webhook={webhook} onError={setError} onNotice={setNotice} onWebhook={setWebhook} />
+         </section>
+ 
++        {prices.length > 0 && (
++          <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-5">
++            <div className="flex items-center gap-2">
++              <Tag className="text-brand-700" size={20} />
++              <h2 className="font-bold">{t('partnerPortal.pricing.title')}</h2>
++            </div>
++            <p className="mt-1 text-xs text-slate-500">
++              <Trans i18nKey="partnerPortal.pricing.subtitle" components={{ code: <code /> }} />
++            </p>
++            <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
++              {prices.map((p) => (
++                <div key={p.service} className="rounded-xl border-l-4 border-l-brand-600 bg-blue-50 p-4">
++                  <p className="text-xs font-semibold text-slate-500">{p.label}</p>
++                  <p className="mt-1 text-lg font-bold text-brand-800">₦{p.unit_price.toLocaleString()}</p>
++                </div>
++              ))}
++            </div>
++          </section>
++        )}
++
+         <section className="mt-6 rounded-2xl border border-slate-200 bg-white">
+-          <div className="border-b border-slate-100 px-5 py-4">
+-            <h2 className="font-bold">Recent transactions</h2>
++          <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
++            <h2 className="font-bold">{t('partnerPortal.callsSummary.title')}</h2>
++            <div className="flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-1.5">
++              <Search size={14} className="text-slate-400" />
++              <input
++                value={search}
++                onChange={(e) => setSearch(e.target.value)}
++                placeholder={t('partnerPortal.callsSummary.searchPlaceholder')}
++                className="w-40 bg-transparent text-sm outline-none sm:w-56"
++              />
++            </div>
+           </div>
+           {transactions.length ? (
+-            <div className="divide-y divide-slate-100">
+-              {transactions.map((tx) => (
+-                <div key={tx.reference} className="flex items-center justify-between gap-3 px-5 py-3">
+-                  <div>
+-                    <p className="font-mono text-xs font-semibold">{tx.reference}</p>
+-                    <p className="mt-1 text-xs uppercase text-slate-500">{tx.type.replaceAll('_', ' ')}</p>
+-                  </div>
+-                  <div className="text-right">
+-                    <p className="font-semibold">₦{tx.amount.toLocaleString()}</p>
+-                    <span
+-                      className={`text-xs font-semibold uppercase ${
+-                        tx.status === 'success' ? 'text-emerald-600' : tx.status === 'pending' ? 'text-amber-600' : 'text-rose-600'
+-                      }`}
+-                    >
+-                      {tx.status}
+-                    </span>
+-                  </div>
+-                </div>
+-              ))}
++            <div className="overflow-x-auto">
++              <table className="w-full text-sm">
++                <thead>
++                  <tr className="border-b border-slate-100 text-left text-xs uppercase text-slate-500">
++                    <th className="px-5 py-3 font-semibold">{t('partnerPortal.callsSummary.colReference')}</th>
++                    <th className="px-3 py-3 font-semibold">{t('partnerPortal.callsSummary.colType')}</th>
++                    <th className="px-3 py-3 font-semibold">{t('partnerPortal.callsSummary.colAmount')}</th>
++                    <th className="px-3 py-3 font-semibold">{t('partnerPortal.callsSummary.colBalanceBefore')}</th>
++                    <th className="px-3 py-3 font-semibold">{t('partnerPortal.callsSummary.colBalanceAfter')}</th>
++                    <th className="px-3 py-3 font-semibold">{t('partnerPortal.callsSummary.colStatus')}</th>
++                    <th className="px-5 py-3 font-semibold">{t('partnerPortal.callsSummary.colDate')}</th>
++                  </tr>
++                </thead>
++                <tbody className="divide-y divide-slate-100">
++                  {transactions.map((tx) => (
++                    <tr key={tx.reference}>
++                      <td className="px-5 py-3 font-mono text-xs">{tx.reference}</td>
++                      <td className="px-3 py-3 text-xs uppercase text-slate-500">{tx.type.replaceAll('_', ' ')}</td>
++                      <td className="px-3 py-3 font-semibold">₦{tx.amount.toLocaleString()}</td>
++                      <td className="px-3 py-3 text-slate-500">{tx.balance_before !== undefined ? `₦${tx.balance_before.toLocaleString()}` : '—'}</td>
++                      <td className="px-3 py-3 text-slate-500">{tx.balance_after !== undefined ? `₦${tx.balance_after.toLocaleString()}` : '—'}</td>
++                      <td className="px-3 py-3">
++                        <span
++                          className={`text-xs font-semibold uppercase ${
++                            tx.status === 'success' ? 'text-emerald-600' : tx.status === 'pending' ? 'text-amber-600' : 'text-rose-600'
++                          }`}
++                        >
++                          {tx.status}
++                        </span>
++                      </td>
++                      <td className="px-5 py-3 text-xs text-slate-500">{new Date(tx.created_at).toLocaleString()}</td>
++                    </tr>
++                  ))}
++                </tbody>
++              </table>
+             </div>
+           ) : (
+-            <p className="px-5 py-10 text-center text-sm text-slate-500">Babu transaction tukuna.</p>
++            <p className="px-5 py-10 text-center text-sm text-slate-500">{t('partnerPortal.callsSummary.empty')}</p>
+           )}
+         </section>
+       </div>
+@@ -275,9 +396,76 @@ export default function PartnerDashboardPage() {
+   );
+ }
+ 
++// ── Metric card + calls-overview chart ──────────────────────────────────
++
++function MetricCard({
++  icon: Icon,
++  border,
++  iconColor,
++  label,
++  value
++}: {
++  icon: typeof Activity;
++  border: string;
++  iconColor: string;
++  label: string;
++  value: string | number;
++}) {
++  return (
++    <article className={`rounded-xl border-l-4 bg-white p-4 shadow-sm ${border}`}>
++      <Icon size={18} className={iconColor} />
++      <p className="mt-2 text-2xl font-bold text-slate-900">{value}</p>
++      <p className="text-xs text-slate-500">{label}</p>
++    </article>
++  );
++}
++
++function CallsOverviewChart({ data }: { data: CallsOverviewPoint[] }) {
++  const { t } = useTranslation();
++  if (data.length === 0) {
++    return <p className="mt-6 py-10 text-center text-sm text-slate-400">{t('partnerPortal.callsOverview.empty')}</p>;
++  }
++  const max = Math.max(1, ...data.map((d) => d.calls));
++  const width = 720;
++  const height = 140;
++  const barWidth = width / data.length;
++
++  return (
++    <div className="mt-4 overflow-x-auto">
++      <svg viewBox={`0 0 ${width} ${height + 20}`} className="h-40 w-full min-w-[640px]">
++        {data.map((point, i) => {
++          const barHeight = (point.calls / max) * height;
++          return (
++            <g key={point.date}>
++              <rect
++                x={i * barWidth + 2}
++                y={height - barHeight}
++                width={Math.max(barWidth - 4, 1)}
++                height={barHeight}
++                rx={2}
++                className="fill-brand-500"
++              >
++                <title>
++                  {point.date}: {point.calls} calls
++                </title>
++              </rect>
++              {i % 5 === 0 && (
++                <text x={i * barWidth + barWidth / 2} y={height + 15} textAnchor="middle" className="fill-slate-400 text-[9px]">
++                  {point.date.slice(5)}
++                </text>
++              )}
++            </g>
++          );
++        })}
++      </svg>
++    </div>
++  );
++}
++
+ // ── Login / Register ──────────────────────────────────────────────────
+ 
+ function AuthGate({ onSuccess }: { onSuccess: (data: { access_token: string; refresh_token: string; partner: Partner }) => void }) {
++  const { t } = useTranslation();
+   const [mode, setMode] = useState<'login' | 'register'>('login');
+   const [email, setEmail] = useState('');
+   const [password, setPassword] = useState('');
+@@ -303,7 +491,7 @@ function AuthGate({ onSuccess }: { onSuccess: (data: { access_token: string; ref
+       });
+       onSuccess(result.data);
+     } catch (err) {
+-      setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.');
++      setError(err instanceof Error ? err.message : t('partnerPortal.auth.genericError'));
+     } finally {
+       setBusy(false);
+     }
+@@ -311,14 +499,17 @@ function AuthGate({ onSuccess }: { onSuccess: (data: { access_token: string; ref
+ 
+   return (
+     <main className="min-h-screen bg-slate-50 px-5 py-10 text-slate-900">
++      <div className="mx-auto flex max-w-md justify-end pb-3">
++        <LanguageSwitcher />
++      </div>
+       <section className="mx-auto max-w-md rounded-3xl border border-slate-200 bg-white p-7 shadow-xl shadow-slate-200/50">
+         <div className="flex items-center gap-3">
+           <div className="rounded-2xl bg-brand-700 p-3 text-white">
+             <ShieldCheck />
+           </div>
+           <div>
+-            <p className="text-xs font-bold uppercase tracking-[.18em] text-brand-700">Major Data Link</p>
+-            <h1 className="text-2xl font-bold">Partner Portal</h1>
++            <p className="text-xs font-bold uppercase tracking-[.18em] text-brand-700">{t('partnerPortal.header.appName')}</p>
++            <h1 className="text-2xl font-bold">{t('partnerPortal.header.tagline')}</h1>
+           </div>
+         </div>
+ 
+@@ -328,14 +519,14 @@ function AuthGate({ onSuccess }: { onSuccess: (data: { access_token: string; ref
+             onClick={() => setMode('login')}
+             className={`flex-1 rounded-lg py-2 ${mode === 'login' ? 'bg-white text-brand-700 shadow' : 'text-slate-500'}`}
+           >
+-            Log in
++            {t('partnerPortal.auth.login')}
+           </button>
+           <button
+             type="button"
+             onClick={() => setMode('register')}
+             className={`flex-1 rounded-lg py-2 ${mode === 'register' ? 'bg-white text-brand-700 shadow' : 'text-slate-500'}`}
+           >
+-            Yi rajista
++            {t('partnerPortal.auth.register')}
+           </button>
+         </div>
+ 
+@@ -344,13 +535,13 @@ function AuthGate({ onSuccess }: { onSuccess: (data: { access_token: string; ref
+             <div>
+               <label className="flex items-center gap-2 text-sm font-semibold">
+                 <Building2 size={16} className="text-brand-700" />
+-                Sunan kamfani
++                {t('partnerPortal.auth.businessName')}
+               </label>
+               <input
+                 required
+                 value={businessName}
+                 onChange={(e) => setBusinessName(e.target.value)}
+-                placeholder="e.g. Kindness Digital Branding"
++                placeholder={t('partnerPortal.auth.businessNamePlaceholder')}
+                 className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-brand-500"
+               />
+             </div>
+@@ -359,14 +550,14 @@ function AuthGate({ onSuccess }: { onSuccess: (data: { access_token: string; ref
+           <div>
+             <label className="flex items-center gap-2 text-sm font-semibold">
+               <Mail size={16} className="text-brand-700" />
+-              Email
++              {t('partnerPortal.auth.email')}
+             </label>
+             <input
+               required
+               type="email"
+               value={email}
+               onChange={(e) => setEmail(e.target.value)}
+-              placeholder="you@company.com"
++              placeholder={t('partnerPortal.auth.emailPlaceholder')}
+               className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-brand-500"
+             />
+           </div>
+@@ -375,12 +566,12 @@ function AuthGate({ onSuccess }: { onSuccess: (data: { access_token: string; ref
+             <div>
+               <label className="flex items-center gap-2 text-sm font-semibold">
+                 <Phone size={16} className="text-brand-700" />
+-                Lambar waya (na zaɓi)
++                {t('partnerPortal.auth.phone')}
+               </label>
+               <input
+                 value={phone}
+                 onChange={(e) => setPhone(e.target.value)}
+-                placeholder="08012345678"
++                placeholder={t('partnerPortal.auth.phonePlaceholder')}
+                 className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-brand-500"
+               />
+             </div>
+@@ -389,7 +580,7 @@ function AuthGate({ onSuccess }: { onSuccess: (data: { access_token: string; ref
+           <div>
+             <label className="flex items-center gap-2 text-sm font-semibold">
+               <Lock size={16} className="text-brand-700" />
+-              Password
++              {t('partnerPortal.auth.password')}
+             </label>
+             <div className="mt-2 flex rounded-lg border border-slate-300 focus-within:border-brand-500">
+               <input
+@@ -398,7 +589,7 @@ function AuthGate({ onSuccess }: { onSuccess: (data: { access_token: string; ref
+                 type={showPassword ? 'text' : 'password'}
+                 value={password}
+                 onChange={(e) => setPassword(e.target.value)}
+-                placeholder={mode === 'register' ? 'Aƙalla haruffa 8' : '••••••••'}
++                placeholder={mode === 'register' ? t('partnerPortal.auth.passwordPlaceholderRegister') : '••••••••'}
+                 className="min-w-0 flex-1 bg-transparent px-3 py-2.5 text-sm outline-none"
+               />
+               <button type="button" onClick={() => setShowPassword((v) => !v)} className="px-3 text-slate-500">
+@@ -414,15 +605,12 @@ function AuthGate({ onSuccess }: { onSuccess: (data: { access_token: string; ref
+             className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-700 px-4 py-3 font-semibold text-white disabled:opacity-60"
+           >
+             {busy ? <LoaderCircle size={18} className="animate-spin" /> : <ShieldCheck size={18} />}
+-            {mode === 'login' ? 'Log in' : 'Ƙirƙiri asusun kamfani'}
++            {mode === 'login' ? t('partnerPortal.auth.loginCta') : t('partnerPortal.auth.registerCta')}
+           </button>
+         </form>
+ 
+         {mode === 'register' && (
+-          <p className="mt-5 text-xs leading-relaxed text-slate-500">
+-            Bayan rajista, admin din Major Data Link zai fara duba kamfaninku kafin ku iya ƙirƙirar live API key ko
+-            sarrafa transactions - amma za ku iya shiga dashboard ɗin nan take don duba matsayin rajistarku.
+-          </p>
++          <p className="mt-5 text-xs leading-relaxed text-slate-500">{t('partnerPortal.auth.registerNotice')}</p>
+         )}
+       </section>
+     </main>
+@@ -442,6 +630,7 @@ function WalletCard({
+   onNotice: (m: string) => void;
+   onWallet: (w: Wallet) => void;
+ }) {
++  const { t } = useTranslation();
+   const [amount, setAmount] = useState('');
+   const [exactTransfer, setExactTransfer] = useState<ExactTransfer | null>(null);
+   const [busy, setBusy] = useState(false);
+@@ -452,9 +641,9 @@ function WalletCard({
+     try {
+       const result = await portalFetch<{ data: Wallet }>('/wallet/funding-account', { method: 'POST' });
+       onWallet(result.data);
+-      onNotice('An kirkiri permanent funding account.');
++      onNotice(t('partnerPortal.wallet.fundingAccountCreated'));
+     } catch (err) {
+-      onError(err instanceof Error ? err.message : 'Could not create funding account');
++      onError(err instanceof Error ? err.message : t('partnerPortal.wallet.fundingAccountFailed'));
+     } finally {
+       setBusy(false);
+     }
+@@ -470,7 +659,7 @@ function WalletCard({
+       const result = await portalFetch<{ data: ExactTransfer }>('/wallet/fund/dynamic', { method: 'POST', body: { amount: value } });
+       setExactTransfer(result.data);
+     } catch (err) {
+-      onError(err instanceof Error ? err.message : 'Could not create Exact Transfer account');
++      onError(err instanceof Error ? err.message : t('partnerPortal.wallet.exactTransferFailed'));
+     } finally {
+       setBusy(false);
+     }
+@@ -478,27 +667,29 @@ function WalletCard({
+ 
+   async function copy(value: string) {
+     await navigator.clipboard.writeText(value);
+-    onNotice('Copied.');
++    onNotice(t('partnerPortal.common.copied'));
+   }
+ 
+   return (
+     <article className="rounded-2xl border border-slate-200 bg-white p-5">
+       <div className="flex items-center gap-2">
+         <Landmark className="text-brand-700" size={20} />
+-        <h2 className="font-bold">Partner funding account</h2>
++        <h2 className="font-bold">{t('partnerPortal.wallet.title')}</h2>
+       </div>
+ 
+       {wallet?.virtual_account_number ? (
+         <div className="mt-4 rounded-xl bg-blue-50 p-4">
+-          <p className="text-xs font-semibold text-slate-500">{wallet.virtual_account_bank ?? 'Bank transfer'} · Permanent account</p>
++          <p className="text-xs font-semibold text-slate-500">
++            {wallet.virtual_account_bank ?? t('partnerPortal.wallet.bankTransferFallback')} · {t('partnerPortal.wallet.permanentAccount')}
++          </p>
+           <p className="mt-2 font-mono text-xl font-bold">{wallet.virtual_account_number}</p>
+-          <p className="mt-1 text-xs text-slate-600">Transfer to this account to fund your Partner wallet.</p>
++          <p className="mt-1 text-xs text-slate-600">{t('partnerPortal.wallet.transferHint')}</p>
+           <button
+             onClick={() => void copy(wallet.virtual_account_number!)}
+             className="mt-3 inline-flex items-center gap-2 rounded-lg bg-brand-700 px-3 py-2 text-sm font-semibold text-white"
+           >
+             <Copy size={15} />
+-            Copy account number
++            {t('partnerPortal.wallet.copyAccountNumber')}
+           </button>
+         </div>
+       ) : (
+@@ -508,33 +699,33 @@ function WalletCard({
+           className="mt-4 inline-flex items-center gap-2 rounded-lg bg-brand-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+         >
+           <WalletIcon size={16} />
+-          {busy ? 'Please wait…' : 'Create funding account'}
++          {busy ? t('partnerPortal.wallet.creating') : t('partnerPortal.wallet.createAccount')}
+         </button>
+       )}
+ 
+       <div className="mt-5 border-t border-slate-100 pt-4">
+-        <p className="text-xs font-semibold text-slate-600">Exact Transfer (fallback, one-off amount)</p>
++        <p className="text-xs font-semibold text-slate-600">{t('partnerPortal.wallet.exactTransferLabel')}</p>
+         <form onSubmit={createExactTransfer} className="mt-2 flex gap-2">
+           <input
+             value={amount}
+             onChange={(e) => setAmount(e.target.value)}
+             inputMode="decimal"
+-            placeholder="Amount (₦)"
++            placeholder={t('partnerPortal.wallet.amountPlaceholder')}
+             className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none"
+           />
+           <button disabled={busy} className="rounded-lg border border-brand-700 px-3 text-sm font-semibold text-brand-700">
+-            Generate
++            {t('partnerPortal.common.generate')}
+           </button>
+         </form>
+         {exactTransfer && (
+           <div className="mt-3 rounded-xl bg-amber-50 p-3 text-sm">
+             <p className="font-semibold">
+-              ₦{exactTransfer.amount.toLocaleString()} → {exactTransfer.bank_name ?? 'Bank'}
++              ₦{exactTransfer.amount.toLocaleString()} → {exactTransfer.bank_name ?? t('partnerPortal.wallet.bankTransferFallback')}
+             </p>
+             <p className="mt-1 font-mono font-bold">{exactTransfer.account_number}</p>
+             <p className="mt-1 text-xs text-slate-600">
+-              Ref: {exactTransfer.reference}
+-              {exactTransfer.expires_at ? ` · Expires ${new Date(exactTransfer.expires_at).toLocaleString()}` : ''}
++              {t('partnerPortal.wallet.refLabel')}: {exactTransfer.reference}
++              {exactTransfer.expires_at ? ` · ${t('partnerPortal.wallet.expiresLabel')} ${new Date(exactTransfer.expires_at).toLocaleString()}` : ''}
+             </p>
+           </div>
+         )}
+@@ -558,6 +749,7 @@ function ApiKeysCard({
+   onNotice: (m: string) => void;
+   onKeys: (k: ApiKey[]) => void;
+ }) {
++  const { t } = useTranslation();
+   const [busy, setBusy] = useState(false);
+   const [revealedKey, setRevealedKey] = useState<string | null>(null);
+ 
+@@ -570,7 +762,7 @@ function ApiKeysCard({
+       const refreshed = await portalFetch<{ data: ApiKey[] }>('/api-keys');
+       onKeys(refreshed.data);
+     } catch (err) {
+-      onError(err instanceof Error ? err.message : 'Could not generate API key');
++      onError(err instanceof Error ? err.message : t('partnerPortal.apiKeys.generateFailed'));
+     } finally {
+       setBusy(false);
+     }
+@@ -583,9 +775,9 @@ function ApiKeysCard({
+       await portalFetch(`/api-keys/${id}/revoke`, { method: 'POST' });
+       const refreshed = await portalFetch<{ data: ApiKey[] }>('/api-keys');
+       onKeys(refreshed.data);
+-      onNotice('Key revoked.');
++      onNotice(t('partnerPortal.apiKeys.revokedNotice'));
+     } catch (err) {
+-      onError(err instanceof Error ? err.message : 'Could not revoke key');
++      onError(err instanceof Error ? err.message : t('partnerPortal.apiKeys.revokeFailed'));
+     } finally {
+       setBusy(false);
+     }
+@@ -593,7 +785,7 @@ function ApiKeysCard({
+ 
+   async function copy(value: string) {
+     await navigator.clipboard.writeText(value);
+-    onNotice('Copied.');
++    onNotice(t('partnerPortal.common.copied'));
+   }
+ 
+   return (
+@@ -601,22 +793,22 @@ function ApiKeysCard({
+       <div className="flex items-center justify-between">
+         <div className="flex items-center gap-2">
+           <KeyRound className="text-brand-700" size={20} />
+-          <h2 className="font-bold">API keys</h2>
++          <h2 className="font-bold">{t('partnerPortal.apiKeys.title')}</h2>
+         </div>
+         <button
+           disabled={busy || !active}
+           onClick={() => void generate()}
+-          title={active ? undefined : 'Za a fara amincewa da kamfaninku kafin ku iya ƙirƙirar live key'}
++          title={active ? undefined : t('partnerPortal.apiKeys.pendingApprovalTooltip')}
+           className="inline-flex items-center gap-1.5 rounded-lg bg-brand-700 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40"
+         >
+           <PlusCircle size={14} />
+-          New key
++          {t('partnerPortal.apiKeys.newKey')}
+         </button>
+       </div>
+ 
+       {revealedKey && (
+         <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-4">
+-          <p className="text-xs font-bold text-amber-800">Ajiye wannan key ɗin yanzu - ba za a sake nuna shi ba:</p>
++          <p className="text-xs font-bold text-amber-800">{t('partnerPortal.apiKeys.revealNotice')}</p>
+           <div className="mt-2 flex items-center gap-2 rounded-lg bg-white px-3 py-2">
+             <code className="min-w-0 flex-1 truncate font-mono text-xs">{revealedKey}</code>
+             <button onClick={() => void copy(revealedKey)} className="text-brand-700">
+@@ -624,13 +816,13 @@ function ApiKeysCard({
+             </button>
+           </div>
+           <button onClick={() => setRevealedKey(null)} className="mt-3 text-xs font-semibold text-amber-800 underline">
+-            Na ajiye shi
++            {t('partnerPortal.apiKeys.savedIt')}
+           </button>
+         </div>
+       )}
+ 
+       <div className="mt-4 space-y-2">
+-        {keys.length === 0 && <p className="text-sm text-slate-500">Babu API key tukuna.</p>}
++        {keys.length === 0 && <p className="text-sm text-slate-500">{t('partnerPortal.apiKeys.noKeys')}</p>}
+         {keys.map((k) => (
+           <div key={k.id} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2.5">
+             <div>
+@@ -638,10 +830,10 @@ function ApiKeysCard({
+               <p className="font-mono text-xs text-slate-500">{k.key_prefix}••••••••</p>
+               <p className="mt-0.5 text-xs text-slate-400">
+                 {k.revoked_at
+-                  ? `Revoked ${new Date(k.revoked_at).toLocaleDateString()}`
++                  ? t('partnerPortal.apiKeys.revokedOn', { date: new Date(k.revoked_at).toLocaleDateString() })
+                   : k.last_used_at
+-                    ? `Last used ${new Date(k.last_used_at).toLocaleDateString()}`
+-                    : 'Never used yet'}
++                    ? t('partnerPortal.apiKeys.lastUsedOn', { date: new Date(k.last_used_at).toLocaleDateString() })
++                    : t('partnerPortal.apiKeys.neverUsed')}
+               </p>
+             </div>
+             {!k.revoked_at && (
+@@ -649,7 +841,7 @@ function ApiKeysCard({
+                 disabled={busy}
+                 onClick={() => void revoke(k.id)}
+                 className="rounded-lg border border-rose-200 p-2 text-rose-600 hover:bg-rose-50 disabled:opacity-40"
+-                title="Revoke"
++                title={t('partnerPortal.apiKeys.revokeTitle')}
+               >
+                 <Trash2 size={15} />
+               </button>
+@@ -674,6 +866,7 @@ function WebhookCard({
+   onNotice: (m: string) => void;
+   onWebhook: (w: WebhookConfig) => void;
+ }) {
++  const { t } = useTranslation();
+   const [url, setUrl] = useState(webhook?.webhook_url ?? '');
+   const [busy, setBusy] = useState(false);
+   const [revealedSecret, setRevealedSecret] = useState<string | null>(null);
+@@ -690,7 +883,7 @@ function WebhookCard({
+       setRevealedSecret(result.data.webhook_secret);
+       onWebhook({ webhook_url: result.data.webhook_url, configured: true });
+     } catch (err) {
+-      onError(err instanceof Error ? err.message : 'Could not save webhook URL');
++      onError(err instanceof Error ? err.message : t('partnerPortal.webhook.saveFailed'));
+     } finally {
+       setBusy(false);
+     }
+@@ -701,9 +894,9 @@ function WebhookCard({
+     onError('');
+     try {
+       await portalFetch('/webhook/test', { method: 'POST' });
+-      onNotice('Test event queued - duba endpoint ɗinku a cikin dakiku kaɗan.');
++      onNotice(t('partnerPortal.webhook.testQueued'));
+     } catch (err) {
+-      onError(err instanceof Error ? err.message : 'Could not queue test event');
++      onError(err instanceof Error ? err.message : t('partnerPortal.webhook.testFailed'));
+     } finally {
+       setBusy(false);
+     }
+@@ -711,18 +904,17 @@ function WebhookCard({
+ 
+   async function copy(value: string) {
+     await navigator.clipboard.writeText(value);
+-    onNotice('Copied.');
++    onNotice(t('partnerPortal.common.copied'));
+   }
+ 
+   return (
+     <article className="rounded-2xl border border-slate-200 bg-white p-5">
+       <div className="flex items-center gap-2">
+         <Webhook className="text-brand-700" size={20} />
+-        <h2 className="font-bold">Webhook</h2>
++        <h2 className="font-bold">{t('partnerPortal.webhook.title')}</h2>
+       </div>
+       <p className="mt-1 text-xs text-slate-500">
+-        Za a tura muku <code>transaction.updated</code> event idan wani transaction da farko ya tsaya "pending" ya
+-        warware.
++        <Trans i18nKey="partnerPortal.webhook.description" components={{ code: <code /> }} />
+       </p>
+ 
+       <form onSubmit={save} className="mt-4 flex gap-2">
+@@ -730,17 +922,17 @@ function WebhookCard({
+           value={url}
+           onChange={(e) => setUrl(e.target.value)}
+           type="url"
+-          placeholder="https://yourapp.com/webhooks/mdl"
++          placeholder={t('partnerPortal.webhook.urlPlaceholder')}
+           className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500"
+         />
+         <button disabled={busy} className="rounded-lg bg-brand-700 px-3 text-sm font-semibold text-white disabled:opacity-50">
+-          Save
++          {t('partnerPortal.common.save')}
+         </button>
+       </form>
+ 
+       {revealedSecret && (
+         <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-4">
+-          <p className="text-xs font-bold text-amber-800">Webhook secret (ajiye yanzu, ba za a sake nuna shi ba):</p>
++          <p className="text-xs font-bold text-amber-800">{t('partnerPortal.webhook.secretNotice')}</p>
+           <div className="mt-2 flex items-center gap-2 rounded-lg bg-white px-3 py-2">
+             <code className="min-w-0 flex-1 truncate font-mono text-xs">{revealedSecret}</code>
+             <button onClick={() => void copy(revealedSecret)} className="text-brand-700">
+@@ -757,7 +949,7 @@ function WebhookCard({
+           className="mt-4 inline-flex items-center gap-2 rounded-lg border border-brand-700 px-3 py-2 text-xs font-semibold text-brand-700 disabled:opacity-50"
+         >
+           <CheckCircle2 size={14} />
+-          Send test event
++          {t('partnerPortal.webhook.sendTest')}
+         </button>
+       )}
+     </article>
