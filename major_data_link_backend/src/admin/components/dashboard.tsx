@@ -34,9 +34,21 @@ const quickLinks: QuickLink[] = [
   },
   {
     label: 'User Deliveries',
-    description: 'Upload a manual PDF, image or token file for one customer',
+    description: 'Upload completed CAC, JAMB or other service files to a customer',
     href: `${ADMIN_ROOT_PATH}/user-deliveries`,
     icon: 'Upload'
+  },
+  {
+    label: 'Service Requests',
+    description: 'Open and process CAC, JAMB and customer support requests',
+    resourceId: 'SupportTicket',
+    icon: 'MessageCircle'
+  },
+  {
+    label: 'Request Replies',
+    description: 'Send updates to customers while a request is being processed',
+    resourceId: 'SupportTicketMessage',
+    icon: 'Send'
   },
   {
     label: 'Company Wallet',
@@ -93,6 +105,8 @@ const quickLinks: QuickLink[] = [
     resourceId: 'NotificationBroadcast',
     icon: 'Bell'
   },
+  { label: 'App Configuration', description: 'Manage app version and update settings', resourceId: 'AppConfig', icon: 'Settings' },
+  { label: 'Partners', description: 'Review API partner accounts and status', resourceId: 'Partner', icon: 'Briefcase' },
   { label: 'Admin Users', description: 'Admin accounts & roles', resourceId: 'AdminUser', icon: 'Shield' },
   { label: 'Audit Log', description: 'Admin activity history', resourceId: 'AdminAuditLog', icon: 'FileText' }
 ];
@@ -110,16 +124,16 @@ const Dashboard: React.FC = () => (
         <Box mr={['0', 'xl']} mb={['lg', '0']}>
           <img
             src="/branding/logo.png"
-            alt="MAJOR DATA-LINK"
+            alt="K-Tech Solutions"
             style={{ width: 96, height: 96, borderRadius: 20, display: 'block' }}
           />
         </Box>
         <Box>
           <H2 color="white" fontWeight="bold">
-            Welcome to MAJOR DATA-LINK Admin
+            Welcome to K-Tech Solutions Admin
           </H2>
           <Text color="white" style={{ opacity: 0.85 }}>
-            Manage customers, transactions, data plans and more from one place.
+            Manage customers, requests, deliveries, transactions and pricing from one place.
           </Text>
         </Box>
       </Box>

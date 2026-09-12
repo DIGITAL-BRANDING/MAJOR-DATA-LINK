@@ -83,7 +83,7 @@ export async function buildAdminRouter() {
       component: Components.Dashboard
     },
     branding: {
-      companyName: 'MAJOR DATA-LINK',
+      companyName: 'K-Tech Solutions',
       logo: '/branding/logo.png',
       favicon: '/branding/favicon.png',
       withMadeWithLove: false,

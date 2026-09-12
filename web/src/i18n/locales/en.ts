@@ -9,7 +9,7 @@ const en = {
       revoke: 'Revoke'
     },
     header: {
-      appName: 'Major Data Link',
+      appName: 'K-Tech Solutions',
       tagline: 'Partner Portal',
       documentation: 'Documentation',
       dashboard: 'Dashboard',
@@ -29,7 +29,7 @@ const en = {
       loginCta: 'Log in',
       registerCta: 'Create company account',
       registerNotice:
-        "After registering, a Major Data Link admin will review your company before you can generate a live API key or process transactions - but you can log into the dashboard right away to check your registration status.",
+        "After registering, a K-Tech Solutions admin will review your company before you can generate a live API key or process transactions - but you can log into the dashboard right away to check your registration status.",
       genericError: 'Something went wrong. Please try again.'
     },
     banner: {
@@ -37,7 +37,7 @@ const en = {
       pendingBody:
         'We\'re reviewing your company before you can generate a live API key or start processing transactions. We\'ll reach out to you by email ({{email}}) once approved.',
       suspendedTitle: 'This account has been suspended',
-      suspendedBody: 'Contact Major Data Link for more information about this account.'
+      suspendedBody: 'Contact K-Tech Solutions for more information about this account.'
     },
     hero: {
       welcomeBack: 'Welcome back',
@@ -120,9 +120,9 @@ const en = {
     },
     docs: {
       pageTitle: 'API Documentation',
-      pageSubtitle: 'Major Data Link Partner Platform',
+      pageSubtitle: 'K-Tech Solutions Partner Platform',
       intro:
-        'Everything you need to integrate Major Data Link into your own application — data & airtime, NIN/BVN verification slips, wallet funding, and async identity services. All endpoints accept JSON and are authenticated with your API key.',
+        'Everything you need to integrate K-Tech Solutions into your own application — data & airtime, NIN/BVN verification slips, wallet funding, and async identity services. All endpoints accept JSON and are authenticated with your API key.',
       keyNotice:
         "We can't show your live API key here (it's stored as a hash only, never in plain text after it's created) —",
       keyNoticeLink: 'go to your dashboard',

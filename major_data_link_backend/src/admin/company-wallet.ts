@@ -135,7 +135,7 @@ function renderPage(params: {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Company Wallet — MAJOR DATA-LINK Admin</title>
+<title>Company Wallet — K-Tech Solutions Admin</title>
 <style>
   :root { --gold: #D4AF37; --gold-dark: #9C7A17; --bg: #FAF7EF; --card: #FFFFFF; --text: #1A1508; --muted: #6B6248; --border: #E9E1C8; --green: #1E7B34; }
   * { box-sizing: border-box; }

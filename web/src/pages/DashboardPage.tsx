@@ -15,6 +15,24 @@ import { api } from '../lib/api';
 import { SERVICES, TINT_CLASSES } from '../lib/services';
 import { CONTACT, whatsappLink } from '../lib/contact';
 
+const SERVICE_IMAGES: Record<string, string> = {
+  'Buy Data': '/branding/logo.png',
+  'Buy Airtime': '/branding/logo.png',
+  'Airtime to Cash': '/branding/logo.png',
+  'Cable TV': '/branding/logo.png',
+  Electricity: '/branding/logo.png',
+  'Result Checkers': '/branding/standard slip.jpg',
+  'JAMB Services': '/branding/premium slip.jpg',
+  'Bulk SMS': '/branding/logo.png',
+  'Recharge Card': '/branding/regular slip.jpg',
+  'Data Card': '/branding/information slip.jpg',
+  'NIN Services': '/branding/Validation.png',
+  'BVN Services': '/branding/BVN Verifications.png',
+  'CAC Registration': '/branding/CAC Registration.png',
+  'SCUML Registration': '/branding/CAC Services.png',
+  'TIN Registration': '/branding/TIN Certificate.png',
+};
+
 type WalletBalance = {
   balance: number;
   currency: string;
@@ -91,7 +109,7 @@ export default function DashboardPage() {
             <span>Join group</span>
           </a>
           <a
-            href={whatsappLink('Hello MAJOR DATA-LINK, I need support.')}
+            href={whatsappLink('Hello K-Tech Solutions, I need support.')}
             target="_blank"
             rel="noreferrer"
             aria-label="Contact support"
@@ -255,17 +273,16 @@ function ServiceTile({
   return (
     <Link
       to={route}
-      className="group relative flex min-h-36 flex-col items-center justify-center rounded-2xl border border-slate-200 bg-white p-4 text-center shadow-sm transition duration-200 hover:-translate-y-1 hover:border-brand-200 hover:shadow-md"
+      className="group relative flex min-h-40 flex-col items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 text-center shadow-sm transition duration-200 hover:-translate-y-1 hover:border-brand-200 hover:shadow-md"
     >
       {!implemented && (
         <span className="absolute right-2 top-2 z-10 rounded-full bg-slate-100 px-2 py-1 font-body text-[9px] font-semibold uppercase tracking-wide text-slate-500">
           Soon
         </span>
       )}
-      <div
-        className={`relative z-10 flex h-12 w-12 items-center justify-center rounded-xl ${colors.bg} ${colors.text} transition group-hover:scale-110`}
-      >
-        <Icon size={24} />
+      <div className={`relative z-10 h-16 w-16 overflow-hidden rounded-2xl border-2 border-white shadow-sm ${colors.bg}`}>
+        <img src={SERVICE_IMAGES[label] ?? '/branding/logo.png'} alt="" className="h-full w-full object-cover transition duration-200 group-hover:scale-110" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+        <span className={`absolute inset-0 flex items-center justify-center bg-white/15 ${colors.text}`}><Icon size={24} /></span>
       </div>
       <span className="relative z-10 mt-3 font-body text-sm font-bold leading-tight text-ink-900">{label}</span>
     </Link>

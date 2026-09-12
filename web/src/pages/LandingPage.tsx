@@ -50,7 +50,7 @@ const TXT = {
     navSignin: 'Shiga (Signin)',
     navSignup: 'Rijista',
     navDashboard: 'Dashboard',
-    heroTitle: 'Barka da Zuwa MAJOR DATA-LINK',
+    heroTitle: 'Barka da Zuwa K-Tech Solutions',
     heroDesc:
       "Muna samar da ingantattun ayyukan fasahar zamani cikin sauki da hanzari — Data, Airtime, BVN/NIN, da Sakamakon Jarrabawa. Tuntube mu domin samun cikakken taimako akan duk wani sabis na online.",
     heroWhatsapp: 'Tuntube Mu A WhatsApp',
@@ -59,7 +59,7 @@ const TXT = {
     servicesSubtitle: 'Zabi sabis din da kake bukata, ka fara amfani da shi yanzu — kai tsaye daga account dinka.',
     waTooltip: 'Yi Magana A WhatsApp',
     aboutTitle: 'Game da Mu (About Us)',
-    aboutSubtitle: 'MAJOR DATA-LINK wani samfurin Kindness Digital Branding and IT Solutions ne, wanda ake gudanarwa domin sauki da amincin ayyukan ka na yau da kullum.',
+    aboutSubtitle: 'K-Tech Solutions kamfani ne na fasahar zamani wanda aka gina domin sauki da amincin ayyukan ka na yau da kullum.',
     about: [
       { key: 'secure', title: 'Amintacce', desc: "Muna adana bayanan NIN/BVN dinka a boye, ba tare da bayyana su ba." },
       { key: 'fast', title: 'Sauri', desc: "Ana kammala mu'amaloli nan take, babu jira ko izinin hannu." },
@@ -92,7 +92,7 @@ const TXT = {
     footerChannel: 'Tashar WhatsApp',
     footerGroup: 'Kungiyar WhatsApp',
     footerRights: 'Duk Haƙƙoƙi An Kiyaye',
-    footerCompanyName: 'Kindness Digital Branding and IT Solutions',
+    footerCompanyName: 'K-Tech Solutions',
     servicePriceLabel: 'Farashi daga',
     cards: {
       vtu: { title: 'VTU SERVICES', item1: 'DATA & AIRTIME', btnData: 'Sayi Data', btnAirtime: 'Sayi Airtime' },
@@ -114,7 +114,7 @@ const TXT = {
       cac: { title: 'CAC SERVICES', items: ['CAC REGISTRATIONS', 'CAC VERIFICATION'], btn: 'Fara CAC' },
       jamb: {
         title: 'JAMB SERVICES',
-        items: ['CBT PRACTICE SOFTWARE', 'JAMB ORIGINAL RESULT', 'JAMB ADMISSION LETTER', 'JAMB O-LEVEL UPLOAD'],
+        items: ['CBT PRACTICE SOFTWARE — ₦5,000', 'JAMB ORIGINAL RESULT — ₦2,500', 'JAMB ADMISSION LETTER — ₦2,000', 'JAMB EXAM SLIP — ₦500', 'JAMB RESULT SLIP — ₦800'],
         btn: 'Fara JAMB',
       },
     },
@@ -128,7 +128,7 @@ const TXT = {
     navSignin: 'Sign in',
     navSignup: 'Create Account',
     navDashboard: 'Dashboard',
-    heroTitle: 'Welcome to MAJOR DATA-LINK',
+    heroTitle: 'Welcome to K-Tech Solutions',
     heroDesc:
       'We offer reliable and fast digital solutions — Data, Airtime, BVN/NIN verification, and WAEC/NECO/NABTEB result checking. Contact us today for seamless online service delivery.',
     heroWhatsapp: 'Contact Us On WhatsApp',
@@ -137,7 +137,7 @@ const TXT = {
     servicesSubtitle: 'Pick the service you need and get started right away — straight from your account.',
     waTooltip: 'Chat on WhatsApp',
     aboutTitle: 'About Us',
-    aboutSubtitle: 'MAJOR DATA-LINK is a product of Kindness Digital Branding and IT Solutions, built for fast, reliable everyday transactions.',
+    aboutSubtitle: 'K-Tech Solutions provides fast, reliable digital services for everyday transactions.',
     about: [
       { key: 'secure', title: 'Encrypted', desc: 'Your NIN/BVN data is encrypted at rest, never stored in plain text.' },
       { key: 'fast', title: 'Instant', desc: 'Transactions complete immediately — no waiting, no manual approval.' },
@@ -170,7 +170,7 @@ const TXT = {
     footerChannel: 'WhatsApp Channel',
     footerGroup: 'WhatsApp Group',
     footerRights: 'All Rights Reserved',
-    footerCompanyName: 'Kindness Digital Branding and IT Solutions',
+    footerCompanyName: 'K-Tech Solutions',
     servicePriceLabel: 'From',
     cards: {
       vtu: { title: 'VTU SERVICES', item1: 'DATA & AIRTIME', btnData: 'Buy Data', btnAirtime: 'Buy Airtime' },
@@ -192,7 +192,7 @@ const TXT = {
       cac: { title: 'CAC SERVICES', items: ['CAC REGISTRATIONS', 'CAC VERIFICATION'], btn: 'Start CAC' },
       jamb: {
         title: 'JAMB SERVICES',
-        items: ['CBT PRACTICE SOFTWARE', 'JAMB ORIGINAL RESULT', 'JAMB ADMISSION LETTER', 'JAMB O-LEVEL UPLOAD'],
+        items: ['CBT PRACTICE SOFTWARE — ₦5,000', 'JAMB ORIGINAL RESULT — ₦2,500', 'JAMB ADMISSION LETTER — ₦2,000', 'JAMB EXAM SLIP — ₦500', 'JAMB RESULT SLIP — ₦800'],
         btn: 'Start JAMB',
       },
     },
@@ -201,7 +201,7 @@ const TXT = {
 
 export default function LandingPage() {
   const { user } = useAuth();
-  const [lang, setLang] = useState<'HA' | 'EN'>('HA');
+  const [lang, setLang] = useState<'HA' | 'EN'>('EN');
   const [menuOpen, setMenuOpen] = useState(false);
   const [resultPrices, setResultPrices] = useState<PriceRow[]>([]);
   const [verificationPrices, setVerificationPrices] = useState<Record<string, number>>({});
@@ -316,7 +316,7 @@ export default function LandingPage() {
         <p>{L.heroDesc}</p>
         <div className="hero-buttons">
           <a
-            href={whatsappLink('Sannu MAJOR DATA-LINK, ina bukatan taimako')}
+            href={whatsappLink('Sannu K-Tech Solutions, ina bukatan taimako')}
             target="_blank"
             rel="noreferrer"
             className="btn-hero"
@@ -539,7 +539,7 @@ export default function LandingPage() {
       <footer>
         <div className="footer-grid">
           <div>
-            <h4>MAJOR DATA-LINK</h4>
+            <h4>K-TECH SOLUTIONS</h4>
             <p style={{ color: 'rgba(255,255,255,0.7)', marginBottom: 0 }}>{L.footerTagline}</p>
           </div>
           <div>
@@ -556,7 +556,7 @@ export default function LandingPage() {
           </div>
           <div>
             <h4>{L.footerContactHeading}</h4>
-            <a href={whatsappLink('Hello MAJOR DATA-LINK, I need help')} target="_blank" rel="noreferrer">
+            <a href={whatsappLink('Hello K-Tech Solutions, I need help')} target="_blank" rel="noreferrer">
               <MessageCircle size={15} /> {L.footerWhatsappSupport}
             </a>
             <a href={CONTACT.whatsappChannelUrl} target="_blank" rel="noreferrer">
@@ -572,7 +572,7 @@ export default function LandingPage() {
         </div>
         <div className="bottom-bar">
           <p>
-            &copy; {new Date().getFullYear()} MAJOR DATA-LINK. {L.footerRights}.
+            &copy; {new Date().getFullYear()} K-Tech Solutions. {L.footerRights}.
           </p>
           <p>{L.footerCompanyName}</p>
         </div>
@@ -580,7 +580,7 @@ export default function LandingPage() {
 
       {/* WhatsApp Floating Button */}
       <a
-        href={whatsappLink('Sannu MAJOR DATA-LINK, ina bukatan taimako')}
+        href={whatsappLink('Sannu K-Tech Solutions, ina bukatan taimako')}
         className="whatsapp-float"
         target="_blank"
         rel="noreferrer"

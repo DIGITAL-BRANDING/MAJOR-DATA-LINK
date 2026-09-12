@@ -7,7 +7,7 @@ export default function Logo({ dark = false, className = '' }: { dark?: boolean;
           dark ? 'text-cream' : 'text-ink'
         }`}
       >
-        MAJOR <span className="text-gold-500">DATA-LINK</span>
+        K-TECH <span className="text-gold-500">SOLUTIONS</span>
       </span>
     </div>
   );

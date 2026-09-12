@@ -5,7 +5,7 @@ import type { AdminSessionUser } from '../auth.js';
 
 const canManage = ({ currentAdmin }: { currentAdmin?: Record<string, unknown> }) => {
   const admin = currentAdmin as unknown as AdminSessionUser | undefined;
-  return admin?.role === 'SUPER_ADMIN' || admin?.role === 'FINANCE';
+  return admin?.role === 'SUPER_ADMIN' || admin?.role === 'FINANCE' || admin?.role === 'SUPPORT';
 };
 
 export const userDeliveryResource: ResourceWithOptions = {

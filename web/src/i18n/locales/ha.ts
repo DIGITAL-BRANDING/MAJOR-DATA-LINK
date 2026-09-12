@@ -9,7 +9,7 @@ const ha = {
       revoke: 'Soke'
     },
     header: {
-      appName: 'Major Data Link',
+      appName: 'K-Tech Solutions',
       tagline: 'Partner Portal',
       documentation: 'Documentation',
       dashboard: 'Dashboard',
@@ -29,7 +29,7 @@ const ha = {
       loginCta: 'Shiga',
       registerCta: 'Ƙirƙiri asusun kamfani',
       registerNotice:
-        'Bayan rajista, admin din Major Data Link zai fara duba kamfaninku kafin ku iya ƙirƙirar live API key ko sarrafa transactions - amma za ku iya shiga dashboard ɗin nan take don duba matsayin rajistarku.',
+        'Bayan rajista, admin din K-Tech Solutions zai fara duba kamfaninku kafin ku iya ƙirƙirar live API key ko sarrafa transactions - amma za ku iya shiga dashboard ɗin nan take don duba matsayin rajistarku.',
       genericError: 'Wani abu ya faru. Da fatan za a sake gwadawa.'
     },
     banner: {
@@ -37,7 +37,7 @@ const ha = {
       pendingBody:
         'Za a fara duba kamfaninku kafin ku iya ƙirƙirar live API key ko fara sarrafa transactions. Za mu tuntube ku ta imel ({{email}}) idan an amince.',
       suspendedTitle: 'An dakatar da wannan asusun',
-      suspendedBody: 'Tuntuɓi Major Data Link don ƙarin bayani game da wannan asusun.'
+      suspendedBody: 'Tuntuɓi K-Tech Solutions don ƙarin bayani game da wannan asusun.'
     },
     hero: {
       welcomeBack: 'Barka da dawowa',
@@ -120,9 +120,9 @@ const ha = {
     },
     docs: {
       pageTitle: 'API Documentation',
-      pageSubtitle: 'Major Data Link Partner Platform',
+      pageSubtitle: 'K-Tech Solutions Partner Platform',
       intro:
-        'Duk abin da kuke bukata don haɗa Major Data Link cikin app ɗinku — data & airtime, NIN/BVN verification slips, wallet funding, da async identity services. Duk endpoints suna karɓar JSON kuma ana tantance su ta API key ɗinku.',
+        'Duk abin da kuke bukata don haɗa K-Tech Solutions cikin app ɗinku — data & airtime, NIN/BVN verification slips, wallet funding, da async identity services. Duk endpoints suna karɓar JSON kuma ana tantance su ta API key ɗinku.',
       keyNotice: 'Ba mu iya nuna live API key ɗinku a nan (ana ajiye shi a matsayin hash kaɗai, ba a taɓa ajiye shi a bayyane bayan an ƙirƙira shi ba) —',
       keyNoticeLink: 'je zuwa dashboard ɗinku',
       keyNoticeSuffix: 'don ƙirƙira/duba API keys ɗinku.',
