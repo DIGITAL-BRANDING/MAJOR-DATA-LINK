@@ -90,11 +90,11 @@ export const SERVICES: ServiceItem[] = [
   },
   {
     label: 'JAMB Services',
-    description: 'JAMB PIN and related services.',
+    description: 'Request JAMB result, admission and O-level services securely.',
     icon: ClipboardList,
     route: '/jamb-services',
     tint: 'ember',
-    implemented: false,
+    implemented: true,
   },
   {
     label: 'Bulk SMS',

@@ -24,6 +24,8 @@ import ReferralPage from './pages/ReferralPage';
 import PinSetupPage from './pages/PinSetupPage';
 import PartnerDashboardPage from './pages/PartnerDashboardPage';
 import PartnerApiDocsPage from './pages/PartnerApiDocsPage';
+import JambServicesPage from './pages/JambServicesPage';
+import SupportPage from './pages/SupportPage';
 
 function ProtectedRoute({ children }: { children: ReactNode }) {
   const { user, isLoading, mustChangePassword, requiresLoginPinSetup, requiresTransactionPinSetup } = useAuth();
@@ -62,6 +64,8 @@ export default function App() {
           <Route path="/partner-docs" element={<PartnerApiDocsPage />} />
           <Route path="/privacy-policy" element={<PrivacyRedirect page="privacy-policy" />} />
           <Route path="/result-checkers" element={<ProtectedRoute><ResultCheckersPage /></ProtectedRoute>} />
+          <Route path="/jamb-services" element={<ProtectedRoute><JambServicesPage /></ProtectedRoute>} />
+          <Route path="/support" element={<ProtectedRoute><SupportPage /></ProtectedRoute>} />
           <Route path="/waec-result" element={<ProtectedRoute><ResultPinPage exam="WAEC" /></ProtectedRoute>} />
           <Route path="/neco-result" element={<ProtectedRoute><ResultPinPage exam="NECO" /></ProtectedRoute>} />
           <Route path="/nabteb-result" element={<ProtectedRoute><ResultPinPage exam="NABTEB" /></ProtectedRoute>} />

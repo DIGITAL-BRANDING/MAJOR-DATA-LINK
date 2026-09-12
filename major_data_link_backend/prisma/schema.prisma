@@ -82,6 +82,17 @@ enum TransactionType {
   /// wallet at submission; the encrypted PDF is completed manually in
   /// Techhub by an authorised admin, or reversed to refund the wallet.
   BVN_LICENSE_ONBOARDING
+  /// Manually fulfilled identity-service requests, migrated from the
+  /// InfoVerify workflow. They are intentionally separate transaction types
+  /// so finance/support can filter and reconcile each service independently.
+  CAC_SERVICE_REQUEST
+  BVN_MODIFICATION
+  BIRTH_ATTESTATION
+  NEWSPAPER_PUBLICATION
+  BVN_CRM
+  /// A JAMB document/admission request submitted through the customer portal.
+  /// Fulfilment is manual until an approved JAMB provider integration is set.
+  JAMB_SERVICE_REQUEST
   /// The credit-back entry refundWallet() creates - distinct from the
   /// original debit's own type (e.g. a reversed DATA_PURCHASE gets a REFUND
   /// entry, not a second DATA_PURCHASE). See relatedTransactionId above.
@@ -331,6 +342,9 @@ model UserDelivery {
   fileName    String
   mimeType    String
   filePath    String   @unique
+  /// Allows encrypted, database-backed delivery files while retaining access
+  /// to earlier object-storage paths during the migration.
+  inlineData  Json?
   fileSize    Int
   reference   String?
   createdByAdminId String

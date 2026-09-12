@@ -1,24 +1,22 @@
 diff --git a/web/index.html b/web/index.html
-index c3b18ef..42d4211 100644
+index c3b18ef..10dddef 100644
 --- a/web/index.html
 +++ b/web/index.html
-@@ -17,7 +17,9 @@
+@@ -17,7 +17,7 @@
      <title>MAJOR DATA-LINK — Instant Top-Up, Every Time</title>
      <link rel="preconnect" href="https://fonts.googleapis.com" />
      <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 -    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 +    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700;800&family=Poppins:wght@300;400;600;700&display=swap" rel="stylesheet" />
-+    <!-- Used only by the landing page (src/pages/LandingPage.tsx / LandingPage.css) -->
-+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
    </head>
    <body>
      <div id="root"></div>
 diff --git a/web/src/pages/LandingPage.css b/web/src/pages/LandingPage.css
 new file mode 100644
-index 0000000..3c4a5b5
+index 0000000..893d86b
 --- /dev/null
 +++ b/web/src/pages/LandingPage.css
-@@ -0,0 +1,606 @@
+@@ -0,0 +1,634 @@
 +/* ==========================================================================
 +   Landing page theme — ported from the repo-root index.html template.
 +   Namespaced under .mdl-landing so nothing here escapes onto other routes
@@ -98,6 +96,9 @@ index 0000000..3c4a5b5
 +
 +.mdl-landing .nav-links a,
 +.mdl-landing .nav-links button.link-btn {
++    display: inline-flex;
++    align-items: center;
++    gap: 6px;
 +    color: #fff;
 +    text-decoration: none;
 +    font-size: 0.9rem;
@@ -166,8 +167,8 @@ index 0000000..3c4a5b5
 +/* Mobile Menu Toggle */
 +.mdl-landing .menu-toggle {
 +    display: none;
++    align-items: center;
 +    color: white;
-+    font-size: 1.5rem;
 +    cursor: pointer;
 +    background: none;
 +    border: none;
@@ -201,7 +202,12 @@ index 0000000..3c4a5b5
 +    justify-content: center;
 +}
 +
-+.mdl-landing .hero .btn-hero {
++.mdl-landing .hero .btn-hero,
++.mdl-landing .app-buttons .btn-hero {
++    display: inline-flex;
++    align-items: center;
++    justify-content: center;
++    gap: 8px;
 +    background-color: var(--accent-color);
 +    color: #000;
 +    padding: 12px 30px;
@@ -209,7 +215,6 @@ index 0000000..3c4a5b5
 +    font-weight: 600;
 +    border-radius: 30px;
 +    transition: 0.3s;
-+    display: inline-block;
 +    border: none;
 +    cursor: pointer;
 +    font-size: 1rem;
@@ -220,7 +225,12 @@ index 0000000..3c4a5b5
 +    transform: translateY(-3px);
 +}
 +
-+.mdl-landing .hero .btn-hero-outline {
++.mdl-landing .hero .btn-hero-outline,
++.mdl-landing .app-buttons .btn-hero-outline {
++    display: inline-flex;
++    align-items: center;
++    justify-content: center;
++    gap: 8px;
 +    background-color: transparent;
 +    color: #fff;
 +    padding: 12px 30px;
@@ -228,7 +238,6 @@ index 0000000..3c4a5b5
 +    font-weight: 600;
 +    border-radius: 30px;
 +    transition: 0.3s;
-+    display: inline-block;
 +    border: 2px solid #fff;
 +}
 +
@@ -303,13 +312,16 @@ index 0000000..3c4a5b5
 +    margin-bottom: 15px;
 +}
 +
-+.mdl-landing .service-header i {
-+    font-size: 1.8rem;
++.mdl-landing .service-icon {
++    display: inline-flex;
++    align-items: center;
++    justify-content: center;
 +    color: var(--primary-color);
 +    margin-right: 15px;
 +    background: #eef5ff;
 +    padding: 12px;
 +    border-radius: 10px;
++    flex-shrink: 0;
 +}
 +
 +.mdl-landing .service-header h3 {
@@ -335,10 +347,10 @@ index 0000000..3c4a5b5
 +    border-bottom: none;
 +}
 +
-+.mdl-landing .service-list li i {
++.mdl-landing .service-list li svg {
 +    color: #28a745;
 +    margin-right: 10px;
-+    font-size: 0.85rem;
++    flex-shrink: 0;
 +}
 +
 +.mdl-landing .service-price {
@@ -386,14 +398,15 @@ index 0000000..3c4a5b5
 +    padding: 20px;
 +}
 +
-+.mdl-landing .about-card i {
-+    font-size: 2rem;
++.mdl-landing .about-icon {
++    display: inline-flex;
++    align-items: center;
++    justify-content: center;
 +    color: var(--primary-color);
 +    background: #eef5ff;
 +    padding: 18px;
 +    border-radius: 50%;
 +    margin-bottom: 15px;
-+    display: inline-block;
 +}
 +
 +.mdl-landing .about-card h3 {
@@ -509,9 +522,10 @@ index 0000000..3c4a5b5
 +    font-size: 0.95rem;
 +}
 +
-+.mdl-landing .footer-grid a,
-+.mdl-landing .footer-grid p {
-+    display: block;
++.mdl-landing .footer-grid a {
++    display: flex;
++    align-items: center;
++    gap: 8px;
 +    color: rgba(255,255,255,0.75);
 +    text-decoration: none;
 +    font-size: 0.88rem;
@@ -521,6 +535,19 @@ index 0000000..3c4a5b5
 +    padding: 0;
 +    text-align: left;
 +    cursor: pointer;
++}
++
++.mdl-landing .footer-grid a svg {
++    flex-shrink: 0;
++}
++
++.mdl-landing .footer-grid p {
++    display: block;
++    color: rgba(255,255,255,0.75);
++    text-decoration: none;
++    font-size: 0.88rem;
++    margin-bottom: 8px;
++    text-align: left;
 +}
 +
 +.mdl-landing .footer-grid a:hover {
@@ -549,7 +576,6 @@ index 0000000..3c4a5b5
 +    color: #FFF;
 +    border-radius: 50px;
 +    text-align: center;
-+    font-size: 32px;
 +    box-shadow: 2px 2px 10px rgba(0, 0, 0, 0.3);
 +    z-index: 1000;
 +    display: flex;
@@ -626,32 +652,48 @@ index 0000000..3c4a5b5
 +    }
 +}
 diff --git a/web/src/pages/LandingPage.tsx b/web/src/pages/LandingPage.tsx
-index ba211cb..9bbc18a 100644
+index ba211cb..4e78ca9 100644
 --- a/web/src/pages/LandingPage.tsx
 +++ b/web/src/pages/LandingPage.tsx
-@@ -1,177 +1,187 @@
+@@ -1,177 +1,214 @@
  import { useEffect, useState } from 'react';
  import { Link } from 'react-router-dom';
--import {
+ import {
 -  Wallet,
 -  MousePointerClick,
 -  PackageCheck,
--  Download,
++  Menu,
++  X,
+   Download,
 -  Lock,
 -  Landmark,
--  MessageCircle,
+   MessageCircle,
 -  ChevronDown,
 -  GraduationCap,
 -  BookOpenCheck,
 -  BookOpen,
 -  IdCard,
--  Fingerprint,
++  Smartphone,
+   Fingerprint,
 -  Phone,
 -  UserRoundCheck,
 -  SearchCheck,
 -  ShieldCheck,
 -  ArrowRight,
--} from 'lucide-react';
++  GraduationCap,
++  KeyRound,
++  Briefcase,
++  ClipboardList,
++  CheckCircle2,
++  Lock,
++  Zap,
++  Headphones,
++  Landmark,
++  Mail,
++  Radio,
++  Users,
++  type LucideIcon,
+ } from 'lucide-react';
 -import PublicNav from '../components/PublicNav';
 -import RatesTicker from '../components/RatesTicker';
 -import Footer from '../components/Footer';
@@ -678,7 +720,7 @@ index ba211cb..9bbc18a 100644
 -    desc: 'No waiting, no manual approval. Your top-up lands immediately.',
 -  },
 -];
--
+ 
 -const TRUST_POINTS = [
 -  {
 -    icon: Lock,
@@ -723,15 +765,24 @@ index ba211cb..9bbc18a 100644
 -    a: `Message us directly on WhatsApp at ${CONTACT.whatsapp}, or email ${CONTACT.emailDisplay}. A real person responds.`,
 -  },
 -];
++// This page's own contact details — see the note by the footer section
++// below for why these are kept separate from lib/contact.ts.
++const LANDING_EMAIL = 'kdbsolutions.company@gmail.com';
++const WHATSAPP_GROUP_URL = 'https://chat.whatsapp.com/FbMnh7Cj1jfBsXDJdoMT8d';
  
- type PriceRow = { service: string; label: string; unit_price: number };
- 
+-type PriceRow = { service: string; label: string; unit_price: number };
+-
 -const RESULT_ICON: Record<string, typeof GraduationCap> = {
 -  WAEC_PIN: GraduationCap,
 -  NECO_PIN: BookOpenCheck,
 -  NABTEB_PIN: BookOpen,
--};
--
++const ABOUT_ICONS: Record<string, LucideIcon> = {
++  secure: Lock,
++  fast: Zap,
++  support: Headphones,
++  bank: Landmark,
+ };
+ 
 -// Curated view of the 15 individual ServicePricing rows the backend prices
 -// NIN/BVN by (see major_data_link_backend/src/services/verification.service.ts).
 -// Tiers (Premium/Standard/Regular/VNIN for NIN slips, Premium/Standard for
@@ -785,7 +836,8 @@ index ba211cb..9bbc18a 100644
 -    service: 'IPE_CLEARANCE',
 -  },
 -];
--
++type PriceRow = { service: string; label: string; unit_price: number };
+ 
 -const BVN_SERVICES = [
 -  {
 -    icon: Fingerprint,
@@ -814,10 +866,10 @@ index ba211cb..9bbc18a 100644
 +    aboutTitle: 'Game da Mu (About Us)',
 +    aboutSubtitle: 'MAJOR DATA-LINK wani samfurin Kindness Digital Branding and IT Solutions ne, wanda ake gudanarwa domin sauki da amincin ayyukan ka na yau da kullum.',
 +    about: [
-+      { icon: 'fa-lock', title: 'Amintacce', desc: "Muna adana bayanan NIN/BVN dinka a boye, ba tare da bayyana su ba." },
-+      { icon: 'fa-bolt', title: 'Sauri', desc: "Ana kammala mu'amaloli nan take, babu jira ko izinin hannu." },
-+      { icon: 'fa-headset', title: 'Tallafi na Gaske', desc: 'Ka samu tallafi kai tsaye a WhatsApp daga mutum, ba tashar sako-sako ba.' },
-+      { icon: 'fa-university', title: 'Biyan Kudi Amintacce', desc: 'Ana cika walat dinka ta hanyar kamfanin biyan kudi mai lasisi.' },
++      { key: 'secure', title: 'Amintacce', desc: "Muna adana bayanan NIN/BVN dinka a boye, ba tare da bayyana su ba." },
++      { key: 'fast', title: 'Sauri', desc: "Ana kammala mu'amaloli nan take, babu jira ko izinin hannu." },
++      { key: 'support', title: 'Tallafi na Gaske', desc: 'Ka samu tallafi kai tsaye a WhatsApp daga mutum, ba tashar sako-sako ba.' },
++      { key: 'bank', title: 'Biyan Kudi Amintacce', desc: 'Ana cika walat dinka ta hanyar kamfanin biyan kudi mai lasisi.' },
 +    ],
 +    howTitle: 'Yadda Yake Aiki',
 +    howSubtitle: 'Matakai uku kawai za ka bi, kowane lokaci.',
@@ -841,7 +893,9 @@ index ba211cb..9bbc18a 100644
 +    footerPortal: 'API Portal',
 +    footerDocs: 'Takardun API',
 +    footerContactHeading: 'Tuntube Mu',
++    footerWhatsappSupport: 'Tallafi Ta WhatsApp',
 +    footerChannel: 'Tashar WhatsApp',
++    footerGroup: 'Kungiyar WhatsApp',
 +    footerRights: 'Duk Haƙƙoƙi An Kiyaye',
 +    footerCompanyName: 'Kindness Digital Branding and IT Solutions',
 +    servicePriceLabel: 'Farashi daga',
@@ -851,11 +905,6 @@ index ba211cb..9bbc18a 100644
 +        title: 'BVN SERVICES',
 +        items: ['TABBATAR DA BVN', 'GYARA BVN', 'BVN CENTRAL RISK MANAGEMENT', 'BVN LICENCE ONBOARDING CREATION'],
 +        btn: 'Fara BVN',
-+      },
-+      nin: {
-+        title: 'NIN SERVICES',
-+        items: ['TABBATAR DA NIN', 'NEMAN NIN TA WAYA', 'GYARA / VALIDATION NA NIN'],
-+        btn: 'Fara NIN',
 +      },
 +      result: {
 +        title: 'DUBA RESULT',
@@ -900,10 +949,10 @@ index ba211cb..9bbc18a 100644
 +    aboutTitle: 'About Us',
 +    aboutSubtitle: 'MAJOR DATA-LINK is a product of Kindness Digital Branding and IT Solutions, built for fast, reliable everyday transactions.',
 +    about: [
-+      { icon: 'fa-lock', title: 'Encrypted', desc: 'Your NIN/BVN data is encrypted at rest, never stored in plain text.' },
-+      { icon: 'fa-bolt', title: 'Instant', desc: 'Transactions complete immediately — no waiting, no manual approval.' },
-+      { icon: 'fa-headset', title: 'Real Support', desc: 'Reach an actual person on WhatsApp — no ticket queues.' },
-+      { icon: 'fa-university', title: 'Bank-Backed Funding', desc: 'Your wallet is funded through a licensed payment processor.' },
++      { key: 'secure', title: 'Encrypted', desc: 'Your NIN/BVN data is encrypted at rest, never stored in plain text.' },
++      { key: 'fast', title: 'Instant', desc: 'Transactions complete immediately — no waiting, no manual approval.' },
++      { key: 'support', title: 'Real Support', desc: 'Reach an actual person on WhatsApp — no ticket queues.' },
++      { key: 'bank', title: 'Bank-Backed Funding', desc: 'Your wallet is funded through a licensed payment processor.' },
 +    ],
 +    howTitle: 'How it Works',
 +    howSubtitle: 'Three steps, every time.',
@@ -927,7 +976,9 @@ index ba211cb..9bbc18a 100644
 +    footerPortal: 'API Portal',
 +    footerDocs: 'API Documentation',
 +    footerContactHeading: 'Talk to Us',
++    footerWhatsappSupport: 'WhatsApp Support',
 +    footerChannel: 'WhatsApp Channel',
++    footerGroup: 'WhatsApp Group',
 +    footerRights: 'All Rights Reserved',
 +    footerCompanyName: 'Kindness Digital Branding and IT Solutions',
 +    servicePriceLabel: 'From',
@@ -937,11 +988,6 @@ index ba211cb..9bbc18a 100644
 +        title: 'BVN SERVICES',
 +        items: ['BVN VERIFICATION', 'BVN MODIFICATION', 'BVN CENTRAL RISK MANAGEMENT', 'BVN LICENCE ONBOARDING CREATION'],
 +        btn: 'Start BVN',
-+      },
-+      nin: {
-+        title: 'NIN SERVICES',
-+        items: ['NIN VERIFICATION', 'NIN BY PHONE LOOKUP', 'NIN VALIDATION / MODIFICATION'],
-+        btn: 'Start NIN',
 +      },
 +      result: {
 +        title: 'RESULT CHECKING',
@@ -974,12 +1020,12 @@ index ba211cb..9bbc18a 100644
 +  const [verificationPrices, setVerificationPrices] = useState<Record<string, number>>({});
 +  const L = TXT[lang];
  
-+  // Live backend prices, shown on the Result Checking / BVN / NIN cards so
-+  // the buttons on this page reflect real data from the API, not static copy.
++  // Live backend prices, shown on the Result Checking / BVN cards so the
++  // buttons on this page reflect real data from the API, not static copy.
    useEffect(() => {
      api
        .get<{ status: boolean; data: PriceRow[] }>('/public/result-prices', false)
-@@ -186,423 +196,375 @@ export default function LandingPage() {
+@@ -186,423 +223,371 @@ export default function LandingPage() {
          setVerificationPrices(map);
        })
        .catch(() => setVerificationPrices({}));
@@ -987,7 +1033,6 @@ index ba211cb..9bbc18a 100644
    }, []);
  
 +  const bvnFrom = verificationPrices['BVN_SLIP_STANDARD'];
-+  const ninFrom = verificationPrices['NIN_SLIP_STANDARD'];
 +  const cheapestResult = resultPrices.length
 +    ? Math.min(...resultPrices.map((r) => r.unit_price))
 +    : undefined;
@@ -1037,7 +1082,7 @@ index ba211cb..9bbc18a 100644
 +            aria-label="Menu"
 +            onClick={() => setMenuOpen((v) => !v)}
 +          >
-+            <i className="fas fa-bars" />
++            {menuOpen ? <X size={22} /> : <Menu size={22} />}
 +          </button>
 +
 +          <ul className={`nav-links${menuOpen ? ' active' : ''}`}>
@@ -1070,7 +1115,7 @@ index ba211cb..9bbc18a 100644
 +            </li>
 +            <li>
 +              <a href="#app" onClick={closeMenu}>
-+                <i className="fas fa-download" /> {L.navApp}
++                <Download size={14} /> {L.navApp}
 +              </a>
 +            </li>
  
@@ -1140,7 +1185,7 @@ index ba211cb..9bbc18a 100644
 +            rel="noreferrer"
 +            className="btn-hero"
 +          >
-+            <i className="fab fa-whatsapp" /> {L.heroWhatsapp}
++            <MessageCircle size={18} /> {L.heroWhatsapp}
 +          </a>
 +          <Link to={user ? '/dashboard' : '/register'} className="btn-hero-outline">
 +            {L.heroGetStarted}
@@ -1176,12 +1221,14 @@ index ba211cb..9bbc18a 100644
 +          {/* VTU */}
 +          <div className="service-card">
 +            <div className="service-header">
-+              <i className="fas fa-mobile-alt" />
++              <span className="service-icon">
++                <Smartphone size={26} />
++              </span>
 +              <h3>{L.cards.vtu.title}</h3>
 +            </div>
 +            <ul className="service-list">
 +              <li>
-+                <i className="fas fa-check-circle" /> {L.cards.vtu.item1}
++                <CheckCircle2 size={16} /> {L.cards.vtu.item1}
 +              </li>
 +            </ul>
 +            <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
@@ -1246,13 +1293,15 @@ index ba211cb..9bbc18a 100644
 +          {/* BVN */}
 +          <div className="service-card">
 +            <div className="service-header">
-+              <i className="fas fa-id-card" />
++              <span className="service-icon">
++                <Fingerprint size={26} />
++              </span>
 +              <h3>{L.cards.bvn.title}</h3>
 +            </div>
 +            <ul className="service-list">
 +              {L.cards.bvn.items.map((item) => (
 +                <li key={item}>
-+                  <i className="fas fa-check-circle" /> {item}
++                  <CheckCircle2 size={16} /> {item}
 +                </li>
 +              ))}
 +            </ul>
@@ -1272,26 +1321,28 @@ index ba211cb..9bbc18a 100644
 -              className="rounded-lg bg-ink px-6 py-3.5 font-display text-sm font-semibold text-cream transition hover:bg-ink-soft"
 -            >
 -              Verify your NIN or BVN
-+          {/* NIN */}
-+          <div className="service-card">
++          {/* Result Checking */}
++          <div className="service-card" id="results">
 +            <div className="service-header">
-+              <i className="fas fa-fingerprint" />
-+              <h3>{L.cards.nin.title}</h3>
++              <span className="service-icon">
++                <GraduationCap size={26} />
++              </span>
++              <h3>{L.cards.result.title}</h3>
 +            </div>
 +            <ul className="service-list">
-+              {L.cards.nin.items.map((item) => (
++              {L.cards.result.items.map((item) => (
 +                <li key={item}>
-+                  <i className="fas fa-check-circle" /> {item}
++                  <CheckCircle2 size={16} /> {item}
 +                </li>
 +              ))}
 +            </ul>
-+            {ninFrom !== undefined && (
++            {cheapestResult !== undefined && (
 +              <span className="service-price">
-+                {L.servicePriceLabel} ₦{ninFrom.toLocaleString()}
++                {L.servicePriceLabel} ₦{cheapestResult.toLocaleString()}
 +              </span>
 +            )}
-+            <Link to={user ? '/nin-services' : '/register'} className="btn-card">
-+              {L.cards.nin.btn}
++            <Link to={user ? '/result-checkers' : '/register'} className="btn-card">
++              {L.cards.result.btn}
              </Link>
            </div>
 -        </div>
@@ -1311,29 +1362,7 @@ index ba211cb..9bbc18a 100644
 -            every order — not a rate card that goes stale.
 -          </p>
 -        </div>
-+          {/* Result Checking */}
-+          <div className="service-card" id="results">
-+            <div className="service-header">
-+              <i className="fas fa-poll-h" />
-+              <h3>{L.cards.result.title}</h3>
-+            </div>
-+            <ul className="service-list">
-+              {L.cards.result.items.map((item) => (
-+                <li key={item}>
-+                  <i className="fas fa-check-circle" /> {item}
-+                </li>
-+              ))}
-+            </ul>
-+            {cheapestResult !== undefined && (
-+              <span className="service-price">
-+                {L.servicePriceLabel} ₦{cheapestResult.toLocaleString()}
-+              </span>
-+            )}
-+            <Link to={user ? '/result-checkers' : '/register'} className="btn-card">
-+              {L.cards.result.btn}
-+            </Link>
-+          </div>
- 
+-
 -        <div className="mt-10 grid gap-4 sm:grid-cols-3">
 -          {resultPrices === null &&
 -            [0, 1, 2].map((i) => (
@@ -1345,13 +1374,15 @@ index ba211cb..9bbc18a 100644
 +          {/* Token Purchase */}
 +          <div className="service-card">
 +            <div className="service-header">
-+              <i className="fas fa-key" />
++              <span className="service-icon">
++                <KeyRound size={26} />
++              </span>
 +              <h3>{L.cards.token.title}</h3>
 +            </div>
 +            <ul className="service-list">
 +              {L.cards.token.items.map((item) => (
 +                <li key={item}>
-+                  <i className="fas fa-check-circle" /> {item}
++                  <CheckCircle2 size={16} /> {item}
 +                </li>
 +              ))}
 +            </ul>
@@ -1367,14 +1398,16 @@ index ba211cb..9bbc18a 100644
 +          {/* CAC */}
 +          <div className="service-card">
 +            <div className="service-header">
-+              <i className="fas fa-briefcase" />
++              <span className="service-icon">
++                <Briefcase size={26} />
++              </span>
 +              <h3>{L.cards.cac.title}</h3>
              </div>
 -          )}
 +            <ul className="service-list">
 +              {L.cards.cac.items.map((item) => (
 +                <li key={item}>
-+                  <i className="fas fa-check-circle" /> {item}
++                  <CheckCircle2 size={16} /> {item}
 +                </li>
 +              ))}
 +            </ul>
@@ -1417,13 +1450,15 @@ index ba211cb..9bbc18a 100644
 +          {/* JAMB */}
 +          <div className="service-card">
 +            <div className="service-header">
-+              <i className="fas fa-user-graduate" />
++              <span className="service-icon">
++                <ClipboardList size={26} />
++              </span>
 +              <h3>{L.cards.jamb.title}</h3>
 +            </div>
 +            <ul className="service-list">
 +              {L.cards.jamb.items.map((item) => (
 +                <li key={item}>
-+                  <i className="fas fa-check-circle" /> {item}
++                  <CheckCircle2 size={16} /> {item}
 +                </li>
 +              ))}
 +            </ul>
@@ -1458,19 +1493,25 @@ index ba211cb..9bbc18a 100644
 -                <span className="font-mono text-5xl font-bold text-gold-500/20">0{i + 1}</span>
 -                <div className="-mt-6 flex h-10 w-10 items-center justify-center rounded-full bg-ink text-gold-500">
 -                  <step.icon size={18} />
--                </div>
++          <div className="about-grid">
++            {L.about.map((item) => {
++              const Icon = ABOUT_ICONS[item.key];
++              return (
++                <div className="about-card" key={item.title}>
++                  <span className="about-icon">
++                    <Icon size={28} />
++                  </span>
++                  <h3>{item.title}</h3>
++                  <p>{item.desc}</p>
+                 </div>
 -                <h3 className="mt-4 font-display text-lg font-semibold text-ink">{step.title}</h3>
 -                <p className="mt-1.5 font-body text-sm leading-relaxed text-ink-600">
 -                  {step.desc}
 -                </p>
-+          <div className="about-grid">
-+            {L.about.map((item) => (
-+              <div className="about-card" key={item.title}>
-+                <i className={`fas ${item.icon}`} />
-+                <h3>{item.title}</h3>
-+                <p>{item.desc}</p>
-               </div>
-             ))}
+-              </div>
+-            ))}
++              );
++            })}
            </div>
          </div>
        </section>
@@ -1537,7 +1578,7 @@ index ba211cb..9bbc18a 100644
 +        <p>{L.appDesc}</p>
 +        <div className="app-buttons">
 +          <a href={ANDROID_APK_URL} className="btn-hero">
-+            <i className="fab fa-android" /> {L.appBtnDownload}
++            <Smartphone size={18} /> {L.appBtnDownload}
 +          </a>
 +          <Link to={user ? '/dashboard' : '/register'} className="btn-hero-outline">
 +            {L.appBtnWeb}
@@ -1586,13 +1627,16 @@ index ba211cb..9bbc18a 100644
 +          <div>
 +            <h4>{L.footerContactHeading}</h4>
 +            <a href={whatsappLink('Hello MAJOR DATA-LINK, I need help')} target="_blank" rel="noreferrer">
-+              <i className="fab fa-whatsapp" /> {CONTACT.whatsapp}
-+            </a>
-+            <a href={`mailto:${CONTACT.email}`}>
-+              <i className="fas fa-envelope" /> {CONTACT.email}
++              <MessageCircle size={15} /> {L.footerWhatsappSupport}
 +            </a>
 +            <a href={CONTACT.whatsappChannelUrl} target="_blank" rel="noreferrer">
-+              <i className="fas fa-broadcast-tower" /> {L.footerChannel}
++              <Radio size={15} /> {L.footerChannel}
++            </a>
++            <a href={WHATSAPP_GROUP_URL} target="_blank" rel="noreferrer">
++              <Users size={15} /> {L.footerGroup}
++            </a>
++            <a href={`mailto:${LANDING_EMAIL}`}>
++              <Mail size={15} /> {LANDING_EMAIL}
              </a>
 -            <Link
 -              to="/register"
@@ -1716,7 +1760,7 @@ index ba211cb..9bbc18a 100644
 -        />
 -      </button>
 -      {open && <p className="pb-4 font-body text-sm leading-relaxed text-ink-600">{a}</p>}
-+        <i className="fab fa-whatsapp" />
++        <MessageCircle size={28} />
 +        <span className="tooltip-text">{L.waTooltip}</span>
 +      </a>
      </div>

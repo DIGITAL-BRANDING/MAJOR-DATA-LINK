@@ -1,9 +1,42 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import {
+  Menu,
+  X,
+  Download,
+  MessageCircle,
+  Smartphone,
+  Fingerprint,
+  GraduationCap,
+  KeyRound,
+  Briefcase,
+  ClipboardList,
+  CheckCircle2,
+  Lock,
+  Zap,
+  Headphones,
+  Landmark,
+  Mail,
+  Radio,
+  Users,
+  type LucideIcon,
+} from 'lucide-react';
 import './LandingPage.css';
 import { useAuth } from '../lib/auth';
 import { api } from '../lib/api';
 import { CONTACT, whatsappLink, ANDROID_APK_URL } from '../lib/contact';
+
+// This page's own contact details — see the note by the footer section
+// below for why these are kept separate from lib/contact.ts.
+const LANDING_EMAIL = 'kdbsolutions.company@gmail.com';
+const WHATSAPP_GROUP_URL = 'https://chat.whatsapp.com/FbMnh7Cj1jfBsXDJdoMT8d';
+
+const ABOUT_ICONS: Record<string, LucideIcon> = {
+  secure: Lock,
+  fast: Zap,
+  support: Headphones,
+  bank: Landmark,
+};
 
 type PriceRow = { service: string; label: string; unit_price: number };
 
@@ -28,10 +61,10 @@ const TXT = {
     aboutTitle: 'Game da Mu (About Us)',
     aboutSubtitle: 'MAJOR DATA-LINK wani samfurin Kindness Digital Branding and IT Solutions ne, wanda ake gudanarwa domin sauki da amincin ayyukan ka na yau da kullum.',
     about: [
-      { icon: 'fa-lock', title: 'Amintacce', desc: "Muna adana bayanan NIN/BVN dinka a boye, ba tare da bayyana su ba." },
-      { icon: 'fa-bolt', title: 'Sauri', desc: "Ana kammala mu'amaloli nan take, babu jira ko izinin hannu." },
-      { icon: 'fa-headset', title: 'Tallafi na Gaske', desc: 'Ka samu tallafi kai tsaye a WhatsApp daga mutum, ba tashar sako-sako ba.' },
-      { icon: 'fa-university', title: 'Biyan Kudi Amintacce', desc: 'Ana cika walat dinka ta hanyar kamfanin biyan kudi mai lasisi.' },
+      { key: 'secure', title: 'Amintacce', desc: "Muna adana bayanan NIN/BVN dinka a boye, ba tare da bayyana su ba." },
+      { key: 'fast', title: 'Sauri', desc: "Ana kammala mu'amaloli nan take, babu jira ko izinin hannu." },
+      { key: 'support', title: 'Tallafi na Gaske', desc: 'Ka samu tallafi kai tsaye a WhatsApp daga mutum, ba tashar sako-sako ba.' },
+      { key: 'bank', title: 'Biyan Kudi Amintacce', desc: 'Ana cika walat dinka ta hanyar kamfanin biyan kudi mai lasisi.' },
     ],
     howTitle: 'Yadda Yake Aiki',
     howSubtitle: 'Matakai uku kawai za ka bi, kowane lokaci.',
@@ -55,7 +88,9 @@ const TXT = {
     footerPortal: 'API Portal',
     footerDocs: 'Takardun API',
     footerContactHeading: 'Tuntube Mu',
+    footerWhatsappSupport: 'Tallafi Ta WhatsApp',
     footerChannel: 'Tashar WhatsApp',
+    footerGroup: 'Kungiyar WhatsApp',
     footerRights: 'Duk Haƙƙoƙi An Kiyaye',
     footerCompanyName: 'Kindness Digital Branding and IT Solutions',
     servicePriceLabel: 'Farashi daga',
@@ -65,11 +100,6 @@ const TXT = {
         title: 'BVN SERVICES',
         items: ['TABBATAR DA BVN', 'GYARA BVN', 'BVN CENTRAL RISK MANAGEMENT', 'BVN LICENCE ONBOARDING CREATION'],
         btn: 'Fara BVN',
-      },
-      nin: {
-        title: 'NIN SERVICES',
-        items: ['TABBATAR DA NIN', 'NEMAN NIN TA WAYA', 'GYARA / VALIDATION NA NIN'],
-        btn: 'Fara NIN',
       },
       result: {
         title: 'DUBA RESULT',
@@ -109,10 +139,10 @@ const TXT = {
     aboutTitle: 'About Us',
     aboutSubtitle: 'MAJOR DATA-LINK is a product of Kindness Digital Branding and IT Solutions, built for fast, reliable everyday transactions.',
     about: [
-      { icon: 'fa-lock', title: 'Encrypted', desc: 'Your NIN/BVN data is encrypted at rest, never stored in plain text.' },
-      { icon: 'fa-bolt', title: 'Instant', desc: 'Transactions complete immediately — no waiting, no manual approval.' },
-      { icon: 'fa-headset', title: 'Real Support', desc: 'Reach an actual person on WhatsApp — no ticket queues.' },
-      { icon: 'fa-university', title: 'Bank-Backed Funding', desc: 'Your wallet is funded through a licensed payment processor.' },
+      { key: 'secure', title: 'Encrypted', desc: 'Your NIN/BVN data is encrypted at rest, never stored in plain text.' },
+      { key: 'fast', title: 'Instant', desc: 'Transactions complete immediately — no waiting, no manual approval.' },
+      { key: 'support', title: 'Real Support', desc: 'Reach an actual person on WhatsApp — no ticket queues.' },
+      { key: 'bank', title: 'Bank-Backed Funding', desc: 'Your wallet is funded through a licensed payment processor.' },
     ],
     howTitle: 'How it Works',
     howSubtitle: 'Three steps, every time.',
@@ -136,7 +166,9 @@ const TXT = {
     footerPortal: 'API Portal',
     footerDocs: 'API Documentation',
     footerContactHeading: 'Talk to Us',
+    footerWhatsappSupport: 'WhatsApp Support',
     footerChannel: 'WhatsApp Channel',
+    footerGroup: 'WhatsApp Group',
     footerRights: 'All Rights Reserved',
     footerCompanyName: 'Kindness Digital Branding and IT Solutions',
     servicePriceLabel: 'From',
@@ -146,11 +178,6 @@ const TXT = {
         title: 'BVN SERVICES',
         items: ['BVN VERIFICATION', 'BVN MODIFICATION', 'BVN CENTRAL RISK MANAGEMENT', 'BVN LICENCE ONBOARDING CREATION'],
         btn: 'Start BVN',
-      },
-      nin: {
-        title: 'NIN SERVICES',
-        items: ['NIN VERIFICATION', 'NIN BY PHONE LOOKUP', 'NIN VALIDATION / MODIFICATION'],
-        btn: 'Start NIN',
       },
       result: {
         title: 'RESULT CHECKING',
@@ -180,8 +207,8 @@ export default function LandingPage() {
   const [verificationPrices, setVerificationPrices] = useState<Record<string, number>>({});
   const L = TXT[lang];
 
-  // Live backend prices, shown on the Result Checking / BVN / NIN cards so
-  // the buttons on this page reflect real data from the API, not static copy.
+  // Live backend prices, shown on the Result Checking / BVN cards so the
+  // buttons on this page reflect real data from the API, not static copy.
   useEffect(() => {
     api
       .get<{ status: boolean; data: PriceRow[] }>('/public/result-prices', false)
@@ -199,7 +226,6 @@ export default function LandingPage() {
   }, []);
 
   const bvnFrom = verificationPrices['BVN_SLIP_STANDARD'];
-  const ninFrom = verificationPrices['NIN_SLIP_STANDARD'];
   const cheapestResult = resultPrices.length
     ? Math.min(...resultPrices.map((r) => r.unit_price))
     : undefined;
@@ -224,7 +250,7 @@ export default function LandingPage() {
             aria-label="Menu"
             onClick={() => setMenuOpen((v) => !v)}
           >
-            <i className="fas fa-bars" />
+            {menuOpen ? <X size={22} /> : <Menu size={22} />}
           </button>
 
           <ul className={`nav-links${menuOpen ? ' active' : ''}`}>
@@ -250,7 +276,7 @@ export default function LandingPage() {
             </li>
             <li>
               <a href="#app" onClick={closeMenu}>
-                <i className="fas fa-download" /> {L.navApp}
+                <Download size={14} /> {L.navApp}
               </a>
             </li>
 
@@ -295,7 +321,7 @@ export default function LandingPage() {
             rel="noreferrer"
             className="btn-hero"
           >
-            <i className="fab fa-whatsapp" /> {L.heroWhatsapp}
+            <MessageCircle size={18} /> {L.heroWhatsapp}
           </a>
           <Link to={user ? '/dashboard' : '/register'} className="btn-hero-outline">
             {L.heroGetStarted}
@@ -314,12 +340,14 @@ export default function LandingPage() {
           {/* VTU */}
           <div className="service-card">
             <div className="service-header">
-              <i className="fas fa-mobile-alt" />
+              <span className="service-icon">
+                <Smartphone size={26} />
+              </span>
               <h3>{L.cards.vtu.title}</h3>
             </div>
             <ul className="service-list">
               <li>
-                <i className="fas fa-check-circle" /> {L.cards.vtu.item1}
+                <CheckCircle2 size={16} /> {L.cards.vtu.item1}
               </li>
             </ul>
             <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
@@ -339,13 +367,15 @@ export default function LandingPage() {
           {/* BVN */}
           <div className="service-card">
             <div className="service-header">
-              <i className="fas fa-id-card" />
+              <span className="service-icon">
+                <Fingerprint size={26} />
+              </span>
               <h3>{L.cards.bvn.title}</h3>
             </div>
             <ul className="service-list">
               {L.cards.bvn.items.map((item) => (
                 <li key={item}>
-                  <i className="fas fa-check-circle" /> {item}
+                  <CheckCircle2 size={16} /> {item}
                 </li>
               ))}
             </ul>
@@ -359,39 +389,18 @@ export default function LandingPage() {
             </Link>
           </div>
 
-          {/* NIN */}
-          <div className="service-card">
-            <div className="service-header">
-              <i className="fas fa-fingerprint" />
-              <h3>{L.cards.nin.title}</h3>
-            </div>
-            <ul className="service-list">
-              {L.cards.nin.items.map((item) => (
-                <li key={item}>
-                  <i className="fas fa-check-circle" /> {item}
-                </li>
-              ))}
-            </ul>
-            {ninFrom !== undefined && (
-              <span className="service-price">
-                {L.servicePriceLabel} ₦{ninFrom.toLocaleString()}
-              </span>
-            )}
-            <Link to={user ? '/nin-services' : '/register'} className="btn-card">
-              {L.cards.nin.btn}
-            </Link>
-          </div>
-
           {/* Result Checking */}
           <div className="service-card" id="results">
             <div className="service-header">
-              <i className="fas fa-poll-h" />
+              <span className="service-icon">
+                <GraduationCap size={26} />
+              </span>
               <h3>{L.cards.result.title}</h3>
             </div>
             <ul className="service-list">
               {L.cards.result.items.map((item) => (
                 <li key={item}>
-                  <i className="fas fa-check-circle" /> {item}
+                  <CheckCircle2 size={16} /> {item}
                 </li>
               ))}
             </ul>
@@ -408,13 +417,15 @@ export default function LandingPage() {
           {/* Token Purchase */}
           <div className="service-card">
             <div className="service-header">
-              <i className="fas fa-key" />
+              <span className="service-icon">
+                <KeyRound size={26} />
+              </span>
               <h3>{L.cards.token.title}</h3>
             </div>
             <ul className="service-list">
               {L.cards.token.items.map((item) => (
                 <li key={item}>
-                  <i className="fas fa-check-circle" /> {item}
+                  <CheckCircle2 size={16} /> {item}
                 </li>
               ))}
             </ul>
@@ -426,13 +437,15 @@ export default function LandingPage() {
           {/* CAC */}
           <div className="service-card">
             <div className="service-header">
-              <i className="fas fa-briefcase" />
+              <span className="service-icon">
+                <Briefcase size={26} />
+              </span>
               <h3>{L.cards.cac.title}</h3>
             </div>
             <ul className="service-list">
               {L.cards.cac.items.map((item) => (
                 <li key={item}>
-                  <i className="fas fa-check-circle" /> {item}
+                  <CheckCircle2 size={16} /> {item}
                 </li>
               ))}
             </ul>
@@ -444,13 +457,15 @@ export default function LandingPage() {
           {/* JAMB */}
           <div className="service-card">
             <div className="service-header">
-              <i className="fas fa-user-graduate" />
+              <span className="service-icon">
+                <ClipboardList size={26} />
+              </span>
               <h3>{L.cards.jamb.title}</h3>
             </div>
             <ul className="service-list">
               {L.cards.jamb.items.map((item) => (
                 <li key={item}>
-                  <i className="fas fa-check-circle" /> {item}
+                  <CheckCircle2 size={16} /> {item}
                 </li>
               ))}
             </ul>
@@ -469,13 +484,18 @@ export default function LandingPage() {
             <p>{L.aboutSubtitle}</p>
           </div>
           <div className="about-grid">
-            {L.about.map((item) => (
-              <div className="about-card" key={item.title}>
-                <i className={`fas ${item.icon}`} />
-                <h3>{item.title}</h3>
-                <p>{item.desc}</p>
-              </div>
-            ))}
+            {L.about.map((item) => {
+              const Icon = ABOUT_ICONS[item.key];
+              return (
+                <div className="about-card" key={item.title}>
+                  <span className="about-icon">
+                    <Icon size={28} />
+                  </span>
+                  <h3>{item.title}</h3>
+                  <p>{item.desc}</p>
+                </div>
+              );
+            })}
           </div>
         </div>
       </section>
@@ -506,7 +526,7 @@ export default function LandingPage() {
         <p>{L.appDesc}</p>
         <div className="app-buttons">
           <a href={ANDROID_APK_URL} className="btn-hero">
-            <i className="fab fa-android" /> {L.appBtnDownload}
+            <Smartphone size={18} /> {L.appBtnDownload}
           </a>
           <Link to={user ? '/dashboard' : '/register'} className="btn-hero-outline">
             {L.appBtnWeb}
@@ -537,13 +557,16 @@ export default function LandingPage() {
           <div>
             <h4>{L.footerContactHeading}</h4>
             <a href={whatsappLink('Hello MAJOR DATA-LINK, I need help')} target="_blank" rel="noreferrer">
-              <i className="fab fa-whatsapp" /> {CONTACT.whatsapp}
-            </a>
-            <a href={`mailto:${CONTACT.email}`}>
-              <i className="fas fa-envelope" /> {CONTACT.email}
+              <MessageCircle size={15} /> {L.footerWhatsappSupport}
             </a>
             <a href={CONTACT.whatsappChannelUrl} target="_blank" rel="noreferrer">
-              <i className="fas fa-broadcast-tower" /> {L.footerChannel}
+              <Radio size={15} /> {L.footerChannel}
+            </a>
+            <a href={WHATSAPP_GROUP_URL} target="_blank" rel="noreferrer">
+              <Users size={15} /> {L.footerGroup}
+            </a>
+            <a href={`mailto:${LANDING_EMAIL}`}>
+              <Mail size={15} /> {LANDING_EMAIL}
             </a>
           </div>
         </div>
@@ -562,7 +585,7 @@ export default function LandingPage() {
         target="_blank"
         rel="noreferrer"
       >
-        <i className="fab fa-whatsapp" />
+        <MessageCircle size={28} />
         <span className="tooltip-text">{L.waTooltip}</span>
       </a>
     </div>
