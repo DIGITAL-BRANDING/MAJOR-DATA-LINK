@@ -412,7 +412,9 @@ export class ProviderService {
       return {
         status: false,
         providerRef: reference,
-        message: this.isLikelyBalanceIssue(body)
+        message: this.isInactivePlan(body)
+          ? 'This data plan has been disabled by the network. Please choose another available plan.'
+          : this.isLikelyBalanceIssue(body)
           ? 'Service temporarily unavailable - please try again shortly'
           : (body.detail ?? body.api_response ?? `Provider returned HTTP ${response.status}`),
         costKobo: undefined
@@ -430,7 +432,9 @@ export class ProviderService {
       providerRef: body.ident ?? reference,
       message: succeeded
         ? (body.api_response ?? 'Transaction successful')
-        : this.isLikelyBalanceIssue(body)
+        : this.isInactivePlan(body)
+          ? 'This data plan has been disabled by the network. Please choose another available plan.'
+          : this.isLikelyBalanceIssue(body)
           ? 'Service temporarily unavailable - please try again shortly'
           : (body.api_response ?? `Provider status: ${body.Status ?? 'unknown'}`),
       costKobo: succeeded ? costKobo : undefined,
@@ -515,6 +519,12 @@ export class ProviderService {
   private isLikelyBalanceIssue(body: AlrahuzResponse) {
     const text = `${body.api_response ?? ''} ${body.detail ?? ''}`.toLowerCase();
     return text.includes('balance') || text.includes('insufficient') || text.includes('fund');
+  }
+
+  /** Alrahuz may retain a plan in its catalogue briefly after the network disables it. */
+  private isInactivePlan(body: AlrahuzResponse) {
+    const text = `${body.api_response ?? ''} ${body.detail ?? ''} ${body.Status ?? ''}`.toLowerCase();
+    return (text.includes('plan') || text.includes('data')) && (text.includes('inactive') || text.includes('disabled') || text.includes('not active'));
   }
 
   /**

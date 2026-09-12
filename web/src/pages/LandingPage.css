@@ -595,17 +595,20 @@
 }
 
 /* Responsive Fixes */
-@media (max-width: 992px) {
+@media (max-width: 1200px) {
     .mdl-landing .nav-links {
         display: none;
         flex-direction: column;
         width: 100%;
-        position: absolute;
-        top: 65px;
+        position: fixed;
+        top: 62px;
         left: 0;
+        right: 0;
+        z-index: 1100;
         background: var(--secondary-color);
-        padding: 20px;
-        box-shadow: 0 10px 10px rgba(0,0,0,0.2);
+        padding: 18px 20px 22px;
+        box-shadow: 0 12px 22px rgba(0,0,0,0.28);
+        border-top: 1px solid rgba(255,255,255,.14);
     }
 
     .mdl-landing .nav-links.active {
@@ -617,13 +620,14 @@
     }
 
     .mdl-landing .auth-buttons {
-        flex-direction: column;
+        flex-direction: row;
         width: 100%;
+        justify-content: stretch;
     }
 
     .mdl-landing .btn-nav {
         text-align: center;
-        width: 100%;
+        flex: 1;
     }
 }
 
@@ -658,7 +662,11 @@
     .mdl-landing .nav-links a,
     .mdl-landing .nav-links button.link-btn {
         min-height: 40px;
+        color: #fff;
+        justify-content: center;
     }
+
+    .mdl-landing .nav-links .lang-btn { align-self: center; }
 
     .mdl-landing .hero {
         padding: 52px 16px;

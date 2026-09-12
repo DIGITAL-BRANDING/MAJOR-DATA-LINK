@@ -108,6 +108,13 @@ function validationServiceKey(validationType?: string) {
 const money = (amount?: number) =>
   amount === undefined ? 'Price loading…' : `₦${amount.toLocaleString('en-NG', { maximumFractionDigits: 2 })}`;
 
+const NIN_SLIP_IMAGES: Record<string, string> = {
+  premium: '/branding/premium slip.jpg',
+  standard: '/branding/standard slip.jpg',
+  regular: '/branding/regular slip.jpg',
+  vnin: '/branding/Vnin slip.jpg',
+};
+
 type SlipResult = { user_data?: Record<string, unknown>; pdf_base64?: string; pdf_url?: string; reference: string };
 type AsyncResult = { ticket_id: string; reference: string };
 type TicketStatus = { ticket_id: string; status: 'pending' | 'success' | 'failed'; response: Record<string, unknown> | null };
@@ -387,7 +394,7 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
                   <div className="sm:col-span-2 font-body text-sm font-medium text-ink-600">
                     <span>Slip type</span>
                     <div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-                      {selected.tiers.map((option) => <button key={option} type="button" onClick={() => setTier(option)} className={`rounded-xl border p-4 text-center transition hover:-translate-y-0.5 ${tier === option ? 'border-[#8b6914] bg-[#6b4f0b] text-white shadow-md' : 'border-parchment-line bg-cream text-ink hover:border-gold-500'}`}><span className="block font-semibold">{option[0].toUpperCase() + option.slice(1)} Slip</span><span className={`mt-1 block text-xs font-bold ${tier === option ? 'text-[#ffe9a3]' : 'text-gold-700'}`}>{money(prices[keyFor(selected, option)])}</span></button>)}
+                      {selected.tiers.map((option) => <button key={option} type="button" onClick={() => setTier(option)} className={`rounded-xl border p-3 text-center transition hover:-translate-y-0.5 ${tier === option ? 'border-[#8b6914] bg-[#6b4f0b] text-white shadow-md' : 'border-parchment-line bg-cream text-ink hover:border-gold-500'}`}><img src={NIN_SLIP_IMAGES[option]} alt={`${option} slip preview`} className="mx-auto h-14 w-full rounded-lg bg-white object-contain p-1"/><span className="mt-2 block font-semibold">{option === 'vnin' ? 'V-NIN Slip' : `${option[0].toUpperCase() + option.slice(1)} Slip`}</span><span className={`mt-1 block text-xs font-bold ${tier === option ? 'text-[#ffe9a3]' : 'text-gold-700'}`}>{money(prices[keyFor(selected, option)])}</span></button>)}
                     </div>
                   </div>
                 )}

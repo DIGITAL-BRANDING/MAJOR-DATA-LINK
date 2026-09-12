@@ -241,7 +241,7 @@ export default function LandingPage() {
         <div className="navbar">
           <Link to="/" className="logo" onClick={closeMenu}>
             <img src="/branding/logo.png" alt="" />
-            MAJOR <span>DATA-LINK</span>
+            K-TECH <span>SOLUTIONS</span>
           </Link>
 
           <button
