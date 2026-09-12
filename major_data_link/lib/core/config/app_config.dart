@@ -26,7 +26,47 @@ class AppConfig {
     defaultValue: '',
   );
 
+  /// Set once, very early in `main()`, from the cached value saved by
+  /// splash_screen.dart's `_syncRemoteBaseUrl()` on a previous launch - see
+  /// that file and `SecureStorageService.getApiBaseUrlOverride()`. Plain
+  /// static field (not a provider) because it must be resolved before
+  /// `dioClientProvider` is ever constructed, and reading it is a pure,
+  /// synchronous, already-validated string - no async indirection needed
+  /// at the point `baseUrl` below is actually read.
+  static String? _runtimeBaseUrlOverride;
+
+  /// Only called with a value that has already passed
+  /// `isValidRemoteBaseUrl()` below - both when loaded from cache at boot
+  /// and when freshly received from `/app-config` - so no re-validation
+  /// here.
+  static void configureRuntimeBaseUrl(String? url) {
+    _runtimeBaseUrlOverride = (url != null && url.isNotEmpty) ? url : null;
+  }
+
+  /// True for any https:// URL with a non-empty host. Shared by both the
+  /// boot-time loader (main.dart) and the splash-screen sync
+  /// (splash_screen.dart) so a corrupted or tampered-with cached value can
+  /// never reach Dio - the backend independently enforces the same rule
+  /// before ever saving the value (see app-config.resource.ts), so this is
+  /// the second of two checks, never the only one.
+  static bool isValidRemoteBaseUrl(String value) {
+    final uri = Uri.tryParse(value);
+    if (uri == null) return false;
+    if (uri.scheme != 'https') return false;
+    if (uri.host.isEmpty) return false;
+    return true;
+  }
+
   static String get baseUrl {
+    // Never let a stale/leftover override affect a local development
+    // build - a developer pointing their emulator at a LAN backend must
+    // never be silently redirected by a value some earlier QA/staging
+    // session on the same device left behind.
+    final override = _runtimeBaseUrlOverride;
+    if (!isDevelopment && override != null && isValidRemoteBaseUrl(override)) {
+      return override;
+    }
+
     if (_definedApiBaseUrl.isNotEmpty) return _definedApiBaseUrl;
 
     switch (_env) {

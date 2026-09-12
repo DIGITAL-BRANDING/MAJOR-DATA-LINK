@@ -1,0 +1,440 @@
+diff --git a/major_data_link/lib/core/config/app_config.dart b/major_data_link/lib/core/config/app_config.dart
+index 9549bfd..d0f797f 100644
+--- a/major_data_link/lib/core/config/app_config.dart
++++ b/major_data_link/lib/core/config/app_config.dart
+@@ -26,7 +26,47 @@ class AppConfig {
+     defaultValue: '',
+   );
+ 
++  /// Set once, very early in `main()`, from the cached value saved by
++  /// splash_screen.dart's `_syncRemoteBaseUrl()` on a previous launch - see
++  /// that file and `SecureStorageService.getApiBaseUrlOverride()`. Plain
++  /// static field (not a provider) because it must be resolved before
++  /// `dioClientProvider` is ever constructed, and reading it is a pure,
++  /// synchronous, already-validated string - no async indirection needed
++  /// at the point `baseUrl` below is actually read.
++  static String? _runtimeBaseUrlOverride;
++
++  /// Only called with a value that has already passed
++  /// `isValidRemoteBaseUrl()` below - both when loaded from cache at boot
++  /// and when freshly received from `/app-config` - so no re-validation
++  /// here.
++  static void configureRuntimeBaseUrl(String? url) {
++    _runtimeBaseUrlOverride = (url != null && url.isNotEmpty) ? url : null;
++  }
++
++  /// True for any https:// URL with a non-empty host. Shared by both the
++  /// boot-time loader (main.dart) and the splash-screen sync
++  /// (splash_screen.dart) so a corrupted or tampered-with cached value can
++  /// never reach Dio - the backend independently enforces the same rule
++  /// before ever saving the value (see app-config.resource.ts), so this is
++  /// the second of two checks, never the only one.
++  static bool isValidRemoteBaseUrl(String value) {
++    final uri = Uri.tryParse(value);
++    if (uri == null) return false;
++    if (uri.scheme != 'https') return false;
++    if (uri.host.isEmpty) return false;
++    return true;
++  }
++
+   static String get baseUrl {
++    // Never let a stale/leftover override affect a local development
++    // build - a developer pointing their emulator at a LAN backend must
++    // never be silently redirected by a value some earlier QA/staging
++    // session on the same device left behind.
++    final override = _runtimeBaseUrlOverride;
++    if (!isDevelopment && override != null && isValidRemoteBaseUrl(override)) {
++      return override;
++    }
++
+     if (_definedApiBaseUrl.isNotEmpty) return _definedApiBaseUrl;
+ 
+     switch (_env) {
+diff --git a/major_data_link/lib/core/storage/secure_storage.dart b/major_data_link/lib/core/storage/secure_storage.dart
+index bc895bc..e53f966 100644
+--- a/major_data_link/lib/core/storage/secure_storage.dart
++++ b/major_data_link/lib/core/storage/secure_storage.dart
+@@ -19,6 +19,7 @@ abstract class _Keys {
+   static const fcmToken = 'kd_fcm_token';
+   static const onboardingComplete = 'kd_onboarding_done';
+   static const rememberEmail = 'kd_remember_email';
++  static const apiBaseUrlOverride = 'kd_api_base_url_override';
+ }
+ 
+ class SecureStorageService {
+@@ -188,6 +189,24 @@ class SecureStorageService {
+     return raw == 'true';
+   }
+ 
++  // ── Remote base URL override ──────────────────────────────
++  /// Set by splash_screen.dart's `_syncRemoteBaseUrl()` after the backend's
++  /// `/app-config` response includes a non-null `api_base_url`. Read back at
++  /// the very start of `main()` - see `AppConfig.configureRuntimeBaseUrl()`
++  /// - so it's in place before `dioClientProvider` is ever constructed.
++  /// Deliberately NOT applied to the running session that fetched it: a
++  /// session that's already talking successfully to its current backend has
++  /// no need to switch mid-flight, and doing so risks a purchase or wallet
++  /// call landing on a different origin than the one that started it. It
++  /// takes effect on the device's next cold start instead.
++  Future<void> saveApiBaseUrlOverride(String url) =>
++      _write(_Keys.apiBaseUrlOverride, url);
++
++  Future<String?> getApiBaseUrlOverride() => _read(_Keys.apiBaseUrlOverride);
++
++  Future<void> clearApiBaseUrlOverride() =>
++      _delete(_Keys.apiBaseUrlOverride);
++
+   // ── Remember email ────────────────────────────────────────
+   Future<void> saveRememberedEmail(String email) =>
+       _write(_Keys.rememberEmail, email);
+diff --git a/major_data_link/lib/features/splash/presentation/splash_screen.dart b/major_data_link/lib/features/splash/presentation/splash_screen.dart
+index 6dff90b..0fe0c5d 100644
+--- a/major_data_link/lib/features/splash/presentation/splash_screen.dart
++++ b/major_data_link/lib/features/splash/presentation/splash_screen.dart
+@@ -7,12 +7,14 @@ import 'package:flutter_animate/flutter_animate.dart';
+ import 'package:flutter_riverpod/flutter_riverpod.dart';
+ import 'package:go_router/go_router.dart';
+ import 'package:package_info_plus/package_info_plus.dart';
++import '../../../core/config/app_config.dart';
+ import '../../../core/config/app_endpoints.dart';
+ import '../../../core/constants/app_colors.dart';
+ import '../../../core/constants/app_strings.dart';
+ import '../../../core/di/injection.dart';
+ import '../../../core/router/auth_status.dart';
+ import '../../../core/router/route_names.dart';
++import '../../../core/utils/logger.dart';
+ import '../../../core/utils/version_compare.dart';
+ import '../../auth/presentation/providers/auth_provider.dart';
+ import 'force_update_screen.dart';
+@@ -50,6 +52,10 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
+           .timeout(const Duration(seconds: 4));
+       final data = response.data['data'] as Map<String, dynamic>;
+ 
++      // Best-effort only - never let this affect the force-update check
++      // that follows it. See _syncRemoteBaseUrl's own doc comment.
++      unawaited(_syncRemoteBaseUrl(data['api_base_url'] as String?));
++
+       final minVersion = data['min_android_version'] as String?;
+       if (minVersion == null) return false;
+ 
+@@ -77,6 +83,50 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
+     }
+   }
+ 
++  /// Persists an admin-set `api_base_url` from `/app-config` for the
++  /// *device's next cold start* - see AppConfig.baseUrl and
++  /// SecureStorageService.saveApiBaseUrlOverride() for why this is never
++  /// applied to the session that just fetched it. Deliberately isolated
++  /// from `_isBelowMinimumVersion`'s error handling: a problem here must
++  /// never turn into a force-update false-positive or a startup crash, so
++  /// every failure path below just leaves the previously cached value (if
++  /// any) exactly as it was.
++  Future<void> _syncRemoteBaseUrl(String? remoteBaseUrl) async {
++    try {
++      final storage = ref.read(secureStorageProvider);
++      final cached = await storage.getApiBaseUrlOverride();
++
++      if (remoteBaseUrl == null || remoteBaseUrl.isEmpty) {
++        // Admin cleared the override server-side (or never set one) -
++        // fall back to whatever's compiled into the next build.
++        if (cached != null) await storage.clearApiBaseUrlOverride();
++        return;
++      }
++
++      if (remoteBaseUrl == cached) return; // nothing changed
++
++      if (!AppConfig.isValidRemoteBaseUrl(remoteBaseUrl)) {
++        // A malformed value should never have passed the backend's own
++        // https-with-host validation (app-config.resource.ts) - if it
++        // somehow does, ignore it rather than risk caching garbage that
++        // could strand the next cold start with no working baseUrl.
++        appLogger.w('Ignoring invalid remote api_base_url: $remoteBaseUrl');
++        return;
++      }
++
++      await storage.saveApiBaseUrlOverride(remoteBaseUrl);
++      appLogger.i(
++        'Cached new api_base_url for next launch: $remoteBaseUrl',
++      );
++    } catch (error, stack) {
++      appLogger.w(
++        'Remote base URL sync failed (non-fatal)',
++        error: error,
++        stackTrace: stack,
++      );
++    }
++  }
++
+   Future<void> _bootstrap() async {
+     // Force-update check and the session check are independent of each
+     // other - neither needs the other's result to start - so they're
+diff --git a/major_data_link/lib/main.dart b/major_data_link/lib/main.dart
+index 7d2573d..c2a1630 100644
+--- a/major_data_link/lib/main.dart
++++ b/major_data_link/lib/main.dart
+@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
+ import 'package:flutter_riverpod/flutter_riverpod.dart';
+ import 'package:shared_preferences/shared_preferences.dart';
+ import 'app.dart';
++import 'core/config/app_config.dart';
+ import 'core/config/firebase_options.dart';
+ import 'core/di/injection.dart';
+ import 'core/utils/logger.dart';
+@@ -116,6 +117,19 @@ void main() {
+         await _capturePendingReferralCode(prefs);
+       }
+ 
++      // Must run before anything reads `dioClientProvider` (first happens in
++      // splash_screen.dart) since `DioClient.create()` reads
++      // `AppConfig.baseUrl` synchronously at construction time. See
++      // AppConfig.configureRuntimeBaseUrl() and the AppConfig Prisma model's
++      // doc comment for the full admin-controlled-base-URL flow.
++      final cachedBaseUrlOverride = await container
++          .read(secureStorageProvider)
++          .getApiBaseUrlOverride();
++      if (cachedBaseUrlOverride != null &&
++          AppConfig.isValidRemoteBaseUrl(cachedBaseUrlOverride)) {
++        AppConfig.configureRuntimeBaseUrl(cachedBaseUrlOverride);
++      }
++
+       final hive = container.read(hiveStorageProvider);
+       await hive.initialize();
+ 
+diff --git a/major_data_link_backend/FLUTTER_INTEGRATION.md b/major_data_link_backend/FLUTTER_INTEGRATION.md
+index 811c13c..24e2e84 100644
+--- a/major_data_link_backend/FLUTTER_INTEGRATION.md
++++ b/major_data_link_backend/FLUTTER_INTEGRATION.md
+@@ -80,3 +80,52 @@ Start with these because the app already depends on them:
+ - `GET /api/transactions`
+ 
+ After that, add payment webhooks, cable, electricity, KYC, support tickets, referrals, and admin dashboard routes.
++
++## 5. Changing the app's backend URL after release (no new APK needed)
++
++Every already-installed app can be re-pointed at a new backend origin — e.g.
++after migrating off Railway, or failing over to a backup deployment —
++without a new Play Store release. This only works for apps built with the
++change in this section already included (i.e. this is a one-time capability
++you ship once, then use forever after).
++
++**How it works:**
++
++1. `AppConfig` (Prisma model, singleton row `id="default"`) has a nullable
++   `apiBaseUrl` column, editable from **AdminJS → Settings → App Config**
++   (SUPER_ADMIN only). Leaving it blank means "use whatever URL is compiled
++   into the app" — this is always the safe default and cannot brick a build.
++2. The public `GET /api/app-config` endpoint (already called by every app on
++   every cold start, for the force-update check) now also returns
++   `api_base_url`.
++3. The Flutter app's `splash_screen.dart` caches that value in
++   `flutter_secure_storage` for the **next** cold start — never the session
++   that just fetched it, so an in-progress purchase or wallet call is never
++   redirected mid-flight.
++4. `main.dart` loads the cached value into `AppConfig` before Dio is ever
++   constructed, so from the following launch onward, every request goes to
++   the new origin.
++
++**Validation (defense in depth, checked twice):**
++
++- Backend (`app-config.resource.ts`): must be `https://`, must have a real
++  host, rejects `localhost`/`127.0.0.1`/`10.0.2.2`, rejects a trailing
++  slash. Invalid input is rejected before it ever reaches the database.
++- Flutter (`AppConfig.isValidRemoteBaseUrl`): re-checks `https://` + a
++  non-empty host before ever persisting a value to secure storage or using
++  it to build a Dio client — so even a compromised or buggy backend
++  response can't push an unusable value onto a user's device.
++
++**Rollout checklist:**
++
++1. `npx prisma migrate deploy` (adds the `apiBaseUrl` column).
++2. Ship one Flutter release containing this capability — after this,
++   changing the URL is admin-panel-only, no further releases needed for
++   that purpose.
++3. Set `apiBaseUrl` in AdminJS and confirm on one internal-testing device
++   before rolling out — there is no per-device "undo" once a device has
++   cached the new value.
++4. If SSL pinning (`network_security_config.xml`'s commented-out `pin-set`)
++   is ever enabled for the *old* domain, make sure the *new* domain either
++   has its own pin-set added first, or is left unpinned — otherwise Android
++   will refuse the TLS handshake to the new origin.
+diff --git a/major_data_link_backend/prisma/migrations/20260912220000_add_app_config_api_base_url/migration.sql b/major_data_link_backend/prisma/migrations/20260912220000_add_app_config_api_base_url/migration.sql
+new file mode 100644
+index 0000000..38f1c1c
+--- /dev/null
++++ b/major_data_link_backend/prisma/migrations/20260912220000_add_app_config_api_base_url/migration.sql
+@@ -0,0 +1,5 @@
++-- Lets an admin repoint every installed Flutter app at a new backend origin
++-- (Railway migration, failover, custom domain cutover) without a new Play
++-- Store release. NULL keeps the client on its compiled-in baseUrl - see
++-- AppConfig.baseUrl in the Flutter app and getAppConfig() server-side.
++ALTER TABLE "AppConfig" ADD COLUMN "apiBaseUrl" TEXT;
+diff --git a/major_data_link_backend/prisma/schema.prisma b/major_data_link_backend/prisma/schema.prisma
+index 797352c..31c8a25 100644
+--- a/major_data_link_backend/prisma/schema.prisma
++++ b/major_data_link_backend/prisma/schema.prisma
+@@ -581,6 +581,16 @@ model AppConfig {
+   latestAndroidVersion String  @default("1.0.0")
+   androidDownloadUrl  String   @default("https://github.com/DIGITAL-BRANDING/MAJOR-DATA-LINK/releases/latest/download/MajorDataLink.apk")
+   updateMessage       String?
++  // Null (the default) means "keep using whatever baseUrl was compiled into
++  // this build" - see AppConfig.baseUrl in the Flutter app. Setting this lets
++  // an admin re-point already-installed apps at a new backend origin (e.g.
++  // after a Railway migration or during a failover) without a Play Store
++  // release. Only ever read by a build that is NOT flutter's own
++  // `development` flavor - see splash_screen.dart's _syncRemoteBaseUrl().
++  // Enforced https:// + non-empty host both here (app-config.resource.ts's
++  // `before` hook) and again client-side before the app ever persists it,
++  // since this single value controls literally every request the app makes.
++  apiBaseUrl          String?
+   updatedAt           DateTime @updatedAt
+ }
+ // Singleton (same "default"-id pattern as ReferralSettings above) holding the
+diff --git a/major_data_link_backend/src/admin/resources/app-config.resource.ts b/major_data_link_backend/src/admin/resources/app-config.resource.ts
+index 1f1b816..6d10657 100644
+--- a/major_data_link_backend/src/admin/resources/app-config.resource.ts
++++ b/major_data_link_backend/src/admin/resources/app-config.resource.ts
+@@ -1,6 +1,7 @@
+ import { getModelByName } from '@adminjs/prisma';
+ import type { ResourceWithOptions } from 'adminjs';
+ import { prisma } from '../../lib/prisma.js';
++import { logAdminAction } from '../audit.js';
+ import type { AdminSessionUser } from '../auth.js';
+ 
+ const canManageAppConfig = ({ currentAdmin }: { currentAdmin?: Record<string, unknown> }) => {
+@@ -8,6 +9,43 @@ const canManageAppConfig = ({ currentAdmin }: { currentAdmin?: Record<string, un
+   return admin?.role === 'SUPER_ADMIN';
+ };
+ 
++/**
++ * This one field re-points EVERY installed app at a new backend origin the
++ * next time each one syncs - there is no "undo for one device" once it's
++ * out. Reject anything that isn't a well-formed https:// URL with a real
++ * host before it ever reaches the database, rather than trusting the
++ * Flutter client's own (separate, defense-in-depth) validation to be the
++ * only check. Returns an error string, or null when the value is fine to
++ * save.
++ */
++function validateApiBaseUrl(value: unknown): string | null {
++  if (value === null || value === undefined || value === '') return null;
++  if (typeof value !== 'string') return 'Must be a URL string.';
++
++  let parsed: URL;
++  try {
++    parsed = new URL(value.trim());
++  } catch {
++    return 'Not a valid URL - include the scheme, e.g. https://api.majordatalink.ng';
++  }
++
++  if (parsed.protocol !== 'https:') {
++    return 'Must start with https:// - the app refuses cleartext http:// in production builds.';
++  }
++  if (!parsed.hostname) {
++    return 'URL is missing a host.';
++  }
++  if (['localhost', '127.0.0.1', '10.0.2.2'].includes(parsed.hostname)) {
++    return 'Refusing a loopback/emulator host - that would break every real user\'s app, not just yours.';
++  }
++  // Trailing slash silently breaks Dio's path joining (baseUrl + '/foo'
++  // becomes '...//foo'), which is an easy typo to make in a form field.
++  if (value.trim().endsWith('/')) {
++    return 'Remove the trailing slash, e.g. https://api.majordatalink.ng/api (not .../api/).';
++  }
++  return null;
++}
++
+ /**
+  * Singleton (id="default", self-seeded by getAppConfig() on first read) -
+  * only new/delete are disabled, same as ReferralSettings/DataPlanPricing.
+@@ -28,9 +66,16 @@ export const appConfigResource: ResourceWithOptions = {
+       'latestAndroidVersion',
+       'androidDownloadUrl',
+       'updateMessage',
++      'apiBaseUrl',
+       'updatedAt'
+     ],
+-    editProperties: ['minAndroidVersion', 'latestAndroidVersion', 'androidDownloadUrl', 'updateMessage'],
++    editProperties: [
++      'minAndroidVersion',
++      'latestAndroidVersion',
++      'androidDownloadUrl',
++      'updateMessage',
++      'apiBaseUrl'
++    ],
+     properties: {
+       id: { isVisible: { list: false, filter: false, show: true, edit: false } },
+       minAndroidVersion: {
+@@ -47,12 +92,53 @@ export const appConfigResource: ResourceWithOptions = {
+       updateMessage: {
+         description: 'Optional custom message shown on the update screen, e.g. explaining what the update fixes. Leave empty for a generic message.'
+       },
++      apiBaseUrl: {
++        description:
++          'DANGER: overrides the backend origin EVERY installed app talks to, starting from each device\'s next cold start (see splash_screen.dart) - not instantly, and never mid-session. Leave blank to keep whatever URL is compiled into the app. Must be https://, no trailing slash, e.g. https://api.majordatalink.ng/api. Test on one internal-track device before rolling out widely - there is no way to undo this for a single user once their app has synced it.'
++      },
+       updatedAt: { isVisible: { list: true, filter: false, show: true, edit: false } }
+     },
+     actions: {
+       list: { isAccessible: canManageAppConfig },
+       show: { isAccessible: canManageAppConfig },
+-      edit: { isAccessible: canManageAppConfig },
++      edit: {
++        isAccessible: canManageAppConfig,
++        before: async (request) => {
++          if (request.payload && 'apiBaseUrl' in request.payload) {
++            const raw = request.payload.apiBaseUrl;
++            const trimmed = typeof raw === 'string' ? raw.trim() : raw;
++            const error = validateApiBaseUrl(trimmed);
++            if (error) {
++              throw new Error(`apiBaseUrl: ${error}`);
++            }
++            // Normalize '' to null so the Flutter client's "unset = use
++            // compiled-in default" check (an empty check, not a null check)
++            // isn't defeated by AdminJS submitting an empty string instead
++            // of omitting the field entirely.
++            request.payload.apiBaseUrl = trimmed === '' ? null : trimmed;
++          }
++          return request;
++        },
++        after: async (response: any, _request: unknown, context: any) => {
++          const admin = context?.currentAdmin as unknown as AdminSessionUser | undefined;
++          const record = response.record;
++          const hasValidationErrors =
++            Boolean(record?.baseError) || Object.keys(record?.errors ?? {}).length > 0;
++          if (admin?.id && record?.params?.id && !hasValidationErrors) {
++            await logAdminAction({
++              adminId: admin.id,
++              action: 'UPDATE_APP_CONFIG',
++              targetType: 'AppConfig',
++              targetId: record.params.id as string,
++              metadata: {
++                apiBaseUrl: record.params.apiBaseUrl ?? null,
++                minAndroidVersion: record.params.minAndroidVersion
++              }
++            });
++          }
++          return response;
++        }
++      },
+       new: { isAccessible: false },
+       delete: { isAccessible: false },
+       bulkDelete: { isAccessible: false }
+diff --git a/major_data_link_backend/src/routes/public.routes.ts b/major_data_link_backend/src/routes/public.routes.ts
+index 9d3f485..35ab3d8 100644
+--- a/major_data_link_backend/src/routes/public.routes.ts
++++ b/major_data_link_backend/src/routes/public.routes.ts
+@@ -65,7 +65,14 @@ publicRoutes.get('/app-config', async (_req, res) => {
+       min_android_version: config.minAndroidVersion,
+       latest_android_version: config.latestAndroidVersion,
+       android_download_url: config.androidDownloadUrl,
+-      update_message: config.updateMessage
++      update_message: config.updateMessage,
++      // Null unless an admin has explicitly set an override (see the
++      // AppConfig AdminJS resource) - the Flutter client only ever persists
++      // this when it's non-null AND passes its own https:// validation, so
++      // "leave it unset" is always the safe default and can never brick a
++      // build. Already validated server-side too (app-config.resource.ts),
++      // this is just the last of two independent checks, never the only one.
++      api_base_url: config.apiBaseUrl
+     }
+   });
+ });

@@ -65,7 +65,14 @@ publicRoutes.get('/app-config', async (_req, res) => {
       min_android_version: config.minAndroidVersion,
       latest_android_version: config.latestAndroidVersion,
       android_download_url: config.androidDownloadUrl,
-      update_message: config.updateMessage
+      update_message: config.updateMessage,
+      // Null unless an admin has explicitly set an override (see the
+      // AppConfig AdminJS resource) - the Flutter client only ever persists
+      // this when it's non-null AND passes its own https:// validation, so
+      // "leave it unset" is always the safe default and can never brick a
+      // build. Already validated server-side too (app-config.resource.ts),
+      // this is just the last of two independent checks, never the only one.
+      api_base_url: config.apiBaseUrl
     }
   });
 });

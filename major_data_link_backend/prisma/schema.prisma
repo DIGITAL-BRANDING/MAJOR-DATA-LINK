@@ -581,6 +581,16 @@ model AppConfig {
   latestAndroidVersion String  @default("1.0.0")
   androidDownloadUrl  String   @default("https://github.com/DIGITAL-BRANDING/MAJOR-DATA-LINK/releases/latest/download/MajorDataLink.apk")
   updateMessage       String?
+  // Null (the default) means "keep using whatever baseUrl was compiled into
+  // this build" - see AppConfig.baseUrl in the Flutter app. Setting this lets
+  // an admin re-point already-installed apps at a new backend origin (e.g.
+  // after a Railway migration or during a failover) without a Play Store
+  // release. Only ever read by a build that is NOT flutter's own
+  // `development` flavor - see splash_screen.dart's _syncRemoteBaseUrl().
+  // Enforced https:// + non-empty host both here (app-config.resource.ts's
+  // `before` hook) and again client-side before the app ever persists it,
+  // since this single value controls literally every request the app makes.
+  apiBaseUrl          String?
   updatedAt           DateTime @updatedAt
 }
 // Singleton (same "default"-id pattern as ReferralSettings above) holding the

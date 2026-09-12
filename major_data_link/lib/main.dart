@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'app.dart';
+import 'core/config/app_config.dart';
 import 'core/config/firebase_options.dart';
 import 'core/di/injection.dart';
 import 'core/utils/logger.dart';
@@ -114,6 +115,19 @@ void main() {
         // to install time, so there's nothing to gain (and no harm) in
         // skipping this on later launches.
         await _capturePendingReferralCode(prefs);
+      }
+
+      // Must run before anything reads `dioClientProvider` (first happens in
+      // splash_screen.dart) since `DioClient.create()` reads
+      // `AppConfig.baseUrl` synchronously at construction time. See
+      // AppConfig.configureRuntimeBaseUrl() and the AppConfig Prisma model's
+      // doc comment for the full admin-controlled-base-URL flow.
+      final cachedBaseUrlOverride = await container
+          .read(secureStorageProvider)
+          .getApiBaseUrlOverride();
+      if (cachedBaseUrlOverride != null &&
+          AppConfig.isValidRemoteBaseUrl(cachedBaseUrlOverride)) {
+        AppConfig.configureRuntimeBaseUrl(cachedBaseUrlOverride);
       }
 
       final hive = container.read(hiveStorageProvider);

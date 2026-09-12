@@ -7,12 +7,14 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import '../../../core/config/app_config.dart';
 import '../../../core/config/app_endpoints.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_strings.dart';
 import '../../../core/di/injection.dart';
 import '../../../core/router/auth_status.dart';
 import '../../../core/router/route_names.dart';
+import '../../../core/utils/logger.dart';
 import '../../../core/utils/version_compare.dart';
 import '../../auth/presentation/providers/auth_provider.dart';
 import 'force_update_screen.dart';
@@ -50,6 +52,10 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
           .timeout(const Duration(seconds: 4));
       final data = response.data['data'] as Map<String, dynamic>;
 
+      // Best-effort only - never let this affect the force-update check
+      // that follows it. See _syncRemoteBaseUrl's own doc comment.
+      unawaited(_syncRemoteBaseUrl(data['api_base_url'] as String?));
+
       final minVersion = data['min_android_version'] as String?;
       if (minVersion == null) return false;
 
@@ -74,6 +80,50 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
       // No internet, backend unreachable, unexpected response shape - fail
       // open, see _bootstrap's comment above this call.
       return false;
+    }
+  }
+
+  /// Persists an admin-set `api_base_url` from `/app-config` for the
+  /// *device's next cold start* - see AppConfig.baseUrl and
+  /// SecureStorageService.saveApiBaseUrlOverride() for why this is never
+  /// applied to the session that just fetched it. Deliberately isolated
+  /// from `_isBelowMinimumVersion`'s error handling: a problem here must
+  /// never turn into a force-update false-positive or a startup crash, so
+  /// every failure path below just leaves the previously cached value (if
+  /// any) exactly as it was.
+  Future<void> _syncRemoteBaseUrl(String? remoteBaseUrl) async {
+    try {
+      final storage = ref.read(secureStorageProvider);
+      final cached = await storage.getApiBaseUrlOverride();
+
+      if (remoteBaseUrl == null || remoteBaseUrl.isEmpty) {
+        // Admin cleared the override server-side (or never set one) -
+        // fall back to whatever's compiled into the next build.
+        if (cached != null) await storage.clearApiBaseUrlOverride();
+        return;
+      }
+
+      if (remoteBaseUrl == cached) return; // nothing changed
+
+      if (!AppConfig.isValidRemoteBaseUrl(remoteBaseUrl)) {
+        // A malformed value should never have passed the backend's own
+        // https-with-host validation (app-config.resource.ts) - if it
+        // somehow does, ignore it rather than risk caching garbage that
+        // could strand the next cold start with no working baseUrl.
+        appLogger.w('Ignoring invalid remote api_base_url: $remoteBaseUrl');
+        return;
+      }
+
+      await storage.saveApiBaseUrlOverride(remoteBaseUrl);
+      appLogger.i(
+        'Cached new api_base_url for next launch: $remoteBaseUrl',
+      );
+    } catch (error, stack) {
+      appLogger.w(
+        'Remote base URL sync failed (non-fatal)',
+        error: error,
+        stackTrace: stack,
+      );
     }
   }
 

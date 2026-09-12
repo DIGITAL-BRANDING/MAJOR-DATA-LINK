@@ -19,6 +19,7 @@ abstract class _Keys {
   static const fcmToken = 'kd_fcm_token';
   static const onboardingComplete = 'kd_onboarding_done';
   static const rememberEmail = 'kd_remember_email';
+  static const apiBaseUrlOverride = 'kd_api_base_url_override';
 }
 
 class SecureStorageService {
@@ -187,6 +188,24 @@ class SecureStorageService {
     final raw = await _read(_Keys.onboardingComplete);
     return raw == 'true';
   }
+
+  // ── Remote base URL override ──────────────────────────────
+  /// Set by splash_screen.dart's `_syncRemoteBaseUrl()` after the backend's
+  /// `/app-config` response includes a non-null `api_base_url`. Read back at
+  /// the very start of `main()` - see `AppConfig.configureRuntimeBaseUrl()`
+  /// - so it's in place before `dioClientProvider` is ever constructed.
+  /// Deliberately NOT applied to the running session that fetched it: a
+  /// session that's already talking successfully to its current backend has
+  /// no need to switch mid-flight, and doing so risks a purchase or wallet
+  /// call landing on a different origin than the one that started it. It
+  /// takes effect on the device's next cold start instead.
+  Future<void> saveApiBaseUrlOverride(String url) =>
+      _write(_Keys.apiBaseUrlOverride, url);
+
+  Future<String?> getApiBaseUrlOverride() => _read(_Keys.apiBaseUrlOverride);
+
+  Future<void> clearApiBaseUrlOverride() =>
+      _delete(_Keys.apiBaseUrlOverride);
 
   // ── Remember email ────────────────────────────────────────
   Future<void> saveRememberedEmail(String email) =>
