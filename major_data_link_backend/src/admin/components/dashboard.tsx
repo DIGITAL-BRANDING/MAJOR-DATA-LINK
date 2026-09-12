@@ -21,7 +21,7 @@ const quickLinks: QuickLink[] = [
   { label: 'Customers', description: 'Users, KYC status & profiles', resourceId: 'User', icon: 'Users' },
   { label: 'Ledger', description: 'Transactions, reversals & history', resourceId: 'Transaction', icon: 'List' },
   { label: 'CAC Registration Requests', description: 'CAC registration and verification requests awaiting processing', resourceId: 'SupportTicket', icon: 'Briefcase' },
-  { label: 'JAMB Service Requests', description: 'JAMB documents and admission requests awaiting processing', resourceId: 'SupportTicket', icon: 'GraduationCap' },
+  { label: 'JAMB Service Requests', description: 'Paid JAMB documents and admission requests awaiting processing', href: `${ADMIN_ROOT_PATH}/resources/Transaction?filters.type=JAMB_SERVICE_REQUEST`, icon: 'GraduationCap' },
   { label: 'BVN Licence Requests', description: 'BVN licence onboarding requests awaiting agent processing', href: `${ADMIN_ROOT_PATH}/resources/Transaction?filters.type=BVN_LICENSE_ONBOARDING`, icon: 'CreditCard' },
   { label: 'NIN Modification Requests', description: 'Manual NIN correction requests awaiting processing', href: `${ADMIN_ROOT_PATH}/resources/Transaction?filters.type=NIN_MODIFICATION`, icon: 'Edit' },
   {

@@ -3,8 +3,9 @@ import type { ResourceWithOptions } from 'adminjs';
 import { prisma } from '../../lib/prisma.js';
 import { decryptTransactionPII } from '../../services/verification.service.js';
 import { completeModification } from '../../services/nin-modification.service.js';
-import { TransactionStatus } from '@prisma/client';
+import { TransactionStatus, TransactionType } from '@prisma/client';
 import { refundWallet } from '../../services/wallet.service.js';
+import { notifyUser } from '../../services/notification.service.js';
 import { logAdminAction } from '../audit.js';
 import type { AdminSessionUser } from '../auth.js';
 
@@ -65,7 +66,7 @@ export const transactionResource: ResourceWithOptions = {
           // other transaction type, where PENDING means "still in flight,
           // don't touch it", so this is the one type reverse() also allows
           // from PENDING.
-          if (status === 'PENDING') return ['NIN_MODIFICATION', 'BVN_LICENSE_ONBOARDING'].includes(record?.params?.type as string);
+          if (status === 'PENDING') return ['NIN_MODIFICATION', 'BVN_LICENSE_ONBOARDING', 'JAMB_SERVICE_REQUEST'].includes(record?.params?.type as string);
           return status === 'SUCCESS' || status === 'FAILED';
         },
         handler: async (request, response, context) => {
@@ -229,6 +230,33 @@ export const transactionResource: ResourceWithOptions = {
           await prisma.transaction.update({ where: { id: record.params.id as string }, data: { status: TransactionStatus.SUCCESS } });
           await logAdminAction({ adminId: admin.id, action: 'COMPLETE_BVN_LICENSE', targetType: 'Transaction', targetId: record.params.id as string, metadata: { reference: record.params.reference } });
           return { record: record.toJSON(currentAdmin), notice: { message: 'BVN License request marked as completed.', type: 'success' } };
+        }
+      },
+      completeJambRequest: {
+        actionType: 'record', icon: 'CheckCircle',
+        guard: 'Mark this JAMB request as completed? Confirm the document has already been uploaded to the customer.',
+        isAccessible: ({ currentAdmin, record }) => {
+          const admin = currentAdmin as unknown as AdminSessionUser | undefined;
+          return !!admin && admin.role !== 'SUPPORT' && record?.params?.type === 'JAMB_SERVICE_REQUEST' && record?.params?.status === 'PENDING';
+        },
+        handler: async (_request, _response, context) => {
+          const { record, currentAdmin } = context;
+          const admin = currentAdmin as unknown as AdminSessionUser;
+          if (!record || !admin) throw new Error('Missing record or admin context');
+
+          const completed = await prisma.transaction.update({
+            where: { id: record.params.id as string },
+            data: { status: TransactionStatus.SUCCESS }
+          });
+          await logAdminAction({ adminId: admin.id, action: 'COMPLETE_JAMB_REQUEST', targetType: 'Transaction', targetId: completed.id, metadata: { reference: completed.reference } });
+          void notifyUser({
+            userId: completed.userId,
+            type: 'SERVICE',
+            title: 'JAMB request completed',
+            body: `Your JAMB request (${completed.reference}) is complete. Please check My Deliveries for your document.`,
+            data: { transactionId: completed.id, reference: completed.reference }
+          }).catch(() => undefined);
+          return { record: record.toJSON(currentAdmin), notice: { message: 'JAMB request marked as completed.', type: 'success' } };
         }
       },
       downloadBvnLicensePdf: {

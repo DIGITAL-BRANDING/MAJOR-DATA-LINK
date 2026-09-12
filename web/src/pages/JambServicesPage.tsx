@@ -1,14 +1,15 @@
 import { useState } from 'react';
 import { CheckCircle2, GraduationCap, Loader2, Send } from 'lucide-react';
 import AppShell from '../components/AppShell';
+import { PinConfirmDialog } from '../components/PinConfirmDialog';
 import { api } from '../lib/api';
 
 const services = [
-  { name: 'JAMB CBT Practice Software', price: 5000 },
-  { name: 'JAMB Original Result', price: 2500 },
-  { name: 'JAMB Admission Letter', price: 2000 },
-  { name: 'JAMB Exam Slip', price: 500 },
-  { name: 'JAMB Result Slip', price: 800 },
+  { id: 'cbt_practice_software', name: 'JAMB CBT Practice Software', price: 5000 },
+  { id: 'original_result', name: 'JAMB Original Result', price: 2500 },
+  { id: 'admission_letter', name: 'JAMB Admission Letter', price: 2000 },
+  { id: 'exam_slip', name: 'JAMB Exam Slip', price: 500 },
+  { id: 'result_slip', name: 'JAMB Result Slip', price: 800 },
 ] as const;
 
 /**
@@ -17,28 +18,39 @@ const services = [
  * which staff can process, update and close from the existing admin inbox.
  */
 export default function JambServicesPage() {
-  const [service, setService] = useState<string>(services[0].name);
+  const [serviceId, setServiceId] = useState<(typeof services)[number]['id']>(services[0].id);
   const [registrationNumber, setRegistrationNumber] = useState('');
   const [fullName, setFullName] = useState('');
   const [examYear, setExamYear] = useState(String(new Date().getFullYear()));
   const [sending, setSending] = useState(false);
+  const [showPin, setShowPin] = useState(false);
   const [feedback, setFeedback] = useState('');
 
-  async function submit(e: React.FormEvent) {
+  function prepare(e: React.FormEvent) {
     e.preventDefault();
     if (registrationNumber.trim().length < 4 || fullName.trim().length < 3 || !/^20\d{2}$/.test(examYear)) {
       setFeedback('Enter your JAMB registration number, full name and a valid exam year.');
       return;
     }
+    setFeedback('');
+    setShowPin(true);
+  }
+
+  async function submit(pin: string) {
+    setShowPin(false);
     setSending(true);
     setFeedback('');
     try {
-      await api.post('/support/tickets', {
-        subject: `JAMB Service: ${service}`,
-        message: `JAMB service requested: ${service}\nPrice: ₦${services.find((item) => item.name === service)?.price.toLocaleString()}\n\nJAMB Registration Number: ${registrationNumber.trim()}\nCandidate Full Name: ${fullName.trim()}\nExam Year: ${examYear}`,
+      const service = services.find((item) => item.id === serviceId)!;
+      await api.post('/jamb/requests', {
+        service: service.id,
+        registration_number: registrationNumber.trim(),
+        candidate_full_name: fullName.trim(),
+        exam_year: Number(examYear),
+        pin
       });
       setRegistrationNumber(''); setFullName('');
-      setFeedback('Your request has been sent. The K-Tech team will process it and deliver the document to your Deliveries section.');
+      setFeedback(`₦${service.price.toLocaleString()} has been deducted. Your request is now with K-Tech Solutions and will be delivered to My Deliveries.`);
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : 'Unable to send your JAMB request.');
     } finally {
@@ -63,11 +75,11 @@ export default function JambServicesPage() {
             </ul>
           </section>
 
-          <form onSubmit={submit} className="rounded-2xl border border-parchment-line bg-parchment p-5">
+          <form onSubmit={prepare} className="rounded-2xl border border-parchment-line bg-parchment p-5">
             <h2 className="font-display text-lg font-bold text-ink">Start a request</h2>
             <label className="mt-4 block text-sm font-semibold text-ink">Service
-              <select value={service} onChange={(e) => setService(e.target.value)} className="mt-1.5 w-full rounded-lg border border-parchment-line bg-cream px-3 py-2.5 text-sm">
-                {services.map((item) => <option key={item.name} value={item.name}>{item.name} — ₦{item.price.toLocaleString()}</option>)}
+              <select value={serviceId} onChange={(e) => setServiceId(e.target.value as typeof serviceId)} className="mt-1.5 w-full rounded-lg border border-parchment-line bg-cream px-3 py-2.5 text-sm">
+                {services.map((item) => <option key={item.id} value={item.id}>{item.name} — ₦{item.price.toLocaleString()}</option>)}
               </select>
             </label>
             <label className="mt-4 block text-sm font-semibold text-ink">JAMB Registration Number
@@ -81,11 +93,12 @@ export default function JambServicesPage() {
             </label>
             {feedback && <p className={`mt-3 rounded-lg p-3 text-sm ${feedback.startsWith('Your') ? 'bg-success-500/10 text-success-700' : 'bg-ember-500/10 text-ember-600'}`}>{feedback}</p>}
             <button disabled={sending} className="mt-4 flex items-center gap-2 rounded-lg bg-gold-500 px-4 py-2.5 text-sm font-bold text-ink disabled:opacity-60">
-              {sending ? <Loader2 className="animate-spin" size={16} /> : <Send size={16} />} Send request
+              {sending ? <Loader2 className="animate-spin" size={16} /> : <Send size={16} />} Continue to payment
             </button>
           </form>
         </div>
       </div>
+      <PinConfirmDialog open={showPin} onClose={() => setShowPin(false)} onVerified={submit} />
     </AppShell>
   );
 }
