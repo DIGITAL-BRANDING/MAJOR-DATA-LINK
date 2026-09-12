@@ -203,3 +203,27 @@ main .rounded-xl.border-parchment-line.bg-parchment:hover {
 @media (prefers-reduced-motion: reduce) {
   .ticker-track { animation: none; }
 }
+
+/* Dashboard opt-out: DashboardPage.tsx adds "dashboard-page" to <body> on
+   mount specifically so its own light cards (bg-white/bg-cream + rounded +
+   border) render as plain white/light instead of getting swept up by the
+   site-wide dark/gold "premium surfaces" rules above. Higher specificity
+   than those rules (extra body.dashboard-page class) plus !important is
+   what lets this win regardless of source order. Scoped to this one page on
+   purpose - the rest of the app keeps its current look until asked to
+   change too. */
+body.dashboard-page main .bg-white.rounded-xl,
+body.dashboard-page main .bg-white.rounded-2xl,
+body.dashboard-page main .bg-cream.rounded-xl.border,
+body.dashboard-page main .bg-cream.rounded-2xl.border {
+  border-color: #e2e8f0 !important;
+  background: #ffffff !important;
+  color: inherit !important;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, .06) !important;
+}
+body.dashboard-page main .bg-white.rounded-xl .text-ink,
+body.dashboard-page main .bg-white.rounded-2xl .text-ink,
+body.dashboard-page main .bg-cream.rounded-xl.border .text-ink,
+body.dashboard-page main .bg-cream.rounded-2xl.border .text-ink {
+  color: var(--color-ink-900) !important;
+}

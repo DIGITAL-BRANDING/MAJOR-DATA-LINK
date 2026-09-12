@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="ha">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>K-Tech Solutions</title>
+    <!-- Font Awesome icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Poppins', sans-serif;
+        }
+
+        :root {
+            --primary-color: #0d6efd;
+            --secondary-color: #002b5b;
+            --accent-color: #ffc107;
+            --dark-color: #212529;
+            --light-bg: #f4f7fe;
+            --card-bg: #ffffff;
+        }
+
+        body {
+            background-color: var(--light-bg);
+            color: #333;
+            line-height: 1.6;
+        }
+
+        /* Top Bar & Header Nav */
+        header {
+            background: var(--secondary-color);
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
+        }
+
+        .navbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            max-width: 1300px;
+            margin: 0 auto;
+            padding: 15px 20px;
+        }
+
+        .logo {
+            font-size: 24px;
+            font-weight: 700;
+            color: #fff;
+            text-decoration: none;
+        }
+
+        .logo span {
+            color: var(--accent-color);
+        }
+
+        .nav-links {
+            display: flex;
+            list-style: none;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .nav-links a {
+            color: #fff;
+            text-decoration: none;
+            font-size: 0.9rem;
+            font-weight: 500;
+            transition: 0.3s;
+        }
+
+        .nav-links a:hover {
+            color: var(--accent-color);
+        }
+
+        .auth-buttons {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .btn-nav {
+            padding: 6px 15px;
+            border-radius: 20px;
+            text-decoration: none;
+            font-size: 0.85rem;
+            font-weight: 600;
+            transition: 0.3s;
+        }
+
+        .btn-signin {
+            border: 1px solid var(--accent-color);
+            color: var(--accent-color) !important;
+        }
+
+        .btn-signin:hover {
+            background: var(--accent-color);
+            color: #000 !important;
+        }
+
+        .btn-signup {
+            background: var(--primary-color);
+            color: #fff !important;
+        }
+
+        .btn-signup:hover {
+            background: #0b5ed7;
+        }
+
+        /* Language Switcher Button */
+        .lang-btn {
+            background: #ffffff22;
+            color: #fff;
+            border: 1px solid rgba(255,255,255,0.4);
+            padding: 5px 12px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.85rem;
+        }
+
+        .lang-btn:hover {
+            background: rgba(255,255,255,0.3);
+        }
+
+        /* Mobile Menu Toggle */
+        .menu-toggle {
+            display: none;
+            color: white;
+            font-size: 1.5rem;
+            cursor: pointer;
+        }
+
+        /* Hero Section */
+        .hero {
+            background: linear-gradient(rgba(13, 110, 253, 0.85), rgba(0, 43, 91, 0.9)), url('https://images.unsplash.com/photo-1516321318423-f06f85e504b3?ixlib=rb-1.2.1&auto=format&fit=crop&w=1350&q=80');
+            background-size: cover;
+            background-position: center;
+            color: white;
+            text-align: center;
+            padding: 80px 20px;
+        }
+
+        .hero h1 {
+            font-size: 2.5rem;
+            margin-bottom: 15px;
+        }
+
+        .hero p {
+            font-size: 1.1rem;
+            max-width: 700px;
+            margin: 0 auto 25px;
+        }
+
+        .hero .btn-hero {
+            background-color: var(--accent-color);
+            color: #000;
+            padding: 12px 30px;
+            text-decoration: none;
+            font-weight: 600;
+            border-radius: 30px;
+            transition: 0.3s;
+            display: inline-block;
+        }
+
+        .hero .btn-hero:hover {
+            background-color: #e0a800;
+            transform: translateY(-3px);
+        }
+
+        /* Container & Services Section */
+        .container {
+            max-width: 1200px;
+            margin: 50px auto;
+            padding: 0 20px;
+        }
+
+        .section-title {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        .section-title h2 {
+            font-size: 2rem;
+            color: var(--dark-color);
+            position: relative;
+            display: inline-block;
+        }
+
+        .section-title h2::after {
+            content: '';
+            width: 50%;
+            height: 4px;
+            background: var(--primary-color);
+            display: block;
+            margin: 8px auto 0;
+            border-radius: 2px;
+        }
+
+        .services-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 25px;
+        }
+
+        .service-card {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 25px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.05);
+            transition: all 0.3s ease;
+            border-top: 4px solid var(--primary-color);
+        }
+
+        .service-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+        }
+
+        .service-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .service-header i {
+            font-size: 1.8rem;
+            color: var(--primary-color);
+            margin-right: 15px;
+            background: #eef5ff;
+            padding: 12px;
+            border-radius: 10px;
+        }
+
+        .service-header h3 {
+            font-size: 1.25rem;
+            color: var(--dark-color);
+        }
+
+        .service-list {
+            list-style: none;
+        }
+
+        .service-list li {
+            padding: 8px 0;
+            border-bottom: 1px dashed #eee;
+            display: flex;
+            align-items: center;
+            font-size: 0.95rem;
+            color: #555;
+        }
+
+        .service-list li:last-child {
+            border-bottom: none;
+        }
+
+        .service-list li i {
+            color: #28a745;
+            margin-right: 10px;
+            font-size: 0.85rem;
+        }
+
+        /* Footer */
+        footer {
+            background: var(--secondary-color);
+            color: white;
+            text-align: center;
+            padding: 25px 20px;
+            margin-top: 50px;
+        }
+
+        footer p {
+            font-size: 0.9rem;
+            opacity: 0.8;
+        }
+
+        /* WhatsApp Floating Button */
+        .whatsapp-float {
+            position: fixed;
+            width: 60px;
+            height: 60px;
+            bottom: 30px;
+            right: 30px;
+            background-color: #25d366;
+            color: #FFF;
+            border-radius: 50px;
+            text-align: center;
+            font-size: 32px;
+            box-shadow: 2px 2px 10px rgba(0, 0, 0, 0.3);
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-decoration: none;
+            transition: all 0.3s ease;
+        }
+
+        .whatsapp-float:hover {
+            background-color: #128c7e;
+            transform: scale(1.1);
+            color: #fff;
+        }
+
+        .whatsapp-float .tooltip-text {
+            visibility: hidden;
+            width: 140px;
+            background-color: #333;
+            color: #fff;
+            text-align: center;
+            border-radius: 6px;
+            padding: 5px;
+            position: absolute;
+            z-index: 1;
+            right: 70px;
+            font-size: 12px;
+            opacity: 0;
+            transition: opacity 0.3s;
+            white-space: nowrap;
+        }
+
+        .whatsapp-float:hover .tooltip-text {
+            visibility: visible;
+            opacity: 1;
+        }
+
+        /* Responsive Fixes */
+        @media (max-width: 992px) {
+            .nav-links {
+                display: none;
+                flex-direction: column;
+                width: 100%;
+                position: absolute;
+                top: 65px;
+                left: 0;
+                background: var(--secondary-color);
+                padding: 20px;
+                box-shadow: 0 10px 10px rgba(0,0,0,0.2);
+            }
+
+            .nav-links.active {
+                display: flex;
+            }
+
+            .menu-toggle {
+                display: block;
+            }
+
+            .auth-buttons {
+                flex-direction: column;
+                width: 100%;
+            }
+
+            .btn-nav {
+                text-align: center;
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Header Section -->
+    <header>
+        <div class="navbar">
+            <a href="#" class="logo">K-TECH <span>SOLUTIONS</span></a>
+            
+            <div class="menu-toggle" id="mobile-menu">
+                <i class="fas fa-bars"></i>
+            </div>
+
+            <ul class="nav-links" id="nav-list">
+                <li><a href="#api" data-ha="API Portal" data-en="API Portal">API Portal</a></li>
+                <li><a href="#results" data-ha="Sakamako (Results)" data-en="Results">Sakamako (Results)</a></li>
+                <li><a href="#about" data-ha="Game da Mu" data-en="About Us">Game da Mu</a></li>
+                <li><a href="#how" data-ha="Yadda Yake Aiki" data-en="How it Works">Yadda Yake Aiki</a></li>
+                <li><a href="#app" data-ha="Sauke App" data-en="Download App"><i class="fas fa-download"></i> Sauke App</a></li>
+                
+                <li class="auth-buttons">
+                    <a href="#signin" class="btn-nav btn-signin" data-ha="Shiga (Signin)" data-en="Signin">Shiga (Signin)</a>
+                    <a href="#signup" class="btn-nav btn-signup" data-ha="Rijista" data-en="Create Account">Rijista</a>
+                </li>
+
+                <li>
+                    <button class="lang-btn" onclick="toggleLanguage()" id="langBtn">EN</button>
+                </li>
+            </ul>
+        </div>
+    </header>
+
+    <!-- Hero Section -->
+    <section class="hero">
+        <h1 id="hero-title">Barka da Zuwa K-Tech Solutions</h1>
+        <p id="hero-desc">Muna samar da ingantattun ayyukan fasahar zamani cikin sauki da hanzari. Tuntube mu domin samun cikakken taimako akan duk wani sabis na online.</p>
+        <a href="https://chat.whatsapp.com/FbMnh7Cj1jfBsXDJdoMT8d" target="_blank" class="btn-hero" id="hero-btn">
+            <i class="fab fa-whatsapp"></i> Tuntube Mu A WhatsApp
+        </a>
+    </section>
+
+    <!-- Main Services Content -->
+    <div class="container" id="services">
+        <div class="section-title">
+            <h2 id="services-title">Ayyukan Mu (Our Services)</h2>
+        </div>
+
+        <div class="services-grid">
+
+            <!-- VTU Services -->
+            <div class="service-card">
+                <div class="service-header">
+                    <i class="fas fa-mobile-alt"></i>
+                    <h3 data-ha="VTU SERVICES" data-en="VTU SERVICES">VTU SERVICES</h3>
+                </div>
+                <ul class="service-list">
+                    <li><i class="fas fa-check-circle"></i> DATA & AIRTIME</li>
+                </ul>
+            </div>
+
+            <!-- BVN Services -->
+            <div class="service-card">
+                <div class="service-header">
+                    <i class="fas fa-id-card"></i>
+                    <h3 data-ha="BVN SERVICES" data-en="BVN SERVICES">BVN SERVICES</h3>
+                </div>
+                <ul class="service-list">
+                    <li><i class="fas fa-check-circle"></i> BVN VERIFICATION</li>
+                    <li><i class="fas fa-check-circle"></i> BVN MODIFICATION</li>
+                    <li><i class="fas fa-check-circle"></i> BVN CENTRAL RISK MANAGEMENT</li>
+                    <li><i class="fas fa-check-circle"></i> BVN LICENCE ONBOARDING CREATION</li>
+                </ul>
+            </div>
+
+            <!-- Result Checking -->
+            <div class="service-card" id="results">
+                <div class="service-header">
+                    <i class="fas fa-poll-h"></i>
+                    <h3 data-ha="DUBA RESULT" data-en="RESULT CHECKING">RESULT CHECKING</h3>
+                </div>
+                <ul class="service-list">
+                    <li><i class="fas fa-check-circle"></i> WAEC RESULT CHECKING</li>
+                    <li><i class="fas fa-check-circle"></i> NECO RESULT CHECKING</li>
+                    <li><i class="fas fa-check-circle"></i> NABTEB RESULT CHECKING</li>
+                    <li><i class="fas fa-check-circle"></i> SCIENCE & TECHNICAL RESULT CHECKING</li>
+                    <li><i class="fas fa-check-circle"></i> NBAIS RESULT CHECKING</li>
+                </ul>
+            </div>
+
+            <!-- Token Purchase -->
+            <div class="service-card">
+                <div class="service-header">
+                    <i class="fas fa-key"></i>
+                    <h3 data-ha="SIYAN RESULT TOKEN" data-en="RESULT TOKEN PURCHASE">RESULT CHECKING TOKEN PURCHASE</h3>
+                </div>
+                <ul class="service-list">
+                    <li><i class="fas fa-check-circle"></i> NECO TOKEN</li>
+                    <li><i class="fas fa-check-circle"></i> WAEC TOKEN</li>
+                    <li><i class="fas fa-check-circle"></i> NABTEB TOKEN</li>
+                </ul>
+            </div>
+
+            <!-- CAC Services -->
+            <div class="service-card">
+                <div class="service-header">
+                    <i class="fas fa-briefcase"></i>
+                    <h3 data-ha="CAC SERVICES" data-en="CAC SERVICES">CAC SERVICES</h3>
+                </div>
+                <ul class="service-list">
+                    <li><i class="fas fa-check-circle"></i> CAC REGISTRATIONS</li>
+                    <li><i class="fas fa-check-circle"></i> CAC VERIFICATION</li>
+                </ul>
+            </div>
+
+            <!-- JAMB Services -->
+            <div class="service-card">
+                <div class="service-header">
+                    <i class="fas fa-user-graduate"></i>
+                    <h3 data-ha="JAMB SERVICES" data-en="JAMB SERVICES">JAMB SERVICES</h3>
+                </div>
+                <ul class="service-list">
+                    <li><i class="fas fa-check-circle"></i> CBT PRACTICE SOFTWARE PURCHASE</li>
+                    <li><i class="fas fa-check-circle"></i> JAMB ORIGINAL RESULT</li>
+                    <li><i class="fas fa-check-circle"></i> JAMB RESULT SLIP</li>
+                    <li><i class="fas fa-check-circle"></i> JAMB ADMISSION LETTER PRINT</li>
+                    <li><i class="fas fa-check-circle"></i> JAMB CHECK OF ADMISSION STATUS</li>
+                    <li><i class="fas fa-check-circle"></i> JAMB O-LEVEL UPLOAD</li>
+                </ul>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer>
+        <p>&copy; 2026 K-Tech Solutions. All Rights Reserved.</p>
+    </footer>
+
+    <!-- WhatsApp Floating Button -->
+    <a href="https://chat.whatsapp.com/FbMnh7Cj1jfBsXDJdoMT8d" class="whatsapp-float" target="_blank">
+        <i class="fab fa-whatsapp"></i>
+        <span class="tooltip-text" id="wa-tooltip">Yi Magana A WhatsApp</span>
+    </a>
+
+    <!-- JavaScript code for Mobile Menu & Language Switcher -->
+    <script>
+        // Mobile menu toggle
+        const mobileMenu = document.getElementById('mobile-menu');
+        const navList = document.getElementById('nav-list');
+
+        mobileMenu.addEventListener('click', () => {
+            navList.classList.toggle('active');
+        });
+
+        // Multilingual Translation System (HA / EN)
+        let currentLang = 'HA';
+
+        const translations = {
+            HA: {
+                heroTitle: "Barka da Zuwa K-Tech Solutions",
+                heroDesc: "Muna samar da ingantattun ayyukan fasahar zamani cikin sauki da hanzari. Tuntube mu domin samun cikakken taimako akan duk wani sabis na online.",
+                heroBtn: '<i class="fab fa-whatsapp"></i> Tuntube Mu A WhatsApp',
+                servicesTitle: "Ayyukan Mu (Our Services)",
+                waTooltip: "Yi Magana A WhatsApp"
+            },
+            EN: {
+                heroTitle: "Welcome to K-Tech Solutions",
+                heroDesc: "We offer reliable and fast digital solutions. Contact us today for seamless online service delivery.",
+                heroBtn: '<i class="fab fa-whatsapp"></i> Contact Us On WhatsApp',
+                servicesTitle: "Our Services",
+                waTooltip: "Chat on WhatsApp"
+            }
+        };
+
+        function toggleLanguage() {
+            const langBtn = document.getElementById('langBtn');
+            
+            if (currentLang === 'HA') {
+                currentLang = 'EN';
+                langBtn.innerText = 'HA';
+            } else {
+                currentLang = 'HA';
+                langBtn.innerText = 'EN';
+            }
+
+            // Update static dynamic elements
+            document.getElementById('hero-title').innerText = translations[currentLang].heroTitle;
+            document.getElementById('hero-desc').innerText = translations[currentLang].heroDesc;
+            document.getElementById('hero-btn').innerHTML = translations[currentLang].heroBtn;
+            document.getElementById('services-title').innerText = translations[currentLang].servicesTitle;
+            document.getElementById('wa-tooltip').innerText = translations[currentLang].waTooltip;
+
+            // Update Nav Links and card headers using data attributes
+            const langElements = document.querySelectorAll('[data-ha]');
+            langElements.forEach(el => {
+                if (currentLang === 'EN') {
+                    el.innerText = el.getAttribute('data-en');
+                } else {
+                    el.innerText = el.getAttribute('data-ha');
+                }
+            });
+        }
+    </script>
+</body>
+</html>
