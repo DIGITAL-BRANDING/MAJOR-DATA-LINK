@@ -120,7 +120,7 @@ type VerificationHistory = {
   ticket_id: string | null;
 };
 
-export default function VerificationPage({ mode }: { mode: Mode }) {
+export default function VerificationPage({ mode, initialService }: { mode: Mode; initialService?: string }) {
   const nav = useNavigate();
   const items = mode === 'nin' ? nin : bvn;
 
@@ -137,6 +137,15 @@ export default function VerificationPage({ mode }: { mode: Mode }) {
   const [polling, setPolling] = useState(false);
   const [history, setHistory] = useState<VerificationHistory[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [initialApplied, setInitialApplied] = useState(false);
+
+  useEffect(() => {
+    if (!initialService || initialApplied) return;
+    const item = items.find((candidate) => candidate.id === initialService);
+    if (item?.id === 'modification') nav('/nin-modification');
+    else if (item) { setSelected(item); setTier('premium'); setValues(item.id === 'validation' ? { validation_type: 'nin_validation' } : {}); }
+    setInitialApplied(true);
+  }, [initialApplied, initialService, items, nav]);
 
   useEffect(() => {
     api

@@ -20,6 +20,10 @@ type QuickLink = {
 const quickLinks: QuickLink[] = [
   { label: 'Customers', description: 'Users, KYC status & profiles', resourceId: 'User', icon: 'Users' },
   { label: 'Ledger', description: 'Transactions, reversals & history', resourceId: 'Transaction', icon: 'List' },
+  { label: 'CAC Registration Requests', description: 'CAC registration and verification requests awaiting processing', resourceId: 'SupportTicket', icon: 'Briefcase' },
+  { label: 'JAMB Service Requests', description: 'JAMB documents and admission requests awaiting processing', resourceId: 'SupportTicket', icon: 'GraduationCap' },
+  { label: 'BVN Licence Requests', description: 'BVN licence onboarding requests awaiting agent processing', href: `${ADMIN_ROOT_PATH}/resources/Transaction?filters.type=BVN_LICENSE_ONBOARDING`, icon: 'CreditCard' },
+  { label: 'NIN Modification Requests', description: 'Manual NIN correction requests awaiting processing', href: `${ADMIN_ROOT_PATH}/resources/Transaction?filters.type=NIN_MODIFICATION`, icon: 'Edit' },
   {
     label: 'User Wallet Activity',
     description: 'Look up any customer: funding, spend & recent transactions',
@@ -118,7 +122,7 @@ const Dashboard: React.FC = () => (
       overflow="hidden"
       py="xxl"
       px={['default', 'lg', 'xxl']}
-      style={{ background: 'linear-gradient(135deg, #D4AF37 0%, #C9A227 100%)' }}
+      style={{ background: 'linear-gradient(135deg, #0b2f73 0%, #1452a0 100%)' }}
     >
       <Box display="flex" alignItems="center" flexDirection={['column', 'row']}>
         <Box mr={['0', 'xl']} mb={['lg', '0']}>
@@ -129,10 +133,10 @@ const Dashboard: React.FC = () => (
           />
         </Box>
         <Box>
-          <H2 color="white" fontWeight="bold">
+          <H2 color="white" fontWeight="bold" style={{ color: '#ffffff' }}>
             Welcome to K-Tech Solutions Admin
           </H2>
-          <Text color="white" style={{ opacity: 0.85 }}>
+          <Text color="white" style={{ opacity: 0.9, color: '#ffffff' }}>
             Manage customers, requests, deliveries, transactions and pricing from one place.
           </Text>
         </Box>
@@ -148,22 +152,22 @@ const Dashboard: React.FC = () => (
             href={link.href ?? `${ADMIN_ROOT_PATH}/resources/${link.resourceId}`}
             style={{ textDecoration: 'none', display: 'block', width: 280, flexGrow: 1, maxWidth: 340 }}
           >
-            <Box variant="white" boxShadow="card" p="lg" style={{ cursor: 'pointer', height: '100%' }}>
+            <Box variant="white" boxShadow="card" p="lg" style={{ cursor: 'pointer', height: '100%', background: '#0b2f73', borderRadius: 12 }}>
               <Box display="flex" alignItems="center" mb="default">
                 <Icon
                   icon={link.icon}
-                  color="#D4AF37"
-                  bg="rgba(212, 175, 55, 0.12)"
+                  color="#ffffff"
+                  bg="rgba(96, 165, 250, 0.25)"
                   rounded
                   size={22}
                   p="default"
                   mr="default"
                 />
-                <Text fontWeight="bold" color="grey100">
+                <Text fontWeight="bold" color="#ffffff">
                   {link.label}
                 </Text>
               </Box>
-              <Text fontSize="sm" color="grey60">
+              <Text fontSize="sm" color="#dbeafe">
                 {link.description}
               </Text>
             </Box>

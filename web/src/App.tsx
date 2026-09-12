@@ -27,6 +27,8 @@ import PartnerApiDocsPage from './pages/PartnerApiDocsPage';
 import JambServicesPage from './pages/JambServicesPage';
 import CacServicesPage from './pages/CacServicesPage';
 import SupportPage from './pages/SupportPage';
+import ManualServiceRequestPage from './pages/ManualServiceRequestPage';
+import ServiceHistoryPage from './pages/ServiceHistoryPage';
 
 function ProtectedRoute({ children }: { children: ReactNode }) {
   const { user, isLoading, mustChangePassword, requiresLoginPinSetup, requiresTransactionPinSetup } = useAuth();
@@ -65,6 +67,23 @@ export default function App() {
           <Route path="/partner-docs" element={<PartnerApiDocsPage />} />
           <Route path="/privacy-policy" element={<PrivacyRedirect page="privacy-policy" />} />
           <Route path="/result-checkers" element={<ProtectedRoute><ResultCheckersPage /></ProtectedRoute>} />
+          <Route path="/nin" element={<ProtectedRoute><VerificationPage mode="nin" initialService="by-phone" /></ProtectedRoute>} />
+          <Route path="/phone" element={<ProtectedRoute><VerificationPage mode="nin" initialService="by-phone" /></ProtectedRoute>} />
+          <Route path="/bvn" element={<ProtectedRoute><VerificationPage mode="bvn" initialService="slip" /></ProtectedRoute>} />
+          <Route path="/bvn-license" element={<ProtectedRoute><VerificationPage mode="bvn" initialService="license-onboarding" /></ProtectedRoute>} />
+          <Route path="/ipe" element={<ProtectedRoute><VerificationPage mode="nin" initialService="ipe" /></ProtectedRoute>} />
+          <Route path="/validation" element={<ProtectedRoute><VerificationPage mode="nin" initialService="validation" /></ProtectedRoute>} />
+          <Route path="/tracking" element={<ProtectedRoute><VerificationPage mode="nin" initialService="personalization" /></ProtectedRoute>} />
+          <Route path="/bvn-ret" element={<ProtectedRoute><VerificationPage mode="bvn" initialService="retrieval" /></ProtectedRoute>} />
+          <Route path="/delink" element={<ProtectedRoute><VerificationPage mode="nin" initialService="delinking" /></ProtectedRoute>} />
+          <Route path="/demo" element={<ProtectedRoute><VerificationPage mode="nin" initialService="demographic" /></ProtectedRoute>} />
+          <Route path="/cac" element={<ProtectedRoute><CacServicesPage /></ProtectedRoute>} />
+          <Route path="/verifications" element={<ProtectedRoute><ServiceHistoryPage /></ProtectedRoute>} />
+          <Route path="/bvn-modification" element={<ProtectedRoute><ManualServiceRequestPage title="BVN Modification" prompt="Submit the BVN modification details for a K-Tech agent to process." /></ProtectedRoute>} />
+          <Route path="/bvn-crm" element={<ProtectedRoute><ManualServiceRequestPage title="BVN CRM" prompt="Submit your BVN CRM Ticket ID and the relevant request details." /></ProtectedRoute>} />
+          <Route path="/attestation" element={<ProtectedRoute><ManualServiceRequestPage title="Birth Attestation" prompt="Submit the information needed for a birth attestation request." /></ProtectedRoute>} />
+          <Route path="/tin" element={<ProtectedRoute><ManualServiceRequestPage title="TIN Certificate" prompt="Submit the information needed for your TIN certificate request." /></ProtectedRoute>} />
+          <Route path="/newspaper" element={<ProtectedRoute><ManualServiceRequestPage title="Newspaper Publication" prompt="Submit the information needed for your publication request." /></ProtectedRoute>} />
           <Route path="/jamb-services" element={<ProtectedRoute><JambServicesPage /></ProtectedRoute>} />
           <Route path="/cac-registration" element={<ProtectedRoute><CacServicesPage /></ProtectedRoute>} />
           <Route path="/support" element={<ProtectedRoute><SupportPage /></ProtectedRoute>} />

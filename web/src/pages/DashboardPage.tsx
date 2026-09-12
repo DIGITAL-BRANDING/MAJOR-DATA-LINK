@@ -21,6 +21,23 @@ const SERVICE_IMAGES: Record<string, string> = {
   'Airtime to Cash': '/branding/logo.png',
   'Cable TV': '/branding/logo.png',
   Electricity: '/branding/logo.png',
+  'NIN Phone Verification': '/branding/NIN_Phone_Verification.png',
+  'Phone Multiple': '/branding/Phone Multiple.png',
+  'CAC Services': '/branding/CAC Services.png',
+  'BVN Verification': '/branding/BVN Verifications.png',
+  'IPE Clearance (Instant)': '/branding/IPE Clearance.png',
+  Validation: '/branding/Validation.png',
+  Personalization: '/branding/Personalization.png',
+  'BVN Retrieval': '/branding/BVN Retrieval.png',
+  'Self Service Unlink': '/branding/Self Service Unlink.png',
+  'NIN Modifications': '/branding/NIN Modification.png',
+  'Birth Attestation': '/branding/Birth Attestation.png',
+  'TIN Certificate': '/branding/TIN Certificate.png',
+  'Newspaper Publication': '/branding/Demographic Serach.png',
+  'Demographic Search': '/branding/Demographic Serach.png',
+  'BVN Licence Creation': '/branding/BVN Verifications.png',
+  'BVN Modification': '/branding/BVN Modification.png',
+  'BVN CRM': '/branding/BVN CRM.png',
   'Result Checkers': '/branding/standard slip.jpg',
   'JAMB Services': '/branding/premium slip.jpg',
   'Bulk SMS': '/branding/logo.png',
@@ -281,8 +298,7 @@ function ServiceTile({
         </span>
       )}
       <div className={`relative z-10 h-16 w-16 overflow-hidden rounded-2xl border-2 border-white shadow-sm ${colors.bg}`}>
-        <img src={SERVICE_IMAGES[label] ?? '/branding/logo.png'} alt="" className="h-full w-full object-cover transition duration-200 group-hover:scale-110" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
-        <span className={`absolute inset-0 flex items-center justify-center bg-white/15 ${colors.text}`}><Icon size={24} /></span>
+        {SERVICE_IMAGES[label] ? <img src={SERVICE_IMAGES[label]} alt="" className="h-full w-full object-contain p-1 transition duration-200 group-hover:scale-110" /> : <span className={`absolute inset-0 flex items-center justify-center ${colors.text}`}><Icon size={24} /></span>}
       </div>
       <span className="relative z-10 mt-3 font-body text-sm font-bold leading-tight text-ink-900">{label}</span>
     </Link>

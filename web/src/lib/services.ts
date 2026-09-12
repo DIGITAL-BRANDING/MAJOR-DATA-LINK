@@ -14,6 +14,14 @@ import {
   Briefcase,
   ShieldCheck,
   Receipt,
+  Phone,
+  Search,
+  MapPin,
+  Unlink,
+  FilePenLine,
+  Baby,
+  Newspaper,
+  Settings2,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -40,6 +48,23 @@ export type ServiceItem = {
 // — same order, same set — so a customer moving between the app and the
 // website sees one consistent menu.
 export const SERVICES: ServiceItem[] = [
+  { label: 'NIN Phone Verification', description: 'Verify a NIN using the registered phone number.', icon: IdCard, route: '/nin', tint: 'gold', implemented: true },
+  { label: 'Phone Multiple', description: 'Find identity details using a registered phone number.', icon: Phone, route: '/phone', tint: 'bronze', implemented: true },
+  { label: 'CAC Services', description: 'Request CAC registration or verification and receive completed files.', icon: Briefcase, route: '/cac', tint: 'success', implemented: true },
+  { label: 'BVN Verification', description: 'Generate a BVN verification slip.', icon: Fingerprint, route: '/bvn', tint: 'ember', implemented: true },
+  { label: 'IPE Clearance (Instant)', description: 'Submit a tracking ID for instant IPE clearance.', icon: ShieldCheck, route: '/ipe', tint: 'gold', implemented: true },
+  { label: 'Validation', description: 'Submit a NIN record validation request.', icon: ClipboardList, route: '/validation', tint: 'bronze', implemented: true },
+  { label: 'Personalization', description: 'Process a NIN personalization tracking request.', icon: MapPin, route: '/tracking', tint: 'success', implemented: true },
+  { label: 'BVN Retrieval', description: 'Retrieve BVN details using name and registered phone number.', icon: Search, route: '/bvn-ret', tint: 'ember', implemented: true },
+  { label: 'Self Service Unlink', description: 'Submit an identity delinking request.', icon: Unlink, route: '/delink', tint: 'gold', implemented: true },
+  { label: 'NIN Modifications', description: 'Request corrections to NIN records.', icon: FilePenLine, route: '/nin-modification', tint: 'bronze', implemented: true },
+  { label: 'Birth Attestation', description: 'Submit a birth attestation request for manual processing.', icon: Baby, route: '/attestation', tint: 'success', implemented: true },
+  { label: 'TIN Certificate', description: 'Request a TIN certificate and receive it in Deliveries.', icon: Receipt, route: '/tin', tint: 'ember', implemented: true },
+  { label: 'Newspaper Publication', description: 'Submit a newspaper publication request.', icon: Newspaper, route: '/newspaper', tint: 'gold', implemented: true },
+  { label: 'Demographic Search', description: 'Search NIN records using demographic details.', icon: Search, route: '/demo', tint: 'bronze', implemented: true },
+  { label: 'BVN Licence Creation', description: 'Create a BVN licence onboarding request.', icon: Fingerprint, route: '/bvn-license', tint: 'gold', implemented: true },
+  { label: 'BVN Modification', description: 'Submit a BVN modification request for processing.', icon: FilePenLine, route: '/bvn-modification', tint: 'bronze', implemented: true },
+  { label: 'BVN CRM', description: 'Submit a BVN CRM Ticket ID for follow-up.', icon: Settings2, route: '/bvn-crm', tint: 'gold', implemented: true },
   {
     label: 'Buy Data',
     description: 'Get data bundles for MTN, Glo, Airtel or 9mobile, delivered instantly.',
