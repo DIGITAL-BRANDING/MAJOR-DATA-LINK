@@ -251,7 +251,7 @@ export const transactionResource: ResourceWithOptions = {
           await logAdminAction({ adminId: admin.id, action: 'COMPLETE_JAMB_REQUEST', targetType: 'Transaction', targetId: completed.id, metadata: { reference: completed.reference } });
           void notifyUser({
             userId: completed.userId,
-            type: 'SERVICE',
+            type: 'TRANSACTION',
             title: 'JAMB request completed',
             body: `Your JAMB request (${completed.reference}) is complete. Please check My Deliveries for your document.`,
             data: { transactionId: completed.id, reference: completed.reference }

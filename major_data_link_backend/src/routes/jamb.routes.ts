@@ -108,7 +108,7 @@ jambRoutes.post('/requests', async (req, res) => {
 
   void notifyUser({
     userId: req.user!.id,
-    type: 'SERVICE',
+    type: 'TRANSACTION',
     title: 'JAMB request received',
     body: `₦${selected.price.toLocaleString()} was deducted for ${selected.label}. Reference: ${debit.reference}. We will notify you when it is ready.`,
     data: { transactionId: debit.transaction.id, reference: debit.reference }
