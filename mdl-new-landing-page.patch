@@ -1,0 +1,1724 @@
+diff --git a/web/index.html b/web/index.html
+index c3b18ef..42d4211 100644
+--- a/web/index.html
++++ b/web/index.html
+@@ -17,7 +17,9 @@
+     <title>MAJOR DATA-LINK — Instant Top-Up, Every Time</title>
+     <link rel="preconnect" href="https://fonts.googleapis.com" />
+     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+-    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
++    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700;800&family=Poppins:wght@300;400;600;700&display=swap" rel="stylesheet" />
++    <!-- Used only by the landing page (src/pages/LandingPage.tsx / LandingPage.css) -->
++    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+   </head>
+   <body>
+     <div id="root"></div>
+diff --git a/web/src/pages/LandingPage.css b/web/src/pages/LandingPage.css
+new file mode 100644
+index 0000000..3c4a5b5
+--- /dev/null
++++ b/web/src/pages/LandingPage.css
+@@ -0,0 +1,606 @@
++/* ==========================================================================
++   Landing page theme — ported from the repo-root index.html template.
++   Namespaced under .mdl-landing so nothing here escapes onto other routes
++   (login, dashboard, etc.) which use the app's own gold/ink Tailwind theme.
++   Layout and colors are intentionally kept identical to the original file.
++   ========================================================================== */
++
++.mdl-landing {
++    --primary-color: #0d6efd;
++    --secondary-color: #002b5b;
++    --accent-color: #ffc107;
++    --dark-color: #212529;
++    --light-bg: #f4f7fe;
++    --card-bg: #ffffff;
++
++    font-family: 'Poppins', sans-serif;
++    background-color: var(--light-bg);
++    color: #333;
++    line-height: 1.6;
++    min-height: 100vh;
++}
++
++.mdl-landing *,
++.mdl-landing *::before,
++.mdl-landing *::after {
++    margin: 0;
++    padding: 0;
++    box-sizing: border-box;
++    font-family: 'Poppins', sans-serif;
++}
++
++/* Top Bar & Header Nav */
++.mdl-landing header {
++    background: var(--secondary-color);
++    position: sticky;
++    top: 0;
++    z-index: 1000;
++    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
++}
++
++.mdl-landing .navbar {
++    display: flex;
++    justify-content: space-between;
++    align-items: center;
++    max-width: 1300px;
++    margin: 0 auto;
++    padding: 15px 20px;
++}
++
++.mdl-landing .logo {
++    display: flex;
++    align-items: center;
++    gap: 10px;
++    font-size: 24px;
++    font-weight: 700;
++    color: #fff;
++    text-decoration: none;
++}
++
++.mdl-landing .logo img {
++    height: 34px;
++    width: 34px;
++    border-radius: 8px;
++    object-fit: cover;
++}
++
++.mdl-landing .logo span {
++    color: var(--accent-color);
++}
++
++.mdl-landing .nav-links {
++    display: flex;
++    list-style: none;
++    align-items: center;
++    gap: 15px;
++}
++
++.mdl-landing .nav-links a,
++.mdl-landing .nav-links button.link-btn {
++    color: #fff;
++    text-decoration: none;
++    font-size: 0.9rem;
++    font-weight: 500;
++    transition: 0.3s;
++    background: none;
++    border: none;
++    cursor: pointer;
++}
++
++.mdl-landing .nav-links a:hover,
++.mdl-landing .nav-links button.link-btn:hover {
++    color: var(--accent-color);
++}
++
++.mdl-landing .auth-buttons {
++    display: flex;
++    align-items: center;
++    gap: 10px;
++}
++
++.mdl-landing .btn-nav {
++    padding: 6px 15px;
++    border-radius: 20px;
++    text-decoration: none;
++    font-size: 0.85rem;
++    font-weight: 600;
++    transition: 0.3s;
++}
++
++.mdl-landing .btn-signin {
++    border: 1px solid var(--accent-color);
++    color: var(--accent-color) !important;
++}
++
++.mdl-landing .btn-signin:hover {
++    background: var(--accent-color);
++    color: #000 !important;
++}
++
++.mdl-landing .btn-signup {
++    background: var(--primary-color);
++    color: #fff !important;
++}
++
++.mdl-landing .btn-signup:hover {
++    background: #0b5ed7;
++}
++
++/* Language Switcher Button */
++.mdl-landing .lang-btn {
++    background: #ffffff22;
++    color: #fff;
++    border: 1px solid rgba(255,255,255,0.4);
++    padding: 5px 12px;
++    border-radius: 5px;
++    cursor: pointer;
++    font-weight: 600;
++    font-size: 0.85rem;
++}
++
++.mdl-landing .lang-btn:hover {
++    background: rgba(255,255,255,0.3);
++}
++
++/* Mobile Menu Toggle */
++.mdl-landing .menu-toggle {
++    display: none;
++    color: white;
++    font-size: 1.5rem;
++    cursor: pointer;
++    background: none;
++    border: none;
++}
++
++/* Hero Section */
++.mdl-landing .hero {
++    background: linear-gradient(rgba(13, 110, 253, 0.85), rgba(0, 43, 91, 0.9)), url('https://images.unsplash.com/photo-1516321318423-f06f85e504b3?ixlib=rb-1.2.1&auto=format&fit=crop&w=1350&q=80');
++    background-size: cover;
++    background-position: center;
++    color: white;
++    text-align: center;
++    padding: 80px 20px;
++}
++
++.mdl-landing .hero h1 {
++    font-size: 2.5rem;
++    margin-bottom: 15px;
++}
++
++.mdl-landing .hero p {
++    font-size: 1.1rem;
++    max-width: 700px;
++    margin: 0 auto 25px;
++}
++
++.mdl-landing .hero .hero-buttons {
++    display: flex;
++    flex-wrap: wrap;
++    gap: 15px;
++    justify-content: center;
++}
++
++.mdl-landing .hero .btn-hero {
++    background-color: var(--accent-color);
++    color: #000;
++    padding: 12px 30px;
++    text-decoration: none;
++    font-weight: 600;
++    border-radius: 30px;
++    transition: 0.3s;
++    display: inline-block;
++    border: none;
++    cursor: pointer;
++    font-size: 1rem;
++}
++
++.mdl-landing .hero .btn-hero:hover {
++    background-color: #e0a800;
++    transform: translateY(-3px);
++}
++
++.mdl-landing .hero .btn-hero-outline {
++    background-color: transparent;
++    color: #fff;
++    padding: 12px 30px;
++    text-decoration: none;
++    font-weight: 600;
++    border-radius: 30px;
++    transition: 0.3s;
++    display: inline-block;
++    border: 2px solid #fff;
++}
++
++.mdl-landing .hero .btn-hero-outline:hover {
++    background-color: #fff;
++    color: var(--secondary-color);
++    transform: translateY(-3px);
++}
++
++/* Container & Sections */
++.mdl-landing .container {
++    max-width: 1200px;
++    margin: 50px auto;
++    padding: 0 20px;
++}
++
++.mdl-landing .section-title {
++    text-align: center;
++    margin-bottom: 40px;
++}
++
++.mdl-landing .section-title h2 {
++    font-size: 2rem;
++    color: var(--dark-color);
++    position: relative;
++    display: inline-block;
++}
++
++.mdl-landing .section-title h2::after {
++    content: '';
++    width: 50%;
++    height: 4px;
++    background: var(--primary-color);
++    display: block;
++    margin: 8px auto 0;
++    border-radius: 2px;
++}
++
++.mdl-landing .section-title p {
++    margin-top: 12px;
++    color: #666;
++    max-width: 650px;
++    margin-left: auto;
++    margin-right: auto;
++}
++
++.mdl-landing .services-grid {
++    display: grid;
++    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
++    gap: 25px;
++}
++
++.mdl-landing .service-card {
++    background: var(--card-bg);
++    border-radius: 12px;
++    padding: 25px;
++    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.05);
++    transition: all 0.3s ease;
++    border-top: 4px solid var(--primary-color);
++    display: flex;
++    flex-direction: column;
++}
++
++.mdl-landing .service-card:hover {
++    transform: translateY(-5px);
++    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
++}
++
++.mdl-landing .service-header {
++    display: flex;
++    align-items: center;
++    margin-bottom: 15px;
++}
++
++.mdl-landing .service-header i {
++    font-size: 1.8rem;
++    color: var(--primary-color);
++    margin-right: 15px;
++    background: #eef5ff;
++    padding: 12px;
++    border-radius: 10px;
++}
++
++.mdl-landing .service-header h3 {
++    font-size: 1.25rem;
++    color: var(--dark-color);
++}
++
++.mdl-landing .service-list {
++    list-style: none;
++    flex: 1;
++}
++
++.mdl-landing .service-list li {
++    padding: 8px 0;
++    border-bottom: 1px dashed #eee;
++    display: flex;
++    align-items: center;
++    font-size: 0.95rem;
++    color: #555;
++}
++
++.mdl-landing .service-list li:last-child {
++    border-bottom: none;
++}
++
++.mdl-landing .service-list li i {
++    color: #28a745;
++    margin-right: 10px;
++    font-size: 0.85rem;
++}
++
++.mdl-landing .service-price {
++    display: inline-block;
++    margin-top: 4px;
++    margin-left: 22px;
++    font-size: 0.8rem;
++    color: var(--primary-color);
++    font-weight: 600;
++}
++
++.mdl-landing .service-card .btn-card {
++    margin-top: 18px;
++    display: inline-block;
++    text-align: center;
++    background: var(--primary-color);
++    color: #fff;
++    text-decoration: none;
++    padding: 10px 18px;
++    border-radius: 8px;
++    font-weight: 600;
++    font-size: 0.9rem;
++    transition: 0.3s;
++    border: none;
++    cursor: pointer;
++}
++
++.mdl-landing .service-card .btn-card:hover {
++    background: #0b5ed7;
++}
++
++/* About section */
++.mdl-landing .about-section {
++    background: var(--card-bg);
++}
++
++.mdl-landing .about-grid {
++    display: grid;
++    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
++    gap: 25px;
++}
++
++.mdl-landing .about-card {
++    text-align: center;
++    padding: 20px;
++}
++
++.mdl-landing .about-card i {
++    font-size: 2rem;
++    color: var(--primary-color);
++    background: #eef5ff;
++    padding: 18px;
++    border-radius: 50%;
++    margin-bottom: 15px;
++    display: inline-block;
++}
++
++.mdl-landing .about-card h3 {
++    color: var(--dark-color);
++    margin-bottom: 8px;
++    font-size: 1.1rem;
++}
++
++.mdl-landing .about-card p {
++    color: #666;
++    font-size: 0.92rem;
++}
++
++/* How it works */
++.mdl-landing .how-section {
++    background: var(--light-bg);
++}
++
++.mdl-landing .how-grid {
++    display: grid;
++    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
++    gap: 25px;
++}
++
++.mdl-landing .how-card {
++    background: var(--card-bg);
++    border-radius: 12px;
++    padding: 30px 25px;
++    text-align: center;
++    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.05);
++    position: relative;
++}
++
++.mdl-landing .how-step-number {
++    width: 42px;
++    height: 42px;
++    border-radius: 50%;
++    background: var(--secondary-color);
++    color: var(--accent-color);
++    display: flex;
++    align-items: center;
++    justify-content: center;
++    font-weight: 700;
++    margin: 0 auto 15px;
++}
++
++.mdl-landing .how-card h3 {
++    color: var(--dark-color);
++    margin-bottom: 8px;
++    font-size: 1.1rem;
++}
++
++.mdl-landing .how-card p {
++    color: #666;
++    font-size: 0.92rem;
++}
++
++/* Download App section */
++.mdl-landing .app-section {
++    background: linear-gradient(135deg, var(--secondary-color), #013a75);
++    color: #fff;
++    text-align: center;
++    padding: 70px 20px;
++}
++
++.mdl-landing .app-section h2 {
++    font-size: 2rem;
++    margin-bottom: 15px;
++}
++
++.mdl-landing .app-section p {
++    max-width: 600px;
++    margin: 0 auto 30px;
++    color: rgba(255,255,255,0.85);
++}
++
++.mdl-landing .app-buttons {
++    display: flex;
++    flex-wrap: wrap;
++    gap: 15px;
++    justify-content: center;
++    margin-bottom: 20px;
++}
++
++.mdl-landing .app-note {
++    font-size: 0.8rem;
++    color: rgba(255,255,255,0.6);
++    max-width: 480px;
++    margin: 0 auto;
++}
++
++/* Footer */
++.mdl-landing footer {
++    background: var(--secondary-color);
++    color: white;
++    padding: 40px 20px 20px;
++    margin-top: 50px;
++}
++
++.mdl-landing .footer-grid {
++    max-width: 1200px;
++    margin: 0 auto;
++    display: grid;
++    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
++    gap: 25px;
++    text-align: left;
++    margin-bottom: 25px;
++}
++
++.mdl-landing .footer-grid h4 {
++    color: var(--accent-color);
++    margin-bottom: 12px;
++    font-size: 0.95rem;
++}
++
++.mdl-landing .footer-grid a,
++.mdl-landing .footer-grid p {
++    display: block;
++    color: rgba(255,255,255,0.75);
++    text-decoration: none;
++    font-size: 0.88rem;
++    margin-bottom: 8px;
++    background: none;
++    border: none;
++    padding: 0;
++    text-align: left;
++    cursor: pointer;
++}
++
++.mdl-landing .footer-grid a:hover {
++    color: var(--accent-color);
++}
++
++.mdl-landing footer .bottom-bar {
++    text-align: center;
++    border-top: 1px solid rgba(255,255,255,0.15);
++    padding-top: 18px;
++}
++
++.mdl-landing footer .bottom-bar p {
++    font-size: 0.9rem;
++    opacity: 0.8;
++}
++
++/* WhatsApp Floating Button */
++.mdl-landing .whatsapp-float {
++    position: fixed;
++    width: 60px;
++    height: 60px;
++    bottom: 30px;
++    right: 30px;
++    background-color: #25d366;
++    color: #FFF;
++    border-radius: 50px;
++    text-align: center;
++    font-size: 32px;
++    box-shadow: 2px 2px 10px rgba(0, 0, 0, 0.3);
++    z-index: 1000;
++    display: flex;
++    align-items: center;
++    justify-content: center;
++    text-decoration: none;
++    transition: all 0.3s ease;
++}
++
++.mdl-landing .whatsapp-float:hover {
++    background-color: #128c7e;
++    transform: scale(1.1);
++    color: #fff;
++}
++
++.mdl-landing .whatsapp-float .tooltip-text {
++    visibility: hidden;
++    width: 140px;
++    background-color: #333;
++    color: #fff;
++    text-align: center;
++    border-radius: 6px;
++    padding: 5px;
++    position: absolute;
++    z-index: 1;
++    right: 70px;
++    font-size: 12px;
++    opacity: 0;
++    transition: opacity 0.3s;
++    white-space: nowrap;
++}
++
++.mdl-landing .whatsapp-float:hover .tooltip-text {
++    visibility: visible;
++    opacity: 1;
++}
++
++/* Responsive Fixes */
++@media (max-width: 992px) {
++    .mdl-landing .nav-links {
++        display: none;
++        flex-direction: column;
++        width: 100%;
++        position: absolute;
++        top: 65px;
++        left: 0;
++        background: var(--secondary-color);
++        padding: 20px;
++        box-shadow: 0 10px 10px rgba(0,0,0,0.2);
++    }
++
++    .mdl-landing .nav-links.active {
++        display: flex;
++    }
++
++    .mdl-landing .menu-toggle {
++        display: block;
++    }
++
++    .mdl-landing .auth-buttons {
++        flex-direction: column;
++        width: 100%;
++    }
++
++    .mdl-landing .btn-nav {
++        text-align: center;
++        width: 100%;
++    }
++}
++
++@media (max-width: 600px) {
++    .mdl-landing .hero h1 {
++        font-size: 1.9rem;
++    }
++}
+diff --git a/web/src/pages/LandingPage.tsx b/web/src/pages/LandingPage.tsx
+index ba211cb..9bbc18a 100644
+--- a/web/src/pages/LandingPage.tsx
++++ b/web/src/pages/LandingPage.tsx
+@@ -1,177 +1,187 @@
+ import { useEffect, useState } from 'react';
+ import { Link } from 'react-router-dom';
+-import {
+-  Wallet,
+-  MousePointerClick,
+-  PackageCheck,
+-  Download,
+-  Lock,
+-  Landmark,
+-  MessageCircle,
+-  ChevronDown,
+-  GraduationCap,
+-  BookOpenCheck,
+-  BookOpen,
+-  IdCard,
+-  Fingerprint,
+-  Phone,
+-  UserRoundCheck,
+-  SearchCheck,
+-  ShieldCheck,
+-  ArrowRight,
+-} from 'lucide-react';
+-import PublicNav from '../components/PublicNav';
+-import RatesTicker from '../components/RatesTicker';
+-import Footer from '../components/Footer';
++import './LandingPage.css';
++import { useAuth } from '../lib/auth';
+ import { api } from '../lib/api';
+ import { CONTACT, whatsappLink, ANDROID_APK_URL } from '../lib/contact';
+-import { SERVICES as ALL_SERVICES, TINT_CLASSES } from '../lib/services';
+-
+-const STEPS = [
+-  {
+-    icon: Wallet,
+-    title: 'Fund your wallet',
+-    desc: 'Transfer once to your dedicated account number — funds reflect in seconds.',
+-  },
+-  {
+-    icon: MousePointerClick,
+-    title: 'Pick a service',
+-    desc: 'Airtime, data, cable, electricity or verification — choose and confirm.',
+-  },
+-  {
+-    icon: PackageCheck,
+-    title: 'Delivered instantly',
+-    desc: 'No waiting, no manual approval. Your top-up lands immediately.',
+-  },
+-];
+-
+-const TRUST_POINTS = [
+-  {
+-    icon: Lock,
+-    title: 'Encrypted at rest',
+-    desc: 'Sensitive identity data (NIN/BVN) is encrypted in our database, not stored in plain text.',
+-  },
+-  {
+-    icon: Landmark,
+-    title: 'Bank-backed funding',
+-    desc: 'Wallet funding runs through a licensed payment processor, straight to your dedicated account number.',
+-  },
+-  {
+-    icon: MessageCircle,
+-    title: 'Real support, on WhatsApp',
+-    desc: `Reach an actual person any time at ${CONTACT.whatsapp} — no ticket queues.`,
+-  },
+-];
+-
+-const FAQS = [
+-  {
+-    q: 'How do I fund my wallet?',
+-    a: 'After you register, you get a dedicated account number. Transfer any amount to it from any Nigerian bank and your wallet updates automatically — usually within seconds.',
+-  },
+-  {
+-    q: 'How fast is delivery?',
+-    a: "Airtime, data, NIN/BVN slips, and result checker pins are delivered instantly after payment — there's no manual approval step on our side.",
+-  },
+-  {
+-    q: 'Is my money — and my identity data — safe?',
+-    a: 'Your wallet is funded through a licensed payment processor via a dedicated bank account in your name, and any NIN/BVN data you submit is encrypted in our database.',
+-  },
+-  {
+-    q: 'What if a transaction fails?',
+-    a: "If a purchase can't be completed, your wallet is automatically refunded — you can see this reflected instantly in your transaction history.",
+-  },
+-  {
+-    q: "The app isn't on the Play Store yet — how do I install it?",
+-    a: "Download the APK below, then open it. Android will ask you to allow installs from this source the first time — tap Settings, turn on 'Allow from this source', then go back and tap install. This warning is standard for any app installed outside the Play Store, not a sign anything is wrong.",
+-  },
+-  {
+-    q: "I'm stuck — how do I reach support?",
+-    a: `Message us directly on WhatsApp at ${CONTACT.whatsapp}, or email ${CONTACT.emailDisplay}. A real person responds.`,
+-  },
+-];
+ 
+ type PriceRow = { service: string; label: string; unit_price: number };
+ 
+-const RESULT_ICON: Record<string, typeof GraduationCap> = {
+-  WAEC_PIN: GraduationCap,
+-  NECO_PIN: BookOpenCheck,
+-  NABTEB_PIN: BookOpen,
+-};
+-
+-// Curated view of the 15 individual ServicePricing rows the backend prices
+-// NIN/BVN by (see major_data_link_backend/src/services/verification.service.ts).
+-// Tiers (Premium/Standard/Regular/VNIN for NIN slips, Premium/Standard for
+-// BVN slips) currently all share one Techhub cost, so showing all of them
+-// as separate cards would just repeat the same price four times — this
+-// picks one representative service key per real product family instead,
+-// same grouping web/src/pages/VerificationPage.tsx uses for its own tabs.
+-const NIN_SERVICES = [
+-  {
+-    icon: IdCard,
+-    label: 'NIN Verification',
+-    desc: 'Print a NIN slip by NIN number.',
+-    note: 'Premium, Standard, Regular & VNIN',
+-    service: 'NIN_SLIP_STANDARD',
+-  },
+-  {
+-    icon: Phone,
+-    label: 'NIN by Phone',
+-    desc: 'Look up a NIN slip with a registered phone number.',
+-    note: 'Premium, Standard & Regular',
+-    service: 'NIN_PHONE_SLIP_STANDARD',
+-  },
+-  {
+-    icon: UserRoundCheck,
+-    label: 'NIN Demographic',
+-    desc: 'Verify by full name, date of birth & gender.',
+-    service: 'NIN_DEMOGRAPHIC',
+-  },
+-  {
+-    icon: SearchCheck,
+-    label: 'NIN Validation / Modification',
+-    desc: 'Validate a NIN or request a correction.',
+-    service: 'NIN_VALIDATION',
+-  },
+-  {
+-    icon: UserRoundCheck,
+-    label: 'NIN Personalization',
+-    desc: 'Finish personalization with a tracking ID.',
+-    service: 'NIN_PERSONALIZATION',
+-  },
+-  {
+-    icon: ShieldCheck,
+-    label: 'Self-Service Delinking',
+-    desc: 'Unlink a phone number or email from your NIN.',
+-    service: 'NIN_DELINKING',
+-  },
+-  {
+-    icon: ShieldCheck,
+-    label: 'IPE Clearance',
+-    desc: 'Clear an In-Person Enrolment tracking ID.',
+-    service: 'IPE_CLEARANCE',
+-  },
+-];
+-
+-const BVN_SERVICES = [
+-  {
+-    icon: Fingerprint,
+-    label: 'BVN Verification',
+-    desc: 'Print a BVN slip in seconds.',
+-    note: 'Premium & Standard',
+-    service: 'BVN_SLIP_STANDARD',
++const TXT = {
++  HA: {
++    navApi: 'API Portal',
++    navResults: 'Sakamako (Results)',
++    navAbout: 'Game da Mu',
++    navHow: 'Yadda Yake Aiki',
++    navApp: 'Sauke App',
++    navSignin: 'Shiga (Signin)',
++    navSignup: 'Rijista',
++    navDashboard: 'Dashboard',
++    heroTitle: 'Barka da Zuwa MAJOR DATA-LINK',
++    heroDesc:
++      "Muna samar da ingantattun ayyukan fasahar zamani cikin sauki da hanzari — Data, Airtime, BVN/NIN, da Sakamakon Jarrabawa. Tuntube mu domin samun cikakken taimako akan duk wani sabis na online.",
++    heroWhatsapp: 'Tuntube Mu A WhatsApp',
++    heroGetStarted: 'Fara Yanzu',
++    servicesTitle: 'Ayyukan Mu (Our Services)',
++    servicesSubtitle: 'Zabi sabis din da kake bukata, ka fara amfani da shi yanzu — kai tsaye daga account dinka.',
++    waTooltip: 'Yi Magana A WhatsApp',
++    aboutTitle: 'Game da Mu (About Us)',
++    aboutSubtitle: 'MAJOR DATA-LINK wani samfurin Kindness Digital Branding and IT Solutions ne, wanda ake gudanarwa domin sauki da amincin ayyukan ka na yau da kullum.',
++    about: [
++      { icon: 'fa-lock', title: 'Amintacce', desc: "Muna adana bayanan NIN/BVN dinka a boye, ba tare da bayyana su ba." },
++      { icon: 'fa-bolt', title: 'Sauri', desc: "Ana kammala mu'amaloli nan take, babu jira ko izinin hannu." },
++      { icon: 'fa-headset', title: 'Tallafi na Gaske', desc: 'Ka samu tallafi kai tsaye a WhatsApp daga mutum, ba tashar sako-sako ba.' },
++      { icon: 'fa-university', title: 'Biyan Kudi Amintacce', desc: 'Ana cika walat dinka ta hanyar kamfanin biyan kudi mai lasisi.' },
++    ],
++    howTitle: 'Yadda Yake Aiki',
++    howSubtitle: 'Matakai uku kawai za ka bi, kowane lokaci.',
++    how: [
++      { title: 'Cika Asusunka', desc: 'Aika kudi zuwa account number dinka na musamman — walat dinka zai cika cikin dakiku.' },
++      { title: 'Zabi Sabis', desc: 'Data, Airtime, BVN/NIN, ko Sakamakon Jarrabawa — zaba ka tabbatar.' },
++      { title: 'A Bashi Nan Take', desc: 'Babu jira, babu izinin hannu — sabis dinka zai isar nan take.' },
++    ],
++    appTitle: 'Sauke App Din Mu',
++    appDesc: "Samu cikakken kwarewa a app dinmu — shiga da yatsa, ajiye masu karban kudi, da sanarwa nan take akan kowace mu'amala.",
++    appBtnDownload: 'Sauke don Android',
++    appBtnWeb: 'Ci Gaba Akan Yanar Gizo',
++    appNote: "Ba a kan Play Store ba tukuna — wannan yana shigar da app dinka kai tsaye. Android zai tambaye ka izini karo na farko, wannan al'ada ce, ba matsala ba.",
++    footerTagline: 'Cika walat dinka sau daya, sayi Data, Airtime, BVN/NIN da Sakamakon Jarrabawa cikin dakiku — babu jira, babu latsi.',
++    footerCompanyHeading: 'Kamfani',
++    footerServices: 'Ayyukanmu',
++    footerHow: 'Yadda Yake Aiki',
++    footerPrivacy: 'Manufar Sirri',
++    footerTerms: "Sharuɗɗa da Ka'idoji",
++    footerDevHeading: 'Masu Haɓakawa',
++    footerPortal: 'API Portal',
++    footerDocs: 'Takardun API',
++    footerContactHeading: 'Tuntube Mu',
++    footerChannel: 'Tashar WhatsApp',
++    footerRights: 'Duk Haƙƙoƙi An Kiyaye',
++    footerCompanyName: 'Kindness Digital Branding and IT Solutions',
++    servicePriceLabel: 'Farashi daga',
++    cards: {
++      vtu: { title: 'VTU SERVICES', item1: 'DATA & AIRTIME', btnData: 'Sayi Data', btnAirtime: 'Sayi Airtime' },
++      bvn: {
++        title: 'BVN SERVICES',
++        items: ['TABBATAR DA BVN', 'GYARA BVN', 'BVN CENTRAL RISK MANAGEMENT', 'BVN LICENCE ONBOARDING CREATION'],
++        btn: 'Fara BVN',
++      },
++      nin: {
++        title: 'NIN SERVICES',
++        items: ['TABBATAR DA NIN', 'NEMAN NIN TA WAYA', 'GYARA / VALIDATION NA NIN'],
++        btn: 'Fara NIN',
++      },
++      result: {
++        title: 'DUBA RESULT',
++        items: ['WAEC RESULT CHECKING', 'NECO RESULT CHECKING', 'NABTEB RESULT CHECKING'],
++        btn: 'Duba Sakamako',
++      },
++      token: {
++        title: 'SIYAN RESULT TOKEN',
++        items: ['NECO TOKEN', 'WAEC TOKEN', 'NABTEB TOKEN'],
++        btn: 'Sayi Token',
++      },
++      cac: { title: 'CAC SERVICES', items: ['CAC REGISTRATIONS', 'CAC VERIFICATION'], btn: 'Fara CAC' },
++      jamb: {
++        title: 'JAMB SERVICES',
++        items: ['CBT PRACTICE SOFTWARE', 'JAMB ORIGINAL RESULT', 'JAMB ADMISSION LETTER', 'JAMB O-LEVEL UPLOAD'],
++        btn: 'Fara JAMB',
++      },
++    },
+   },
+-  {
+-    icon: Phone,
+-    label: 'BVN Retrieval',
+-    desc: 'Recover a BVN using name & phone number.',
+-    service: 'BVN_RETRIEVAL',
++  EN: {
++    navApi: 'API Portal',
++    navResults: 'Results',
++    navAbout: 'About Us',
++    navHow: 'How it Works',
++    navApp: 'Download App',
++    navSignin: 'Sign in',
++    navSignup: 'Create Account',
++    navDashboard: 'Dashboard',
++    heroTitle: 'Welcome to MAJOR DATA-LINK',
++    heroDesc:
++      'We offer reliable and fast digital solutions — Data, Airtime, BVN/NIN verification, and WAEC/NECO/NABTEB result checking. Contact us today for seamless online service delivery.',
++    heroWhatsapp: 'Contact Us On WhatsApp',
++    heroGetStarted: 'Get Started',
++    servicesTitle: 'Our Services',
++    servicesSubtitle: 'Pick the service you need and get started right away — straight from your account.',
++    waTooltip: 'Chat on WhatsApp',
++    aboutTitle: 'About Us',
++    aboutSubtitle: 'MAJOR DATA-LINK is a product of Kindness Digital Branding and IT Solutions, built for fast, reliable everyday transactions.',
++    about: [
++      { icon: 'fa-lock', title: 'Encrypted', desc: 'Your NIN/BVN data is encrypted at rest, never stored in plain text.' },
++      { icon: 'fa-bolt', title: 'Instant', desc: 'Transactions complete immediately — no waiting, no manual approval.' },
++      { icon: 'fa-headset', title: 'Real Support', desc: 'Reach an actual person on WhatsApp — no ticket queues.' },
++      { icon: 'fa-university', title: 'Bank-Backed Funding', desc: 'Your wallet is funded through a licensed payment processor.' },
++    ],
++    howTitle: 'How it Works',
++    howSubtitle: 'Three steps, every time.',
++    how: [
++      { title: 'Fund your wallet', desc: 'Transfer to your dedicated account number — funds reflect in seconds.' },
++      { title: 'Pick a service', desc: 'Data, Airtime, BVN/NIN, or Result checking — choose and confirm.' },
++      { title: 'Delivered instantly', desc: 'No waiting, no manual approval — your service lands immediately.' },
++    ],
++    appTitle: 'Get Our App',
++    appDesc: 'The full experience lives in the app — biometric login, saved beneficiaries, and instant alerts on every transaction.',
++    appBtnDownload: 'Download for Android',
++    appBtnWeb: 'Continue on the Web Instead',
++    appNote: "Not on the Play Store yet — this installs directly. Android will ask you to allow it the first time; that's expected.",
++    footerTagline: 'Fund your wallet once, top up Data, Airtime, BVN/NIN and result checking pins in seconds — no queues, no delays.',
++    footerCompanyHeading: 'Company',
++    footerServices: 'Services',
++    footerHow: 'How it works',
++    footerPrivacy: 'Privacy Policy',
++    footerTerms: 'Terms & Conditions',
++    footerDevHeading: 'Developers',
++    footerPortal: 'API Portal',
++    footerDocs: 'API Documentation',
++    footerContactHeading: 'Talk to Us',
++    footerChannel: 'WhatsApp Channel',
++    footerRights: 'All Rights Reserved',
++    footerCompanyName: 'Kindness Digital Branding and IT Solutions',
++    servicePriceLabel: 'From',
++    cards: {
++      vtu: { title: 'VTU SERVICES', item1: 'DATA & AIRTIME', btnData: 'Buy Data', btnAirtime: 'Buy Airtime' },
++      bvn: {
++        title: 'BVN SERVICES',
++        items: ['BVN VERIFICATION', 'BVN MODIFICATION', 'BVN CENTRAL RISK MANAGEMENT', 'BVN LICENCE ONBOARDING CREATION'],
++        btn: 'Start BVN',
++      },
++      nin: {
++        title: 'NIN SERVICES',
++        items: ['NIN VERIFICATION', 'NIN BY PHONE LOOKUP', 'NIN VALIDATION / MODIFICATION'],
++        btn: 'Start NIN',
++      },
++      result: {
++        title: 'RESULT CHECKING',
++        items: ['WAEC RESULT CHECKING', 'NECO RESULT CHECKING', 'NABTEB RESULT CHECKING'],
++        btn: 'Check Results',
++      },
++      token: {
++        title: 'RESULT TOKEN PURCHASE',
++        items: ['NECO TOKEN', 'WAEC TOKEN', 'NABTEB TOKEN'],
++        btn: 'Buy a Token',
++      },
++      cac: { title: 'CAC SERVICES', items: ['CAC REGISTRATIONS', 'CAC VERIFICATION'], btn: 'Start CAC' },
++      jamb: {
++        title: 'JAMB SERVICES',
++        items: ['CBT PRACTICE SOFTWARE', 'JAMB ORIGINAL RESULT', 'JAMB ADMISSION LETTER', 'JAMB O-LEVEL UPLOAD'],
++        btn: 'Start JAMB',
++      },
++    },
+   },
+-];
++} as const;
+ 
+ export default function LandingPage() {
+-  const [resultPrices, setResultPrices] = useState<PriceRow[] | null>(null);
+-  const [verificationPrices, setVerificationPrices] = useState<Record<string, number> | null>(null);
++  const { user } = useAuth();
++  const [lang, setLang] = useState<'HA' | 'EN'>('HA');
++  const [menuOpen, setMenuOpen] = useState(false);
++  const [resultPrices, setResultPrices] = useState<PriceRow[]>([]);
++  const [verificationPrices, setVerificationPrices] = useState<Record<string, number>>({});
++  const L = TXT[lang];
+ 
++  // Live backend prices, shown on the Result Checking / BVN / NIN cards so
++  // the buttons on this page reflect real data from the API, not static copy.
+   useEffect(() => {
+     api
+       .get<{ status: boolean; data: PriceRow[] }>('/public/result-prices', false)
+@@ -186,423 +196,375 @@ export default function LandingPage() {
+         setVerificationPrices(map);
+       })
+       .catch(() => setVerificationPrices({}));
+-
+   }, []);
+ 
++  const bvnFrom = verificationPrices['BVN_SLIP_STANDARD'];
++  const ninFrom = verificationPrices['NIN_SLIP_STANDARD'];
++  const cheapestResult = resultPrices.length
++    ? Math.min(...resultPrices.map((r) => r.unit_price))
++    : undefined;
++
++  function closeMenu() {
++    setMenuOpen(false);
++  }
++
+   return (
+-    <div className="min-h-screen bg-cream">
+-      <PublicNav />
++    <div className="mdl-landing">
++      {/* Header */}
++      <header>
++        <div className="navbar">
++          <Link to="/" className="logo" onClick={closeMenu}>
++            <img src="/branding/logo.png" alt="" />
++            MAJOR <span>DATA-LINK</span>
++          </Link>
+ 
+-      {/* ── Hero ── */}
+-      <section className="bg-ink">
+-        <div className="mx-auto grid max-w-6xl gap-10 px-5 pt-16 pb-14 md:grid-cols-[1.1fr_0.9fr] md:pt-24 md:pb-20">
+-          <div>
+-            <span className="inline-block rounded-full border border-gold-500/30 bg-gold-500/10 px-3 py-1 font-mono text-[11px] uppercase tracking-widest text-gold-400">
+-              Wallet · NIN &amp; BVN · WAEC · NECO · NABTEB
+-            </span>
+-            <h1 className="mt-5 font-display text-4xl leading-[1.08] font-bold text-cream sm:text-5xl lg:text-6xl">
+-              Top up like you're
+-              <br />
+-              trading <span className="text-gold-500">gold.</span>
+-            </h1>
+-            <p className="mt-5 max-w-md font-body text-base leading-relaxed text-cream/60 sm:text-lg">
+-              One wallet for airtime, data, cable and electricity — plus NIN/BVN
+-              verification and WAEC/NECO/NABTEB result checking. Fund once, spend
+-              on all of it, at rates that don't move against you.
+-            </p>
+-            <div className="mt-8 flex flex-wrap items-center gap-4">
+-              <Link
+-                to="/register"
+-                className="rounded-lg bg-gold-500 px-6 py-3.5 font-display text-sm font-semibold text-ink transition hover:bg-gold-400"
+-              >
+-                Get Started
++          <button
++            type="button"
++            className="menu-toggle"
++            aria-label="Menu"
++            onClick={() => setMenuOpen((v) => !v)}
++          >
++            <i className="fas fa-bars" />
++          </button>
++
++          <ul className={`nav-links${menuOpen ? ' active' : ''}`}>
++            <li>
++              <Link to="/partner-dashboard" onClick={closeMenu}>
++                {L.navApi}
+               </Link>
+-              <a
+-                href="#download"
+-                className="flex items-center gap-2 font-body text-sm font-medium text-cream/80 transition hover:text-cream"
+-              >
+-                <Download size={16} /> Get the mobile app
++            </li>
++            <li>
++              <a href="#results" onClick={closeMenu}>
++                {L.navResults}
+               </a>
+-            </div>
+-          </div>
++            </li>
++            <li>
++              <a href="#about" onClick={closeMenu}>
++                {L.navAbout}
++              </a>
++            </li>
++            <li>
++              <a href="#how" onClick={closeMenu}>
++                {L.navHow}
++              </a>
++            </li>
++            <li>
++              <a href="#app" onClick={closeMenu}>
++                <i className="fas fa-download" /> {L.navApp}
++              </a>
++            </li>
+ 
+-          {/* Live rates board panel */}
+-          <div className="rounded-2xl border border-ink-line bg-ink-soft p-5">
+-            <div className="flex items-center justify-between border-b border-ink-line pb-3">
+-              <span className="font-display text-sm font-semibold text-cream">Live Rates Board</span>
+-              <span className="flex items-center gap-1.5 font-mono text-[11px] text-success-500">
+-                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-success-500" /> LIVE
+-              </span>
+-            </div>
+-            <div className="mt-3 divide-y divide-ink-line">
+-              {[
+-                ['1GB · MTN SME', '₦345'],
+-                ['2GB · Glo Gifting', '₦480'],
+-                ['5GB · Airtel Corporate', '₦1,900'],
+-                ['Airtime · All networks', 'up to 3% off'],
+-                ['DStv Compact', '₦19,000'],
+-              ].map(([label, price]) => (
+-                <div key={label} className="flex items-center justify-between py-2.5">
+-                  <span className="font-mono text-sm text-cream/70">{label}</span>
+-                  <span className="font-mono text-sm font-semibold text-gold-400">{price}</span>
+-                </div>
+-              ))}
+-            </div>
+-          </div>
++            <li className="auth-buttons">
++              {user ? (
++                <Link to="/dashboard" className="btn-nav btn-signup" onClick={closeMenu}>
++                  {L.navDashboard}
++                </Link>
++              ) : (
++                <>
++                  <Link to="/login" className="btn-nav btn-signin" onClick={closeMenu}>
++                    {L.navSignin}
++                  </Link>
++                  <Link to="/register" className="btn-nav btn-signup" onClick={closeMenu}>
++                    {L.navSignup}
++                  </Link>
++                </>
++              )}
++            </li>
++
++            <li>
++              <button
++                type="button"
++                className="lang-btn"
++                onClick={() => setLang((v) => (v === 'HA' ? 'EN' : 'HA'))}
++              >
++                {lang === 'HA' ? 'EN' : 'HA'}
++              </button>
++            </li>
++          </ul>
+         </div>
+-      </section>
++      </header>
+ 
+-      <RatesTicker />
++      {/* Hero */}
++      <section className="hero">
++        <h1>{L.heroTitle}</h1>
++        <p>{L.heroDesc}</p>
++        <div className="hero-buttons">
++          <a
++            href={whatsappLink('Sannu MAJOR DATA-LINK, ina bukatan taimako')}
++            target="_blank"
++            rel="noreferrer"
++            className="btn-hero"
++          >
++            <i className="fab fa-whatsapp" /> {L.heroWhatsapp}
++          </a>
++          <Link to={user ? '/dashboard' : '/register'} className="btn-hero-outline">
++            {L.heroGetStarted}
++          </Link>
++        </div>
++      </section>
+ 
+-      {/* ── All services ── */}
+-      <section id="services" className="hidden" aria-hidden="true">
+-        <div className="max-w-lg">
+-          <span className="font-mono text-xs uppercase tracking-widest text-bronze-500">
+-            The board
+-          </span>
+-          <h2 className="mt-2 font-display text-3xl font-bold text-ink sm:text-4xl">
+-            Everything you top up, in one place
+-          </h2>
+-          <p className="mt-3 font-body text-sm text-ink-600">
+-            The exact same menu as the app — services still being wired up on the
+-            web show a "Coming soon" tag instead of a dead link.
+-          </p>
++      {/* Services */}
++      <div className="container" id="services">
++        <div className="section-title">
++          <h2>{L.servicesTitle}</h2>
++          <p>{L.servicesSubtitle}</p>
+         </div>
+-        <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+-          {ALL_SERVICES.map((s) => {
+-            const tint = TINT_CLASSES[s.tint];
+-            return (
++
++        <div className="services-grid">
++          {/* VTU */}
++          <div className="service-card">
++            <div className="service-header">
++              <i className="fas fa-mobile-alt" />
++              <h3>{L.cards.vtu.title}</h3>
++            </div>
++            <ul className="service-list">
++              <li>
++                <i className="fas fa-check-circle" /> {L.cards.vtu.item1}
++              </li>
++            </ul>
++            <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
++              <Link to={user ? '/buy-data' : '/register'} className="btn-card" style={{ flex: 1 }}>
++                {L.cards.vtu.btnData}
++              </Link>
+               <Link
+-                key={s.route}
+-                to={s.route}
+-                className="group relative rounded-xl border border-parchment-line bg-parchment p-6 transition hover:border-gold-500/60"
++                to={user ? '/buy-airtime' : '/register'}
++                className="btn-card"
++                style={{ flex: 1, background: 'var(--secondary-color)' }}
+               >
+-                {!s.implemented && (
+-                  <span className="absolute top-4 right-4 rounded-full bg-ink/6 px-2 py-0.5 font-mono text-[10px] uppercase tracking-widest text-ink-600">
+-                    Soon
+-                  </span>
+-                )}
+-                <div className={`flex h-11 w-11 items-center justify-center rounded-lg ${tint.bg} ${tint.text}`}>
+-                  <s.icon size={20} />
+-                </div>
+-                <h3 className="mt-4 font-display text-base font-semibold text-ink">{s.label}</h3>
+-                <p className="mt-1 font-body text-sm text-ink-600">{s.description}</p>
++                {L.cards.vtu.btnAirtime}
+               </Link>
+-            );
+-          })}
+-        </div>
+-      </section>
+-
+-      {/* ── NIN & BVN Verification ── */}
+-      <section id="verification" className="hidden" aria-hidden="true">
+-        <div className="mx-auto max-w-6xl px-5 py-20">
+-          <div className="max-w-lg">
+-            <span className="font-mono text-xs uppercase tracking-widest text-bronze-500">
+-              Identity services
+-            </span>
+-            <h2 className="mt-2 font-display text-3xl font-bold text-ink sm:text-4xl">
+-              NIN and BVN, verified in seconds
+-            </h2>
+-            <p className="mt-3 font-body text-sm text-ink-600">
+-              Every identity slip and lookup NIMC and your bank ask for — no cyber
+-              café queue, delivered straight to your wallet.
+-            </p>
++            </div>
+           </div>
+ 
+-          <div className="mt-10 grid gap-8 lg:grid-cols-2">
+-            <VerificationGroup
+-              title="NIN"
+-              icon={IdCard}
+-              items={NIN_SERVICES}
+-              prices={verificationPrices}
+-            />
+-            <VerificationGroup
+-              title="BVN"
+-              icon={Fingerprint}
+-              items={BVN_SERVICES}
+-              prices={verificationPrices}
+-            />
++          {/* BVN */}
++          <div className="service-card">
++            <div className="service-header">
++              <i className="fas fa-id-card" />
++              <h3>{L.cards.bvn.title}</h3>
++            </div>
++            <ul className="service-list">
++              {L.cards.bvn.items.map((item) => (
++                <li key={item}>
++                  <i className="fas fa-check-circle" /> {item}
++                </li>
++              ))}
++            </ul>
++            {bvnFrom !== undefined && (
++              <span className="service-price">
++                {L.servicePriceLabel} ₦{bvnFrom.toLocaleString()}
++              </span>
++            )}
++            <Link to={user ? '/bvn-services' : '/register'} className="btn-card">
++              {L.cards.bvn.btn}
++            </Link>
+           </div>
+ 
+-          <div className="mt-8 flex justify-center">
+-            <Link
+-              to="/register"
+-              className="rounded-lg bg-ink px-6 py-3.5 font-display text-sm font-semibold text-cream transition hover:bg-ink-soft"
+-            >
+-              Verify your NIN or BVN
++          {/* NIN */}
++          <div className="service-card">
++            <div className="service-header">
++              <i className="fas fa-fingerprint" />
++              <h3>{L.cards.nin.title}</h3>
++            </div>
++            <ul className="service-list">
++              {L.cards.nin.items.map((item) => (
++                <li key={item}>
++                  <i className="fas fa-check-circle" /> {item}
++                </li>
++              ))}
++            </ul>
++            {ninFrom !== undefined && (
++              <span className="service-price">
++                {L.servicePriceLabel} ₦{ninFrom.toLocaleString()}
++              </span>
++            )}
++            <Link to={user ? '/nin-services' : '/register'} className="btn-card">
++              {L.cards.nin.btn}
+             </Link>
+           </div>
+-        </div>
+-      </section>
+ 
+-      {/* ── Result Checker Pricing ── */}
+-      <section id="result-checkers" className="mx-auto max-w-6xl px-5 py-20">
+-        <div className="max-w-lg">
+-          <span className="font-mono text-xs uppercase tracking-widest text-bronze-500">
+-            Result checkers
+-          </span>
+-          <h2 className="mt-2 font-display text-3xl font-bold text-ink sm:text-4xl">
+-            WAEC, NECO &amp; NABTEB pins, at real prices
+-          </h2>
+-          <p className="mt-3 font-body text-sm text-ink-600">
+-            These are our live prices, pulled straight from the same system that processes
+-            every order — not a rate card that goes stale.
+-          </p>
+-        </div>
++          {/* Result Checking */}
++          <div className="service-card" id="results">
++            <div className="service-header">
++              <i className="fas fa-poll-h" />
++              <h3>{L.cards.result.title}</h3>
++            </div>
++            <ul className="service-list">
++              {L.cards.result.items.map((item) => (
++                <li key={item}>
++                  <i className="fas fa-check-circle" /> {item}
++                </li>
++              ))}
++            </ul>
++            {cheapestResult !== undefined && (
++              <span className="service-price">
++                {L.servicePriceLabel} ₦{cheapestResult.toLocaleString()}
++              </span>
++            )}
++            <Link to={user ? '/result-checkers' : '/register'} className="btn-card">
++              {L.cards.result.btn}
++            </Link>
++          </div>
+ 
+-        <div className="mt-10 grid gap-4 sm:grid-cols-3">
+-          {resultPrices === null &&
+-            [0, 1, 2].map((i) => (
+-              <div
+-                key={i}
+-                className="h-56 animate-pulse rounded-xl border border-parchment-line bg-parchment"
+-              />
+-            ))}
++          {/* Token Purchase */}
++          <div className="service-card">
++            <div className="service-header">
++              <i className="fas fa-key" />
++              <h3>{L.cards.token.title}</h3>
++            </div>
++            <ul className="service-list">
++              {L.cards.token.items.map((item) => (
++                <li key={item}>
++                  <i className="fas fa-check-circle" /> {item}
++                </li>
++              ))}
++            </ul>
++            <Link to={user ? '/result-checkers' : '/register'} className="btn-card">
++              {L.cards.token.btn}
++            </Link>
++          </div>
+ 
+-          {resultPrices?.length === 0 && (
+-            <div className="col-span-full rounded-xl border border-dashed border-parchment-line px-6 py-10 text-center font-body text-sm text-ink-600">
+-              Result checker pricing is being updated — check back shortly, or see current
+-              prices in the app after you register.
++          {/* CAC */}
++          <div className="service-card">
++            <div className="service-header">
++              <i className="fas fa-briefcase" />
++              <h3>{L.cards.cac.title}</h3>
+             </div>
+-          )}
++            <ul className="service-list">
++              {L.cards.cac.items.map((item) => (
++                <li key={item}>
++                  <i className="fas fa-check-circle" /> {item}
++                </li>
++              ))}
++            </ul>
++            <Link to={user ? '/cac-registration' : '/register'} className="btn-card">
++              {L.cards.cac.btn}
++            </Link>
++          </div>
+ 
+-          {resultPrices?.map((p) => {
+-            const Icon = RESULT_ICON[p.service] ?? GraduationCap;
+-            return (
+-              <div
+-                key={p.service}
+-                className="flex flex-col rounded-xl border border-parchment-line bg-parchment p-6"
+-              >
+-                <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-ink text-gold-500">
+-                  <Icon size={20} />
+-                </div>
+-                <h3 className="mt-4 font-display text-base font-semibold text-ink">
+-                  {p.label}
+-                </h3>
+-                <p className="mt-1 font-body text-xs text-ink-600">
+-                  Delivered instantly to your wallet's transaction history.
+-                </p>
+-                <div className="mt-5 flex items-baseline gap-1">
+-                  <span className="font-display text-2xl font-bold text-ink">
+-                    ₦{p.unit_price.toLocaleString()}
+-                  </span>
+-                  <span className="font-body text-xs text-ink-600">/ pin</span>
+-                </div>
+-                <Link
+-                  to="/register"
+-                  className="mt-5 rounded-lg bg-ink px-4 py-2.5 text-center font-body text-sm font-semibold text-cream transition hover:bg-ink-soft"
+-                >
+-                  Get a {p.label.split(' ')[0]} pin
+-                </Link>
+-              </div>
+-            );
+-          })}
++          {/* JAMB */}
++          <div className="service-card">
++            <div className="service-header">
++              <i className="fas fa-user-graduate" />
++              <h3>{L.cards.jamb.title}</h3>
++            </div>
++            <ul className="service-list">
++              {L.cards.jamb.items.map((item) => (
++                <li key={item}>
++                  <i className="fas fa-check-circle" /> {item}
++                </li>
++              ))}
++            </ul>
++            <Link to={user ? '/jamb-services' : '/register'} className="btn-card">
++              {L.cards.jamb.btn}
++            </Link>
++          </div>
+         </div>
+-      </section>
++      </div>
+ 
+-      {/* ── How it works ── */}
+-      <section id="how-it-works" className="bg-parchment">
+-        <div className="mx-auto max-w-6xl px-5 py-20">
+-          <div className="max-w-lg">
+-            <span className="font-mono text-xs uppercase tracking-widest text-bronze-500">
+-              The process
+-            </span>
+-            <h2 className="mt-2 font-display text-3xl font-bold text-ink sm:text-4xl">
+-              Three steps, every time
+-            </h2>
++      {/* About Us — new section so the "Game da Mu" nav link actually goes somewhere */}
++      <section className="about-section" id="about">
++        <div className="container" style={{ margin: '0 auto', paddingTop: 60, paddingBottom: 60 }}>
++          <div className="section-title">
++            <h2>{L.aboutTitle}</h2>
++            <p>{L.aboutSubtitle}</p>
+           </div>
+-          <div className="mt-10 grid gap-8 md:grid-cols-3">
+-            {STEPS.map((step, i) => (
+-              <div key={step.title} className="relative">
+-                <span className="font-mono text-5xl font-bold text-gold-500/20">0{i + 1}</span>
+-                <div className="-mt-6 flex h-10 w-10 items-center justify-center rounded-full bg-ink text-gold-500">
+-                  <step.icon size={18} />
+-                </div>
+-                <h3 className="mt-4 font-display text-lg font-semibold text-ink">{step.title}</h3>
+-                <p className="mt-1.5 font-body text-sm leading-relaxed text-ink-600">
+-                  {step.desc}
+-                </p>
++          <div className="about-grid">
++            {L.about.map((item) => (
++              <div className="about-card" key={item.title}>
++                <i className={`fas ${item.icon}`} />
++                <h3>{item.title}</h3>
++                <p>{item.desc}</p>
+               </div>
+             ))}
+           </div>
+         </div>
+       </section>
+ 
+-      {/* ── Trust ── */}
+-      <section className="bg-ink">
+-        <div className="mx-auto max-w-6xl px-5 py-20">
+-          <div className="max-w-lg">
+-            <span className="font-mono text-xs uppercase tracking-widest text-gold-500">
+-              Built to be trusted
+-            </span>
+-            <h2 className="mt-2 font-display text-3xl font-bold text-cream sm:text-4xl">
+-              Not just fast — accountable
+-            </h2>
++      {/* How it Works — new section so the "Yadda Yake Aiki" nav link actually goes somewhere */}
++      <section className="how-section" id="how">
++        <div className="container" style={{ margin: '0 auto', paddingTop: 60, paddingBottom: 60 }}>
++          <div className="section-title">
++            <h2>{L.howTitle}</h2>
++            <p>{L.howSubtitle}</p>
+           </div>
+-          <div className="mt-10 grid gap-6 md:grid-cols-3">
+-            {TRUST_POINTS.map((t) => (
+-              <div key={t.title} className="rounded-xl border border-ink-line bg-ink-soft p-6">
+-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gold-500/10 text-gold-500">
+-                  <t.icon size={18} />
+-                </div>
+-                <h3 className="mt-4 font-display text-base font-semibold text-cream">
+-                  {t.title}
+-                </h3>
+-                <p className="mt-1.5 font-body text-sm leading-relaxed text-cream/60">{t.desc}</p>
++          <div className="how-grid">
++            {L.how.map((step, i) => (
++              <div className="how-card" key={step.title}>
++                <div className="how-step-number">{i + 1}</div>
++                <h3>{step.title}</h3>
++                <p>{step.desc}</p>
+               </div>
+             ))}
+           </div>
+         </div>
+       </section>
+ 
+-      {/* ── FAQ ── */}
+-      <section id="faq" className="bg-parchment">
+-        <div className="mx-auto max-w-3xl px-5 py-20">
+-          <div className="text-center">
+-            <span className="font-mono text-xs uppercase tracking-widest text-bronze-500">
+-              Questions
+-            </span>
+-            <h2 className="mt-2 font-display text-3xl font-bold text-ink sm:text-4xl">
+-              Before you get started
+-            </h2>
+-          </div>
+-          <div className="mt-10 divide-y divide-parchment-line rounded-xl border border-parchment-line bg-cream">
+-            {FAQS.map((item) => (
+-              <FaqItem key={item.q} {...item} />
+-            ))}
+-          </div>
++      {/* Download App — new section so the "Sauke App" nav link actually goes somewhere,
++          wired to the real GitHub release APK used across the rest of the app. */}
++      <section className="app-section" id="app">
++        <h2>{L.appTitle}</h2>
++        <p>{L.appDesc}</p>
++        <div className="app-buttons">
++          <a href={ANDROID_APK_URL} className="btn-hero">
++            <i className="fab fa-android" /> {L.appBtnDownload}
++          </a>
++          <Link to={user ? '/dashboard' : '/register'} className="btn-hero-outline">
++            {L.appBtnWeb}
++          </Link>
+         </div>
++        <p className="app-note">{L.appNote}</p>
+       </section>
+ 
+-      {/* ── Download CTA ── */}
+-      <section id="download" className="bg-ink">
+-        <div className="mx-auto flex max-w-6xl flex-col items-center gap-6 px-5 py-20 text-center">
+-          <span className="font-mono text-xs uppercase tracking-widest text-gold-500">
+-            Take it with you
+-          </span>
+-          <h2 className="max-w-xl font-display text-3xl font-bold text-cream sm:text-4xl">
+-            The full experience lives in the app
+-          </h2>
+-          <p className="max-w-md font-body text-sm text-cream/60">
+-            Biometric login, saved beneficiaries, instant push alerts on every transaction.
+-          </p>
+-          <div className="mt-2 flex flex-wrap justify-center gap-4">
+-            <a
+-              href={ANDROID_APK_URL}
+-              className="flex items-center gap-2 rounded-lg bg-gold-500 px-6 py-3.5 font-display text-sm font-semibold text-ink transition hover:bg-gold-400"
+-            >
+-              <Download size={16} /> Download for Android
++      {/* Footer */}
++      <footer>
++        <div className="footer-grid">
++          <div>
++            <h4>MAJOR DATA-LINK</h4>
++            <p style={{ color: 'rgba(255,255,255,0.7)', marginBottom: 0 }}>{L.footerTagline}</p>
++          </div>
++          <div>
++            <h4>{L.footerCompanyHeading}</h4>
++            <a href="#services">{L.footerServices}</a>
++            <a href="#how">{L.footerHow}</a>
++            <Link to="/privacy-policy">{L.footerPrivacy}</Link>
++            <Link to="/terms">{L.footerTerms}</Link>
++          </div>
++          <div>
++            <h4>{L.footerDevHeading}</h4>
++            <Link to="/partner-dashboard">{L.footerPortal}</Link>
++            <Link to="/partner-docs">{L.footerDocs}</Link>
++          </div>
++          <div>
++            <h4>{L.footerContactHeading}</h4>
++            <a href={whatsappLink('Hello MAJOR DATA-LINK, I need help')} target="_blank" rel="noreferrer">
++              <i className="fab fa-whatsapp" /> {CONTACT.whatsapp}
++            </a>
++            <a href={`mailto:${CONTACT.email}`}>
++              <i className="fas fa-envelope" /> {CONTACT.email}
++            </a>
++            <a href={CONTACT.whatsappChannelUrl} target="_blank" rel="noreferrer">
++              <i className="fas fa-broadcast-tower" /> {L.footerChannel}
+             </a>
+-            <Link
+-              to="/register"
+-              className="rounded-lg border border-ink-line px-6 py-3.5 font-body text-sm font-medium text-cream/80 transition hover:text-cream"
+-            >
+-              Continue on the web instead
+-            </Link>
+           </div>
+-          <p className="max-w-sm font-body text-xs text-cream/40">
+-            Not on the Play Store yet — this installs directly. Android will ask you to allow
+-            it the first time; that's expected, see the FAQ below.
+-          </p>
+-          <a
+-            href={whatsappLink("Hello MAJOR DATA-LINK, I'd like to know more before signing up")}
+-            target="_blank"
+-            rel="noreferrer"
+-            className="flex items-center gap-2 font-body text-xs text-cream/40 transition hover:text-cream/70"
+-          >
+-            <MessageCircle size={13} /> Or ask us a question first, on WhatsApp
+-          </a>
+         </div>
+-      </section>
+-
+-      <Footer />
+-    </div>
+-  );
+-}
+-
+-type VerificationItem = {
+-  icon: typeof IdCard;
+-  label: string;
+-  desc: string;
+-  note?: string;
+-  service: string;
+-};
+-
+-function VerificationGroup({
+-  title,
+-  icon: GroupIcon,
+-  items,
+-  prices,
+-}: {
+-  title: string;
+-  icon: typeof IdCard;
+-  items: VerificationItem[];
+-  prices: Record<string, number> | null;
+-}) {
+-  return (
+-    <div className="rounded-xl border border-parchment-line bg-cream p-2 sm:p-3">
+-      <div className="flex items-center gap-2.5 px-4 py-3">
+-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-ink text-gold-500">
+-          <GroupIcon size={16} />
++        <div className="bottom-bar">
++          <p>
++            &copy; {new Date().getFullYear()} MAJOR DATA-LINK. {L.footerRights}.
++          </p>
++          <p>{L.footerCompanyName}</p>
+         </div>
+-        <h3 className="font-display text-sm font-semibold tracking-wide text-ink uppercase">
+-          {title}
+-        </h3>
+-      </div>
+-      <div className="divide-y divide-parchment-line">
+-        {items.map((item) => {
+-          const price = prices?.[item.service];
+-          return (
+-            <Link
+-              key={item.service}
+-              to="/register"
+-              className="group flex items-center gap-4 px-4 py-3.5 transition hover:bg-parchment"
+-            >
+-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gold-500/12 text-gold-600">
+-                <item.icon size={16} />
+-              </div>
+-              <div className="min-w-0 flex-1">
+-                <p className="font-body text-sm font-semibold text-ink">{item.label}</p>
+-                <p className="truncate font-body text-xs text-ink-600">
+-                  {item.note ? `${item.desc} · ${item.note}` : item.desc}
+-                </p>
+-              </div>
+-              <div className="flex shrink-0 items-center gap-2">
+-                {prices === null ? (
+-                  <span className="h-4 w-12 animate-pulse rounded bg-parchment-line" />
+-                ) : price !== undefined ? (
+-                  <span className="font-mono text-sm font-semibold text-ink">
+-                    ₦{price.toLocaleString()}
+-                  </span>
+-                ) : null}
+-                <ArrowRight
+-                  size={14}
+-                  className="text-ink-600/40 transition group-hover:translate-x-0.5 group-hover:text-gold-600"
+-                />
+-              </div>
+-            </Link>
+-          );
+-        })}
+-      </div>
+-    </div>
+-  );
+-}
++      </footer>
+ 
+-function FaqItem({ q, a }: { q: string; a: string }) {
+-  const [open, setOpen] = useState(false);
+-  return (
+-    <div className="px-5">
+-      <button
+-        onClick={() => setOpen((v) => !v)}
+-        className="flex w-full items-center justify-between gap-4 py-4 text-left"
++      {/* WhatsApp Floating Button */}
++      <a
++        href={whatsappLink('Sannu MAJOR DATA-LINK, ina bukatan taimako')}
++        className="whatsapp-float"
++        target="_blank"
++        rel="noreferrer"
+       >
+-        <span className="font-body text-sm font-semibold text-ink">{q}</span>
+-        <ChevronDown
+-          size={16}
+-          className={`shrink-0 text-ink-600 transition-transform ${open ? 'rotate-180' : ''}`}
+-        />
+-      </button>
+-      {open && <p className="pb-4 font-body text-sm leading-relaxed text-ink-600">{a}</p>}
++        <i className="fab fa-whatsapp" />
++        <span className="tooltip-text">{L.waTooltip}</span>
++      </a>
+     </div>
+   );
+ }

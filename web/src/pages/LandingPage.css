@@ -1,0 +1,606 @@
+/* ==========================================================================
+   Landing page theme — ported from the repo-root index.html template.
+   Namespaced under .mdl-landing so nothing here escapes onto other routes
+   (login, dashboard, etc.) which use the app's own gold/ink Tailwind theme.
+   Layout and colors are intentionally kept identical to the original file.
+   ========================================================================== */
+
+.mdl-landing {
+    --primary-color: #0d6efd;
+    --secondary-color: #002b5b;
+    --accent-color: #ffc107;
+    --dark-color: #212529;
+    --light-bg: #f4f7fe;
+    --card-bg: #ffffff;
+
+    font-family: 'Poppins', sans-serif;
+    background-color: var(--light-bg);
+    color: #333;
+    line-height: 1.6;
+    min-height: 100vh;
+}
+
+.mdl-landing *,
+.mdl-landing *::before,
+.mdl-landing *::after {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    font-family: 'Poppins', sans-serif;
+}
+
+/* Top Bar & Header Nav */
+.mdl-landing header {
+    background: var(--secondary-color);
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
+}
+
+.mdl-landing .navbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    max-width: 1300px;
+    margin: 0 auto;
+    padding: 15px 20px;
+}
+
+.mdl-landing .logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 24px;
+    font-weight: 700;
+    color: #fff;
+    text-decoration: none;
+}
+
+.mdl-landing .logo img {
+    height: 34px;
+    width: 34px;
+    border-radius: 8px;
+    object-fit: cover;
+}
+
+.mdl-landing .logo span {
+    color: var(--accent-color);
+}
+
+.mdl-landing .nav-links {
+    display: flex;
+    list-style: none;
+    align-items: center;
+    gap: 15px;
+}
+
+.mdl-landing .nav-links a,
+.mdl-landing .nav-links button.link-btn {
+    color: #fff;
+    text-decoration: none;
+    font-size: 0.9rem;
+    font-weight: 500;
+    transition: 0.3s;
+    background: none;
+    border: none;
+    cursor: pointer;
+}
+
+.mdl-landing .nav-links a:hover,
+.mdl-landing .nav-links button.link-btn:hover {
+    color: var(--accent-color);
+}
+
+.mdl-landing .auth-buttons {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.mdl-landing .btn-nav {
+    padding: 6px 15px;
+    border-radius: 20px;
+    text-decoration: none;
+    font-size: 0.85rem;
+    font-weight: 600;
+    transition: 0.3s;
+}
+
+.mdl-landing .btn-signin {
+    border: 1px solid var(--accent-color);
+    color: var(--accent-color) !important;
+}
+
+.mdl-landing .btn-signin:hover {
+    background: var(--accent-color);
+    color: #000 !important;
+}
+
+.mdl-landing .btn-signup {
+    background: var(--primary-color);
+    color: #fff !important;
+}
+
+.mdl-landing .btn-signup:hover {
+    background: #0b5ed7;
+}
+
+/* Language Switcher Button */
+.mdl-landing .lang-btn {
+    background: #ffffff22;
+    color: #fff;
+    border: 1px solid rgba(255,255,255,0.4);
+    padding: 5px 12px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 0.85rem;
+}
+
+.mdl-landing .lang-btn:hover {
+    background: rgba(255,255,255,0.3);
+}
+
+/* Mobile Menu Toggle */
+.mdl-landing .menu-toggle {
+    display: none;
+    color: white;
+    font-size: 1.5rem;
+    cursor: pointer;
+    background: none;
+    border: none;
+}
+
+/* Hero Section */
+.mdl-landing .hero {
+    background: linear-gradient(rgba(13, 110, 253, 0.85), rgba(0, 43, 91, 0.9)), url('https://images.unsplash.com/photo-1516321318423-f06f85e504b3?ixlib=rb-1.2.1&auto=format&fit=crop&w=1350&q=80');
+    background-size: cover;
+    background-position: center;
+    color: white;
+    text-align: center;
+    padding: 80px 20px;
+}
+
+.mdl-landing .hero h1 {
+    font-size: 2.5rem;
+    margin-bottom: 15px;
+}
+
+.mdl-landing .hero p {
+    font-size: 1.1rem;
+    max-width: 700px;
+    margin: 0 auto 25px;
+}
+
+.mdl-landing .hero .hero-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 15px;
+    justify-content: center;
+}
+
+.mdl-landing .hero .btn-hero {
+    background-color: var(--accent-color);
+    color: #000;
+    padding: 12px 30px;
+    text-decoration: none;
+    font-weight: 600;
+    border-radius: 30px;
+    transition: 0.3s;
+    display: inline-block;
+    border: none;
+    cursor: pointer;
+    font-size: 1rem;
+}
+
+.mdl-landing .hero .btn-hero:hover {
+    background-color: #e0a800;
+    transform: translateY(-3px);
+}
+
+.mdl-landing .hero .btn-hero-outline {
+    background-color: transparent;
+    color: #fff;
+    padding: 12px 30px;
+    text-decoration: none;
+    font-weight: 600;
+    border-radius: 30px;
+    transition: 0.3s;
+    display: inline-block;
+    border: 2px solid #fff;
+}
+
+.mdl-landing .hero .btn-hero-outline:hover {
+    background-color: #fff;
+    color: var(--secondary-color);
+    transform: translateY(-3px);
+}
+
+/* Container & Sections */
+.mdl-landing .container {
+    max-width: 1200px;
+    margin: 50px auto;
+    padding: 0 20px;
+}
+
+.mdl-landing .section-title {
+    text-align: center;
+    margin-bottom: 40px;
+}
+
+.mdl-landing .section-title h2 {
+    font-size: 2rem;
+    color: var(--dark-color);
+    position: relative;
+    display: inline-block;
+}
+
+.mdl-landing .section-title h2::after {
+    content: '';
+    width: 50%;
+    height: 4px;
+    background: var(--primary-color);
+    display: block;
+    margin: 8px auto 0;
+    border-radius: 2px;
+}
+
+.mdl-landing .section-title p {
+    margin-top: 12px;
+    color: #666;
+    max-width: 650px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.mdl-landing .services-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 25px;
+}
+
+.mdl-landing .service-card {
+    background: var(--card-bg);
+    border-radius: 12px;
+    padding: 25px;
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.05);
+    transition: all 0.3s ease;
+    border-top: 4px solid var(--primary-color);
+    display: flex;
+    flex-direction: column;
+}
+
+.mdl-landing .service-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+}
+
+.mdl-landing .service-header {
+    display: flex;
+    align-items: center;
+    margin-bottom: 15px;
+}
+
+.mdl-landing .service-header i {
+    font-size: 1.8rem;
+    color: var(--primary-color);
+    margin-right: 15px;
+    background: #eef5ff;
+    padding: 12px;
+    border-radius: 10px;
+}
+
+.mdl-landing .service-header h3 {
+    font-size: 1.25rem;
+    color: var(--dark-color);
+}
+
+.mdl-landing .service-list {
+    list-style: none;
+    flex: 1;
+}
+
+.mdl-landing .service-list li {
+    padding: 8px 0;
+    border-bottom: 1px dashed #eee;
+    display: flex;
+    align-items: center;
+    font-size: 0.95rem;
+    color: #555;
+}
+
+.mdl-landing .service-list li:last-child {
+    border-bottom: none;
+}
+
+.mdl-landing .service-list li i {
+    color: #28a745;
+    margin-right: 10px;
+    font-size: 0.85rem;
+}
+
+.mdl-landing .service-price {
+    display: inline-block;
+    margin-top: 4px;
+    margin-left: 22px;
+    font-size: 0.8rem;
+    color: var(--primary-color);
+    font-weight: 600;
+}
+
+.mdl-landing .service-card .btn-card {
+    margin-top: 18px;
+    display: inline-block;
+    text-align: center;
+    background: var(--primary-color);
+    color: #fff;
+    text-decoration: none;
+    padding: 10px 18px;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 0.9rem;
+    transition: 0.3s;
+    border: none;
+    cursor: pointer;
+}
+
+.mdl-landing .service-card .btn-card:hover {
+    background: #0b5ed7;
+}
+
+/* About section */
+.mdl-landing .about-section {
+    background: var(--card-bg);
+}
+
+.mdl-landing .about-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 25px;
+}
+
+.mdl-landing .about-card {
+    text-align: center;
+    padding: 20px;
+}
+
+.mdl-landing .about-card i {
+    font-size: 2rem;
+    color: var(--primary-color);
+    background: #eef5ff;
+    padding: 18px;
+    border-radius: 50%;
+    margin-bottom: 15px;
+    display: inline-block;
+}
+
+.mdl-landing .about-card h3 {
+    color: var(--dark-color);
+    margin-bottom: 8px;
+    font-size: 1.1rem;
+}
+
+.mdl-landing .about-card p {
+    color: #666;
+    font-size: 0.92rem;
+}
+
+/* How it works */
+.mdl-landing .how-section {
+    background: var(--light-bg);
+}
+
+.mdl-landing .how-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 25px;
+}
+
+.mdl-landing .how-card {
+    background: var(--card-bg);
+    border-radius: 12px;
+    padding: 30px 25px;
+    text-align: center;
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.05);
+    position: relative;
+}
+
+.mdl-landing .how-step-number {
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    background: var(--secondary-color);
+    color: var(--accent-color);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    margin: 0 auto 15px;
+}
+
+.mdl-landing .how-card h3 {
+    color: var(--dark-color);
+    margin-bottom: 8px;
+    font-size: 1.1rem;
+}
+
+.mdl-landing .how-card p {
+    color: #666;
+    font-size: 0.92rem;
+}
+
+/* Download App section */
+.mdl-landing .app-section {
+    background: linear-gradient(135deg, var(--secondary-color), #013a75);
+    color: #fff;
+    text-align: center;
+    padding: 70px 20px;
+}
+
+.mdl-landing .app-section h2 {
+    font-size: 2rem;
+    margin-bottom: 15px;
+}
+
+.mdl-landing .app-section p {
+    max-width: 600px;
+    margin: 0 auto 30px;
+    color: rgba(255,255,255,0.85);
+}
+
+.mdl-landing .app-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 15px;
+    justify-content: center;
+    margin-bottom: 20px;
+}
+
+.mdl-landing .app-note {
+    font-size: 0.8rem;
+    color: rgba(255,255,255,0.6);
+    max-width: 480px;
+    margin: 0 auto;
+}
+
+/* Footer */
+.mdl-landing footer {
+    background: var(--secondary-color);
+    color: white;
+    padding: 40px 20px 20px;
+    margin-top: 50px;
+}
+
+.mdl-landing .footer-grid {
+    max-width: 1200px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 25px;
+    text-align: left;
+    margin-bottom: 25px;
+}
+
+.mdl-landing .footer-grid h4 {
+    color: var(--accent-color);
+    margin-bottom: 12px;
+    font-size: 0.95rem;
+}
+
+.mdl-landing .footer-grid a,
+.mdl-landing .footer-grid p {
+    display: block;
+    color: rgba(255,255,255,0.75);
+    text-decoration: none;
+    font-size: 0.88rem;
+    margin-bottom: 8px;
+    background: none;
+    border: none;
+    padding: 0;
+    text-align: left;
+    cursor: pointer;
+}
+
+.mdl-landing .footer-grid a:hover {
+    color: var(--accent-color);
+}
+
+.mdl-landing footer .bottom-bar {
+    text-align: center;
+    border-top: 1px solid rgba(255,255,255,0.15);
+    padding-top: 18px;
+}
+
+.mdl-landing footer .bottom-bar p {
+    font-size: 0.9rem;
+    opacity: 0.8;
+}
+
+/* WhatsApp Floating Button */
+.mdl-landing .whatsapp-float {
+    position: fixed;
+    width: 60px;
+    height: 60px;
+    bottom: 30px;
+    right: 30px;
+    background-color: #25d366;
+    color: #FFF;
+    border-radius: 50px;
+    text-align: center;
+    font-size: 32px;
+    box-shadow: 2px 2px 10px rgba(0, 0, 0, 0.3);
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+    transition: all 0.3s ease;
+}
+
+.mdl-landing .whatsapp-float:hover {
+    background-color: #128c7e;
+    transform: scale(1.1);
+    color: #fff;
+}
+
+.mdl-landing .whatsapp-float .tooltip-text {
+    visibility: hidden;
+    width: 140px;
+    background-color: #333;
+    color: #fff;
+    text-align: center;
+    border-radius: 6px;
+    padding: 5px;
+    position: absolute;
+    z-index: 1;
+    right: 70px;
+    font-size: 12px;
+    opacity: 0;
+    transition: opacity 0.3s;
+    white-space: nowrap;
+}
+
+.mdl-landing .whatsapp-float:hover .tooltip-text {
+    visibility: visible;
+    opacity: 1;
+}
+
+/* Responsive Fixes */
+@media (max-width: 992px) {
+    .mdl-landing .nav-links {
+        display: none;
+        flex-direction: column;
+        width: 100%;
+        position: absolute;
+        top: 65px;
+        left: 0;
+        background: var(--secondary-color);
+        padding: 20px;
+        box-shadow: 0 10px 10px rgba(0,0,0,0.2);
+    }
+
+    .mdl-landing .nav-links.active {
+        display: flex;
+    }
+
+    .mdl-landing .menu-toggle {
+        display: block;
+    }
+
+    .mdl-landing .auth-buttons {
+        flex-direction: column;
+        width: 100%;
+    }
+
+    .mdl-landing .btn-nav {
+        text-align: center;
+        width: 100%;
+    }
+}
+
+@media (max-width: 600px) {
+    .mdl-landing .hero h1 {
+        font-size: 1.9rem;
+    }
+}
