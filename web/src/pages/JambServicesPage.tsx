@@ -24,22 +24,22 @@ export default function JambServicesPage() {
   const [examYear, setExamYear] = useState(String(new Date().getFullYear()));
   const [sending, setSending] = useState(false);
   const [showPin, setShowPin] = useState(false);
-  const [feedback, setFeedback] = useState('');
+  const [feedback, setFeedback] = useState<{ message: string; status: 'success' | 'error' } | null>(null);
 
   function prepare(e: React.FormEvent) {
     e.preventDefault();
     if (registrationNumber.trim().length < 4 || fullName.trim().length < 3 || !/^20\d{2}$/.test(examYear)) {
-      setFeedback('Enter your JAMB registration number, full name and a valid exam year.');
+      setFeedback({ message: 'Enter your JAMB registration number, full name and a valid exam year.', status: 'error' });
       return;
     }
-    setFeedback('');
+    setFeedback(null);
     setShowPin(true);
   }
 
   async function submit(pin: string) {
     setShowPin(false);
     setSending(true);
-    setFeedback('');
+    setFeedback(null);
     try {
       const service = services.find((item) => item.id === serviceId)!;
       await api.post('/jamb/requests', {
@@ -50,9 +50,12 @@ export default function JambServicesPage() {
         pin
       });
       setRegistrationNumber(''); setFullName('');
-      setFeedback(`₦${service.price.toLocaleString()} has been deducted. Your request is now with K-Tech Solutions and will be delivered to My Deliveries.`);
+      setFeedback({
+        message: `₦${service.price.toLocaleString()} has been deducted. Your request is now with K-Tech Solutions and will be delivered to My Deliveries.`,
+        status: 'success'
+      });
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : 'Unable to send your JAMB request.');
+      setFeedback({ message: error instanceof Error ? error.message : 'Unable to send your JAMB request.', status: 'error' });
     } finally {
       setSending(false);
     }
@@ -91,7 +94,7 @@ export default function JambServicesPage() {
             <label className="mt-4 block text-sm font-semibold text-ink">Exam Year
               <input value={examYear} onChange={(e) => setExamYear(e.target.value.replace(/\D/g, '').slice(0, 4))} required inputMode="numeric" placeholder="e.g. 2026" className="mt-1.5 w-full rounded-lg border border-parchment-line bg-cream px-3 py-2.5 text-sm" />
             </label>
-            {feedback && <p className={`mt-3 rounded-lg p-3 text-sm ${feedback.startsWith('Your') ? 'bg-success-500/10 text-success-700' : 'bg-ember-500/10 text-ember-600'}`}>{feedback}</p>}
+            {feedback && <p className={`mt-3 rounded-lg p-3 text-sm ${feedback.status === 'success' ? 'bg-success-500/10 text-success-700' : 'bg-ember-500/10 text-ember-600'}`}>{feedback.message}</p>}
             <button disabled={sending} className="mt-4 flex items-center gap-2 rounded-lg bg-gold-500 px-4 py-2.5 text-sm font-bold text-ink disabled:opacity-60">
               {sending ? <Loader2 className="animate-spin" size={16} /> : <Send size={16} />} Continue to payment
             </button>

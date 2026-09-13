@@ -5,7 +5,6 @@ import { decryptTransactionPII } from '../../services/verification.service.js';
 import { completeModification } from '../../services/nin-modification.service.js';
 import { TransactionStatus, TransactionType } from '@prisma/client';
 import { refundWallet } from '../../services/wallet.service.js';
-import { notifyUser } from '../../services/notification.service.js';
 import { logAdminAction } from '../audit.js';
 import type { AdminSessionUser } from '../auth.js';
 
@@ -233,30 +232,15 @@ export const transactionResource: ResourceWithOptions = {
         }
       },
       completeJambRequest: {
-        actionType: 'record', icon: 'CheckCircle',
-        guard: 'Mark this JAMB request as completed? Confirm the document has already been uploaded to the customer.',
+        actionType: 'record', icon: 'UploadCloud',
         isAccessible: ({ currentAdmin, record }) => {
           const admin = currentAdmin as unknown as AdminSessionUser | undefined;
           return !!admin && admin.role !== 'SUPPORT' && record?.params?.type === 'JAMB_SERVICE_REQUEST' && record?.params?.status === 'PENDING';
         },
         handler: async (_request, _response, context) => {
           const { record, currentAdmin } = context;
-          const admin = currentAdmin as unknown as AdminSessionUser;
-          if (!record || !admin) throw new Error('Missing record or admin context');
-
-          const completed = await prisma.transaction.update({
-            where: { id: record.params.id as string },
-            data: { status: TransactionStatus.SUCCESS }
-          });
-          await logAdminAction({ adminId: admin.id, action: 'COMPLETE_JAMB_REQUEST', targetType: 'Transaction', targetId: completed.id, metadata: { reference: completed.reference } });
-          void notifyUser({
-            userId: completed.userId,
-            type: 'TRANSACTION',
-            title: 'JAMB request completed',
-            body: `Your JAMB request (${completed.reference}) is complete. Please check My Deliveries for your document.`,
-            data: { transactionId: completed.id, reference: completed.reference }
-          }).catch(() => undefined);
-          return { record: record.toJSON(currentAdmin), notice: { message: 'JAMB request marked as completed.', type: 'success' } };
+          if (!record) throw new Error('Missing record');
+          return { record: record.toJSON(currentAdmin), redirectUrl: `/admin/jamb/${record.params.id as string}/fulfil` };
         }
       },
       downloadBvnLicensePdf: {

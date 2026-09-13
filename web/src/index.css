@@ -84,43 +84,6 @@ select:focus-visible, textarea:focus-visible {
 }
 .ticker-track { animation: ticker-scroll 32s linear infinite; }
 .ticker-row:hover .ticker-track { animation-play-state: paused; }
-.service-tile {
-  isolation: isolate;
-  border: 1px solid rgba(99, 161, 255, .55);
-  background:
-    radial-gradient(circle at 82% 12%, rgba(90, 170, 255, .30), transparent 25%),
-    radial-gradient(circle at 12% 105%, rgba(15, 79, 174, .42), transparent 34%),
-    linear-gradient(135deg, #104b9d 0%, #0a3478 48%, #06295f 100%);
-  box-shadow: inset 0 1px 0 rgba(190, 223, 255, .18), 0 8px 20px rgba(12, 47, 104, .22);
-}
-.service-tile::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  opacity: .34;
-  background-image: radial-gradient(circle, #67a7ff 1.3px, transparent 1.8px);
-  background-size: 15px 15px;
-  background-position: -5px -5px;
-  mask-image: linear-gradient(120deg, #000 0%, transparent 54%);
-}
-.service-tile::after {
-  content: "";
-  position: absolute;
-  inset: auto -24% 7px;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, #6db0ff, transparent);
-  opacity: .78;
-}
-.service-tile:hover {
-  border-color: #b8daff;
-  box-shadow: inset 0 1px 0 rgba(220, 239, 255, .4), 0 12px 27px rgba(18, 85, 178, .42), 0 0 22px rgba(88, 161, 255, .20);
-}
-.service-tile-icon {
-  border: 1px solid rgba(255, 225, 131, .52);
-  background-color: rgba(255, 243, 205, .94) !important;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, .35), inset 0 1px 0 #fffdf4;
-}
 .premium-sidebar {
   border-right: 1px solid rgba(112, 170, 255, .38);
   background:
@@ -142,88 +105,22 @@ select:focus-visible, textarea:focus-visible {
 .premium-logout { border-top: 1px solid rgba(244, 194, 58, .2); color: #ffb09a; }
 .premium-logout:hover { background: rgba(220, 75, 45, .13); color: #ffd0c4; }
 
-.premium-activity {
-  overflow: hidden;
-  border-color: rgba(242, 194, 61, .7);
-  background: linear-gradient(135deg, #130d03 0%, #2e1d03 55%, #4a3107 100%);
-  box-shadow: 0 15px 32px rgba(25, 14, 0, .28), inset 0 1px rgba(255, 223, 126, .14);
+/* Gold/black "premium" service tiles (DashboardPage.tsx's ServiceTile).
+   Scoped to this one class on purpose - everything else (page containers,
+   forms, table/list columns) keeps the plain light cream/white look defined
+   at the top of this file, everywhere in the app. Any text placed directly
+   inside a .tile-premium card must stay white/cream for contrast against
+   this dark background - see .tile-premium-label and .tile-premium-badge
+   below rather than the default ink-900 text color. */
+.tile-premium {
+  border: 1px solid rgba(212, 175, 55, .45);
+  background: linear-gradient(150deg, #171106 0%, #2b1c05 55%, #4a3208 100%);
+  box-shadow: 0 10px 24px rgba(21, 16, 10, .28), inset 0 1px 0 rgba(255, 221, 117, .12);
 }
-.premium-activity-row { border-color: rgba(245, 208, 101, .55); }
-.premium-activity-title { color: #fff4c9; text-shadow: 0 1px 2px #000; }
-.premium-activity-date { color: #ffd86a; }
-.premium-activity-amount { color: #ffe69a; }
+.tile-premium:hover {
+  border-color: rgba(255, 211, 78, .8);
+  box-shadow: 0 14px 30px rgba(21, 16, 10, .36), 0 0 0 1px rgba(255, 211, 78, .2);
+}
+.tile-premium-label { color: #fff4c9; }
+.tile-premium-badge { background: rgba(255, 244, 201, .16); color: #ffe9a3; }
 
-/* Legacy page cards which still use the original light utility classes. */
-main .bg-white.rounded-xl,
-main .bg-white.rounded-2xl,
-main .bg-cream.rounded-xl.border,
-main .bg-cream.rounded-2xl.border {
-  border-color: rgba(212, 175, 55, .42) !important;
-  background: linear-gradient(145deg, #171106, #302004 62%, #4b3309) !important;
-  color: #fff4c9;
-  box-shadow: 0 12px 28px rgba(26, 15, 1, .17), inset 0 1px rgba(255, 221, 117, .12);
-}
-main .bg-white.rounded-xl .text-ink,
-main .bg-white.rounded-2xl .text-ink,
-main .bg-cream.rounded-xl.border .text-ink,
-main .bg-cream.rounded-2xl.border .text-ink { color: #fff4c9; }
-
-/* Premium surfaces used by service pages and shared containers.  The
-   selectors intentionally require a rounded card + border so form inputs
-   and status messages retain their semantic light/error colours. */
-main .rounded-2xl.border-parchment-line.bg-parchment,
-main .rounded-xl.border-parchment-line.bg-parchment,
-main .rounded-2xl.border.border-parchment-line.bg-parchment,
-main .rounded-xl.border.border-parchment-line.bg-parchment {
-  border-color: rgba(212, 175, 55, .42) !important;
-  background: linear-gradient(145deg, #171106 0%, #2b1c05 55%, #4a3208 100%) !important;
-  color: #fff4c9;
-  box-shadow: 0 12px 30px rgba(28, 17, 2, .16), inset 0 1px 0 rgba(255, 220, 112, .12);
-}
-
-main .rounded-2xl.border-parchment-line.bg-parchment h1,
-main .rounded-2xl.border-parchment-line.bg-parchment h2,
-main .rounded-2xl.border-parchment-line.bg-parchment h3,
-main .rounded-xl.border-parchment-line.bg-parchment h1,
-main .rounded-xl.border-parchment-line.bg-parchment h2,
-main .rounded-xl.border-parchment-line.bg-parchment h3 {
-  color: #fff4c9;
-}
-
-main .rounded-2xl.border-parchment-line.bg-parchment .text-ink-600,
-main .rounded-xl.border-parchment-line.bg-parchment .text-ink-600 {
-  color: #ead9a1;
-}
-
-main .rounded-2xl.border-parchment-line.bg-parchment:hover,
-main .rounded-xl.border-parchment-line.bg-parchment:hover {
-  border-color: rgba(255, 211, 78, .78) !important;
-  box-shadow: 0 16px 34px rgba(28, 17, 2, .24), 0 0 0 1px rgba(255, 211, 78, .18);
-}
-@media (prefers-reduced-motion: reduce) {
-  .ticker-track { animation: none; }
-}
-
-/* Dashboard opt-out: DashboardPage.tsx adds "dashboard-page" to <body> on
-   mount specifically so its own light cards (bg-white/bg-cream + rounded +
-   border) render as plain white/light instead of getting swept up by the
-   site-wide dark/gold "premium surfaces" rules above. Higher specificity
-   than those rules (extra body.dashboard-page class) plus !important is
-   what lets this win regardless of source order. Scoped to this one page on
-   purpose - the rest of the app keeps its current look until asked to
-   change too. */
-body.dashboard-page main .bg-white.rounded-xl,
-body.dashboard-page main .bg-white.rounded-2xl,
-body.dashboard-page main .bg-cream.rounded-xl.border,
-body.dashboard-page main .bg-cream.rounded-2xl.border {
-  border-color: #e2e8f0 !important;
-  background: #ffffff !important;
-  color: inherit !important;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, .06) !important;
-}
-body.dashboard-page main .bg-white.rounded-xl .text-ink,
-body.dashboard-page main .bg-white.rounded-2xl .text-ink,
-body.dashboard-page main .bg-cream.rounded-xl.border .text-ink,
-body.dashboard-page main .bg-cream.rounded-2xl.border .text-ink {
-  color: var(--color-ink-900) !important;
-}

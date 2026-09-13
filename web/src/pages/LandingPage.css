@@ -18,6 +18,14 @@
     color: #333;
     line-height: 1.6;
     min-height: 100vh;
+    /* A single overflowing child (long unbroken word, a fixed-width image)
+       is the classic cause of a mobile page looking entirely broken - the
+       viewport gets wider than the screen, every media query still thinks
+       it's looking at a "wide" layout, and the browser silently shrinks the
+       whole page to fit, making text and buttons look tiny and squashed.
+       This clips any such overflow at the source instead of at html/body,
+       so it can't zoom out the rest of the app's own routes. */
+    overflow-x: hidden;
 }
 
 .mdl-landing *,
@@ -31,7 +39,14 @@
 
 /* Top Bar & Header Nav */
 .mdl-landing header {
+    /* Plain-hex fallback painted first, var()-based color painted over it
+       second - belt-and-braces for older/compressing mobile browsers (UC
+       Browser, Opera Mini data-saving mode, etc.) that are common on
+       budget Android phones in this app's own market and sometimes have
+       weaker custom-property support than a modern desktop browser. */
+    background: #002b5b;
     background: var(--secondary-color);
+    position: -webkit-sticky;
     position: sticky;
     top: 0;
     z-index: 1000;
@@ -149,10 +164,19 @@
 .mdl-landing .menu-toggle {
     display: none;
     align-items: center;
+    justify-content: center;
     color: white;
     cursor: pointer;
     background: none;
     border: none;
+    /* The icon itself is only 22px - without an explicit tap target, real
+       touchscreens (not just a mouse pointer in devtools) miss this button
+       constantly, which reads to a user as "the menu button doesn't work"
+       even though the click handler is fine. */
+    min-width: 44px;
+    min-height: 44px;
+    padding: 8px;
+    margin: -8px;
 }
 
 /* Hero Section */
@@ -599,16 +623,48 @@
     .mdl-landing .nav-links {
         display: none;
         flex-direction: column;
+        align-items: stretch;
         width: 100%;
-        position: fixed;
-        top: 62px;
+        gap: 0;
+        /* Anchored to the header (position: sticky, so it's already a
+           containing block) via top:100% instead of `position: fixed` +
+           a hardcoded `top: 62px`. Two independent problems with the old
+           approach: (1) `position: fixed` is exactly the kind of feature
+           that data-saving/proxy mobile browsers (UC Browser, Opera Mini's
+           compression mode, etc. - common on the budget Android phones
+           this app's own users are on) are most likely to get wrong or
+           silently downgrade to `static`; `absolute` against a `sticky`
+           ancestor is far more universally supported. (2) `top: 62px` was
+           a guess at the header's height - wrong on any device where the
+           logo/header wraps to a second line, leaving a gap or overlap
+           above the dropdown. `top: 100%` is always exactly the header's
+           real rendered height, on any screen.
+           Spacing between items comes from margin-bottom on each `li`
+           below, not from flexbox `gap` (explicitly zeroed here) - some
+           older/compressing mobile engines silently ignore `gap` on flex
+           containers, which would collapse all the spacing; margin is
+           supported everywhere and never doubles up with a zeroed gap. */
+        position: absolute;
+        top: 100%;
         left: 0;
         right: 0;
         z-index: 1100;
+        background: #002b5b;
         background: var(--secondary-color);
         padding: 18px 20px 22px;
         box-shadow: 0 12px 22px rgba(0,0,0,0.28);
         border-top: 1px solid rgba(255,255,255,.14);
+        max-height: calc(100vh - 62px);
+        overflow-y: auto;
+    }
+
+    .mdl-landing .nav-links > li {
+        margin-bottom: 15px;
+        width: 100%;
+    }
+
+    .mdl-landing .nav-links > li:last-child {
+        margin-bottom: 0;
     }
 
     .mdl-landing .nav-links.active {
@@ -616,7 +672,7 @@
     }
 
     .mdl-landing .menu-toggle {
-        display: block;
+        display: flex;
     }
 
     .mdl-landing .auth-buttons {
@@ -650,13 +706,6 @@
     .mdl-landing .lang-btn {
         padding: 5px 8px;
         font-size: .76rem;
-    }
-
-    .mdl-landing .nav-links {
-        top: 62px;
-        max-height: calc(100vh - 62px);
-        overflow-y: auto;
-        align-items: stretch;
     }
 
     .mdl-landing .nav-links a,

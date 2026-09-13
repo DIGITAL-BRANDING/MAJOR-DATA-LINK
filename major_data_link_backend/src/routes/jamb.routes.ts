@@ -3,18 +3,20 @@ import { Router, type Request } from 'express';
 import { z } from 'zod';
 import { sealPII } from '../lib/pii.js';
 import { requireAuth } from '../middleware/auth.js';
-import { ApiError } from '../middleware/error.js';
 import { pinField, requirePinConfirmation } from '../lib/require-pin.js';
-import { prisma } from '../lib/prisma.js';
 import { notifyUser } from '../services/notification.service.js';
-import { debitWallet, refundWallet } from '../services/wallet.service.js';
+import { debitWallet } from '../services/wallet.service.js';
 
 export const jambRoutes = Router();
 
 jambRoutes.use(requireAuth);
 
-/** Server-side prices are authoritative. Never accept an amount from the browser. */
-const JAMB_SERVICES = {
+/**
+ * Server-side prices are authoritative. Never accept an amount from the
+ * browser. Exported so admin/jamb.ts (the "fulfil this request" admin page)
+ * can show the same label without redefining this table a second time.
+ */
+export const JAMB_SERVICES = {
   cbt_practice_software: { label: 'JAMB CBT Practice Software', price: 5000 },
   original_result: { label: 'JAMB Original Result', price: 2500 },
   admission_letter: { label: 'JAMB Admission Letter', price: 2000 },
@@ -39,8 +41,16 @@ jambRoutes.get('/services', (_req, res) => {
 /**
  * A JAMB document request is manual fulfilment, but it is still a paid service.
  * Debit happens only after the authenticated user's transaction PIN has been
- * checked, and the ledger row remains PENDING until an admin completes it or
- * reverses it (which refunds the wallet through the existing admin action).
+ * checked, and the ledger row remains PENDING until an admin completes it
+ * from the "Fulfil JAMB request" page (admin/jamb.ts) - which delivers the
+ * actual document to the customer's Deliveries inbox and marks this
+ * transaction SUCCESS in one step - or reverses it (which refunds the
+ * wallet through the existing generic admin action).
+ *
+ * The registration number, candidate name and exam year are only ever
+ * stored sealed inside this transaction's metadata (sealPII below) - never
+ * duplicated anywhere in plain text, so the admin fulfilment page is the
+ * only place that can decrypt and read them.
  */
 jambRoutes.post('/requests', async (req, res) => {
   const body = z.object({
@@ -71,39 +81,13 @@ jambRoutes.post('/requests', async (req, res) => {
     idempotencyKey: idempotencyKeyFrom(req)
   });
 
-  // A repeat of an already accepted request must never debit or create another ticket.
+  // A repeat of an already accepted request must never debit twice.
   if (debit.reused) {
     return res.json({
       status: true,
       message: 'This JAMB request was already received and is awaiting processing.',
       data: { reference: debit.reference, balance_after: debit.balanceAfter }
     });
-  }
-
-  try {
-    const user = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id } });
-    await prisma.supportTicket.create({
-      data: {
-        userId: user.id,
-        subject: `JAMB Service: ${selected.label} [${debit.reference}]`,
-        messages: {
-          create: {
-            senderType: 'USER',
-            senderId: user.id,
-            senderName: user.fullName,
-            message: `Paid JAMB service request\nReference: ${debit.reference}\nService: ${selected.label}\nAmount paid: ₦${selected.price.toLocaleString()}\n\nJAMB Registration Number: ${body.registration_number}\nCandidate Full Name: ${body.candidate_full_name}\nExam Year: ${body.exam_year}`
-          }
-        }
-      }
-    });
-  } catch (error) {
-    // Do not leave a user charged when the request cannot reach the admin queue.
-    await refundWallet({
-      transactionId: debit.transaction.id,
-      userId: req.user!.id,
-      reason: 'JAMB request could not be saved'
-    });
-    throw new ApiError(503, 'Your JAMB request could not be saved. The wallet charge has been reversed.', 'JAMB_REQUEST_FAILED');
   }
 
   void notifyUser({

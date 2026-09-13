@@ -1,0 +1,599 @@
+diff --git a/major_data_link_backend/src/admin/jamb.ts b/major_data_link_backend/src/admin/jamb.ts
+new file mode 100644
+index 0000000..726f355
+--- /dev/null
++++ b/major_data_link_backend/src/admin/jamb.ts
+@@ -0,0 +1,184 @@
++import { readFile } from 'node:fs/promises';
++import type { Request, Router } from 'express';
++import { TransactionStatus, TransactionType } from '@prisma/client';
++import { prisma } from '../lib/prisma.js';
++import { openPII } from '../lib/pii.js';
++import { JAMB_SERVICES } from '../routes/jamb.routes.js';
++import { createUserDelivery } from '../services/user-delivery.service.js';
++import { notifyUser } from '../services/notification.service.js';
++import { logAdminAction } from './audit.js';
++import type { AdminSessionUser } from './auth.js';
++
++declare module 'express-session' {
++  interface SessionData {
++    adminUser?: AdminSessionUser;
++  }
++}
++
++// Same req.files shape as admin/user-deliveries.ts - this router already has
++// express-formidable mounted ahead of every route on it (see
++// buildAuthenticatedRouter() in setup.ts), so this file must not add a
++// second body parser of its own.
++type Upload = { filepath?: string; path?: string; originalFilename?: string; name?: string; mimetype?: string; type?: string };
++function uploadedFile(req: Request) {
++  const files = (req as unknown as { files?: Record<string, Upload | Upload[]> }).files;
++  const value = files?.file;
++  return Array.isArray(value) ? value[0] : value;
++}
++
++function escapeHtml(value: string) {
++  return value.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
++}
++
++type JambPII = { registration_number?: string; candidate_full_name?: string; exam_year?: number | string };
++
++function renderPage(params: { transactionId: string; reference: string; status: string; serviceLabel: string; pii: JambPII | null; flash?: string }) {
++  const { transactionId, reference, status, serviceLabel, pii, flash } = params;
++  const isPending = status === 'PENDING';
++  return `<!doctype html><html><head><meta charset="utf-8"><title>Fulfil JAMB Request ${escapeHtml(reference)}</title>
++<style>
++  body{font:14px Arial,sans-serif;background:#f6f3ea;color:#201708;max-width:640px;margin:32px auto;padding:0 16px}
++  a{color:#8a6712}
++  section{background:#fff;border:1px solid #d4af37;border-radius:14px;padding:22px;margin:16px 0}
++  dl{display:grid;grid-template-columns:200px 1fr;gap:8px 12px;margin:0}
++  dt{font-weight:600;color:#6c5a2a}
++  dd{margin:0}
++  input[type=file]{display:block;margin:12px 0}
++  button{background:#171106;color:#ffe9a3;border:0;border-radius:8px;padding:11px 18px;font-weight:bold;cursor:pointer;font-size:1rem}
++  .badge{display:inline-block;padding:3px 12px;border-radius:12px;font-size:.8rem;font-weight:700}
++  .pending{background:#fff3cd;color:#856404}
++  .success{background:#d4edda;color:#155724}
++  .flash{background:#fdecea;color:#a12622;border-radius:8px;padding:10px 14px;margin-bottom:16px}
++  .hint{color:#6c5a2a;font-size:.9rem}
++</style></head><body>
++  <p><a href="/admin/resources/Transaction/records/${transactionId}/show">&larr; Back to transaction</a></p>
++  <h1 style="margin-bottom:4px">JAMB Request</h1>
++  <p class="hint">${escapeHtml(reference)}</p>
++  ${flash ? `<p class="flash">${escapeHtml(flash)}</p>` : ''}
++  <section>
++    <p><span class="badge ${isPending ? 'pending' : 'success'}">${escapeHtml(status)}</span></p>
++    <dl>
++      <dt>Service</dt><dd>${escapeHtml(serviceLabel)}</dd>
++      <dt>JAMB Registration Number</dt><dd>${escapeHtml(String(pii?.registration_number ?? '\u2014'))}</dd>
++      <dt>Candidate Full Name</dt><dd>${escapeHtml(String(pii?.candidate_full_name ?? '\u2014'))}</dd>
++      <dt>Exam Year</dt><dd>${escapeHtml(String(pii?.exam_year ?? '\u2014'))}</dd>
++    </dl>
++  </section>
++  ${
++    isPending
++      ? `<section>
++          <h2 style="margin-top:0">Upload the document</h2>
++          <p class="hint">PDF, PNG, or JPEG only, max 10MB. This is sent straight to the customer's Deliveries inbox and the request is marked complete.</p>
++          <form method="post" enctype="multipart/form-data">
++            <input type="file" name="file" accept="application/pdf,image/png,image/jpeg" required>
++            <button type="submit">Deliver &amp; mark complete</button>
++          </form>
++        </section>`
++      : `<p class="hint">This request is already ${escapeHtml(status)} - the document has been sent to the customer's Deliveries inbox.</p>`
++  }
++</body></html>`;
++}
++
++export function registerJambRoutes(router: Router) {
++  router.get('/jamb/:transactionId/fulfil', async (req: Request, res) => {
++    const admin = req.session?.adminUser;
++    if (!admin) return res.redirect('/admin/login');
++    if (admin.role === 'SUPPORT') {
++      return res.status(403).type('html').send('<p>Finance or Super Admin access required to fulfil JAMB requests.</p>');
++    }
++
++    const transactionId = Array.isArray(req.params.transactionId) ? req.params.transactionId[0] : req.params.transactionId;
++    const transaction = await prisma.transaction.findUnique({ where: { id: transactionId } });
++    if (!transaction || transaction.type !== TransactionType.JAMB_SERVICE_REQUEST) {
++      return res.status(404).type('html').send('<p>JAMB request not found.</p>');
++    }
++
++    const metadata = transaction.metadata as Record<string, unknown> | null;
++    const jambService = typeof metadata?.jamb_service === 'string' ? (metadata.jamb_service as keyof typeof JAMB_SERVICES) : undefined;
++    const serviceLabel = jambService ? JAMB_SERVICES[jambService]?.label ?? jambService : 'Unknown JAMB service';
++    const pii = openPII<JambPII>(metadata?.pii);
++
++    res.type('html').send(
++      renderPage({
++        transactionId: transaction.id,
++        reference: transaction.reference,
++        status: transaction.status,
++        serviceLabel,
++        pii,
++        flash: typeof req.query.flash === 'string' ? req.query.flash : undefined
++      })
++    );
++  });
++
++  router.post('/jamb/:transactionId/fulfil', async (req: Request, res) => {
++    const admin = req.session?.adminUser;
++    if (!admin) return res.redirect('/admin/login');
++    if (admin.role === 'SUPPORT') {
++      return res.status(403).type('html').send('<p>Finance or Super Admin access required to fulfil JAMB requests.</p>');
++    }
++
++    const transactionId = Array.isArray(req.params.transactionId) ? req.params.transactionId[0] : req.params.transactionId;
++    const redirectBack = (flash: string) => res.redirect(`/admin/jamb/${transactionId}/fulfil?flash=${encodeURIComponent(flash)}`);
++
++    const transaction = await prisma.transaction.findUnique({ where: { id: transactionId } });
++    if (!transaction || transaction.type !== TransactionType.JAMB_SERVICE_REQUEST) {
++      return res.status(404).type('html').send('<p>JAMB request not found.</p>');
++    }
++    if (transaction.status !== TransactionStatus.PENDING) {
++      return redirectBack('This request is no longer pending.');
++    }
++
++    const file = uploadedFile(req);
++    const filePath = file?.filepath ?? file?.path;
++    if (!filePath) {
++      return redirectBack('No file was uploaded. Please choose a file and try again.');
++    }
++
++    const metadata = transaction.metadata as Record<string, unknown> | null;
++    const jambService = typeof metadata?.jamb_service === 'string' ? (metadata.jamb_service as keyof typeof JAMB_SERVICES) : undefined;
++    const serviceLabel = jambService ? JAMB_SERVICES[jambService]?.label ?? 'JAMB Service Request' : 'JAMB Service Request';
++
++    try {
++      const bytes = await readFile(filePath);
++      const mime = file?.mimetype ?? file?.type ?? 'application/octet-stream';
++      const fileName = file?.originalFilename ?? file?.name ?? 'jamb-document';
++
++      // Deliver first, mark SUCCESS only after the delivery actually
++      // exists - a failed delivery must never leave the transaction marked
++      // done with nothing sent to the customer.
++      const delivery = await createUserDelivery({
++        userId: transaction.userId,
++        adminId: admin.id,
++        title: serviceLabel,
++        description: `Your ${serviceLabel} is ready. Reference: ${transaction.reference}`,
++        fileName,
++        mimeType: mime,
++        base64: bytes.toString('base64'),
++        reference: transaction.reference
++      });
++
++      await prisma.transaction.update({ where: { id: transaction.id }, data: { status: TransactionStatus.SUCCESS } });
++
++      await notifyUser({
++        userId: transaction.userId,
++        type: 'TRANSACTION',
++        title: `${serviceLabel} ready`,
++        body: `Your ${serviceLabel} has been delivered. Open Deliveries to download it. Reference: ${transaction.reference}`,
++        data: { transactionId: transaction.id, reference: transaction.reference, deliveryId: delivery.id }
++      });
++
++      await logAdminAction({
++        adminId: admin.id,
++        action: 'COMPLETE_JAMB_REQUEST',
++        targetType: 'Transaction',
++        targetId: transaction.id,
++        metadata: { reference: transaction.reference, fileName, deliveryId: delivery.id }
++      });
++
++      res.redirect(`/admin/resources/Transaction/records/${transaction.id}/show`);
++    } catch (error) {
++      const message = error instanceof Error ? error.message : 'Could not complete this request.';
++      redirectBack(message);
++    }
++  });
++}
+diff --git a/major_data_link_backend/src/admin/resources/transaction.resource.ts b/major_data_link_backend/src/admin/resources/transaction.resource.ts
+index f5639f7..e073b75 100644
+--- a/major_data_link_backend/src/admin/resources/transaction.resource.ts
++++ b/major_data_link_backend/src/admin/resources/transaction.resource.ts
+@@ -5,7 +5,6 @@ import { decryptTransactionPII } from '../../services/verification.service.js';
+ import { completeModification } from '../../services/nin-modification.service.js';
+ import { TransactionStatus, TransactionType } from '@prisma/client';
+ import { refundWallet } from '../../services/wallet.service.js';
+-import { notifyUser } from '../../services/notification.service.js';
+ import { logAdminAction } from '../audit.js';
+ import type { AdminSessionUser } from '../auth.js';
+ 
+@@ -233,30 +232,15 @@ export const transactionResource: ResourceWithOptions = {
+         }
+       },
+       completeJambRequest: {
+-        actionType: 'record', icon: 'CheckCircle',
+-        guard: 'Mark this JAMB request as completed? Confirm the document has already been uploaded to the customer.',
++        actionType: 'record', icon: 'UploadCloud',
+         isAccessible: ({ currentAdmin, record }) => {
+           const admin = currentAdmin as unknown as AdminSessionUser | undefined;
+           return !!admin && admin.role !== 'SUPPORT' && record?.params?.type === 'JAMB_SERVICE_REQUEST' && record?.params?.status === 'PENDING';
+         },
+         handler: async (_request, _response, context) => {
+           const { record, currentAdmin } = context;
+-          const admin = currentAdmin as unknown as AdminSessionUser;
+-          if (!record || !admin) throw new Error('Missing record or admin context');
+-
+-          const completed = await prisma.transaction.update({
+-            where: { id: record.params.id as string },
+-            data: { status: TransactionStatus.SUCCESS }
+-          });
+-          await logAdminAction({ adminId: admin.id, action: 'COMPLETE_JAMB_REQUEST', targetType: 'Transaction', targetId: completed.id, metadata: { reference: completed.reference } });
+-          void notifyUser({
+-            userId: completed.userId,
+-            type: 'TRANSACTION',
+-            title: 'JAMB request completed',
+-            body: `Your JAMB request (${completed.reference}) is complete. Please check My Deliveries for your document.`,
+-            data: { transactionId: completed.id, reference: completed.reference }
+-          }).catch(() => undefined);
+-          return { record: record.toJSON(currentAdmin), notice: { message: 'JAMB request marked as completed.', type: 'success' } };
++          if (!record) throw new Error('Missing record');
++          return { record: record.toJSON(currentAdmin), redirectUrl: `/admin/jamb/${record.params.id as string}/fulfil` };
+         }
+       },
+       downloadBvnLicensePdf: {
+diff --git a/major_data_link_backend/src/admin/setup.ts b/major_data_link_backend/src/admin/setup.ts
+index fc5af4f..e55ffca 100644
+--- a/major_data_link_backend/src/admin/setup.ts
++++ b/major_data_link_backend/src/admin/setup.ts
+@@ -14,6 +14,7 @@ import { registerUserWalletRoutes } from './user-wallet.js';
+ import { registerCustomerActivityRoutes } from './customer-activity.js';
+ import { registerNinModificationRoutes } from './nin-modification.js';
+ import { registerBvnLicenseRoutes } from './bvn-license-onboarding.js';
++import { registerJambRoutes } from './jamb.js';
+ import { componentLoader, Components } from './component-loader.js';
+ import { userResource } from './resources/user.resource.js';
+ import { transactionResource } from './resources/transaction.resource.js';
+@@ -181,6 +182,7 @@ export async function buildAdminRouter() {
+   registerCustomerActivityRoutes(router);
+   registerNinModificationRoutes(router);
+   registerBvnLicenseRoutes(router);
++  registerJambRoutes(router);
+   registerUserDeliveryRoutes(router);
+ 
+   return { admin, router };
+diff --git a/major_data_link_backend/src/routes/jamb.routes.ts b/major_data_link_backend/src/routes/jamb.routes.ts
+index 93c8ebc..cd41347 100644
+--- a/major_data_link_backend/src/routes/jamb.routes.ts
++++ b/major_data_link_backend/src/routes/jamb.routes.ts
+@@ -3,18 +3,20 @@ import { Router, type Request } from 'express';
+ import { z } from 'zod';
+ import { sealPII } from '../lib/pii.js';
+ import { requireAuth } from '../middleware/auth.js';
+-import { ApiError } from '../middleware/error.js';
+ import { pinField, requirePinConfirmation } from '../lib/require-pin.js';
+-import { prisma } from '../lib/prisma.js';
+ import { notifyUser } from '../services/notification.service.js';
+-import { debitWallet, refundWallet } from '../services/wallet.service.js';
++import { debitWallet } from '../services/wallet.service.js';
+ 
+ export const jambRoutes = Router();
+ 
+ jambRoutes.use(requireAuth);
+ 
+-/** Server-side prices are authoritative. Never accept an amount from the browser. */
+-const JAMB_SERVICES = {
++/**
++ * Server-side prices are authoritative. Never accept an amount from the
++ * browser. Exported so admin/jamb.ts (the "fulfil this request" admin page)
++ * can show the same label without redefining this table a second time.
++ */
++export const JAMB_SERVICES = {
+   cbt_practice_software: { label: 'JAMB CBT Practice Software', price: 5000 },
+   original_result: { label: 'JAMB Original Result', price: 2500 },
+   admission_letter: { label: 'JAMB Admission Letter', price: 2000 },
+@@ -39,8 +41,16 @@ jambRoutes.get('/services', (_req, res) => {
+ /**
+  * A JAMB document request is manual fulfilment, but it is still a paid service.
+  * Debit happens only after the authenticated user's transaction PIN has been
+- * checked, and the ledger row remains PENDING until an admin completes it or
+- * reverses it (which refunds the wallet through the existing admin action).
++ * checked, and the ledger row remains PENDING until an admin completes it
++ * from the "Fulfil JAMB request" page (admin/jamb.ts) - which delivers the
++ * actual document to the customer's Deliveries inbox and marks this
++ * transaction SUCCESS in one step - or reverses it (which refunds the
++ * wallet through the existing generic admin action).
++ *
++ * The registration number, candidate name and exam year are only ever
++ * stored sealed inside this transaction's metadata (sealPII below) - never
++ * duplicated anywhere in plain text, so the admin fulfilment page is the
++ * only place that can decrypt and read them.
+  */
+ jambRoutes.post('/requests', async (req, res) => {
+   const body = z.object({
+@@ -71,7 +81,7 @@ jambRoutes.post('/requests', async (req, res) => {
+     idempotencyKey: idempotencyKeyFrom(req)
+   });
+ 
+-  // A repeat of an already accepted request must never debit or create another ticket.
++  // A repeat of an already accepted request must never debit twice.
+   if (debit.reused) {
+     return res.json({
+       status: true,
+@@ -80,32 +90,6 @@ jambRoutes.post('/requests', async (req, res) => {
+     });
+   }
+ 
+-  try {
+-    const user = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id } });
+-    await prisma.supportTicket.create({
+-      data: {
+-        userId: user.id,
+-        subject: `JAMB Service: ${selected.label} [${debit.reference}]`,
+-        messages: {
+-          create: {
+-            senderType: 'USER',
+-            senderId: user.id,
+-            senderName: user.fullName,
+-            message: `Paid JAMB service request\nReference: ${debit.reference}\nService: ${selected.label}\nAmount paid: ₦${selected.price.toLocaleString()}\n\nJAMB Registration Number: ${body.registration_number}\nCandidate Full Name: ${body.candidate_full_name}\nExam Year: ${body.exam_year}`
+-          }
+-        }
+-      }
+-    });
+-  } catch (error) {
+-    // Do not leave a user charged when the request cannot reach the admin queue.
+-    await refundWallet({
+-      transactionId: debit.transaction.id,
+-      userId: req.user!.id,
+-      reason: 'JAMB request could not be saved'
+-    });
+-    throw new ApiError(503, 'Your JAMB request could not be saved. The wallet charge has been reversed.', 'JAMB_REQUEST_FAILED');
+-  }
+-
+   void notifyUser({
+     userId: req.user!.id,
+     type: 'TRANSACTION',
+diff --git a/web/src/index.css b/web/src/index.css
+index 0ff832a..aac0b52 100644
+--- a/web/src/index.css
++++ b/web/src/index.css
+@@ -84,43 +84,6 @@ select:focus-visible, textarea:focus-visible {
+ }
+ .ticker-track { animation: ticker-scroll 32s linear infinite; }
+ .ticker-row:hover .ticker-track { animation-play-state: paused; }
+-.service-tile {
+-  isolation: isolate;
+-  border: 1px solid rgba(99, 161, 255, .55);
+-  background:
+-    radial-gradient(circle at 82% 12%, rgba(90, 170, 255, .30), transparent 25%),
+-    radial-gradient(circle at 12% 105%, rgba(15, 79, 174, .42), transparent 34%),
+-    linear-gradient(135deg, #104b9d 0%, #0a3478 48%, #06295f 100%);
+-  box-shadow: inset 0 1px 0 rgba(190, 223, 255, .18), 0 8px 20px rgba(12, 47, 104, .22);
+-}
+-.service-tile::before {
+-  content: "";
+-  position: absolute;
+-  inset: 0;
+-  z-index: -1;
+-  opacity: .34;
+-  background-image: radial-gradient(circle, #67a7ff 1.3px, transparent 1.8px);
+-  background-size: 15px 15px;
+-  background-position: -5px -5px;
+-  mask-image: linear-gradient(120deg, #000 0%, transparent 54%);
+-}
+-.service-tile::after {
+-  content: "";
+-  position: absolute;
+-  inset: auto -24% 7px;
+-  height: 1px;
+-  background: linear-gradient(90deg, transparent, #6db0ff, transparent);
+-  opacity: .78;
+-}
+-.service-tile:hover {
+-  border-color: #b8daff;
+-  box-shadow: inset 0 1px 0 rgba(220, 239, 255, .4), 0 12px 27px rgba(18, 85, 178, .42), 0 0 22px rgba(88, 161, 255, .20);
+-}
+-.service-tile-icon {
+-  border: 1px solid rgba(255, 225, 131, .52);
+-  background-color: rgba(255, 243, 205, .94) !important;
+-  box-shadow: 0 4px 12px rgba(0, 0, 0, .35), inset 0 1px 0 #fffdf4;
+-}
+ .premium-sidebar {
+   border-right: 1px solid rgba(112, 170, 255, .38);
+   background:
+@@ -142,88 +105,22 @@ select:focus-visible, textarea:focus-visible {
+ .premium-logout { border-top: 1px solid rgba(244, 194, 58, .2); color: #ffb09a; }
+ .premium-logout:hover { background: rgba(220, 75, 45, .13); color: #ffd0c4; }
+ 
+-.premium-activity {
+-  overflow: hidden;
+-  border-color: rgba(242, 194, 61, .7);
+-  background: linear-gradient(135deg, #130d03 0%, #2e1d03 55%, #4a3107 100%);
+-  box-shadow: 0 15px 32px rgba(25, 14, 0, .28), inset 0 1px rgba(255, 223, 126, .14);
+-}
+-.premium-activity-row { border-color: rgba(245, 208, 101, .55); }
+-.premium-activity-title { color: #fff4c9; text-shadow: 0 1px 2px #000; }
+-.premium-activity-date { color: #ffd86a; }
+-.premium-activity-amount { color: #ffe69a; }
+-
+-/* Legacy page cards which still use the original light utility classes. */
+-main .bg-white.rounded-xl,
+-main .bg-white.rounded-2xl,
+-main .bg-cream.rounded-xl.border,
+-main .bg-cream.rounded-2xl.border {
+-  border-color: rgba(212, 175, 55, .42) !important;
+-  background: linear-gradient(145deg, #171106, #302004 62%, #4b3309) !important;
+-  color: #fff4c9;
+-  box-shadow: 0 12px 28px rgba(26, 15, 1, .17), inset 0 1px rgba(255, 221, 117, .12);
+-}
+-main .bg-white.rounded-xl .text-ink,
+-main .bg-white.rounded-2xl .text-ink,
+-main .bg-cream.rounded-xl.border .text-ink,
+-main .bg-cream.rounded-2xl.border .text-ink { color: #fff4c9; }
+-
+-/* Premium surfaces used by service pages and shared containers.  The
+-   selectors intentionally require a rounded card + border so form inputs
+-   and status messages retain their semantic light/error colours. */
+-main .rounded-2xl.border-parchment-line.bg-parchment,
+-main .rounded-xl.border-parchment-line.bg-parchment,
+-main .rounded-2xl.border.border-parchment-line.bg-parchment,
+-main .rounded-xl.border.border-parchment-line.bg-parchment {
+-  border-color: rgba(212, 175, 55, .42) !important;
+-  background: linear-gradient(145deg, #171106 0%, #2b1c05 55%, #4a3208 100%) !important;
+-  color: #fff4c9;
+-  box-shadow: 0 12px 30px rgba(28, 17, 2, .16), inset 0 1px 0 rgba(255, 220, 112, .12);
+-}
++/* Gold/black "premium" service tiles (DashboardPage.tsx's ServiceTile).
++   Scoped to this one class on purpose - everything else (page containers,
++   forms, table/list columns) keeps the plain light cream/white look defined
++   at the top of this file, everywhere in the app. Any text placed directly
++   inside a .tile-premium card must stay white/cream for contrast against
++   this dark background - see .tile-premium-label and .tile-premium-badge
++   below rather than the default ink-900 text color. */
++.tile-premium {
++  border: 1px solid rgba(212, 175, 55, .45);
++  background: linear-gradient(150deg, #171106 0%, #2b1c05 55%, #4a3208 100%);
++  box-shadow: 0 10px 24px rgba(21, 16, 10, .28), inset 0 1px 0 rgba(255, 221, 117, .12);
++}
++.tile-premium:hover {
++  border-color: rgba(255, 211, 78, .8);
++  box-shadow: 0 14px 30px rgba(21, 16, 10, .36), 0 0 0 1px rgba(255, 211, 78, .2);
++}
++.tile-premium-label { color: #fff4c9; }
++.tile-premium-badge { background: rgba(255, 244, 201, .16); color: #ffe9a3; }
+ 
+-main .rounded-2xl.border-parchment-line.bg-parchment h1,
+-main .rounded-2xl.border-parchment-line.bg-parchment h2,
+-main .rounded-2xl.border-parchment-line.bg-parchment h3,
+-main .rounded-xl.border-parchment-line.bg-parchment h1,
+-main .rounded-xl.border-parchment-line.bg-parchment h2,
+-main .rounded-xl.border-parchment-line.bg-parchment h3 {
+-  color: #fff4c9;
+-}
+-
+-main .rounded-2xl.border-parchment-line.bg-parchment .text-ink-600,
+-main .rounded-xl.border-parchment-line.bg-parchment .text-ink-600 {
+-  color: #ead9a1;
+-}
+-
+-main .rounded-2xl.border-parchment-line.bg-parchment:hover,
+-main .rounded-xl.border-parchment-line.bg-parchment:hover {
+-  border-color: rgba(255, 211, 78, .78) !important;
+-  box-shadow: 0 16px 34px rgba(28, 17, 2, .24), 0 0 0 1px rgba(255, 211, 78, .18);
+-}
+-@media (prefers-reduced-motion: reduce) {
+-  .ticker-track { animation: none; }
+-}
+-
+-/* Dashboard opt-out: DashboardPage.tsx adds "dashboard-page" to <body> on
+-   mount specifically so its own light cards (bg-white/bg-cream + rounded +
+-   border) render as plain white/light instead of getting swept up by the
+-   site-wide dark/gold "premium surfaces" rules above. Higher specificity
+-   than those rules (extra body.dashboard-page class) plus !important is
+-   what lets this win regardless of source order. Scoped to this one page on
+-   purpose - the rest of the app keeps its current look until asked to
+-   change too. */
+-body.dashboard-page main .bg-white.rounded-xl,
+-body.dashboard-page main .bg-white.rounded-2xl,
+-body.dashboard-page main .bg-cream.rounded-xl.border,
+-body.dashboard-page main .bg-cream.rounded-2xl.border {
+-  border-color: #e2e8f0 !important;
+-  background: #ffffff !important;
+-  color: inherit !important;
+-  box-shadow: 0 1px 3px rgba(15, 23, 42, .06) !important;
+-}
+-body.dashboard-page main .bg-white.rounded-xl .text-ink,
+-body.dashboard-page main .bg-white.rounded-2xl .text-ink,
+-body.dashboard-page main .bg-cream.rounded-xl.border .text-ink,
+-body.dashboard-page main .bg-cream.rounded-2xl.border .text-ink {
+-  color: var(--color-ink-900) !important;
+-}
+diff --git a/web/src/pages/DashboardPage.tsx b/web/src/pages/DashboardPage.tsx
+index 0c402a6..1a8c451 100644
+--- a/web/src/pages/DashboardPage.tsx
++++ b/web/src/pages/DashboardPage.tsx
+@@ -72,16 +72,6 @@ export default function DashboardPage() {
+   const [loadedTransactions, setLoadedTransactions] = useState(false);
+   const [copied, setCopied] = useState(false);
+ 
+-  // Scoped opt-out of the site-wide dark/gold card skin (see the
+-  // "body.dashboard-page" rules in index.css) - the dashboard is the page
+-  // people land on most often, so it gets a plain, high-contrast light
+-  // layout that's easy to read for everyone, while the rest of the app
+-  // keeps its existing look until asked to change too.
+-  useEffect(() => {
+-    document.body.classList.add('dashboard-page');
+-    return () => document.body.classList.remove('dashboard-page');
+-  }, []);
+-
+   useEffect(() => {
+     api.get<WalletBalance>('/wallet/balance').then(setWallet).catch(() => {});
+     api
+@@ -288,17 +278,17 @@ function ServiceTile({
+   return (
+     <Link
+       to={route}
+-      className="group relative flex min-h-40 flex-col items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 text-center shadow-sm transition duration-200 hover:-translate-y-1 hover:border-brand-200 hover:shadow-md"
++      className="tile-premium group relative flex min-h-40 flex-col items-center justify-center overflow-hidden rounded-2xl p-4 text-center transition duration-200 hover:-translate-y-1"
+     >
+       {!implemented && (
+-        <span className="absolute right-2 top-2 z-10 rounded-full bg-slate-100 px-2 py-1 font-body text-[9px] font-semibold uppercase tracking-wide text-slate-500">
++        <span className="tile-premium-badge absolute right-2 top-2 z-10 rounded-full px-2 py-1 font-body text-[9px] font-semibold uppercase tracking-wide">
+           Soon
+         </span>
+       )}
+       <div className={`relative z-10 h-16 w-16 overflow-hidden rounded-2xl border-2 border-white shadow-sm ${colors.bg}`}>
+         {SERVICE_IMAGES[label] ? <img src={SERVICE_IMAGES[label]} alt="" className="h-full w-full object-contain p-1 transition duration-200 group-hover:scale-110" /> : <span className={`absolute inset-0 flex items-center justify-center ${colors.text}`}><Icon size={24} /></span>}
+       </div>
+-      <span className="relative z-10 mt-3 font-body text-sm font-bold leading-tight text-ink-900">{label}</span>
++      <span className="tile-premium-label relative z-10 mt-3 font-body text-sm font-bold leading-tight">{label}</span>
+     </Link>
+   );
+ }
+diff --git a/web/src/pages/JambServicesPage.tsx b/web/src/pages/JambServicesPage.tsx
+index d8af11b..9edec3c 100644
+--- a/web/src/pages/JambServicesPage.tsx
++++ b/web/src/pages/JambServicesPage.tsx
+@@ -24,22 +24,22 @@ export default function JambServicesPage() {
+   const [examYear, setExamYear] = useState(String(new Date().getFullYear()));
+   const [sending, setSending] = useState(false);
+   const [showPin, setShowPin] = useState(false);
+-  const [feedback, setFeedback] = useState('');
++  const [feedback, setFeedback] = useState<{ message: string; status: 'success' | 'error' } | null>(null);
+ 
+   function prepare(e: React.FormEvent) {
+     e.preventDefault();
+     if (registrationNumber.trim().length < 4 || fullName.trim().length < 3 || !/^20\d{2}$/.test(examYear)) {
+-      setFeedback('Enter your JAMB registration number, full name and a valid exam year.');
++      setFeedback({ message: 'Enter your JAMB registration number, full name and a valid exam year.', status: 'error' });
+       return;
+     }
+-    setFeedback('');
++    setFeedback(null);
+     setShowPin(true);
+   }
+ 
+   async function submit(pin: string) {
+     setShowPin(false);
+     setSending(true);
+-    setFeedback('');
++    setFeedback(null);
+     try {
+       const service = services.find((item) => item.id === serviceId)!;
+       await api.post('/jamb/requests', {
+@@ -50,9 +50,12 @@ export default function JambServicesPage() {
+         pin
+       });
+       setRegistrationNumber(''); setFullName('');
+-      setFeedback(`₦${service.price.toLocaleString()} has been deducted. Your request is now with K-Tech Solutions and will be delivered to My Deliveries.`);
++      setFeedback({
++        message: `₦${service.price.toLocaleString()} has been deducted. Your request is now with K-Tech Solutions and will be delivered to My Deliveries.`,
++        status: 'success'
++      });
+     } catch (error) {
+-      setFeedback(error instanceof Error ? error.message : 'Unable to send your JAMB request.');
++      setFeedback({ message: error instanceof Error ? error.message : 'Unable to send your JAMB request.', status: 'error' });
+     } finally {
+       setSending(false);
+     }
+@@ -91,7 +94,7 @@ export default function JambServicesPage() {
+             <label className="mt-4 block text-sm font-semibold text-ink">Exam Year
+               <input value={examYear} onChange={(e) => setExamYear(e.target.value.replace(/\D/g, '').slice(0, 4))} required inputMode="numeric" placeholder="e.g. 2026" className="mt-1.5 w-full rounded-lg border border-parchment-line bg-cream px-3 py-2.5 text-sm" />
+             </label>
+-            {feedback && <p className={`mt-3 rounded-lg p-3 text-sm ${feedback.startsWith('Your') ? 'bg-success-500/10 text-success-700' : 'bg-ember-500/10 text-ember-600'}`}>{feedback}</p>}
++            {feedback && <p className={`mt-3 rounded-lg p-3 text-sm ${feedback.status === 'success' ? 'bg-success-500/10 text-success-700' : 'bg-ember-500/10 text-ember-600'}`}>{feedback.message}</p>}
+             <button disabled={sending} className="mt-4 flex items-center gap-2 rounded-lg bg-gold-500 px-4 py-2.5 text-sm font-bold text-ink disabled:opacity-60">
+               {sending ? <Loader2 className="animate-spin" size={16} /> : <Send size={16} />} Continue to payment
+             </button>

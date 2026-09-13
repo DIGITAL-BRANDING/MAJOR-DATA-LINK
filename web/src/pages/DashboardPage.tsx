@@ -72,16 +72,6 @@ export default function DashboardPage() {
   const [loadedTransactions, setLoadedTransactions] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  // Scoped opt-out of the site-wide dark/gold card skin (see the
-  // "body.dashboard-page" rules in index.css) - the dashboard is the page
-  // people land on most often, so it gets a plain, high-contrast light
-  // layout that's easy to read for everyone, while the rest of the app
-  // keeps its existing look until asked to change too.
-  useEffect(() => {
-    document.body.classList.add('dashboard-page');
-    return () => document.body.classList.remove('dashboard-page');
-  }, []);
-
   useEffect(() => {
     api.get<WalletBalance>('/wallet/balance').then(setWallet).catch(() => {});
     api
@@ -288,17 +278,17 @@ function ServiceTile({
   return (
     <Link
       to={route}
-      className="group relative flex min-h-40 flex-col items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 text-center shadow-sm transition duration-200 hover:-translate-y-1 hover:border-brand-200 hover:shadow-md"
+      className="tile-premium group relative flex min-h-40 flex-col items-center justify-center overflow-hidden rounded-2xl p-4 text-center transition duration-200 hover:-translate-y-1"
     >
       {!implemented && (
-        <span className="absolute right-2 top-2 z-10 rounded-full bg-slate-100 px-2 py-1 font-body text-[9px] font-semibold uppercase tracking-wide text-slate-500">
+        <span className="tile-premium-badge absolute right-2 top-2 z-10 rounded-full px-2 py-1 font-body text-[9px] font-semibold uppercase tracking-wide">
           Soon
         </span>
       )}
       <div className={`relative z-10 h-16 w-16 overflow-hidden rounded-2xl border-2 border-white shadow-sm ${colors.bg}`}>
         {SERVICE_IMAGES[label] ? <img src={SERVICE_IMAGES[label]} alt="" className="h-full w-full object-contain p-1 transition duration-200 group-hover:scale-110" /> : <span className={`absolute inset-0 flex items-center justify-center ${colors.text}`}><Icon size={24} /></span>}
       </div>
-      <span className="relative z-10 mt-3 font-body text-sm font-bold leading-tight text-ink-900">{label}</span>
+      <span className="tile-premium-label relative z-10 mt-3 font-body text-sm font-bold leading-tight">{label}</span>
     </Link>
   );
 }
