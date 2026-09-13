@@ -24,7 +24,7 @@ import {
   verifyPartnerFunding
 } from '../services/partner-funding.service.js';
 import { TransactionStatus, TransactionType } from '@prisma/client';
-import { listVerificationPrices } from '../services/verification.service.js';
+import { listVerificationPricesForPartner } from '../services/verification.service.js';
 
 /**
  * Self-service partner portal - a normal email+password login for the
@@ -402,7 +402,7 @@ partnerPortalRoutes.get('/pricing', requirePartnerSession, async (_req, res) => 
   // of network/plan combinations), so it doesn't fit a fixed tile grid the
   // way a handful of flat-rate verification services do. See
   // GET /data/plans/:network on the commercial API for live plan pricing.
-  const prices = await listVerificationPrices();
+  const prices = await listVerificationPricesForPartner();
   res.json({
     status: true,
     data: prices.filter((p) => p.isActive).map((p) => ({ service: p.service, label: p.label, unit_price: p.unitPrice }))
