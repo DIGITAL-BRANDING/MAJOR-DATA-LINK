@@ -1,9 +1,9 @@
 export default function Logo({ dark = false, className = '' }: { dark?: boolean; className?: string }) {
   return (
-    <div className={`flex items-center gap-2.5 ${className}`}>
-      <img src="/branding/logo.png" alt="" className="h-9 w-9 rounded-lg object-cover" />
+    <div className={`flex min-w-0 items-center gap-2 sm:gap-2.5 ${className}`}>
+      <img src="/branding/logo.png" alt="" className="h-8 w-8 shrink-0 rounded-lg object-cover sm:h-9 sm:w-9" />
       <span
-        className={`font-display text-lg font-bold tracking-tight ${
+        className={`truncate font-display text-sm font-bold tracking-tight sm:text-lg ${
           dark ? 'text-cream' : 'text-ink'
         }`}
       >
