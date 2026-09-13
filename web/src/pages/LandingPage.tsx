@@ -4,7 +4,6 @@ import {
   Menu,
   X,
   Download,
-  MessageCircle,
   Smartphone,
   Fingerprint,
   GraduationCap,
@@ -25,6 +24,7 @@ import './LandingPage.css';
 import { useAuth } from '../lib/auth';
 import { api } from '../lib/api';
 import { CONTACT, whatsappLink, ANDROID_APK_URL } from '../lib/contact';
+import WhatsAppIcon from '../components/WhatsAppIcon';
 
 // This page's own contact details — see the note by the footer section
 // below for why these are kept separate from lib/contact.ts.
@@ -321,7 +321,7 @@ export default function LandingPage() {
             rel="noreferrer"
             className="btn-hero"
           >
-            <MessageCircle size={18} /> {L.heroWhatsapp}
+            <WhatsAppIcon size={18} /> {L.heroWhatsapp}
           </a>
           <Link to={user ? '/dashboard' : '/register'} className="btn-hero-outline">
             {L.heroGetStarted}
@@ -557,7 +557,7 @@ export default function LandingPage() {
           <div>
             <h4>{L.footerContactHeading}</h4>
             <a href={whatsappLink('Hello K-Tech Solutions, I need help')} target="_blank" rel="noreferrer">
-              <MessageCircle size={15} /> {L.footerWhatsappSupport}
+              <WhatsAppIcon size={15} /> {L.footerWhatsappSupport}
             </a>
             <a href={CONTACT.whatsappChannelUrl} target="_blank" rel="noreferrer">
               <Radio size={15} /> {L.footerChannel}
@@ -585,7 +585,7 @@ export default function LandingPage() {
         target="_blank"
         rel="noreferrer"
       >
-        <MessageCircle size={28} />
+        <WhatsAppIcon size={28} />
         <span className="tooltip-text">{L.waTooltip}</span>
       </a>
     </div>
