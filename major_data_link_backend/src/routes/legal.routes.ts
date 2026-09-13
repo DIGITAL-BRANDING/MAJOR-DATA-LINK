@@ -7,7 +7,7 @@ export const legalRoutes = Router();
 // Matches major_data_link/lib/core/config/app_config.dart's supportEmailDisplay/supportWhatsApp/supportPhoneAlt.
 // If you change contact details there, update these constants too.
 const SUPPORT_EMAIL = 'kindnesscomp20@gmail.com / sunusiusama94@gmail.com';
-const SUPPORT_WHATSAPP = '+2348037289774';
+const SUPPORT_WHATSAPP = '+2347041371095';
 const SUPPORT_PHONE_ALT = '07025859543';
 const SUPPORT_WHATSAPP_CHANNEL_URL = 'https://whatsapp.com/channel/0029Vb8KzHy5PO0stgnsNy0l';
 

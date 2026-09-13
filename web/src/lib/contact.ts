@@ -2,7 +2,7 @@
 // major_data_link_backend/src/routes/legal.routes.ts. If contact details
 // change, update all three.
 export const CONTACT = {
-  whatsapp: '+2348037289774',
+  whatsapp: '+2347041371095',
   phoneAlt: '07025859543',
   whatsappChannelUrl: 'https://whatsapp.com/channel/0029Vb8KzHy5PO0stgnsNy0l',
   email: 'kindnesscomp20@gmail.com',

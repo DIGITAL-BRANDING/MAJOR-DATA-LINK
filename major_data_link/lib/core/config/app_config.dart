@@ -129,7 +129,7 @@ class AppConfig {
 
   // â”€â”€ Support â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   static const String adminWhatsApp = '+2348037289774';
-  static const String supportWhatsApp = '+2348037289774';
+  static const String supportWhatsApp = '+2347041371095';
   // Second phone line (shown alongside the WhatsApp number on
   // privacy/terms/support pages, not a WhatsApp-enabled number).
   static const String supportPhoneAlt = '07025859543';
