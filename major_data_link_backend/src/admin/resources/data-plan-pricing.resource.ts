@@ -112,7 +112,7 @@ export const dataPlanPricingResource: ResourceWithOptions = {
       providerCostNaira: {
         type: 'string',
         isDisabled: true,
-        isVisible: { list: true, filter: false, show: true, edit: false, new: false },
+        isVisible: { list: true, filter: false, show: true, edit: false },
         description: 'Same value as Provider Cost (Kobo), shown in Naira for reference only.'
       },
       sellingPriceKobo: {
@@ -120,7 +120,7 @@ export const dataPlanPricingResource: ResourceWithOptions = {
       },
       sellingPriceNaira: {
         type: 'string',
-        isVisible: { list: true, filter: false, show: true, edit: true, new: false },
+        isVisible: { list: true, filter: false, show: true, edit: true },
         description: 'Same price as above, in Naira (e.g. 230). Easier to type than kobo - fill this instead of "Selling Price (Kobo)" if you prefer.'
       }
     }
