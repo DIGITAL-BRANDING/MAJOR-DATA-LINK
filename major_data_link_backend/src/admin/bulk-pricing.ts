@@ -4,7 +4,7 @@ import type { AdminSessionUser } from './auth.js';
 import { prisma } from '../lib/prisma.js';
 import { dataPlanPricingService } from '../services/data-plan-pricing.service.js';
 import { getPricingSettings, updatePricingSettings } from '../services/pricing-settings.service.js';
-import { applyServiceMarkup, listServicePricesForAdmin, updateServicePrice } from '../services/result-pin.service.js';
+import { listServicePricesForAdmin, updateServicePrice } from '../services/result-pin.service.js';
 import { listVerificationPricesForAdmin } from '../services/verification.service.js';
 
 // @adminjs/express stores the logged-in admin as `req.session.adminUser`
@@ -47,13 +47,20 @@ function field(req: Request, name: string): string {
  * buildAdminRouter() in setup.ts, which mounts this), reusing
  * req.session.adminUser the exact way @adminjs/express does internally.
  *
- * Three independent tools on one page:
- *  1. Default markup (PricingSettings) - the fallback used for any plan
- *     with no price override at all.
- *  2. Bulk reprice Data Plans - set sellingPrice = cost + %  + ₦ for every
- *     plan (optionally filtered to one network) in a single click.
- *  3. Bulk reprice Techhub/Alrahuz services - same idea for the much
- *     shorter NIN/BVN + WAEC/NECO/NABTEB list.
+ * Five tools on one page:
+ *  1. Provider switch - which upstream (Alrahuz/BilalSadaSub) fulfills each
+ *     purchase type, plus Cable/Electricity markup %.
+ *  2. Default markup (PricingSettings) - the fallback used for any data
+ *     plan with no price override of its own.
+ *  3. Bulk reprice Data Plans by formula - set sellingPrice = cost + % + ₦
+ *     for every plan in a network (or all networks) in one click. Still
+ *     the only practical way to touch all 250+ rows at once; for that many
+ *     rows a formula beats hand-typing every price.
+ *  4 & 5. Manual exact prices - Data Plans / Services - tick a row (or just
+ *     start typing its new price, which ticks it automatically) and set
+ *     its exact Naira price, then save. This is what an admin reaches for
+ *     when they know precisely what a handful of services or plans should
+ *     cost, rather than deriving it from a markup formula.
  */
 export function registerBulkPricingRoutes(router: Router) {
   router.get('/bulk-pricing', async (req, res) => {
@@ -207,35 +214,6 @@ export function registerBulkPricingRoutes(router: Router) {
     }
   });
 
-  router.post('/bulk-pricing/services', async (req, res) => {
-    const admin = requireFinanceOrSuper(req);
-    if (!admin) return res.redirect('/admin/login');
-
-    const percent = parseNonNegativeNumber(field(req, 'markupPercent'));
-    const naira = parseNonNegativeNumber(field(req, 'markupNaira'));
-    const providerRaw = field(req, 'provider');
-    const provider = providerRaw === 'alrahuz' ? 'alrahuz' : providerRaw === 'techhub' ? 'techhub' : null;
-    if (percent === null || naira === null || !provider) {
-      return res.redirect('/admin/bulk-pricing?flash=' + encodeFlash('error', 'Markup % and ₦ must both be valid numbers ≥ 0, and a provider must be selected.'));
-    }
-
-    try {
-      const result = await applyServiceMarkup({ provider, markupNaira: naira, markupPercent: percent });
-      await logAdminAction({
-        adminId: admin.id,
-        action: 'BULK_REPRICE_SERVICES',
-        targetType: 'ServicePricing',
-        metadata: { provider, markupPercent: percent, markupNaira: naira, updated: result.updated }
-      });
-
-      const label = provider === 'techhub' ? 'NIN/BVN verification services' : 'WAEC/NECO/NABTEB result-pin services';
-      const skippedNote = result.skipped > 0 ? ` (${result.skipped} skipped - non-positive computed price)` : '';
-      res.redirect('/admin/bulk-pricing?flash=' + encodeFlash('success', `Repriced ${result.updated} ${label} at cost + ${percent}% + ₦${naira}.${skippedNote}`));
-    } catch (error) {
-      console.error('[bulk-pricing] services bulk markup failed:', error);
-      res.redirect('/admin/bulk-pricing?flash=' + encodeFlash('error', 'Something went wrong repricing services. Some rows may already be updated - check the server logs.'));
-    }
-  });
   router.post('/bulk-pricing/data-plans-manual', async (req, res) => {
     const admin = requireFinanceOrSuper(req);
     if (!admin) return res.redirect('/admin/login');
@@ -277,7 +255,8 @@ export function registerBulkPricingRoutes(router: Router) {
         metadata: { network, updated, skipped: skipped.length, selectedCount: selections.length }
       });
 
-      const skippedNote = skipped.length > 0 ? ` (${skipped.length} skipped - check their price field wasn't left blank or zero)` : '';
+      const skippedNote =
+        skipped.length > 0 ? ` Skipped (blank/zero/invalid price): ${skipped.slice(0, 8).join(', ')}${skipped.length > 8 ? `, +${skipped.length - 8} more` : ''}.` : '';
       res.redirect(
         `/admin/bulk-pricing?dpNetwork=${encodeURIComponent(network)}&flash=` +
           encodeFlash('success', `Updated ${updated} data plan price(s).${skippedNote}`)
@@ -324,7 +303,8 @@ export function registerBulkPricingRoutes(router: Router) {
         metadata: { updated, skipped: skipped.length, selectedCount: selections.length }
       });
 
-      const skippedNote = skipped.length > 0 ? ` (${skipped.length} skipped - check their price field wasn't left blank or zero)` : '';
+      const skippedNote =
+        skipped.length > 0 ? ` Skipped (blank/zero/invalid price): ${skipped.slice(0, 8).join(', ')}${skipped.length > 8 ? `, +${skipped.length - 8} more` : ''}.` : '';
       res.redirect('/admin/bulk-pricing?flash=' + encodeFlash('success', `Updated ${updated} service price(s).${skippedNote}`));
     } catch (error) {
       console.error('[bulk-pricing] manual service save failed:', error);
@@ -431,7 +411,7 @@ function renderPage(params: {
       (p) => `<tr>
         <td><input type="checkbox" name="selected_${escape(p.id)}"></td>
         <td><b>${escape(p.name)}</b><div class="muted">${escape(p.network)} &middot; cost NGN ${p.provider_cost.toFixed(2)}${p.is_active ? '' : ' &middot; <span style="color:#B3261E">inactive</span>'}</div></td>
-        <td><input type="number" step="0.01" min="0" name="price_${escape(p.id)}" value="${p.selling_price.toFixed(2)}"></td>
+        <td><input type="number" step="0.01" min="0" name="price_${escape(p.id)}" value="${p.selling_price.toFixed(2)}" oninput="this.closest('tr').querySelector('input[type=checkbox]').checked = true"></td>
       </tr>`
     )
     .join('');
@@ -441,7 +421,7 @@ function renderPage(params: {
       (s) => `<tr>
         <td><input type="checkbox" name="selected_${escape(s.service)}"></td>
         <td><b>${escape(s.label)}</b><div class="muted">${s.provider === 'techhub' ? 'NIN/BVN' : 'Result Pin'} &middot; cost NGN ${s.provider_cost.toFixed(2)}${s.is_active ? '' : ' &middot; <span style="color:#B3261E">inactive</span>'}</div></td>
-        <td><input type="number" step="0.01" min="0" name="price_${escape(s.service)}" value="${(s.selling_price ?? s.provider_cost).toFixed(2)}"></td>
+        <td><input type="number" step="0.01" min="0" name="price_${escape(s.service)}" value="${(s.selling_price ?? s.provider_cost).toFixed(2)}" oninput="this.closest('tr').querySelector('input[type=checkbox]').checked = true"></td>
       </tr>`
     )
     .join('');
@@ -473,8 +453,6 @@ function renderPage(params: {
   .flash.success { background: #EAF7EE; color: #1E7B34; border: 1px solid #BFE6C8; }
   .flash.error { background: #FDECEC; color: #B3261E; border: 1px solid #F3C6C4; }
   .current { font-size: 13px; color: var(--muted); margin-top: 4px; }
-  .provider-choice { display: flex; gap: 16px; margin-top: 12px; }
-  .provider-choice label { display: flex; align-items: center; gap: 6px; font-weight: 500; margin: 0; }
   .manual-table-wrap { max-height: 420px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px; }
   table.manual { width: 100%; border-collapse: collapse; font-size: 13px; }
   table.manual th { position: sticky; top: 0; background: var(--card); text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); font-size: 12px; color: var(--muted); }
@@ -496,26 +474,7 @@ function renderPage(params: {
   ${flashHtml}
 
   <div class="card">
-    <h2>1. Default markup</h2>
-    <p class="hint">Applied automatically to any data plan that has no price set of its own. Takes effect immediately — no redeploy needed.</p>
-    <p class="current">Current: ${settings.dataPlanMarkupPercent}% + ₦${settings.dataPlanMarkupNaira}</p>
-    <form method="POST" action="/admin/bulk-pricing/default-markup">
-      <div class="row">
-        <div>
-          <label>Markup %</label>
-          <input type="number" name="dataPlanMarkupPercent" step="0.01" min="0" value="${settings.dataPlanMarkupPercent}" required>
-        </div>
-        <div>
-          <label>Markup ₦ (flat)</label>
-          <input type="number" name="dataPlanMarkupNaira" step="0.01" min="0" value="${settings.dataPlanMarkupNaira}" required>
-        </div>
-      </div>
-      <button type="submit">Save default markup</button>
-    </form>
-  </div>
-
-  <div class="card">
-    <h2>0. Provider switch</h2>
+    <h2>1. Provider switch</h2>
     <p class="hint">Which upstream fulfills each purchase type. Switches instantly, no redeploy - a live customer's very next request uses the new provider. Cable TV and Electricity always use BilalSadaSub (Alrahuz doesn't offer them).</p>
     <form method="POST" action="/admin/bulk-pricing/provider-switch">
       <label>Data &amp; Airtime provider</label>
@@ -543,7 +502,26 @@ function renderPage(params: {
   </div>
 
   <div class="card">
-    <h2>2. Bulk reprice data plans</h2>
+    <h2>2. Default markup</h2>
+    <p class="hint">Applied automatically to any data plan that has no price set of its own. Takes effect immediately — no redeploy needed.</p>
+    <p class="current">Current: ${settings.dataPlanMarkupPercent}% + ₦${settings.dataPlanMarkupNaira}</p>
+    <form method="POST" action="/admin/bulk-pricing/default-markup">
+      <div class="row">
+        <div>
+          <label>Markup %</label>
+          <input type="number" name="dataPlanMarkupPercent" step="0.01" min="0" value="${settings.dataPlanMarkupPercent}" required>
+        </div>
+        <div>
+          <label>Markup ₦ (flat)</label>
+          <input type="number" name="dataPlanMarkupNaira" step="0.01" min="0" value="${settings.dataPlanMarkupNaira}" required>
+        </div>
+      </div>
+      <button type="submit">Save default markup</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>3. Bulk reprice data plans</h2>
     <p class="hint">Sets selling price = provider cost + % + ₦ for every plan in the chosen network (or all networks). Overwrites any price already set on those plans.</p>
     <form method="POST" action="/admin/bulk-pricing/data-plans" onsubmit="return confirm('This overwrites the selling price on every matching data plan. Continue?');">
       <label>Network</label>
@@ -572,30 +550,8 @@ function renderPage(params: {
   </div>
 
   <div class="card">
-    <h2>3. Bulk reprice services</h2>
-    <p class="hint">Same idea for the NIN/BVN verification list (Techhub) or the WAEC/NECO/NABTEB result-pin list (Alrahuz).</p>
-    <form method="POST" action="/admin/bulk-pricing/services" onsubmit="return confirm('This overwrites the selling price on every matching service. Continue?');">
-      <div class="provider-choice">
-        <label><input type="radio" name="provider" value="techhub" checked> NIN/BVN (Techhub)</label>
-        <label><input type="radio" name="provider" value="alrahuz"> WAEC/NECO/NABTEB (Alrahuz)</label>
-      </div>
-      <div class="row">
-        <div>
-          <label>Markup %</label>
-          <input type="number" name="markupPercent" step="0.01" min="0" value="0" required>
-        </div>
-        <div>
-          <label>Markup ₦ (flat)</label>
-          <input type="number" name="markupNaira" step="0.01" min="0" value="0" required>
-        </div>
-      </div>
-      <button type="submit">Apply to services</button>
-    </form>
-  </div>
-
-  <div class="card">
     <h2>4. Manual prices — Data Plans</h2>
-    <p class="hint">Tick the plans you want to reprice, type the exact price for each, then save. Only ticked rows are touched - editing a price without ticking its box does nothing.</p>
+    <p class="hint">Type the exact new price for whichever plans you want to change - typing into a price field automatically ticks that row for saving. Rows you never touch (checkbox stays unticked) are left exactly as they are.</p>
     <form method="GET" action="/admin/bulk-pricing">
       <label>Network</label>
       <select name="dpNetwork" onchange="this.form.submit()">
@@ -621,7 +577,7 @@ function renderPage(params: {
 
   <div class="card">
     <h2>5. Manual prices — Services</h2>
-    <p class="hint">Same idea for NIN/BVN verification and WAEC/NECO/NABTEB result pins - tick, type a price, save. Only ticked rows are touched.</p>
+    <p class="hint">Same idea for NIN/BVN verification and WAEC/NECO/NABTEB result pins - type a new price and that row is automatically ticked for saving. Untouched rows are left exactly as they are.</p>
     <form method="POST" action="/admin/bulk-pricing/services-manual" onsubmit="return confirmManualSave(this, 'service')">
       <div class="select-all-row">
         <input type="checkbox" onclick="toggleAll(this, 'svc-manual-table')">
