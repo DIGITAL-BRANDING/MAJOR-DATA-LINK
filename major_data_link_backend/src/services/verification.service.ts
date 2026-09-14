@@ -8,8 +8,21 @@ import { recordProviderDebit } from './provider-ledger.service.js';
 import {
   techhubService,
   type TechhubBvnTier,
+  type TechhubSlipResult,
   type TechhubSlipTier
 } from './techhub.service.js';
+import { franceverifiedSlipAdapter } from './franceverified-slip-adapter.service.js';
+
+/**
+ * Which upstream API actually fulfils a given ServicePricing row right now -
+ * admin-editable per service, NOT a global switch. See the `provider` column
+ * comment on ServicePricing in schema.prisma. Add a new value here (and a
+ * matching branch in slipCallFor()/asyncCallFor() below) whenever a service
+ * gains a second real provider - so far that's only the four NIN/BVN slip
+ * flows (FranceVerified's JSON-only responses get turned into a PDF by
+ * franceverified-slip-adapter.service.ts).
+ */
+export type VerificationProvider = 'techhub' | 'franceverified';
 
 /**
  * Matches VerificationServiceX.key in the Flutter app's
@@ -167,7 +180,12 @@ export async function getVerificationPrice(service: VerificationServiceKey, opts
     service: row.service,
     label: row.label,
     unitPrice: koboToNaira(unitKobo),
-    providerCostKobo: row.providerCostKobo
+    providerCostKobo: row.providerCostKobo,
+    // Which upstream API actually fulfils this service right now - admin-set
+    // via PATCH /api/admin/service-prices/:service or the "Verification
+    // Pricing" AdminJS page. Free-text column (see schema.prisma), so
+    // 'franceverified' needs no migration to become a valid value here.
+    provider: row.provider as VerificationProvider
   };
 }
 
@@ -204,6 +222,7 @@ export async function listVerificationPricesForAdmin() {
   return rows.map((row) => ({
     service: row.service,
     label: row.label,
+    provider: row.provider,
     provider_cost: koboToNaira(row.providerCostKobo),
     selling_price: row.sellingPriceKobo ? koboToNaira(row.sellingPriceKobo) : null,
     partner_selling_price: row.partnerSellingPriceKobo ? koboToNaira(row.partnerSellingPriceKobo) : null,
@@ -248,9 +267,25 @@ async function purchaseSlip(params: {
   operational: Record<string, unknown>;
   pii: Record<string, unknown>;
   idempotencyKey?: string;
-  call: () => ReturnType<typeof techhubService.ninByNin>;
+  // One call per provider this service could be routed to. Only the branch
+  // matching the resolved ServicePricing.provider is ever invoked - see
+  // slipCallFor() usage at each call site below for which providers a given
+  // slip flow actually supports today.
+  callByProvider: Partial<Record<VerificationProvider, () => Promise<TechhubSlipResult>>>;
 }): Promise<SlipPurchaseResult> {
   const price = await getVerificationPrice(params.service);
+  const call = params.callByProvider[price.provider];
+  if (!call) {
+    // Admin pointed this service at a provider that has no implementation
+    // for it yet (e.g. NIN Personalization has no FranceVerified
+    // equivalent - see franceverified/nin.service.ts) - fail loud rather
+    // than silently falling back to a provider the admin didn't choose.
+    throw new ApiError(
+      500,
+      `${price.label} has no implementation for provider "${price.provider}" - check the Verification Pricing admin page`,
+      'PROVIDER_NOT_IMPLEMENTED'
+    );
+  }
 
   const debit = await debitWallet({
     userId: params.userId,
@@ -264,8 +299,9 @@ async function purchaseSlip(params: {
       pii: sealPII(params.pii)
     } as Prisma.InputJsonValue,
     idempotencyKey: params.idempotencyKey,
-    // Techhub quotes one flat rate per slip family (see the DEFAULTS comment
-    // above) - fixed and known up front, no balance-delta correction needed.
+    // Both providers quote one flat rate per slip family (see the DEFAULTS
+    // comment above) - fixed and known up front, no balance-delta correction
+    // needed either way.
     costKobo: price.providerCostKobo
   });
 
@@ -283,34 +319,34 @@ async function purchaseSlip(params: {
     };
   }
 
-  const provider = await params.call();
+  const result = await call();
 
-  if (provider.ok) {
+  if (result.ok) {
     const existingMetadata = debit.transaction.metadata as Record<string, unknown> | null;
     await prisma.transaction.update({
       where: { id: debit.transaction.id },
       data: {
         status: TransactionStatus.SUCCESS,
-        provider: 'techhub',
+        provider: price.provider,
         metadata: {
           service: params.service,
           ...params.operational,
           unit_price: price.unitPrice,
           pii: mergeSealedPII(existingMetadata?.pii, {
             ...params.pii,
-            user_data: provider.userData,
-            pdf_base64: provider.pdfBase64,
-            pdf_url: provider.pdfUrl
+            user_data: result.userData,
+            pdf_base64: result.pdfBase64,
+            pdf_url: result.pdfUrl
           })
         } as Prisma.InputJsonValue
       }
     });
 
-    // Techhub quotes one flat rate per slip family, already stored as
+    // Both providers quote one flat rate per slip family, already stored as
     // price.providerCostKobo above - no balance-delta correction available
     // or needed (unlike Alrahuz data/airtime).
     await recordProviderDebit({
-      provider: 'techhub',
+      provider: price.provider,
       amountKobo: price.providerCostKobo,
       relatedTransactionId: debit.transaction.id,
       description: params.description
@@ -320,24 +356,24 @@ async function purchaseSlip(params: {
 
     return {
       status: true,
-      message: provider.message,
+      message: result.message,
       reference: debit.reference,
-      userData: provider.userData,
-      pdfBase64: provider.pdfBase64,
-      pdfUrl: provider.pdfUrl,
+      userData: result.userData,
+      pdfBase64: result.pdfBase64,
+      pdfUrl: result.pdfUrl,
       balanceAfter: debit.balanceAfter
     };
   }
 
   await prisma.transaction.update({
     where: { id: debit.transaction.id },
-    data: { status: TransactionStatus.FAILED, provider: 'techhub' }
+    data: { status: TransactionStatus.FAILED, provider: price.provider }
   });
   const refunded = await refundWallet({ transactionId: debit.transaction.id, userId: params.userId });
 
   return {
     status: false,
-    message: provider.message,
+    message: result.message,
     reference: debit.reference,
     balanceAfter: koboToNaira(refunded.balanceAfterKobo)
   };
@@ -370,7 +406,14 @@ export function purchaseNinByNin(params: { userId: string; nin: string; tier: Te
     operational: { mode: 'by_nin', tier: params.tier },
     pii: { nin: params.nin },
     idempotencyKey: params.idempotencyKey,
-    call: () => techhubService.ninByNin(params.nin, params.tier)
+    // FranceVerified's /nin/verify/nin has no premium/standard/regular/vnin
+    // concept of its own (that's a Techhub-only distinction) - whichever
+    // tier's ServicePricing row is pointed at franceverified calls the same
+    // underlying endpoint. Admin can still price each tier differently.
+    callByProvider: {
+      techhub: () => techhubService.ninByNin(params.nin, params.tier),
+      franceverified: () => franceverifiedSlipAdapter.ninByNin(params.nin)
+    }
   });
 }
 
@@ -388,7 +431,10 @@ export function purchaseNinByPhone(params: {
     operational: { mode: 'by_phone', tier: params.tier },
     pii: { phone: params.phone },
     idempotencyKey: params.idempotencyKey,
-    call: () => techhubService.ninByPhone(params.phone, params.tier)
+    callByProvider: {
+      techhub: () => techhubService.ninByPhone(params.phone, params.tier),
+      franceverified: () => franceverifiedSlipAdapter.ninByPhone(params.phone)
+    }
   });
 }
 
@@ -413,13 +459,22 @@ export function purchaseNinByDemographic(params: {
       gender: params.gender
     },
     idempotencyKey: params.idempotencyKey,
-    call: () =>
-      techhubService.ninByDemographic({
-        firstname: params.firstname,
-        lastname: params.lastname,
-        dob: params.dob,
-        gender: params.gender
-      })
+    callByProvider: {
+      techhub: () =>
+        techhubService.ninByDemographic({
+          firstname: params.firstname,
+          lastname: params.lastname,
+          dob: params.dob,
+          gender: params.gender
+        }),
+      franceverified: () =>
+        franceverifiedSlipAdapter.ninByDemographic({
+          firstname: params.firstname,
+          lastname: params.lastname,
+          dob: params.dob,
+          gender: params.gender
+        })
+    }
   });
 }
 
@@ -432,7 +487,10 @@ export function purchaseBvnSlip(params: { userId: string; bvn: string; tier: Tec
     operational: { tier: params.tier },
     pii: { bvn: params.bvn },
     idempotencyKey: params.idempotencyKey,
-    call: () => techhubService.bvnSlip(params.bvn, params.tier)
+    callByProvider: {
+      techhub: () => techhubService.bvnSlip(params.bvn, params.tier),
+      franceverified: () => franceverifiedSlipAdapter.bvnSlip(params.bvn)
+    }
   });
 }
 

@@ -180,14 +180,22 @@ adminApiRoutes.patch('/service-prices/:service', requireFinanceAdmin, async (req
     selling_price: z.number().positive().nullable().optional(),
     partner_selling_price: z.number().positive().nullable().optional(),
     provider_cost: z.number().positive().optional(),
-    is_active: z.boolean().optional()
+    is_active: z.boolean().optional(),
+    // Which upstream API fulfils this service - see the `provider` property
+    // description on the ServicePricing AdminJS resource for the exact
+    // recognized values per service family. Not validated against an enum
+    // here (ServicePricing.provider is a free-text column so new providers
+    // never need a migration) - an unrecognized value simply fails the next
+    // purchase loudly (PROVIDER_NOT_IMPLEMENTED) instead of mischarging.
+    provider: z.string().trim().toLowerCase().min(1).optional()
   }).parse(req.body);
 
   const row = await updateServicePrice(routeParam(req.params.service).toUpperCase(), {
     sellingPrice: body.selling_price,
     partnerSellingPrice: body.partner_selling_price,
     providerCost: body.provider_cost,
-    isActive: body.is_active
+    isActive: body.is_active,
+    provider: body.provider
   });
 
   res.json({
@@ -195,6 +203,7 @@ adminApiRoutes.patch('/service-prices/:service', requireFinanceAdmin, async (req
     data: {
       service: row.service,
       label: row.label,
+      provider: row.provider,
       provider_cost: Number(row.providerCostKobo) / 100,
       selling_price: row.sellingPriceKobo ? Number(row.sellingPriceKobo) / 100 : null,
       partner_selling_price: row.partnerSellingPriceKobo ? Number(row.partnerSellingPriceKobo) / 100 : null,

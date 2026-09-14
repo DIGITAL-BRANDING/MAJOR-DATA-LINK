@@ -96,7 +96,7 @@ export const servicePricingResource: ResourceWithOptions = {
       'createdAt',
       'updatedAt'
     ],
-    editProperties: ['sellingPriceKobo', 'sellingPriceNaira', 'partnerSellingPriceKobo', 'partnerSellingPriceNaira', 'isActive'],
+    editProperties: ['provider', 'sellingPriceKobo', 'sellingPriceNaira', 'partnerSellingPriceKobo', 'partnerSellingPriceNaira', 'isActive'],
     filterProperties: ['provider', 'service', 'isActive'],
     actions: {
       new: { isAccessible: false },
@@ -136,6 +136,10 @@ export const servicePricingResource: ResourceWithOptions = {
       }
     },
     properties: {
+      provider: {
+        description:
+          'Which upstream API fulfils this service - must exactly match a value the code recognizes (case-sensitive, lowercase): "techhub" or "franceverified" for NIN/BVN verification services (service starts with NIN_/BVN_/IPE_), "alrahuz" for WAEC/NECO/NABTEB result-pin services. An unrecognized value fails the purchase loudly instead of silently charging the wrong provider - check verification.service.ts / result-pin.service.ts if unsure.'
+      },
       providerCostKobo: {
         isDisabled: true,
         description: 'What the provider (Techhub/Alrahuz) charges us, in kobo. Example: 12000 = NGN 120.'
