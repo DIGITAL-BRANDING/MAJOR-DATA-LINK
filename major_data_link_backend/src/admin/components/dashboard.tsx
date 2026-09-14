@@ -86,9 +86,15 @@ const quickLinks: QuickLink[] = [
   },
   {
     label: 'Service Pricing',
-    description: 'NIN/BVN (Techhub) & result pin (Alrahuz) prices',
+    description: 'NIN/BVN provider, prices & result-pin prices',
     resourceId: 'ServicePricing',
     icon: 'Tag'
+  },
+  {
+    label: 'NIN/BVN Provider',
+    description: 'Switch NIN and BVN services between Techhub and FranceVerified',
+    href: `${ADMIN_ROOT_PATH}/resources/ServicePricing`,
+    icon: 'Repeat'
   },
   { label: 'Coupons', description: 'Discount codes & promotions', resourceId: 'Coupon', icon: 'CreditCard' },
   {
