@@ -1,0 +1,12 @@
+import { Router } from 'express';
+import { z } from 'zod';
+import { requireAuth } from '../middleware/auth.js';
+import { pinField, requirePinConfirmation } from '../lib/require-pin.js';
+import { BVN_CRM_FIELDS, getBvnCrmPrice, listBvnCrmHistory, submitBvnCrmRequest } from '../services/bvn-crm.service.js';
+export const bvnCrmRoutes = Router();
+bvnCrmRoutes.use(requireAuth);
+const submitSchema = z.object({ ticket_id: z.string().trim().regex(/^\d{8}$/, 'Ticket ID must be exactly 8 digits'), ...pinField });
+bvnCrmRoutes.get('/fields', (_req, res) => res.json({ status: true, data: BVN_CRM_FIELDS }));
+bvnCrmRoutes.get('/price', async (_req, res) => res.json({ status: true, data: { unit_price: (await getBvnCrmPrice()).unitPrice } }));
+bvnCrmRoutes.get('/history', async (req, res) => { res.set('Cache-Control', 'no-store'); res.json({ status: true, data: await listBvnCrmHistory({ userId: req.user!.id }) }); });
+bvnCrmRoutes.post('/submit', async (req, res) => { const body = submitSchema.parse(req.body); await requirePinConfirmation(req.user!.id, body.pin); const result = await submitBvnCrmRequest({ userId: req.user!.id, values: { ticket_id: body.ticket_id }, idempotencyKey: req.header('Idempotency-Key')?.trim() || undefined }); res.json({ status: true, message: 'Your BVN CRM request has been submitted. It will be processed within 24–48 hours.', data: { reference: result.reference, balance_after: result.balanceAfter } }); });

@@ -162,14 +162,6 @@ export const SERVICES: ServiceItem[] = [
     implemented: true,
   },
   {
-    label: 'CAC Registration',
-    description: 'Register a business name with CAC.',
-    icon: Briefcase,
-    route: '/cac-registration',
-    tint: 'success',
-    implemented: false,
-  },
-  {
     label: 'SCUML Registration',
     description: 'SCUML registration for regulated businesses.',
     icon: ShieldCheck,

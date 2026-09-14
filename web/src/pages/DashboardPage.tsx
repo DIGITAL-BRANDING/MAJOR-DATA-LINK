@@ -43,7 +43,6 @@ const SERVICE_IMAGES: Record<string, string> = {
   'Bulk SMS': '/branding/logo.png',
   'NIN Services': '/branding/Validation.png',
   'BVN Services': '/branding/BVN Verifications.png',
-  'CAC Registration': '/branding/CAC Registration.png',
   'SCUML Registration': '/branding/CAC Services.png',
   'TIN Registration': '/branding/TIN Certificate.png',
 };
@@ -92,6 +91,18 @@ export default function DashboardPage() {
   // actually bought something, they know how the site works and this just
   // becomes clutter above their real activity.
   const isFirstTimeUser = loadedTransactions && transactions.length === 0;
+  // Keep the more useful day-to-day purchases first. NIN Phone Verification
+  // remains in the catalog and route for future use, but is intentionally
+  // hidden here because NIN Services already covers that workflow.
+  const dashboardServices = SERVICES
+    .filter((service) => service.label !== 'CAC Registration' && service.label !== 'NIN Phone Verification')
+    .slice()
+    .sort((a, b) => {
+      const order = ['Buy Data', 'Buy Airtime', 'NIN Services'];
+      const aIndex = order.indexOf(a.label);
+      const bIndex = order.indexOf(b.label);
+      return (aIndex === -1 ? order.length : aIndex) - (bIndex === -1 ? order.length : bIndex);
+    });
 
   return (
     <AppShell>
@@ -203,7 +214,7 @@ export default function DashboardPage() {
       <div className="mt-8">
         <h2 className="font-display text-base font-semibold text-ink-900">Services</h2>
         <div className="mt-3 grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5">
-          {SERVICES.map((service) => (
+          {dashboardServices.map((service) => (
             <ServiceTile key={service.route} {...service} />
           ))}
         </div>

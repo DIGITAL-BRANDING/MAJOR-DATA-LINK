@@ -16,6 +16,7 @@ import ResultPinPage from './pages/ResultPinPage';
 import ResultCheckersPage from './pages/ResultCheckersPage';
 import VerificationPage from './pages/VerificationPage';
 import NinModificationPage from './pages/NinModificationPage';
+import BvnCrmPage from './pages/BvnCrmPage';
 import FundWalletPage from './pages/FundWalletPage';
 import PaymentCallbackPage from './pages/PaymentCallbackPage';
 import DeliveriesPage from './pages/DeliveriesPage';
@@ -80,7 +81,7 @@ export default function App() {
           <Route path="/cac" element={<ProtectedRoute><CacServicesPage /></ProtectedRoute>} />
           <Route path="/verifications" element={<ProtectedRoute><ServiceHistoryPage /></ProtectedRoute>} />
           <Route path="/bvn-modification" element={<ProtectedRoute><ManualServiceRequestPage title="BVN Modification" prompt="Submit the BVN modification details for a K-Tech agent to process." /></ProtectedRoute>} />
-          <Route path="/bvn-crm" element={<ProtectedRoute><ManualServiceRequestPage title="BVN CRM" prompt="Submit your BVN CRM Ticket ID and the relevant request details." /></ProtectedRoute>} />
+          <Route path="/bvn-crm" element={<ProtectedRoute><BvnCrmPage /></ProtectedRoute>} />
           <Route path="/attestation" element={<ProtectedRoute><ManualServiceRequestPage title="Birth Attestation" prompt="Submit the information needed for a birth attestation request." /></ProtectedRoute>} />
           <Route path="/tin" element={<ProtectedRoute><ManualServiceRequestPage title="TIN Certificate" prompt="Submit the information needed for your TIN certificate request." /></ProtectedRoute>} />
           <Route path="/newspaper" element={<ProtectedRoute><ManualServiceRequestPage title="Newspaper Publication" prompt="Submit the information needed for your publication request." /></ProtectedRoute>} />

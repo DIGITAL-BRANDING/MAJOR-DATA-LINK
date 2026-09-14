@@ -3,6 +3,7 @@ import type { ResourceWithOptions } from 'adminjs';
 import { prisma } from '../../lib/prisma.js';
 import { decryptTransactionPII } from '../../services/verification.service.js';
 import { completeModification } from '../../services/nin-modification.service.js';
+import { completeBvnCrm } from '../../services/bvn-crm.service.js';
 import { TransactionStatus, TransactionType } from '@prisma/client';
 import { refundWallet } from '../../services/wallet.service.js';
 import { logAdminAction } from '../audit.js';
@@ -65,7 +66,7 @@ export const transactionResource: ResourceWithOptions = {
           // other transaction type, where PENDING means "still in flight,
           // don't touch it", so this is the one type reverse() also allows
           // from PENDING.
-          if (status === 'PENDING') return ['NIN_MODIFICATION', 'BVN_LICENSE_ONBOARDING', 'JAMB_SERVICE_REQUEST'].includes(record?.params?.type as string);
+          if (status === 'PENDING') return ['NIN_MODIFICATION', 'BVN_LICENSE_ONBOARDING', 'JAMB_SERVICE_REQUEST', 'BVN_CRM'].includes(record?.params?.type as string);
           return status === 'SUCCESS' || status === 'FAILED';
         },
         handler: async (request, response, context) => {
@@ -193,6 +194,20 @@ export const transactionResource: ResourceWithOptions = {
               }
             };
           }
+        }
+      },
+      completeBvnCrm: {
+        actionType: 'record', icon: 'CheckCircle', guard: 'Mark this BVN CRM ticket follow-up as completed?',
+        isAccessible: ({ currentAdmin, record }) => {
+          const admin = currentAdmin as unknown as AdminSessionUser | undefined;
+          return !!admin && admin.role !== 'SUPPORT' && record?.params?.type === 'BVN_CRM' && record?.params?.status === 'PENDING';
+        },
+        handler: async (_request, _response, context) => {
+          const { record, currentAdmin } = context; const admin = currentAdmin as unknown as AdminSessionUser;
+          if (!record || !admin) throw new Error('Missing record or admin context');
+          await completeBvnCrm({ transactionId: record.params.id as string });
+          await logAdminAction({ adminId: admin.id, action: 'COMPLETE_BVN_CRM', targetType: 'Transaction', targetId: record.params.id as string, metadata: { reference: record.params.reference } });
+          return { record: record.toJSON(currentAdmin), notice: { message: 'BVN CRM request marked as completed.', type: 'success' } };
         }
       },
       // Opens the generated submission PDF - same SUPER_ADMIN-only,

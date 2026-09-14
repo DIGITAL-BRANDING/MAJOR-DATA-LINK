@@ -1,0 +1,31 @@
+diff --git a/web/src/lib/services.ts b/web/src/lib/services.ts
+index 9a00a67..8661d95 100644
+--- a/web/src/lib/services.ts
++++ b/web/src/lib/services.ts
+@@ -161,14 +161,6 @@ export const SERVICES: ServiceItem[] = [
+     tint: 'ember',
+     implemented: true,
+   },
+-  {
+-    label: 'CAC Registration',
+-    description: 'Register a business name with CAC.',
+-    icon: Briefcase,
+-    route: '/cac-registration',
+-    tint: 'success',
+-    implemented: false,
+-  },
+   {
+     label: 'SCUML Registration',
+     description: 'SCUML registration for regulated businesses.',
+diff --git a/web/src/pages/DashboardPage.tsx b/web/src/pages/DashboardPage.tsx
+index 1a8c451..dc99bec 100644
+--- a/web/src/pages/DashboardPage.tsx
++++ b/web/src/pages/DashboardPage.tsx
+@@ -43,7 +43,6 @@ const SERVICE_IMAGES: Record<string, string> = {
+   'Bulk SMS': '/branding/logo.png',
+   'NIN Services': '/branding/Validation.png',
+   'BVN Services': '/branding/BVN Verifications.png',
+-  'CAC Registration': '/branding/CAC Registration.png',
+   'SCUML Registration': '/branding/CAC Services.png',
+   'TIN Registration': '/branding/TIN Certificate.png',
+ };

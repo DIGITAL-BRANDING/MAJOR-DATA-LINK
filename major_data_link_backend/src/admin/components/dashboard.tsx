@@ -1,7 +1,15 @@
-import React from 'react';
-import { Box, H2, H4, Icon, Text } from '@adminjs/design-system';
+import React, { useEffect, useState } from 'react';
+import { Box, Button, H2, H4, Icon, Text } from '@adminjs/design-system';
 
 const ADMIN_ROOT_PATH = '/admin';
+type PendingSummary = { total_pending: number; total_new_last_24h: number; by_type: Array<{ type: string; label: string; pending: number }> };
+
+function PendingRequestsPopup() {
+  const [summary, setSummary] = useState<PendingSummary | null>(null); const [dismissed, setDismissed] = useState(false);
+  useEffect(() => { fetch(`${ADMIN_ROOT_PATH}/pending-summary`, { credentials: 'include' }).then((r) => r.ok ? r.json() : Promise.reject()).then((body) => setSummary(body.data)).catch(() => {}); }, []);
+  if (dismissed || !summary || summary.total_pending === 0) return null;
+  return <Box style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.55)', zIndex: 1000 }} display="flex" alignItems="center" justifyContent="center" onClick={() => setDismissed(true)}><Box variant="white" boxShadow="card" p="xl" style={{ width: 'min(480px,92vw)', borderRadius: 14 }} onClick={(e: React.MouseEvent) => e.stopPropagation()}><H4 mb="default">Requests waiting on you</H4><Text mb="lg">{summary.total_pending} unresolved request{summary.total_pending === 1 ? '' : 's'}{summary.total_new_last_24h ? ` • ${summary.total_new_last_24h} new today` : ''}</Text>{summary.by_type.filter((row) => row.pending).map((row) => <a key={row.type} href={`${ADMIN_ROOT_PATH}/resources/Transaction?filters.type=${row.type}&filters.status=PENDING`} style={{ display: 'block', padding: '10px 0', borderBottom: '1px solid #eee', textDecoration: 'none' }}><Text fontWeight="bold">{row.label}: {row.pending} pending →</Text></a>)}<Button mt="lg" onClick={() => setDismissed(true)} style={{ width: '100%' }}>Got it</Button></Box></Box>;
+}
 
 type QuickLink = {
   label: string;
@@ -123,6 +131,7 @@ const quickLinks: QuickLink[] = [
 
 const Dashboard: React.FC = () => (
   <Box>
+    <PendingRequestsPopup />
     <Box
       position="relative"
       overflow="hidden"

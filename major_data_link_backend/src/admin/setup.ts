@@ -15,6 +15,7 @@ import { registerCustomerActivityRoutes } from './customer-activity.js';
 import { registerNinModificationRoutes } from './nin-modification.js';
 import { registerBvnLicenseRoutes } from './bvn-license-onboarding.js';
 import { registerJambRoutes } from './jamb.js';
+import { registerPendingSummaryRoutes } from './pending-summary.js';
 import { componentLoader, Components } from './component-loader.js';
 import { userResource } from './resources/user.resource.js';
 import { transactionResource } from './resources/transaction.resource.js';
@@ -183,6 +184,7 @@ export async function buildAdminRouter() {
   registerNinModificationRoutes(router);
   registerBvnLicenseRoutes(router);
   registerJambRoutes(router);
+  registerPendingSummaryRoutes(router);
   registerUserDeliveryRoutes(router);
 
   return { admin, router };
