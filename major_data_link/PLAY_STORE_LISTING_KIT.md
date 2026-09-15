@@ -186,13 +186,13 @@ Admin WhatsApp:
 Privacy Policy URL:
 
 ```text
-https://imamdatasubweb-production-4f62.up.railway.app/privacy-policy
+https://k-tech.up.railway.app/privacy-policy
 ```
 
 Terms URL:
 
 ```text
-https://imamdatasubweb-production-4f62.up.railway.app/terms
+https://k-tech.up.railway.app/terms
 ```
 
 ## 11. Final Checklist Before Submission

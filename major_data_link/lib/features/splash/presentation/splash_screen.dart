@@ -8,7 +8,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import '../../../core/config/app_config.dart';
-import '../../../core/config/app_endpoints.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_strings.dart';
 import '../../../core/di/injection.dart';
@@ -38,19 +37,55 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
   /// "proceed normally" - both when the version check passes AND whenever
   /// the check itself couldn't be completed (see _bootstrap's comment on
   /// why this fails open).
+  Future<Map<String, dynamic>> _requestAppConfig(Dio client) async {
+    final response = await client
+        .get(
+          '/public/app-config',
+          options: Options(extra: {'skipAuth': true, 'skipRetry': true}),
+        )
+        .timeout(const Duration(seconds: 4));
+    final body = response.data;
+    if (body is! Map || body['data'] is! Map) {
+      throw const FormatException('Invalid app-config response');
+    }
+    return Map<String, dynamic>.from(body['data'] as Map);
+  }
+
+  /// Fetches config from the URL currently used by the app first. If an
+  /// admin has migrated away from a custom domain and that old domain is no
+  /// longer reachable, fall back to the permanent Railway bootstrap URL.
+  /// Keeping that Railway URL attached to the same backend is what makes a
+  /// remote URL change recoverable for APKs already on customers' phones.
+  Future<Map<String, dynamic>> _loadAppConfig() async {
+    try {
+      return await _requestAppConfig(ref.read(dioClientProvider));
+    } catch (primaryError) {
+      final activeBaseUrl = AppConfig.baseUrl;
+      final bootstrapBaseUrl = AppConfig.bootstrapBaseUrl;
+      if (activeBaseUrl == bootstrapBaseUrl) rethrow;
+
+      appLogger.w(
+        'Primary API base URL unavailable; checking bootstrap config URL',
+        error: primaryError,
+      );
+      final bootstrapClient = Dio(
+        BaseOptions(
+          baseUrl: bootstrapBaseUrl,
+          connectTimeout: AppConfig.connectTimeout,
+          receiveTimeout: AppConfig.receiveTimeout,
+          sendTimeout: AppConfig.sendTimeout,
+        ),
+      );
+      return _requestAppConfig(bootstrapClient);
+    }
+  }
+
   Future<bool> _isBelowMinimumVersion() async {
     try {
       final packageInfo = await PackageInfo.fromPlatform();
-      final dio = ref.read(dioClientProvider);
       // The public version check gets one short attempt only. It must never
       // keep a customer on splash while an unavailable server retries.
-      final response = await dio
-          .get(
-            AppEndpoints.appConfig,
-            options: Options(extra: {'skipAuth': true, 'skipRetry': true}),
-          )
-          .timeout(const Duration(seconds: 4));
-      final data = response.data['data'] as Map<String, dynamic>;
+      final data = await _loadAppConfig();
 
       // Best-effort only - never let this affect the force-update check
       // that follows it. See _syncRemoteBaseUrl's own doc comment.

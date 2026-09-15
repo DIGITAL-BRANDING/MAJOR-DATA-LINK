@@ -134,7 +134,7 @@ export default function ReceiptPage() {
     <ReceiptShell>
       {/* Print-only mark - invisible on screen, appears at the top of a printed/PDF copy. */}
       <p className="hidden print:mb-4 print:block print:font-mono print:text-[10px] print:text-slate-500">
-        major-data-link-production.up.railway.app/receipt/{tx.id}
+        k-tech.up.railway.app/receipt/{tx.id}
       </p>
 
       <div className="receipt-card overflow-hidden rounded-2xl border border-parchment-line bg-white shadow-xl print:border-0 print:shadow-none">

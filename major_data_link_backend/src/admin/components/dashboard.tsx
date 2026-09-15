@@ -135,7 +135,12 @@ const quickLinks: QuickLink[] = [
     resourceId: 'NotificationBroadcast',
     icon: 'Bell'
   },
-  { label: 'App Configuration', description: 'Manage app version and update settings', resourceId: 'AppConfig', icon: 'Settings' },
+  {
+    label: 'App Base URL & Updates',
+    description: 'Change the live app API URL, version gate and update message',
+    href: `${ADMIN_ROOT_PATH}/resources/AppConfig/records/default/edit`,
+    icon: 'Settings'
+  },
   { label: 'Partners', description: 'Review API partner accounts and status', resourceId: 'Partner', icon: 'Briefcase' },
   { label: 'Admin Users', description: 'Admin accounts & roles', resourceId: 'AdminUser', icon: 'Shield' },
   { label: 'Audit Log', description: 'Admin activity history', resourceId: 'AdminAuditLog', icon: 'FileText' }

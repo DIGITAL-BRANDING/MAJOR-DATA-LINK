@@ -14,7 +14,7 @@
     <!-- This app's own backend API (Railway). This is the domain baseUrl in
          app_config.dart actually talks to for auth, wallet, transactions, etc. -->
     <domain-config cleartextTrafficPermitted="false">
-        <domain includeSubdomains="true">imamdatasubweb-production-4f62.up.railway.app</domain>
+        <domain includeSubdomains="true">k-tech.up.railway.app</domain>
         <trust-anchors>
             <certificates src="system" />
         </trust-anchors>

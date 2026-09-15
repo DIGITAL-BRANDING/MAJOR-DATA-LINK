@@ -1,6 +1,12 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 
+// This is the durable bootstrap origin compiled into the Flutter app. It is
+// also the first value returned from remote config, so existing and newly
+// installed devices converge on the live Railway service before an admin
+// chooses a custom domain.
+export const DEFAULT_APP_API_BASE_URL = 'https://k-tech.up.railway.app/api';
+
 /**
  * Admin-editable minimum-app-version gate - see the AppConfig AdminJS
  * resource. Same self-seeding singleton pattern as getReferralSettings()
@@ -14,7 +20,9 @@ export async function getAppConfig() {
   if (existing) return existing;
 
   try {
-    return await prisma.appConfig.create({ data: { id: 'default' } });
+    return await prisma.appConfig.create({
+      data: { id: 'default', apiBaseUrl: DEFAULT_APP_API_BASE_URL }
+    });
   } catch (error) {
     // Two concurrent first-ever callers both see "no row exists" and both
     // attempt to create it - only one create can win. Re-fetch and use

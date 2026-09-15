@@ -100,7 +100,7 @@ export const appConfigResource: ResourceWithOptions = {
       },
       apiBaseUrl: {
         description:
-          'DANGER: overrides the backend origin EVERY installed app talks to, starting from each device\'s next cold start (see splash_screen.dart) - not instantly, and never mid-session. Leave blank to keep whatever URL is compiled into the app. Must be https://, no trailing slash, e.g. https://api.majordatalink.ng/api. Test on one internal-track device before rolling out widely - there is no way to undo this for a single user once their app has synced it.'
+          'Changes the live API URL for every installed app on its next cold start; no APK rebuild is needed. Enter a full HTTPS API root with no trailing slash, e.g. https://k-tech.up.railway.app/api or https://api.yourdomain.com/api. Keep k-tech.up.railway.app attached to this same Railway service as the permanent recovery/bootstrap URL, set the new URL here, verify it on a device, and only then retire an old custom domain. Leave blank to use the URL compiled into the app.'
       },
       updatedAt: { isVisible: { list: true, filter: false, show: true, edit: false } }
     },

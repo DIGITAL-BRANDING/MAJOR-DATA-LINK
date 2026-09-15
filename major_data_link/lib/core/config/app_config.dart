@@ -26,6 +26,13 @@ class AppConfig {
     defaultValue: '',
   );
 
+  /// Stable, provider-managed bootstrap endpoint. Keep this Railway domain
+  /// attached to the production service even after a custom domain is added:
+  /// it lets installed apps recover a newer admin-set URL if their last
+  /// custom domain is ever retired before they have started again.
+  static const String productionBootstrapApiBaseUrl =
+      'https://k-tech.up.railway.app/api';
+
   /// Set once, very early in `main()`, from the cached value saved by
   /// splash_screen.dart's `_syncRemoteBaseUrl()` on a previous launch - see
   /// that file and `SecureStorageService.getApiBaseUrlOverride()`. Plain
@@ -70,6 +77,11 @@ class AppConfig {
       return override;
     }
 
+    return compiledBaseUrl;
+  }
+
+  /// The URL built into this APK, without a remotely cached override.
+  static String get compiledBaseUrl {
     if (_definedApiBaseUrl.isNotEmpty) return _definedApiBaseUrl;
 
     switch (_env) {
@@ -78,8 +90,15 @@ class AppConfig {
       case 'staging':
         return 'https://staging.majordatalink.ng/api';
       default:
-        return 'https://major-data-link-production.up.railway.app/api';
+        return productionBootstrapApiBaseUrl;
     }
+  }
+
+  /// A last-resort, immutable control-plane URL used only when an existing
+  /// remotely configured production URL cannot be reached. It is what makes
+  /// an admin URL change recoverable without shipping another APK.
+  static String get bootstrapBaseUrl {
+    return isProduction ? productionBootstrapApiBaseUrl : compiledBaseUrl;
   }
 
   // ── Timeouts ────────────────────────────────────────────────
@@ -126,7 +145,7 @@ class AppConfig {
 
   // â”€â”€ Referral â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   static const String referralScheme =
-      'https://major-data-link-production.up.railway.app/register?ref=';
+      'https://k-tech.up.railway.app/register?ref=';
   static const double referralCommissionRate = 0.02; // 2%
   static const double minCommissionWithdrawal = 500.0;
 
@@ -150,11 +169,9 @@ class AppConfig {
   static const String supportEmailDisplay =
       'kindnesscomp20@gmail.com / sunusiusama94@gmail.com';
   static const String privacyPolicyUrl =
-      'https://imamdatasubweb-production-4f62.up.railway.app/privacy-policy';
-  static const String termsUrl =
-      'https://imamdatasubweb-production-4f62.up.railway.app/terms';
-  static const String referralLinkBaseUrl =
-      'https://major-data-link-production.up.railway.app';
+      'https://k-tech.up.railway.app/privacy-policy';
+  static const String termsUrl = 'https://k-tech.up.railway.app/terms';
+  static const String referralLinkBaseUrl = 'https://k-tech.up.railway.app';
 
   // â”€â”€ Play Integrity â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   static const String playIntegrityCloudProjectNumber = '123456789';
