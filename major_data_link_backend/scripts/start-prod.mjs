@@ -1,7 +1,12 @@
 import { spawn } from 'node:child_process';
 
-const runMigrationsOnStart = process.env.RUN_MIGRATIONS_ON_START === 'true';
-const migrationTimeoutMs = Number(process.env.MIGRATION_TIMEOUT_MS ?? 45_000);
+// A deployed Prisma client may select a newly-added column before the API can
+// serve any request. Run `migrate deploy` before every production start so
+// the database and generated client are always in lockstep. The command is
+// idempotent: it only applies migrations that have not already been recorded.
+// `SKIP_MIGRATIONS_ON_START` is reserved for an operator-set emergency path.
+const skipMigrationsOnStart = process.env.SKIP_MIGRATIONS_ON_START === 'true';
+const migrationTimeoutMs = Number(process.env.MIGRATION_TIMEOUT_MS ?? 120_000);
 
 function run(command, args, timeoutMs) {
   return new Promise((resolve, reject) => {
@@ -47,12 +52,11 @@ process.on('unhandledRejection', (reason) => {
 
 console.log('[start] Starting production deployment sequence');
 
-if (runMigrationsOnStart) {
-  console.log('[start] RUN_MIGRATIONS_ON_START=true, running migrations');
-  await run('npx', ['prisma', 'migrate', 'deploy'], migrationTimeoutMs);
+if (skipMigrationsOnStart) {
+  console.warn('[start] SKIP_MIGRATIONS_ON_START=true; migrations were intentionally skipped');
 } else {
-  console.log('[start] Skipping migrations on app startup');
-  console.log('[start] Set RUN_MIGRATIONS_ON_START=true only for a one-off migration deploy');
+  console.log('[start] Running Prisma migrations before starting the API');
+  await run('npx', ['prisma', 'migrate', 'deploy'], migrationTimeoutMs);
 }
 
 console.log('[start] Starting API server');
