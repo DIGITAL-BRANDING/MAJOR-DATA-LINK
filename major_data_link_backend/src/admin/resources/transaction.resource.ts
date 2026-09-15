@@ -66,7 +66,7 @@ export const transactionResource: ResourceWithOptions = {
           // other transaction type, where PENDING means "still in flight,
           // don't touch it", so this is the one type reverse() also allows
           // from PENDING.
-          if (status === 'PENDING') return ['NIN_MODIFICATION', 'BVN_LICENSE_ONBOARDING', 'JAMB_SERVICE_REQUEST', 'BVN_CRM'].includes(record?.params?.type as string);
+          if (status === 'PENDING') return ['NIN_MODIFICATION', 'BVN_LICENSE_ONBOARDING', 'JAMB_SERVICE_REQUEST', 'BVN_CRM', 'NEWSPAPER_PUBLICATION'].includes(record?.params?.type as string);
           return status === 'SUCCESS' || status === 'FAILED';
         },
         handler: async (request, response, context) => {
@@ -256,6 +256,24 @@ export const transactionResource: ResourceWithOptions = {
           const { record, currentAdmin } = context;
           if (!record) throw new Error('Missing record');
           return { record: record.toJSON(currentAdmin), redirectUrl: `/admin/jamb/${record.params.id as string}/fulfil` };
+        }
+      },
+      // Opens the Newspaper Publication manage page (progress notes +
+      // upload-to-complete) - same redirect-to-custom-page pattern as
+      // completeJambRequest above. Accessible any time the row is a
+      // Newspaper Publication request (not just while PENDING) so an admin
+      // can still open it afterwards to re-download the submission PDF or
+      // read past progress notes.
+      manageNewspaperPublication: {
+        actionType: 'record', icon: 'Edit',
+        isAccessible: ({ currentAdmin, record }) => {
+          const admin = currentAdmin as unknown as AdminSessionUser | undefined;
+          return !!admin && admin.role !== 'SUPPORT' && record?.params?.type === 'NEWSPAPER_PUBLICATION';
+        },
+        handler: async (_request, _response, context) => {
+          const { record, currentAdmin } = context;
+          if (!record) throw new Error('Missing record');
+          return { record: record.toJSON(currentAdmin), redirectUrl: `/admin/newspaper-publication/${record.params.id as string}/manage` };
         }
       },
       downloadBvnLicensePdf: {

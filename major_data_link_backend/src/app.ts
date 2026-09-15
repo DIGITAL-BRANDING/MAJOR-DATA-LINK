@@ -35,6 +35,7 @@ import { userRoutes } from './routes/user.routes.js';
 import { verificationRoutes } from './routes/verification.routes.js';
 import { ninModificationRoutes } from './routes/nin-modification.routes.js';
 import { bvnCrmRoutes } from './routes/bvn-crm.routes.js';
+import { newspaperPublicationRoutes } from './routes/newspaper-publication.routes.js';
 import { jambRoutes } from './routes/jamb.routes.js';
 import { vtuRoutes } from './routes/vtu.routes.js';
 import { cableRoutes } from './routes/cable.routes.js';
@@ -216,6 +217,7 @@ export function createApp() {
   app.use('/api/verification', verificationRoutes);
   app.use('/api/nin-modification', ninModificationRoutes);
   app.use('/api/bvn-crm', bvnCrmRoutes);
+  app.use('/api/newspaper-publication', newspaperPublicationRoutes);
   app.use('/api/jamb', jambRoutes);
   // This MUST be mounted before the catch-all customer VTU router below.
   // `vtuRoutes` is mounted at /api and applies customer JWT auth to every

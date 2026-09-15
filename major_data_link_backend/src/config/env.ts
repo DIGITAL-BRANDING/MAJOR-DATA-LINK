@@ -55,7 +55,14 @@ const EnvSchema = z.object({
   TECHHUB_API_KEY: z.string().optional(),
   // FranceVerified is an optional alternate NIN/BVN provider. These values
   // are optional so installations that only use Techhub keep starting normally.
-  FRANCEVERIFIED_BASE_URL: z.string().url().default('https://api.franceverified.com'),
+  // Base URL is FranceVerified's documented API root - confirmed against
+  // their own Authentication doc's cURL example
+  // (https://www.franceverified.com/api-docs/authentication), which calls
+  // "https://franceverified.com/api/v1/bills/pricing-data". A previous
+  // value here ("https://api.franceverified.com") pointed at a domain that
+  // doesn't match the docs and would have made every FranceVerified call
+  // fail outright - fixed.
+  FRANCEVERIFIED_BASE_URL: z.string().url().default('https://franceverified.com/api/v1'),
   FRANCEVERIFIED_API_KEY: z.string().optional(),
   // Same reasoning as ALRAHUZ_LOW_BALANCE_THRESHOLD above — YOUR balance at
   // Techhub, reported back on every async-service submit call (see

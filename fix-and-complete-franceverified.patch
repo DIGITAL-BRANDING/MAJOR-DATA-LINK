@@ -1,0 +1,240 @@
+diff --git a/major_data_link_backend/.env.example b/major_data_link_backend/.env.example
+index 54047c7..c9c8df7 100644
+--- a/major_data_link_backend/.env.example
++++ b/major_data_link_backend/.env.example
+@@ -54,7 +54,7 @@ MOCK_PROVIDER=false
+ # --- Techhub (NIN/BVN identity verification - separate from wallet funding) -
+ TECHHUB_BASE_URL=https://techhubltd.co/api/verification
+ TECHHUB_API_KEY=
+-FRANCEVERIFIED_BASE_URL=https://api.franceverified.com
++FRANCEVERIFIED_BASE_URL=https://franceverified.com/api/v1
+ FRANCEVERIFIED_API_KEY=
+ TECHHUB_LOW_BALANCE_THRESHOLD=2000
+ TECHHUB_LOW_BALANCE_ALERT_COOLDOWN_MINUTES=60
+diff --git a/major_data_link_backend/src/config/env.ts b/major_data_link_backend/src/config/env.ts
+index 46f7634..48c6099 100644
+--- a/major_data_link_backend/src/config/env.ts
++++ b/major_data_link_backend/src/config/env.ts
+@@ -55,7 +55,14 @@ const EnvSchema = z.object({
+   TECHHUB_API_KEY: z.string().optional(),
+   // FranceVerified is an optional alternate NIN/BVN provider. These values
+   // are optional so installations that only use Techhub keep starting normally.
+-  FRANCEVERIFIED_BASE_URL: z.string().url().default('https://api.franceverified.com'),
++  // Base URL is FranceVerified's documented API root - confirmed against
++  // their own Authentication doc's cURL example
++  // (https://www.franceverified.com/api-docs/authentication), which calls
++  // "https://franceverified.com/api/v1/bills/pricing-data". A previous
++  // value here ("https://api.franceverified.com") pointed at a domain that
++  // doesn't match the docs and would have made every FranceVerified call
++  // fail outright - fixed.
++  FRANCEVERIFIED_BASE_URL: z.string().url().default('https://franceverified.com/api/v1'),
+   FRANCEVERIFIED_API_KEY: z.string().optional(),
+   // Same reasoning as ALRAHUZ_LOW_BALANCE_THRESHOLD above — YOUR balance at
+   // Techhub, reported back on every async-service submit call (see
+diff --git a/major_data_link_backend/src/services/franceverified/account.service.ts b/major_data_link_backend/src/services/franceverified/account.service.ts
+new file mode 100644
+index 0000000..da3397b
+--- /dev/null
++++ b/major_data_link_backend/src/services/franceverified/account.service.ts
+@@ -0,0 +1,18 @@
++import { franceVerifiedGet } from './client.js';
++
++/**
++ * Docs: https://www.franceverified.com/api-docs/account
++ *       https://www.franceverified.com/api-docs/transactions
++ */
++export function getBalance() {
++  return franceVerifiedGet('/user/balance');
++}
++
++export type FvTransactionService = 'airtime' | 'data' | 'cable' | 'electricity' | 'nin' | 'bvn';
++
++export function getTransactions(params?: { service?: FvTransactionService; limit?: number }) {
++  return franceVerifiedGet('/user/transactions', {
++    service: params?.service,
++    limit: params?.limit !== undefined ? String(params.limit) : undefined
++  });
++}
+diff --git a/major_data_link_backend/src/services/franceverified/cac.service.ts b/major_data_link_backend/src/services/franceverified/cac.service.ts
+new file mode 100644
+index 0000000..e162d4a
+--- /dev/null
++++ b/major_data_link_backend/src/services/franceverified/cac.service.ts
+@@ -0,0 +1,12 @@
++import { franceVerifiedPost } from './client.js';
++
++/** Docs: https://www.franceverified.com/api-docs/cac */
++export type CacSearchType = 'ALL' | 'BUSINESS_NAME' | 'COMPANY' | 'INCORPORATED_TRUSTEES';
++
++export function searchCac(params: { searchTerm: string; searchType?: CacSearchType; classificationId?: string }) {
++  return franceVerifiedPost('/cac/search', {
++    searchTerm: params.searchTerm,
++    SearchType: params.searchType ?? 'ALL',
++    classificationId: params.classificationId ?? ''
++  });
++}
+diff --git a/major_data_link_backend/src/services/franceverified/client.ts b/major_data_link_backend/src/services/franceverified/client.ts
+index 8a7261a..4fad874 100644
+--- a/major_data_link_backend/src/services/franceverified/client.ts
++++ b/major_data_link_backend/src/services/franceverified/client.ts
+@@ -15,6 +15,20 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
+ 
+ /** Shared transport for FranceVerified's JSON verification endpoints. */
+ export async function franceVerifiedPost(path: string, body: Record<string, unknown>): Promise<FranceVerifiedResult> {
++  return franceVerifiedRequest(path, { method: 'POST', body: JSON.stringify(body) });
++}
++
++/** GET counterpart - needed for polling/status/balance endpoints (e.g.
++ *  /nin/check, /jamb/status, /user/balance) that take no request body. */
++export async function franceVerifiedGet(path: string, query?: Record<string, string | undefined>): Promise<FranceVerifiedResult> {
++  const url = new URL(`${env.FRANCEVERIFIED_BASE_URL.replace(/\/$/, '')}${path}`);
++  for (const [key, value] of Object.entries(query ?? {})) {
++    if (value !== undefined) url.searchParams.set(key, value);
++  }
++  return franceVerifiedRequest(url.pathname + url.search, { method: 'GET' });
++}
++
++async function franceVerifiedRequest(path: string, init: { method: 'GET' | 'POST'; body?: string }): Promise<FranceVerifiedResult> {
+   if (!env.FRANCEVERIFIED_API_KEY) {
+     return { ok: false, message: 'FranceVerified API key is not configured', raw: null };
+   }
+@@ -22,13 +36,13 @@ export async function franceVerifiedPost(path: string, body: Record<string, unkn
+   let response: Response;
+   try {
+     response = await fetch(`${env.FRANCEVERIFIED_BASE_URL.replace(/\/$/, '')}${path}`, {
+-      method: 'POST',
++      method: init.method,
+       headers: {
+         'Content-Type': 'application/json',
+         Authorization: `Bearer ${env.FRANCEVERIFIED_API_KEY}`,
+         'x-api-key': env.FRANCEVERIFIED_API_KEY
+       },
+-      body: JSON.stringify(body),
++      body: init.body,
+       signal: AbortSignal.timeout(30_000)
+     });
+   } catch (error) {
+@@ -39,7 +53,7 @@ export async function franceVerifiedPost(path: string, body: Record<string, unkn
+   const raw: unknown = await response.json().catch(() => ({}));
+   const envelope = asRecord(raw) ?? {};
+   const status = typeof envelope.status === 'string' ? envelope.status.toLowerCase() : envelope.status;
+-  const successful = response.ok && (envelope.success === true || envelope.ok === true || status === 'success' || status === 'successful' || (!('success' in envelope) && !('ok' in envelope) && !('status' in envelope)));
++  const successful = response.ok && (envelope.success === true || envelope.ok === true || status === 'success' || status === 'successful' || status === 'pending' || (!('success' in envelope) && !('ok' in envelope) && !('status' in envelope)));
+   const data = asRecord(envelope.data) ?? asRecord(envelope.response) ?? (successful ? envelope : undefined);
+ 
+   if (!successful || !data) {
+diff --git a/major_data_link_backend/src/services/franceverified/jamb.service.ts b/major_data_link_backend/src/services/franceverified/jamb.service.ts
+new file mode 100644
+index 0000000..10cbaa0
+--- /dev/null
++++ b/major_data_link_backend/src/services/franceverified/jamb.service.ts
+@@ -0,0 +1,32 @@
++import { franceVerifiedGet, franceVerifiedPost } from './client.js';
++
++/**
++ * Docs: https://www.franceverified.com/api-docs/jamb
++ * All four submit endpoints return either a resolved result immediately
++ * (with `file_url` to the PDF/image) or a `processing`/pending state -
++ * poll checkJambStatus(reference) either way.
++ */
++type JambIdentity = { fullname: string; profile_code: string; jamb_reg_no: string };
++
++export function requestAdmissionLetter(params: JambIdentity & { additional_info?: string }) {
++  return franceVerifiedPost('/jamb/admission-letter', params);
++}
++
++export function requestOriginalResult(params: JambIdentity) {
++  return franceVerifiedPost('/jamb/original-result', params);
++}
++
++/** service_type examples: "CHANGE OF COURSE SLIP", "REGISTRATION SLIP", "ORIGINAL RESULTS REPRINTS ONLY". */
++export function requestReprint(params: JambIdentity & { service_type: string }) {
++  return franceVerifiedPost('/jamb/reprint', params);
++}
++
++/** service_type: "UTME" | "D.E" | "UTME_MOCK". */
++export function vendJambPin(params: JambIdentity & { phone: string; service_type: 'UTME' | 'D.E' | 'UTME_MOCK' }) {
++  return franceVerifiedPost('/jamb/vend-pin', params);
++}
++
++/** When status is "successful", `file_url` points to the downloadable PDF/image result. */
++export function checkJambStatus(reference: string) {
++  return franceVerifiedGet('/jamb/status', { reference });
++}
+diff --git a/major_data_link_backend/src/services/franceverified/nin-validation.service.ts b/major_data_link_backend/src/services/franceverified/nin-validation.service.ts
+new file mode 100644
+index 0000000..403fa9c
+--- /dev/null
++++ b/major_data_link_backend/src/services/franceverified/nin-validation.service.ts
+@@ -0,0 +1,23 @@
++import { franceVerifiedGet, franceVerifiedPost } from './client.js';
++
++/** Docs: https://www.franceverified.com/api-docs/nin_validation */
++export const NIN_VALIDATION_TYPES = [
++  'no_record',
++  'photography_error',
++  'modification_validation',
++  'bypass_nin',
++  'vnin_validation',
++  'bank_validation',
++  'jamb_validation'
++] as const;
++
++export type NinValidationType = (typeof NIN_VALIDATION_TYPES)[number];
++
++export function submitNinValidation(nin: string, type: NinValidationType) {
++  return franceVerifiedPost('/nin/validate', { nin, type });
++}
++
++/** Same underlying endpoint as nin.service.ts's checkNinReference - kept as its own export here so this file stays independently usable. */
++export function checkNinValidation(reference: string) {
++  return franceVerifiedGet('/nin/check', { reference });
++}
+diff --git a/major_data_link_backend/src/services/franceverified/nin.service.ts b/major_data_link_backend/src/services/franceverified/nin.service.ts
+index 3331651..681f59c 100644
+--- a/major_data_link_backend/src/services/franceverified/nin.service.ts
++++ b/major_data_link_backend/src/services/franceverified/nin.service.ts
+@@ -1,4 +1,4 @@
+-import { franceVerifiedPost } from './client.js';
++import { franceVerifiedGet, franceVerifiedPost } from './client.js';
+ 
+ export function verifyNin(nin: string) {
+   return franceVerifiedPost('/nin/verify/nin', { nin });
+@@ -8,6 +8,19 @@ export function verifyNinByPhone(phone: string) {
+   return franceVerifiedPost('/nin/verify/phone', { phone });
+ }
+ 
++// Path confirmed against https://www.franceverified.com/api-docs/nin -
++// it's "/nin/verify/demo", not "/nin/verify/demographic" (the previous value
++// here 404s against the live API).
+ export function verifyNinByDemographic(params: { firstname: string; lastname: string; dob: string; gender?: string }) {
+-  return franceVerifiedPost('/nin/verify/demographic', params);
++  return franceVerifiedPost('/nin/verify/demo', params);
++}
++
++/** IPE (Identity Profile Entry) Clearance. `type` per the docs, e.g. "get-old-tracking-id". */
++export function submitIpeClearance(tracking: string, type: string) {
++  return franceVerifiedPost('/nin/ipe', { tracking, type });
++}
++
++/** Shared by NIN Verification (IPE) and NIN Validation - both poll status by `reference`. */
++export function checkNinReference(reference: string) {
++  return franceVerifiedGet('/nin/check', { reference });
+ }
+diff --git a/major_data_link_backend/src/services/franceverified/tax.service.ts b/major_data_link_backend/src/services/franceverified/tax.service.ts
+new file mode 100644
+index 0000000..265ed02
+--- /dev/null
++++ b/major_data_link_backend/src/services/franceverified/tax.service.ts
+@@ -0,0 +1,11 @@
++import { franceVerifiedPost } from './client.js';
++
++/** Docs: https://www.franceverified.com/api-docs/tax */
++export function verifyIndividualTin(params: { bvn: string; firstName: string; lastName: string; dateOfBirth: string }) {
++  return franceVerifiedPost('/tax/verify', { type: 'individual', ...params });
++}
++
++/** orgType per FranceVerified's own enum (docs sample uses "2" for Limited Liability) - confirm the full list against their dashboard before hardcoding options in the UI. */
++export function verifyBusinessTin(params: { orgType: string; rc: string }) {
++  return franceVerifiedPost('/tax/verify', { type: 'business', ...params });
++}

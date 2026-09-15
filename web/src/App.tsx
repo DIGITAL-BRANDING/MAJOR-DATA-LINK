@@ -17,6 +17,7 @@ import ResultCheckersPage from './pages/ResultCheckersPage';
 import VerificationPage from './pages/VerificationPage';
 import NinModificationPage from './pages/NinModificationPage';
 import BvnCrmPage from './pages/BvnCrmPage';
+import NewspaperPublicationPage from './pages/NewspaperPublicationPage';
 import FundWalletPage from './pages/FundWalletPage';
 import PaymentCallbackPage from './pages/PaymentCallbackPage';
 import DeliveriesPage from './pages/DeliveriesPage';
@@ -84,7 +85,7 @@ export default function App() {
           <Route path="/bvn-crm" element={<ProtectedRoute><BvnCrmPage /></ProtectedRoute>} />
           <Route path="/attestation" element={<ProtectedRoute><ManualServiceRequestPage title="Birth Attestation" prompt="Submit the information needed for a birth attestation request." /></ProtectedRoute>} />
           <Route path="/tin" element={<ProtectedRoute><ManualServiceRequestPage title="TIN Certificate" prompt="Submit the information needed for your TIN certificate request." /></ProtectedRoute>} />
-          <Route path="/newspaper" element={<ProtectedRoute><ManualServiceRequestPage title="Newspaper Publication" prompt="Submit the information needed for your publication request." /></ProtectedRoute>} />
+          <Route path="/newspaper" element={<ProtectedRoute><NewspaperPublicationPage /></ProtectedRoute>} />
           <Route path="/jamb-services" element={<ProtectedRoute><JambServicesPage /></ProtectedRoute>} />
           <Route path="/cac-registration" element={<ProtectedRoute><CacServicesPage /></ProtectedRoute>} />
           <Route path="/support" element={<ProtectedRoute><SupportPage /></ProtectedRoute>} />
