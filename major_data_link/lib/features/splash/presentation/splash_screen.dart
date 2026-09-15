@@ -54,7 +54,12 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
 
       // Best-effort only - never let this affect the force-update check
       // that follows it. See _syncRemoteBaseUrl's own doc comment.
-      unawaited(_syncRemoteBaseUrl(data['api_base_url'] as String?));
+      final rawRemoteBaseUrl = data['api_base_url'];
+      unawaited(
+        _syncRemoteBaseUrl(
+          rawRemoteBaseUrl is String ? rawRemoteBaseUrl : null,
+        ),
+      );
 
       final minVersion = data['min_android_version'] as String?;
       if (minVersion == null) return false;
@@ -115,9 +120,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
       }
 
       await storage.saveApiBaseUrlOverride(remoteBaseUrl);
-      appLogger.i(
-        'Cached new api_base_url for next launch: $remoteBaseUrl',
-      );
+      appLogger.i('Cached new api_base_url for next launch: $remoteBaseUrl');
     } catch (error, stack) {
       appLogger.w(
         'Remote base URL sync failed (non-fatal)',

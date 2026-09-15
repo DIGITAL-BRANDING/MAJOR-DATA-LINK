@@ -38,7 +38,11 @@ async function request<T>(
 ): Promise<T> {
   const { method = 'GET', body, auth = true } = options;
 
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    // Reporting metadata only; the backend never trusts this to authorize a request.
+    'X-Client-Channel': 'web',
+  };
   if (auth) {
     const token = getAccessToken();
     if (token) headers.Authorization = `Bearer ${token}`;

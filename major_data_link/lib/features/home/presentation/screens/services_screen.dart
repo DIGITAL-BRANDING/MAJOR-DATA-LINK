@@ -113,6 +113,36 @@ const _services = [
     route: RouteNames.cacServices,
   ),
   _ServiceItem(
+    label: 'BVN CRM',
+    icon: Icons.support_agent_outlined,
+    color: AppColors.primary600,
+    route: RouteNames.bvnCrm,
+  ),
+  _ServiceItem(
+    label: 'Newspaper Publication',
+    icon: Icons.newspaper_outlined,
+    color: AppColors.secondary600,
+    route: RouteNames.newspaperPublication,
+  ),
+  _ServiceItem(
+    label: 'BVN Modification',
+    icon: Icons.edit_note_outlined,
+    color: AppColors.accent600,
+    route: RouteNames.bvnModification,
+  ),
+  _ServiceItem(
+    label: 'Birth Attestation',
+    icon: Icons.child_care_outlined,
+    color: AppColors.success600,
+    route: RouteNames.birthAttestation,
+  ),
+  _ServiceItem(
+    label: 'TIN Certificate',
+    icon: Icons.receipt_long_outlined,
+    color: AppColors.warning700,
+    route: RouteNames.tinCertificate,
+  ),
+  _ServiceItem(
     label: 'SCUML Registration',
     icon: Icons.verified_user_outlined,
     color: AppColors.success600,
@@ -148,8 +178,10 @@ class _ServicesScreenState extends State<ServicesScreen> {
     final filtered = _query.isEmpty
         ? _services
         : _services
-            .where((s) => s.label.toLowerCase().contains(_query.toLowerCase()))
-            .toList();
+              .where(
+                (s) => s.label.toLowerCase().contains(_query.toLowerCase()),
+              )
+              .toList();
 
     return Scaffold(
       appBar: AppBar(title: const Text('Services')),
@@ -185,37 +217,40 @@ class _ServicesScreenState extends State<ServicesScreen> {
                 itemBuilder: (context, index) {
                   final service = filtered[index];
                   return GestureDetector(
-                    onTap: () => context.push(service.route),
-                    child: FittedBox(
-                      fit: BoxFit.scaleDown,
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Container(
-                            width: 64,
-                            height: 64,
-                            decoration: BoxDecoration(
-                              color: service.color.withValues(alpha: 0.12),
-                              borderRadius: BorderRadius.circular(18),
-                            ),
-                            child: Icon(service.icon,
-                                color: service.color, size: 28),
+                        onTap: () => context.push(service.route),
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                width: 64,
+                                height: 64,
+                                decoration: BoxDecoration(
+                                  color: service.color.withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(18),
+                                ),
+                                child: Icon(
+                                  service.icon,
+                                  color: service.color,
+                                  size: 28,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                service.label,
+                                textAlign: TextAlign.center,
+                                style: context.textTheme.labelSmall?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
                           ),
-                          const SizedBox(height: 8),
-                          Text(
-                            service.label,
-                            textAlign: TextAlign.center,
-                            style: context.textTheme.labelSmall?.copyWith(
-                              fontWeight: FontWeight.w600,
-                            ),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ],
-                      ),
-                    ),
-                  )
+                        ),
+                      )
                       .animate(delay: Duration(milliseconds: index * 30))
                       .fadeIn(duration: 250.ms)
                       .scale(begin: const Offset(0.9, 0.9));

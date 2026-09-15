@@ -52,88 +52,92 @@ class _FundWalletScreenState extends ConsumerState<FundWalletScreen>
       // through) mid-request.
       canPop: !_isProcessing,
       child: Scaffold(
-      appBar: AppBar(title: const Text(AppStrings.fundWallet)),
-      body: Stack(
-        children: [
-          SafeArea(
-        top: false,
-        child: RefreshIndicator(
-          onRefresh: () => ref.read(walletNotifierProvider.notifier).refresh(),
-          child: SingleChildScrollView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.all(AppDimensions.screenPaddingH),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                wallet.when(
-                  loading: () => const LinearProgressIndicator(minHeight: 2),
-                  error: (_, __) => _NoticeCard(
-                    icon: Icons.info_outline_rounded,
-                    title: 'Wallet details unavailable',
-                    message:
-                        'Pull down to refresh your wallet account details.',
+        appBar: AppBar(title: const Text(AppStrings.fundWallet)),
+        body: Stack(
+          children: [
+            SafeArea(
+              top: false,
+              child: RefreshIndicator(
+                onRefresh: () =>
+                    ref.read(walletNotifierProvider.notifier).refresh(),
+                child: SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.all(AppDimensions.screenPaddingH),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      wallet.when(
+                        loading: () =>
+                            const LinearProgressIndicator(minHeight: 2),
+                        error: (_, __) => _NoticeCard(
+                          icon: Icons.info_outline_rounded,
+                          title: 'Wallet details unavailable',
+                          message:
+                              'Pull down to refresh your wallet account details.',
+                        ),
+                        data: (value) => _VirtualAccountPanel(
+                          bankName: value.virtualAccountBank,
+                          accountNumber: value.virtualAccountNumber,
+                          accountName: value.virtualAccountName,
+                          onCopy: _copy,
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      Text(
+                        'Fund wallet options',
+                        style: context.textTheme.titleSmall,
+                      ),
+                      const SizedBox(height: 10),
+                      _FundingOption(
+                        icon: Icons.account_balance_wallet_outlined,
+                        title: 'Virtual Account',
+                        subtitle:
+                            'Transfer to your personal account. Automatic credit after confirmation.',
+                        onTap: () => _showVirtualAccount(),
+                      ),
+                      _FundingOption(
+                        icon: Icons.account_balance_outlined,
+                        title: 'Dynamic Account',
+                        subtitle:
+                            'Generate a temporary account for an exact amount.',
+                        onTap: () =>
+                            _showAmountSheet(_FundFlow.dynamicTransfer),
+                      ),
+                      _FundingOption(
+                        icon: Icons.receipt_long_outlined,
+                        title: 'Manual Bank',
+                        subtitle:
+                            'Send notice to support after transfer if credit is delayed.',
+                        onTap: _showManualBankNotice,
+                      ),
+                      _FundingOption(
+                        icon: Icons.confirmation_number_outlined,
+                        title: 'Fund with Coupon',
+                        subtitle: 'Redeem a wallet coupon code.',
+                        onTap: _showCouponSheet,
+                      ),
+                      _FundingOption(
+                        icon: Icons.credit_card_rounded,
+                        title: 'ATM / Card Payment',
+                        subtitle:
+                            'Pay securely with card, USSD, bank or transfer via Paystack.',
+                        onTap: () => _showAmountSheet(_FundFlow.card),
+                      ),
+                      const SizedBox(height: 16),
+                      const _NoticeCard(
+                        icon: Icons.shield_outlined,
+                        title: 'Funding note',
+                        message:
+                            'Bank transfers are automatic. Use the exact account shown to you and contact support only if your wallet is not credited after a few minutes.',
+                      ),
+                    ],
                   ),
-                  data: (value) => _VirtualAccountPanel(
-                    bankName: value.virtualAccountBank,
-                    accountNumber: value.virtualAccountNumber,
-                    accountName: value.virtualAccountName,
-                    onCopy: _copy,
-                  ),
                 ),
-                const SizedBox(height: 20),
-                Text(
-                  'Fund wallet options',
-                  style: context.textTheme.titleSmall,
-                ),
-                const SizedBox(height: 10),
-                _FundingOption(
-                  icon: Icons.account_balance_wallet_outlined,
-                  title: 'Virtual Account',
-                  subtitle:
-                      'Transfer to your personal account. Automatic credit after confirmation.',
-                  onTap: () => _showVirtualAccount(),
-                ),
-                _FundingOption(
-                  icon: Icons.account_balance_outlined,
-                  title: 'Dynamic Account',
-                  subtitle: 'Generate a temporary account for an exact amount.',
-                  onTap: () => _showAmountSheet(_FundFlow.dynamicTransfer),
-                ),
-                _FundingOption(
-                  icon: Icons.receipt_long_outlined,
-                  title: 'Manual Bank',
-                  subtitle:
-                      'Send notice to support after transfer if credit is delayed.',
-                  onTap: _showManualBankNotice,
-                ),
-                _FundingOption(
-                  icon: Icons.confirmation_number_outlined,
-                  title: 'Fund with Coupon',
-                  subtitle: 'Redeem a wallet coupon code.',
-                  onTap: _showCouponSheet,
-                ),
-                _FundingOption(
-                  icon: Icons.credit_card_rounded,
-                  title: 'ATM / Card Payment',
-                  subtitle:
-                      'Pay securely with card, USSD, bank or transfer via Paystack.',
-                  onTap: () => _showAmountSheet(_FundFlow.card),
-                ),
-                const SizedBox(height: 16),
-                const _NoticeCard(
-                  icon: Icons.shield_outlined,
-                  title: 'Funding note',
-                  message:
-                      'Bank transfers are automatic. Use the exact account shown to you and contact support only if your wallet is not credited after a few minutes.',
-                ),
-              ],
+              ),
             ),
-          ),
+            if (_isProcessing) const _ProcessingOverlay(),
+          ],
         ),
-      ),
-          if (_isProcessing) const _ProcessingOverlay(),
-        ],
-      ),
       ),
     );
   }
@@ -181,7 +185,7 @@ class _FundWalletScreenState extends ConsumerState<FundWalletScreen>
               'Transfer any amount from NGN100 and above. Your wallet will be credited automatically once payment is confirmed.',
           bankName: wallet?.virtualAccountBank ?? 'Bank',
           accountNumber: safeAccountNumber,
-          accountName: wallet?.virtualAccountName ?? 'MAJOR DATA-LINK',
+          accountName: wallet?.virtualAccountName ?? 'K-TECH SOLUTIONS',
           onCopy: _copy,
         ),
       ),
@@ -205,81 +209,82 @@ class _FundWalletScreenState extends ConsumerState<FundWalletScreen>
           ),
           child: SingleChildScrollView(
             child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: AppColors.neutral300,
-                    borderRadius: BorderRadius.circular(2),
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: AppColors.neutral300,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 18),
-              Text(
-                flow == _FundFlow.card
-                    ? 'ATM / Card Payment'
-                    : 'Dynamic Account',
-                style: context.textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w800,
+                const SizedBox(height: 18),
+                Text(
+                  flow == _FundFlow.card
+                      ? 'ATM / Card Payment'
+                      : 'Dynamic Account',
+                  style: context.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                flow == _FundFlow.card
-                    ? 'Enter amount and continue to Paystack checkout.'
-                    : 'Enter the exact amount you want to transfer. A temporary account will be generated for this payment.',
-                style: context.textTheme.bodyMedium?.copyWith(
-                  color: AppColors.neutral500,
+                const SizedBox(height: 8),
+                Text(
+                  flow == _FundFlow.card
+                      ? 'Enter amount and continue to Paystack checkout.'
+                      : 'Enter the exact amount you want to transfer. A temporary account will be generated for this payment.',
+                  style: context.textTheme.bodyMedium?.copyWith(
+                    color: AppColors.neutral500,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 16),
-              KDAmountField(
-                controller: _amountController,
-                onChanged: (v) => setSheetState(() {
-                  _selectedAmount = double.tryParse(v.replaceAll(',', '')) ?? 0;
-                }),
-                validator: (v) =>
-                    AppValidators.amount(v, min: 100, max: 200000),
-              ),
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: _quickAmounts.map((amount) {
-                  final selected = _selectedAmount == amount;
-                  return ChoiceChip(
-                    label: Text(AppFormatters.formatAmount(amount)),
-                    selected: selected,
-                    onSelected: (_) => setSheetState(() {
-                      _selectedAmount = amount;
-                      _amountController.text = amount.toStringAsFixed(0);
-                    }),
-                  );
-                }).toList(),
-              ),
-              const SizedBox(height: 20),
-              KDButton(
-                label: _hasAmount
-                    ? 'Continue with ${AppFormatters.formatAmount(_selectedAmount)}'
-                    : 'Enter amount',
-                onPressed: _hasAmount && !_isProcessing
-                    ? () async {
-                        Navigator.of(sheetContext).pop();
-                        if (flow == _FundFlow.card) {
-                          await _startCardPayment();
-                        } else {
-                          await _createDynamicAccount();
+                const SizedBox(height: 16),
+                KDAmountField(
+                  controller: _amountController,
+                  onChanged: (v) => setSheetState(() {
+                    _selectedAmount =
+                        double.tryParse(v.replaceAll(',', '')) ?? 0;
+                  }),
+                  validator: (v) =>
+                      AppValidators.amount(v, min: 100, max: 200000),
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: _quickAmounts.map((amount) {
+                    final selected = _selectedAmount == amount;
+                    return ChoiceChip(
+                      label: Text(AppFormatters.formatAmount(amount)),
+                      selected: selected,
+                      onSelected: (_) => setSheetState(() {
+                        _selectedAmount = amount;
+                        _amountController.text = amount.toStringAsFixed(0);
+                      }),
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 20),
+                KDButton(
+                  label: _hasAmount
+                      ? 'Continue with ${AppFormatters.formatAmount(_selectedAmount)}'
+                      : 'Enter amount',
+                  onPressed: _hasAmount && !_isProcessing
+                      ? () async {
+                          Navigator.of(sheetContext).pop();
+                          if (flow == _FundFlow.card) {
+                            await _startCardPayment();
+                          } else {
+                            await _createDynamicAccount();
+                          }
                         }
-                      }
-                    : null,
-                isLoading: _isProcessing,
-                gradient: AppColors.primaryGradient,
-              ),
-            ],
+                      : null,
+                  isLoading: _isProcessing,
+                  gradient: AppColors.primaryGradient,
+                ),
+              ],
             ),
           ),
         ),
@@ -342,7 +347,8 @@ class _FundWalletScreenState extends ConsumerState<FundWalletScreen>
                   'Transfer exactly ${AppFormatters.formatAmount(_selectedAmount)} to this account before it expires.',
               bankName: data['bank_name']?.toString() ?? 'Bank',
               accountNumber: data['account_number']?.toString() ?? '',
-              accountName: data['account_name']?.toString() ?? 'MAJOR DATA-LINK',
+              accountName:
+                  data['account_name']?.toString() ?? 'K-TECH SOLUTIONS',
               reference: data['reference']?.toString(),
               expiresAt: data['expires_at']?.toString(),
               onCopy: _copy,
@@ -371,40 +377,40 @@ class _FundWalletScreenState extends ConsumerState<FundWalletScreen>
         ),
         child: SingleChildScrollView(
           child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Fund with Coupon',
-              style: Theme.of(
-                sheetContext,
-              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
-            ),
-            const SizedBox(height: 12),
-            KDTextField(
-              controller: _couponController,
-              label: 'Coupon code',
-              prefixIcon: Icons.confirmation_number_outlined,
-              textCapitalization: TextCapitalization.characters,
-            ),
-            const SizedBox(height: 18),
-            KDButton(
-              label: 'Redeem coupon',
-              onPressed: () async {
-                final code = _couponController.text.trim();
-                if (code.length < 4) {
-                  context.showSnackBar(
-                    'Enter a valid coupon code',
-                    isError: true,
-                  );
-                  return;
-                }
-                Navigator.of(sheetContext).pop();
-                await _redeemCoupon(code);
-              },
-              gradient: AppColors.primaryGradient,
-            ),
-          ],
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Fund with Coupon',
+                style: Theme.of(
+                  sheetContext,
+                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 12),
+              KDTextField(
+                controller: _couponController,
+                label: 'Coupon code',
+                prefixIcon: Icons.confirmation_number_outlined,
+                textCapitalization: TextCapitalization.characters,
+              ),
+              const SizedBox(height: 18),
+              KDButton(
+                label: 'Redeem coupon',
+                onPressed: () async {
+                  final code = _couponController.text.trim();
+                  if (code.length < 4) {
+                    context.showSnackBar(
+                      'Enter a valid coupon code',
+                      isError: true,
+                    );
+                    return;
+                  }
+                  Navigator.of(sheetContext).pop();
+                  await _redeemCoupon(code);
+                },
+                gradient: AppColors.primaryGradient,
+              ),
+            ],
           ),
         ),
       ),
@@ -420,35 +426,35 @@ class _FundWalletScreenState extends ConsumerState<FundWalletScreen>
         padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
         child: SingleChildScrollView(
           child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              'Manual Bank Funding',
-              style: context.textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            const SizedBox(height: 12),
-            const _NoticeCard(
-              icon: Icons.info_outline_rounded,
-              title: 'Send notice',
-              message:
-                  'Use the account number on your dashboard to fund your wallet. It is active and automatic. If payment is delayed, contact support with your transfer receipt.',
-            ),
-            const SizedBox(height: 18),
-            KDButton(
-              label: 'Contact WhatsApp support',
-              onPressed: () => launchUrl(
-                Uri.parse(
-                  'https://wa.me/${AppConfig.supportWhatsApp.replaceAll('+', '')}'
-                  '?text=Hello%20MAJOR%20DATA-LINK,%20I%20need%20help%20with%20wallet%20funding',
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Manual Bank Funding',
+                style: context.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w800,
                 ),
-                mode: LaunchMode.externalApplication,
               ),
-              gradient: AppColors.primaryGradient,
-            ),
-          ],
+              const SizedBox(height: 12),
+              const _NoticeCard(
+                icon: Icons.info_outline_rounded,
+                title: 'Send notice',
+                message:
+                    'Use the account number on your dashboard to fund your wallet. It is active and automatic. If payment is delayed, contact support with your transfer receipt.',
+              ),
+              const SizedBox(height: 18),
+              KDButton(
+                label: 'Contact WhatsApp support',
+                onPressed: () => launchUrl(
+                  Uri.parse(
+                    'https://wa.me/${AppConfig.supportWhatsApp.replaceAll('+', '')}'
+                    '?text=Hello%20MAJOR%20DATA-LINK,%20I%20need%20help%20with%20wallet%20funding',
+                  ),
+                  mode: LaunchMode.externalApplication,
+                ),
+                gradient: AppColors.primaryGradient,
+              ),
+            ],
           ),
         ),
       ),
@@ -555,16 +561,15 @@ class _ProcessingOverlay extends StatelessWidget {
                   height: 52,
                   child: CircularProgressIndicator(
                     strokeWidth: 4,
-                    valueColor: AlwaysStoppedAnimation(
-                      context.colors.primary,
-                    ),
+                    valueColor: AlwaysStoppedAnimation(context.colors.primary),
                   ),
                 ),
                 const SizedBox(height: 20),
                 Text(
                   'Processing your request…',
-                  style: context.textTheme.titleSmall
-                      ?.copyWith(fontWeight: FontWeight.w800),
+                  style: context.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 8),
@@ -664,7 +669,7 @@ class _VirtualAccountPanel extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            accountName ?? 'MAJOR DATA-LINK',
+            accountName ?? 'K-TECH SOLUTIONS',
             style: const TextStyle(
               color: Colors.white,
               fontWeight: FontWeight.w700,
@@ -713,59 +718,63 @@ class _AccountDetailsSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     return SingleChildScrollView(
       child: Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Text(
-          title,
-          style: context.textTheme.titleLarge?.copyWith(
-            fontWeight: FontWeight.w800,
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            title,
+            style: context.textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.w800,
+            ),
           ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          message,
-          style: context.textTheme.bodyMedium?.copyWith(
-            color: AppColors.neutral500,
+          const SizedBox(height: 8),
+          Text(
+            message,
+            style: context.textTheme.bodyMedium?.copyWith(
+              color: AppColors.neutral500,
+            ),
           ),
-        ),
-        const SizedBox(height: 16),
-        KDCard(
-          child: Column(
-            children: [
-              _CopyRow(label: 'Bank', value: bankName, onCopy: onCopy),
-              const Divider(),
-              _CopyRow(
-                label: 'Account number',
-                value: accountNumber,
-                onCopy: onCopy,
-              ),
-              const Divider(),
-              _CopyRow(
-                label: 'Account name',
-                value: accountName,
-                onCopy: onCopy,
-              ),
-              if (reference != null) ...[
-                const Divider(),
-                _CopyRow(label: 'Reference', value: reference!, onCopy: onCopy),
-              ],
-              if (expiresAt != null && expiresAt!.isNotEmpty) ...[
-                const Divider(),
-                _CopyRow(label: 'Expires', value: expiresAt!, onCopy: onCopy),
-              ],
-            ],
-          ),
-        ),
-        if (onVerify != null) ...[
           const SizedBox(height: 16),
-          KDButton(
-            label: 'I have paid - verify',
-            onPressed: onVerify,
-            gradient: AppColors.primaryGradient,
+          KDCard(
+            child: Column(
+              children: [
+                _CopyRow(label: 'Bank', value: bankName, onCopy: onCopy),
+                const Divider(),
+                _CopyRow(
+                  label: 'Account number',
+                  value: accountNumber,
+                  onCopy: onCopy,
+                ),
+                const Divider(),
+                _CopyRow(
+                  label: 'Account name',
+                  value: accountName,
+                  onCopy: onCopy,
+                ),
+                if (reference != null) ...[
+                  const Divider(),
+                  _CopyRow(
+                    label: 'Reference',
+                    value: reference!,
+                    onCopy: onCopy,
+                  ),
+                ],
+                if (expiresAt != null && expiresAt!.isNotEmpty) ...[
+                  const Divider(),
+                  _CopyRow(label: 'Expires', value: expiresAt!, onCopy: onCopy),
+                ],
+              ],
+            ),
           ),
+          if (onVerify != null) ...[
+            const SizedBox(height: 16),
+            KDButton(
+              label: 'I have paid - verify',
+              onPressed: onVerify,
+              gradient: AppColors.primaryGradient,
+            ),
+          ],
         ],
-      ],
       ),
     );
   }
@@ -847,4 +856,3 @@ class _NoticeCard extends StatelessWidget {
     );
   }
 }
-

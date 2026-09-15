@@ -2,6 +2,7 @@ import { getModelByName } from '@adminjs/prisma';
 import type { ResourceWithOptions } from 'adminjs';
 import { prisma } from '../../lib/prisma.js';
 import type { AdminSessionUser } from '../auth.js';
+import { logAdminAction } from '../audit.js';
 
 const canManagePricing = ({ currentAdmin }: { currentAdmin?: Record<string, unknown> }) => {
   const admin = currentAdmin as unknown as AdminSessionUser | undefined;
@@ -110,8 +111,24 @@ export const servicePricingResource: ResourceWithOptions = {
       },
       show: {
         isAccessible: canManagePricing,
-        after: async (response: any) => {
+        after: async (response: any, _request: any, context: any) => {
           mirrorNairaFields(response.record?.params);
+          const admin = context.currentAdmin as unknown as AdminSessionUser | undefined;
+          const record = response.record;
+          if (admin?.id && record?.params?.id && !record?.baseError && Object.keys(record?.errors ?? {}).length === 0) {
+            await logAdminAction({
+              adminId: admin.id,
+              action: 'UPDATE_SERVICE_PRICING',
+              targetType: 'ServicePricing',
+              targetId: record.params.id as string,
+              metadata: {
+                service: record.params.service,
+                sellingPriceKobo: record.params.sellingPriceKobo ?? null,
+                partnerSellingPriceKobo: record.params.partnerSellingPriceKobo ?? null,
+                isActive: record.params.isActive
+              }
+            });
+          }
           return response;
         }
       },

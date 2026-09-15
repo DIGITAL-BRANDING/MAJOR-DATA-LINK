@@ -61,6 +61,11 @@ abstract class RouteNames {
   static const cacServices = '/home/services/cac';
   static const scumlServices = '/home/services/scuml';
   static const tinServices = '/home/services/tin';
+  static const bvnCrm = '/home/services/bvn-crm';
+  static const newspaperPublication = '/home/services/newspaper-publication';
+  static const bvnModification = '/home/services/bvn-modification';
+  static const birthAttestation = '/home/services/birth-attestation';
+  static const tinCertificate = '/home/services/tin-certificate';
 
   // ── Wallet ────────────────────────────────────────────────
   static const wallet = '/home/dashboard/wallet';

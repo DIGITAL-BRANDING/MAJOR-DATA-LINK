@@ -23,14 +23,15 @@ class KDReceiptCard extends StatelessWidget {
   final List<MapEntry<String, String>> details;
   final double? balanceAfter;
 
-  bool get _isSuccess => status.toLowerCase() == 'successful' ||
-      status.toLowerCase() == 'success';
+  bool get _isSuccess =>
+      status.toLowerCase() == 'successful' || status.toLowerCase() == 'success';
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final statusColor =
-        _isSuccess ? AppColors.success600 : AppColors.warning600;
+    final statusColor = _isSuccess
+        ? AppColors.success600
+        : AppColors.warning600;
     final statusBg = _isSuccess ? AppColors.success50 : AppColors.warning50;
 
     return KDCard(
@@ -42,7 +43,7 @@ class KDReceiptCard extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                'MAJOR DATA-LINK',
+                'K-TECH SOLUTIONS',
                 style: TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w800,
@@ -51,8 +52,10 @@ class KDReceiptCard extends StatelessWidget {
                 ),
               ),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
                 decoration: BoxDecoration(
                   color: statusBg,
                   borderRadius: BorderRadius.circular(20),
@@ -75,48 +78,48 @@ class KDReceiptCard extends StatelessWidget {
           // ── Amount ────────────────────────────────────────
           Text(
             title,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: AppColors.neutral500,
-                ),
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: AppColors.neutral500),
           ),
           const SizedBox(height: 4),
           Text(
             AppFormatters.formatAmount(amount),
-            style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                  fontWeight: FontWeight.w800,
-                ),
+            style: Theme.of(
+              context,
+            ).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w800),
           ),
 
           const SizedBox(height: 16),
-          Divider(
-              color: isDark ? AppColors.darkDivider : AppColors.neutral200),
+          Divider(color: isDark ? AppColors.darkDivider : AppColors.neutral200),
           const SizedBox(height: 12),
 
           // ── Details rows ──────────────────────────────────
-          ...details.map((entry) => Padding(
-                padding: const EdgeInsets.symmetric(vertical: 5),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      entry.key,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: AppColors.neutral500,
-                          ),
+          ...details.map(
+            (entry) => Padding(
+              padding: const EdgeInsets.symmetric(vertical: 5),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    entry.key,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: AppColors.neutral500,
                     ),
-                    Flexible(
-                      child: Text(
-                        entry.value,
-                        textAlign: TextAlign.end,
-                        style:
-                            Theme.of(context).textTheme.bodySmall?.copyWith(
-                                  fontWeight: FontWeight.w700,
-                                ),
+                  ),
+                  Flexible(
+                    child: Text(
+                      entry.value,
+                      textAlign: TextAlign.end,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
-                  ],
-                ),
-              )),
+                  ),
+                ],
+              ),
+            ),
+          ),
 
           // ── Date ──────────────────────────────────────────
           Padding(
@@ -126,15 +129,15 @@ class KDReceiptCard extends StatelessWidget {
               children: [
                 Text(
                   'Date',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: AppColors.neutral500,
-                      ),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(color: AppColors.neutral500),
                 ),
                 Text(
                   AppFormatters.formatDateTime(date),
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w700),
                 ),
               ],
             ),
@@ -148,18 +151,18 @@ class KDReceiptCard extends StatelessWidget {
               children: [
                 Text(
                   'Reference',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: AppColors.neutral500,
-                      ),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(color: AppColors.neutral500),
                 ),
                 Flexible(
                   child: Text(
                     reference,
                     textAlign: TextAlign.end,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          fontWeight: FontWeight.w700,
-                          fontSize: 11,
-                        ),
+                      fontWeight: FontWeight.w700,
+                      fontSize: 11,
+                    ),
                   ),
                 ),
               ],
@@ -168,8 +171,8 @@ class KDReceiptCard extends StatelessWidget {
 
           if (balanceAfter != null) ...[
             Divider(
-                color:
-                    isDark ? AppColors.darkDivider : AppColors.neutral200),
+              color: isDark ? AppColors.darkDivider : AppColors.neutral200,
+            ),
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 5),
               child: Row(
@@ -178,14 +181,14 @@ class KDReceiptCard extends StatelessWidget {
                   Text(
                     'Wallet balance',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: AppColors.neutral500,
-                        ),
+                      color: AppColors.neutral500,
+                    ),
                   ),
                   Text(
                     AppFormatters.formatAmount(balanceAfter!),
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ],
               ),
@@ -197,11 +200,11 @@ class KDReceiptCard extends StatelessWidget {
           // ── Footer ────────────────────────────────────────
           Center(
             child: Text(
-              'Thank you for using MAJOR DATA-LINK',
+              'Thank you for using K-TECH SOLUTIONS',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: AppColors.neutral400,
-                    fontSize: 11,
-                  ),
+                color: AppColors.neutral400,
+                fontSize: 11,
+              ),
             ),
           ),
         ],
@@ -209,4 +212,3 @@ class KDReceiptCard extends StatelessWidget {
     );
   }
 }
-

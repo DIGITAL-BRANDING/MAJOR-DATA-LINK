@@ -23,6 +23,8 @@ class DioClient {
         headers: {
           'Accept': 'application/json',
           'Content-Type': 'application/json',
+          // Reporting metadata only; this header is never trusted for authorization.
+          'X-Client-Channel': 'mobile_app',
         },
         validateStatus: (status) => status != null && status < 400,
         followRedirects: true,

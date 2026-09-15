@@ -47,6 +47,14 @@ type Partner = {
   phone: string | null;
   status: 'pending_review' | 'active' | 'suspended';
   wallet_balance: number;
+  api_access: {
+    tier: 'FUND_WALLET' | 'NIN_BVN' | 'FULL_API';
+    wallet_balance: number;
+    nin_bvn_minimum_deposit: number;
+    full_api_minimum_deposit: number;
+    nin_bvn_enabled: boolean;
+    full_api_enabled: boolean;
+  };
 };
 type Wallet = {
   balance: number;
@@ -281,6 +289,26 @@ export default function PartnerDashboardPage() {
                   ? t('partnerPortal.banner.pendingBody', { email: partner.email })
                   : t('partnerPortal.banner.suspendedBody')}
               </p>
+            </div>
+          </section>
+        )}
+
+        {partner.status === 'active' && (
+          <section className="mt-6 rounded-2xl border border-blue-200 bg-gradient-to-br from-blue-50 to-white p-6 shadow-sm">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="max-w-3xl">
+                <p className="text-sm font-bold uppercase tracking-[0.14em] text-brand-700">Partner API access</p>
+                <h2 className="mt-2 text-xl font-bold text-slate-900">Welcome to the K-Tech Solutions Partner API.</h2>
+                <p className="mt-2 text-sm leading-6 text-slate-700">
+                  Your account has been approved. Fund your wallet with a minimum of ₦{partner.api_access.nin_bvn_minimum_deposit.toLocaleString()} to activate NIN and BVN identity APIs. Maintain a minimum balance of ₦{partner.api_access.full_api_minimum_deposit.toLocaleString()} to unlock the full API suite, including data and airtime services.
+                </p>
+                <p className="mt-3 text-sm font-semibold text-slate-800">
+                  Current access: {partner.api_access.tier === 'FULL_API' ? 'Full API access' : partner.api_access.tier === 'NIN_BVN' ? 'NIN & BVN API access' : 'Wallet funding required'}.
+                </p>
+              </div>
+              <span className={`rounded-full px-3 py-1 text-xs font-bold ${partner.api_access.full_api_enabled ? 'bg-emerald-100 text-emerald-800' : partner.api_access.nin_bvn_enabled ? 'bg-blue-100 text-blue-800' : 'bg-amber-100 text-amber-800'}`}>
+                {partner.api_access.full_api_enabled ? 'FULL API' : partner.api_access.nin_bvn_enabled ? 'NIN / BVN' : 'FUND WALLET'}
+              </span>
             </div>
           </section>
         )}

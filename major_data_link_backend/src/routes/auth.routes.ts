@@ -10,6 +10,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { ApiError } from '../middleware/error.js';
 import { verifyLoginPin } from '../services/login-pin.service.js';
 import { tryProvisionInstantVirtualAccount } from '../services/kyc.service.js';
+import { customerLoginChannel } from '../lib/login-activity.js';
 
 export const authRoutes = Router();
 
@@ -71,7 +72,11 @@ authRoutes.post('/register', async (req, res) => {
       referredByCode: body.referral_code,
       referralCode: nanoid(8).toUpperCase(),
       emailVerified: false,
-      phoneVerified: false
+      phoneVerified: false,
+      // Registration immediately creates an authenticated session, so count
+      // it as the account's first successful sign-in for support reporting.
+      lastLoginAt: new Date(),
+      lastLoginChannel: customerLoginChannel(req)
     }
   });
 
@@ -164,16 +169,6 @@ authRoutes.post('/login', async (req, res) => {
     throw new ApiError(401, 'Invalid email/phone or password', 'INVALID_CREDENTIALS');
   }
 
-  // Successful password - clear any prior failure count/lockout so it
-  // doesn't linger and affect a future legitimate attempt.
-  if (user.passwordFailures > 0 || user.passwordLockedUntil) {
-    const cleared = clearLockout();
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { passwordFailures: cleared.failures, passwordLockedUntil: cleared.lockedUntil, passwordFailureAt: cleared.failureAt }
-    });
-  }
-
   if (user.accountStatus === 'DEACTIVATED') {
     throw new ApiError(
       403,
@@ -194,6 +189,20 @@ authRoutes.post('/login', async (req, res) => {
     // Propagates LOGIN_PIN_LOCKED / INVALID_LOGIN_PIN as-is on failure.
     await verifyLoginPin(user.id, body.login_pin);
   }
+
+  // Write activity only after every required credential has passed. The
+  // channel is strictly reporting metadata, never an authorization signal.
+  const cleared = clearLockout();
+  await prisma.user.update({
+    where: { id: user.id },
+    data: {
+      passwordFailures: cleared.failures,
+      passwordLockedUntil: cleared.lockedUntil,
+      passwordFailureAt: cleared.failureAt,
+      lastLoginAt: new Date(),
+      lastLoginChannel: customerLoginChannel(req)
+    }
+  });
 
   const tokens = await issueAuthTokens({ id: user.id, email: user.email });
   res.json(await authResponse(user, tokens));
@@ -259,7 +268,9 @@ authRoutes.post('/login-pin/reset', async (req, res) => {
       loginPinHash: null,
       loginPinFailures: 0,
       loginPinLockedUntil: null,
-      loginPinFailureAt: null
+      loginPinFailureAt: null,
+      lastLoginAt: new Date(),
+      lastLoginChannel: customerLoginChannel(req)
     }
   });
 

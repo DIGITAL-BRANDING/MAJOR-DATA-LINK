@@ -66,6 +66,9 @@ import '../../features/verification/presentation/screens/bvn_retrieval_screen.da
 import '../../features/verification/presentation/screens/bvn_license_onboarding_screen.dart';
 import '../../features/verification/presentation/screens/nin_modification_screen.dart';
 import '../../features/deliveries/presentation/screens/deliveries_screen.dart';
+import '../../features/manual_services/presentation/screens/manual_service_request_screen.dart';
+import '../../features/manual_services/presentation/screens/bvn_crm_screen.dart';
+import '../../features/manual_services/presentation/screens/newspaper_publication_screen.dart';
 import '../di/injection.dart';
 
 // ── Auth state ────────────────────────────────────────────
@@ -288,13 +291,43 @@ final routerProvider = Provider<GoRouter>((ref) {
                   ),
                   GoRoute(
                     path: 'cac',
-                    builder: (_, __) => const ComingSoonScreen(
-                      title: 'CAC Registration',
-                      icon: Icons.business_center_outlined,
-                      color: AppColors.accent600,
-                      description:
-                          'Business name and company registration with CAC '
-                          'is coming soon to MAJOR DATA-LINK.',
+                    builder: (_, __) => const ManualServiceRequestScreen(
+                      title: 'CAC Services',
+                      prompt:
+                          'Send your CAC request here. Our team processes it and securely uploads the completed document to Deliveries.',
+                      cac: true,
+                    ),
+                  ),
+                  GoRoute(
+                    path: 'bvn-crm',
+                    builder: (_, __) => const BvnCrmScreen(),
+                  ),
+                  GoRoute(
+                    path: 'newspaper-publication',
+                    builder: (_, __) => const NewspaperPublicationScreen(),
+                  ),
+                  GoRoute(
+                    path: 'bvn-modification',
+                    builder: (_, __) => const ManualServiceRequestScreen(
+                      title: 'BVN Modification',
+                      prompt:
+                          'Submit the BVN modification details for an agent to process.',
+                    ),
+                  ),
+                  GoRoute(
+                    path: 'birth-attestation',
+                    builder: (_, __) => const ManualServiceRequestScreen(
+                      title: 'Birth Attestation',
+                      prompt:
+                          'Submit the information needed for a birth attestation request.',
+                    ),
+                  ),
+                  GoRoute(
+                    path: 'tin-certificate',
+                    builder: (_, __) => const ManualServiceRequestScreen(
+                      title: 'TIN Certificate',
+                      prompt:
+                          'Submit the information needed for your TIN certificate request.',
                     ),
                   ),
                   GoRoute(
@@ -305,7 +338,7 @@ final routerProvider = Provider<GoRouter>((ref) {
                       color: AppColors.success600,
                       description:
                           'SCUML registration services are coming soon to '
-                          'MAJOR DATA-LINK.',
+                          'K-TECH SOLUTIONS.',
                     ),
                   ),
                   GoRoute(
@@ -316,7 +349,7 @@ final routerProvider = Provider<GoRouter>((ref) {
                       color: AppColors.warning600,
                       description:
                           'Tax Identification Number (TIN) registration is '
-                          'coming soon to MAJOR DATA-LINK.',
+                          'coming soon to K-TECH SOLUTIONS.',
                     ),
                   ),
                 ],

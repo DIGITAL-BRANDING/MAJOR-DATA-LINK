@@ -2,8 +2,8 @@ abstract class AppStrings {
   AppStrings._();
 
   // ── App ────────────────────────────────────────────────────
-  static const String appName = 'MAJOR DATA-LINK';
-  static const String appTagline = 'Fast. Reliable. Affordable.';
+  static const String appName = 'K-TECH SOLUTIONS';
+  static const String appTagline = 'Smart Tech. Better Tomorrow.';
   static const String appVersion = '1.0.0';
 
   // ── Onboarding ────────────────────────────────────────────
@@ -20,7 +20,7 @@ abstract class AppStrings {
   // ── Auth ──────────────────────────────────────────────────
   static const String welcomeBack = 'Welcome back';
   static const String createAccount = 'Create account';
-  static const String loginSubtitle = 'Sign in to continue to MAJOR DATA-LINK';
+  static const String loginSubtitle = 'Sign in to continue to K-TECH SOLUTIONS';
   static const String registerSubtitle =
       'Join thousands buying data & paying bills smarter';
   static const String emailLabel = 'Email address';
@@ -154,7 +154,7 @@ abstract class AppStrings {
   static const String language = 'Language';
   static const String privacyPolicy = 'Privacy policy';
   static const String termsOfService = 'Terms of service';
-  static const String aboutApp = 'About MAJOR DATA-LINK';
+  static const String aboutApp = 'About K-TECH SOLUTIONS';
 
   // ── Support ───────────────────────────────────────────────
   static const String support = 'Support';
@@ -193,8 +193,7 @@ abstract class AppStrings {
   static const String somethingWentWrong = 'Something went wrong';
   static const String networkError =
       'No internet connection. Check your network and try again.';
-  static const String timeoutError =
-      'Request timed out. Please try again.';
+  static const String timeoutError = 'Request timed out. Please try again.';
   static const String serverError =
       'Our servers are busy. Please try again shortly.';
   static const String sessionExpired =
@@ -232,4 +231,3 @@ abstract class AppStrings {
   static const String nairaSymbol = '₦';
   static const String currency = 'NGN';
 }
-

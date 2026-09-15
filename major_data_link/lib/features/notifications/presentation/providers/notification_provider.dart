@@ -174,7 +174,7 @@ class FcmService {
     // Create notification channel
     const channel = AndroidNotificationChannel(
       'major_datalink_notifications',
-      'MAJOR DATA-LINK',
+      'K-TECH SOLUTIONS',
       description: 'Transaction alerts and app notifications',
       importance: Importance.high,
       playSound: true,
@@ -222,7 +222,7 @@ class FcmService {
       const NotificationDetails(
         android: AndroidNotificationDetails(
           'major_datalink_notifications',
-          'MAJOR DATA-LINK',
+          'K-TECH SOLUTIONS',
           channelDescription: 'Transaction alerts and app notifications',
           importance: Importance.high,
           priority: Priority.high,

@@ -38,8 +38,9 @@ class ComingSoonScreen extends StatelessWidget {
             child: KDEmptyState(
               icon: icon,
               title: '$title — Coming Soon',
-              message: description ??
-                  'We\'re working on bringing $title services to MAJOR DATA-LINK. '
+              message:
+                  description ??
+                  'We\'re working on bringing $title services to K-TECH SOLUTIONS. '
                       'This will be available as soon as it\'s ready.',
               action: SizedBox(
                 width: double.infinity,

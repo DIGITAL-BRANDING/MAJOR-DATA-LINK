@@ -12,6 +12,7 @@ import { registerProviderLedgerRoutes } from './provider-ledger.js';
 import { registerProviderReconciliationRoutes } from './provider-reconciliation.js';
 import { registerUserWalletRoutes } from './user-wallet.js';
 import { registerCustomerActivityRoutes } from './customer-activity.js';
+import { registerLoginActivityRoutes } from './login-activity.js';
 import { registerNinModificationRoutes } from './nin-modification.js';
 import { registerBvnLicenseRoutes } from './bvn-license-onboarding.js';
 import { registerJambRoutes } from './jamb.js';
@@ -182,6 +183,7 @@ export async function buildAdminRouter() {
   registerProviderReconciliationRoutes(router);
   registerUserWalletRoutes(router);
   registerCustomerActivityRoutes(router);
+  registerLoginActivityRoutes(router);
   registerNinModificationRoutes(router);
   registerBvnLicenseRoutes(router);
   registerJambRoutes(router);

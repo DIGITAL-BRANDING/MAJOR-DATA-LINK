@@ -35,6 +35,9 @@ function validateApiBaseUrl(value: unknown): string | null {
   if (!parsed.hostname) {
     return 'URL is missing a host.';
   }
+  if (parsed.username || parsed.password || parsed.search || parsed.hash) {
+    return 'Use only the API origin and /api path; credentials, query strings and fragments are not allowed.';
+  }
   if (['localhost', '127.0.0.1', '10.0.2.2'].includes(parsed.hostname)) {
     return 'Refusing a loopback/emulator host - that would break every real user\'s app, not just yours.';
   }
@@ -42,6 +45,9 @@ function validateApiBaseUrl(value: unknown): string | null {
   // becomes '...//foo'), which is an easy typo to make in a form field.
   if (value.trim().endsWith('/')) {
     return 'Remove the trailing slash, e.g. https://api.majordatalink.ng/api (not .../api/).';
+  }
+  if (parsed.pathname !== '/api') {
+    return 'The URL must end exactly with /api, e.g. https://api.majordatalink.ng/api.';
   }
   return null;
 }

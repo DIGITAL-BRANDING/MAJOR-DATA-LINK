@@ -116,6 +116,13 @@ class AppEndpoints {
   static String get ninModificationHistory => '$_base/nin-modification/history';
   static String ninModificationSubmit(String type) =>
       '$_base/nin-modification/$type/submit';
+  static String get bvnCrmPrice => '$_base/bvn-crm/price';
+  static String get bvnCrmSubmit => '$_base/bvn-crm/submit';
+  static String get bvnCrmHistory => '$_base/bvn-crm/history';
+  static String get newspaperFields => '$_base/newspaper-publication/fields';
+  static String get newspaperPrice => '$_base/newspaper-publication/price';
+  static String get newspaperHistory => '$_base/newspaper-publication/history';
+  static String get newspaperSubmit => '$_base/newspaper-publication/submit';
 
   // Bulk SMS
   static String get sendBulkSms => '$_base/sms/send';

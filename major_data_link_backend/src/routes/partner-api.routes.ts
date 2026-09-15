@@ -21,8 +21,20 @@ import { partnerVerification } from '../services/partner-verification.service.js
 import { createPartnerDynamicFunding, partnerFundingResponse, provisionPartnerVirtualAccount, verifyPartnerFunding } from '../services/partner-funding.service.js';
 import { configurePartnerWebhook, queuePartnerWebhookTest, webhookConfiguration } from '../services/partner-webhook.service.js';
 import { flagPartnerPendingReconciliation } from '../services/partner-reconciliation.service.js';
+import { requirePartnerAccess } from '../services/partner-access.service.js';
 
 export const partnerApiRoutes = Router();
+
+function requirePartnerApiTier(required: 'NIN_BVN' | 'FULL_API') {
+  return async (req: Request, _res: import('express').Response, next: import('express').NextFunction) => {
+    try {
+      await requirePartnerAccess(req.partner!.id, required);
+      next();
+    } catch (error) {
+      next(error);
+    }
+  };
+}
 
 function idempotencyKeyFrom(req: Request) {
   const key = req.header('Idempotency-Key')?.trim();
@@ -211,6 +223,11 @@ partnerApiRoutes.get('/transactions', async (req, res) => {
   res.json({ status: true, data: transactions.map(partnerTransactionResponse) });
 });
 
+// An approved partner can always access wallet/funding and transaction
+// history. Data/airtime requires the full ₦10,000 tier.
+partnerApiRoutes.use('/data', requirePartnerApiTier('FULL_API'));
+partnerApiRoutes.use('/airtime', requirePartnerApiTier('FULL_API'));
+
 partnerApiRoutes.get('/data/plans/:network/categories', async (req, res) => {
   const provider = await activeDataAirtimeProvider();
   const data = provider === 'bilalsadasub'
@@ -227,6 +244,11 @@ partnerApiRoutes.get('/data/plans/:network', async (req, res) => {
     : await providerService.getDataPlans(req.params.network, category);
   res.json({ status: true, data: [...plans].sort((a, b) => a.sellingAmount - b.sellingAmount) });
 });
+
+// Identity endpoints (including their status polls and price catalogue) are
+// the ₦5,000 NIN/BVN tier. At ₦10,000 they continue to work as part of full
+// API access.
+partnerApiRoutes.use('/verification', requirePartnerApiTier('NIN_BVN'));
 
 partnerApiRoutes.get('/verification/prices', async (_req, res) => {
   const prices = await listVerificationPricesForPartner();

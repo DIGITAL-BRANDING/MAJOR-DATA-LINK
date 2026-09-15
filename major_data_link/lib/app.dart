@@ -66,7 +66,7 @@ class _MajorDataLinkAppState extends ConsumerState<MajorDataLinkApp> {
       splitScreenMode: true,
       builder: (context, child) {
         return MaterialApp.router(
-          title: 'MAJOR DATA-LINK',
+          title: 'K-TECH SOLUTIONS',
           debugShowCheckedModeBanner: false,
 
           // ── Themes ────────────────────────────────────────

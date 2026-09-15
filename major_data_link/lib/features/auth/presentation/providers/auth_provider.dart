@@ -215,8 +215,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
         // already-logged-in users never saw the PIN screen: they have a
         // valid session but (correctly) no local PIN yet, and this used to
         // let that combination straight through instead of forcing setup.
-        final hasLocalPin =
-            await _ref.read(authLocalDataSourceProvider).hasLoginPinSet();
+        final hasLocalPin = await _ref
+            .read(authLocalDataSourceProvider)
+            .hasLoginPinSet();
         state = state.copyWith(
           user: user,
           status: hasLocalPin
@@ -377,7 +378,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
     if (!isAvailable) return false;
 
     final authResult = await biometricService.authenticate(
-      title: 'Unlock MAJOR DATA-LINK',
+      title: 'Unlock K-TECH SOLUTIONS',
       subtitle: 'Use your fingerprint or face to sign in',
     );
 
@@ -426,8 +427,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
   /// directly if only the transaction PIN was still missing.
   Future<bool> completeTransactionPinSetup(String pin) async {
     state = state.copyWith(isLoading: true, clearError: true);
-    final result =
-        await _ref.read(setTransactionPinUseCaseProvider).call(pin: pin);
+    final result = await _ref
+        .read(setTransactionPinUseCaseProvider)
+        .call(pin: pin);
     return result.fold(
       (failure) {
         state = state.copyWith(isLoading: false, errorMessage: failure.message);
@@ -454,10 +456,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
     required String password,
   }) async {
     state = state.copyWith(isLoading: true, clearError: true);
-    final result = await _ref.read(resetLoginPinUseCaseProvider).call(
-          identifier: identifier,
-          password: password,
-        );
+    final result = await _ref
+        .read(resetLoginPinUseCaseProvider)
+        .call(identifier: identifier, password: password);
     return result.fold(
       (failure) {
         state = state.copyWith(isLoading: false, errorMessage: failure.message);
@@ -477,7 +478,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
   /// network. Returns the underlying Either so the screen can show
   /// "X attempts remaining" / lockout messaging.
   Future<Either<Failure, bool>> unlockWithPin(String pin) async {
-    final result = await _ref.read(unlockWithLoginPinUseCaseProvider).call(pin: pin);
+    final result = await _ref
+        .read(unlockWithLoginPinUseCaseProvider)
+        .call(pin: pin);
     result.fold((_) {}, (_) {
       state = state.copyWith(status: AuthStatus.authenticated);
       _syncRouterAuthState();
@@ -544,4 +547,3 @@ final currentUserProvider = Provider<UserEntity?>((ref) {
 final isAuthenticatedProvider = Provider<bool>((ref) {
   return ref.watch(authNotifierProvider).isAuthenticated;
 });
-

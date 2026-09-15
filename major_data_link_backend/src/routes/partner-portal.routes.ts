@@ -25,6 +25,7 @@ import {
 } from '../services/partner-funding.service.js';
 import { TransactionStatus, TransactionType } from '@prisma/client';
 import { listVerificationPricesForPartner } from '../services/verification.service.js';
+import { partnerAccessSummary } from '../services/partner-access.service.js';
 
 /**
  * Self-service partner portal - a normal email+password login for the
@@ -61,6 +62,7 @@ function partnerProfile(partner: {
     phone: partner.phone,
     status: partner.status.toLowerCase(),
     wallet_balance: koboToNaira(partner.walletBalanceKobo),
+    api_access: partnerAccessSummary(partner.walletBalanceKobo),
     created_at: partner.createdAt.toISOString()
   };
 }
@@ -89,7 +91,8 @@ partnerPortalRoutes.post('/register', async (req, res) => {
       businessName: body.business_name,
       email: body.email,
       phone: body.contact_phone ?? null,
-      passwordHash
+      passwordHash,
+      lastPortalLoginAt: new Date()
     }
   });
 
@@ -135,13 +138,16 @@ partnerPortalRoutes.post('/login', async (req, res) => {
     throw new ApiError(401, 'Invalid email or password', 'INVALID_CREDENTIALS');
   }
 
-  if (partner.passwordFailures > 0 || partner.passwordLockedUntil) {
-    const cleared = clearLockout();
-    await prisma.partner.update({
-      where: { id: partner.id },
-      data: { passwordFailures: cleared.failures, passwordLockedUntil: cleared.lockedUntil, passwordFailureAt: cleared.failureAt }
-    });
-  }
+  const cleared = clearLockout();
+  await prisma.partner.update({
+    where: { id: partner.id },
+    data: {
+      passwordFailures: cleared.failures,
+      passwordLockedUntil: cleared.lockedUntil,
+      passwordFailureAt: cleared.failureAt,
+      lastPortalLoginAt: new Date()
+    }
+  });
 
   const tokens = await issuePartnerAuthTokens(partner);
   res.json({

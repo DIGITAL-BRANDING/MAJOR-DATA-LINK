@@ -22,7 +22,7 @@ export const userResource: ResourceWithOptions = {
   options: {
     id: 'User',
     navigation: { name: 'Customers', icon: 'Users' },
-    listProperties: ['fullName', 'email', 'phone', 'walletBalanceKobo', 'kycStatus', 'createdAt'],
+    listProperties: ['fullName', 'email', 'phone', 'walletBalanceKobo', 'kycStatus', 'lastLoginChannel', 'lastLoginAt'],
     showProperties: [
       'id',
       'fullName',
@@ -37,17 +37,24 @@ export const userResource: ResourceWithOptions = {
       'virtualAccountNumber',
       'virtualAccountBank',
       'virtualAccountProvider',
+      'lastLoginChannel',
+      'lastLoginAt',
       'createdAt',
       'updatedAt'
     ],
     editProperties: ['kycStatus', 'phoneVerified', 'emailVerified'],
-    filterProperties: ['fullName', 'email', 'phone', 'kycStatus', 'createdAt'],
+    filterProperties: ['fullName', 'email', 'phone', 'kycStatus', 'lastLoginChannel', 'lastLoginAt', 'createdAt'],
     properties: {
       pinHash: { isVisible: false },
       pinFailures: { isVisible: { list: false, show: true, edit: false, filter: false } },
       pinLockedUntil: { isVisible: { list: false, show: true, edit: false, filter: false } },
       walletBalanceKobo: { isVisible: { list: true, show: true, edit: false, filter: false } },
-      referralEarningsKobo: { isVisible: { list: false, show: true, edit: false, filter: false } }
+      referralEarningsKobo: { isVisible: { list: false, show: true, edit: false, filter: false } },
+      lastLoginChannel: {
+        isVisible: { list: true, show: true, edit: false, filter: true },
+        description: 'Reporting label from the most recent successful sign-in. It is not used for access control.'
+      },
+      lastLoginAt: { isVisible: { list: true, show: true, edit: false, filter: true } }
     },
     actions: {
       // Users are created by the app via Firebase sign-in, never directly by an admin.

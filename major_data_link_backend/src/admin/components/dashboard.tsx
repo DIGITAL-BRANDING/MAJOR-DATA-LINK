@@ -45,6 +45,12 @@ const quickLinks: QuickLink[] = [
     icon: 'Award'
   },
   {
+    label: 'Login Activity',
+    description: 'Latest customer App/Web logins and partner portal access',
+    href: `${ADMIN_ROOT_PATH}/login-activity`,
+    icon: 'LogIn'
+  },
+  {
     label: 'User Deliveries',
     description: 'Upload completed CAC, JAMB or other service files to a customer',
     href: `${ADMIN_ROOT_PATH}/user-deliveries`,
@@ -97,6 +103,12 @@ const quickLinks: QuickLink[] = [
     description: 'NIN/BVN provider, prices & result-pin prices',
     resourceId: 'ServicePricing',
     icon: 'Tag'
+  },
+  {
+    label: 'Partner Pricing',
+    description: 'Set the separate API-partner price for each service',
+    resourceId: 'ServicePricing',
+    icon: 'DollarSign'
   },
   {
     label: 'NIN/BVN Provider',

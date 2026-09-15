@@ -21,10 +21,10 @@ export const partnerResource: ResourceWithOptions = {
   options: {
     id: 'Partner',
     navigation: { name: 'API Integrators', icon: 'Code' },
-    listProperties: ['businessName', 'email', 'phone', 'walletBalanceKobo', 'status', 'createdAt'],
-    showProperties: ['id', 'businessName', 'email', 'phone', 'walletBalanceKobo', 'status', 'virtualAccountNumber', 'virtualAccountBank', 'virtualAccountProvider', 'webhookUrl', 'createdAt', 'updatedAt'],
+    listProperties: ['businessName', 'email', 'phone', 'walletBalanceKobo', 'status', 'lastPortalLoginAt', 'createdAt'],
+    showProperties: ['id', 'businessName', 'email', 'phone', 'walletBalanceKobo', 'status', 'virtualAccountNumber', 'virtualAccountBank', 'virtualAccountProvider', 'webhookUrl', 'lastPortalLoginAt', 'createdAt', 'updatedAt'],
     editProperties: ['businessName', 'email', 'phone', 'status', 'webhookUrl'],
-    filterProperties: ['businessName', 'email', 'phone', 'status', 'createdAt'],
+    filterProperties: ['businessName', 'email', 'phone', 'status', 'lastPortalLoginAt', 'createdAt'],
     properties: {
       walletBalanceKobo: {
         isVisible: { list: true, show: true, edit: false, filter: false },
@@ -39,7 +39,11 @@ export const partnerResource: ResourceWithOptions = {
       passwordHash: { isVisible: false },
       passwordFailures: { isVisible: false },
       passwordFailureAt: { isVisible: false },
-      passwordLockedUntil: { isVisible: false }
+      passwordLockedUntil: { isVisible: false },
+      lastPortalLoginAt: {
+        isVisible: { list: true, show: true, edit: false, filter: true },
+        description: 'Most recent successful Partner Portal (web) sign-in.'
+      }
     },
     actions: {
       list: { isAccessible: canManagePartners },

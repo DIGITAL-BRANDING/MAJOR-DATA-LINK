@@ -15,7 +15,7 @@ class AppConfig {
   static bool get isDebug => isDevelopment || isStaging;
 
   // â”€â”€ App Info â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  static const String appName = 'MAJOR DATA-LINK';
+  static const String appName = 'K-TECH SOLUTIONS';
   static const String packageName = 'com.majordatalink.app';
   static const String appVersion = '1.0.0';
   static const int buildNumber = 1;
@@ -43,7 +43,7 @@ class AppConfig {
     _runtimeBaseUrlOverride = (url != null && url.isNotEmpty) ? url : null;
   }
 
-  /// True for any https:// URL with a non-empty host. Shared by both the
+  /// True only for a canonical HTTPS API root (`https://host/api`). Shared by both the
   /// boot-time loader (main.dart) and the splash-screen sync
   /// (splash_screen.dart) so a corrupted or tampered-with cached value can
   /// never reach Dio - the backend independently enforces the same rule
@@ -52,9 +52,12 @@ class AppConfig {
   static bool isValidRemoteBaseUrl(String value) {
     final uri = Uri.tryParse(value);
     if (uri == null) return false;
-    if (uri.scheme != 'https') return false;
-    if (uri.host.isEmpty) return false;
-    return true;
+    return uri.scheme == 'https' &&
+        uri.host.isNotEmpty &&
+        uri.userInfo.isEmpty &&
+        uri.query.isEmpty &&
+        uri.fragment.isEmpty &&
+        uri.path == '/api';
   }
 
   static String get baseUrl {

@@ -57,7 +57,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
     final title = notice?.title.isNotEmpty == true
         ? notice!.title
-        : 'Welcome to MAJOR DATA-LINK';
+        : 'Welcome to K-TECH SOLUTIONS';
     final body = notice?.body.isNotEmpty == true
         ? notice!.body
         : 'Buy data, airtime, TV subscriptions, electricity tokens, education PINs and wallet services securely from your dashboard.';

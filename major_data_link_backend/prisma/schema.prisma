@@ -21,6 +21,15 @@ enum AccountStatus {
   DELETED
 }
 
+/// Reporting-only channel for a customer's most recent successful sign-in.
+/// It is never used for authorization, because an HTTP client header is not
+/// a trustworthy security credential. See lib/login-activity.ts.
+enum CustomerLoginChannel {
+  MOBILE_APP
+  WEB
+  UNKNOWN
+}
+
 enum KycStatus {
   UNVERIFIED
   PENDING
@@ -161,6 +170,11 @@ model User {
   /// could combine with a couple of fresh typos today to trigger a lockout
   /// that feels completely unearned from the user's perspective.
   passwordFailureAt    DateTime?
+  /// Updated only after a successful password + (when enabled) login-PIN
+  /// check. This gives authorised admins a useful account-support signal
+  /// without retaining a device fingerprint, IP address, or user agent.
+  lastLoginAt          DateTime?
+  lastLoginChannel     CustomerLoginChannel?
   // Set by the admin panel's "Reset Password" action (see
   // src/admin/resources/user.resource.ts) when an admin issues a temporary
   // password by hand - Resend needs a verified sending domain we don't have
@@ -228,6 +242,9 @@ model Partner {
   passwordFailures     Int       @default(0)
   passwordFailureAt    DateTime?
   passwordLockedUntil  DateTime?
+  /// Partner portal is browser-only. Kept separate from customer login data
+  /// because a Partner is a distinct business account model.
+  lastPortalLoginAt    DateTime?
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
   apiKeys           PartnerApiKey[]

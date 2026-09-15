@@ -53,7 +53,7 @@ class ReceiptService {
                 mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                 children: [
                   pw.Text(
-                    'MAJOR DATA-LINK',
+                    'K-TECH SOLUTIONS',
                     style: pw.TextStyle(
                       fontSize: 18,
                       fontWeight: pw.FontWeight.bold,
@@ -62,7 +62,9 @@ class ReceiptService {
                   ),
                   pw.Container(
                     padding: const pw.EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 4),
+                      horizontal: 10,
+                      vertical: 4,
+                    ),
                     decoration: pw.BoxDecoration(
                       color: PdfColor.fromInt(0xFFECFDF5),
                       borderRadius: pw.BorderRadius.circular(6),
@@ -135,8 +137,10 @@ class ReceiptService {
                 child: pw.Row(
                   mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                   children: [
-                    pw.Text('Date',
-                        style: pw.TextStyle(fontSize: 11, color: _neutral500)),
+                    pw.Text(
+                      'Date',
+                      style: pw.TextStyle(fontSize: 11, color: _neutral500),
+                    ),
                     pw.Text(
                       AppFormatters.formatDateTime(data.date),
                       style: pw.TextStyle(
@@ -153,8 +157,10 @@ class ReceiptService {
                 child: pw.Row(
                   mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                   children: [
-                    pw.Text('Reference',
-                        style: pw.TextStyle(fontSize: 11, color: _neutral500)),
+                    pw.Text(
+                      'Reference',
+                      style: pw.TextStyle(fontSize: 11, color: _neutral500),
+                    ),
                     pw.Text(
                       data.reference,
                       style: pw.TextStyle(
@@ -174,9 +180,10 @@ class ReceiptService {
                   child: pw.Row(
                     mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                     children: [
-                      pw.Text('Wallet balance',
-                          style:
-                              pw.TextStyle(fontSize: 11, color: _neutral500)),
+                      pw.Text(
+                        'Wallet balance',
+                        style: pw.TextStyle(fontSize: 11, color: _neutral500),
+                      ),
                       pw.Text(
                         AppFormatters.formatAmount(data.balanceAfter!),
                         style: pw.TextStyle(
@@ -195,7 +202,7 @@ class ReceiptService {
               pw.SizedBox(height: 12),
               pw.Center(
                 child: pw.Text(
-                  'Thank you for using MAJOR DATA-LINK',
+                  'Thank you for using K-TECH SOLUTIONS',
                   style: pw.TextStyle(fontSize: 10, color: _neutral500),
                 ),
               ),
@@ -218,9 +225,7 @@ class ReceiptService {
   static Future<File> savePdf(ReceiptData data) async {
     final bytes = await generatePdf(data);
     final dir = await getTemporaryDirectory();
-    final file = File(
-      '${dir.path}/receipt_${data.reference}.pdf',
-    );
+    final file = File('${dir.path}/receipt_${data.reference}.pdf');
     await file.writeAsBytes(bytes);
     return file;
   }
@@ -229,7 +234,7 @@ class ReceiptService {
     final file = await savePdf(data);
     await Share.shareXFiles(
       [XFile(file.path)],
-      subject: '${data.title} Receipt — MAJOR DATA-LINK',
+      subject: '${data.title} Receipt — K-TECH SOLUTIONS',
       text:
           '${data.title} of ${AppFormatters.formatAmount(data.amount)} — Ref: ${data.reference}',
     );
@@ -247,4 +252,3 @@ class ReceiptService {
     await file.writeAsBytes(bytes);
   }
 }
-
