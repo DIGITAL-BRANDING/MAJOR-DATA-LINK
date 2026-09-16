@@ -141,6 +141,12 @@ const quickLinks: QuickLink[] = [
     href: `${ADMIN_ROOT_PATH}/resources/AppConfig/records/default/edit`,
     icon: 'Settings'
   },
+  {
+    label: 'Partner Lookup',
+    description: 'Look up any API partner: wallet balance, total API calls & manual funding',
+    href: `${ADMIN_ROOT_PATH}/partner-lookup`,
+    icon: 'Search'
+  },
   { label: 'Partners', description: 'Review API partner accounts and status', resourceId: 'Partner', icon: 'Briefcase' },
   { label: 'Admin Users', description: 'Admin accounts & roles', resourceId: 'AdminUser', icon: 'Shield' },
   { label: 'Audit Log', description: 'Admin activity history', resourceId: 'AdminAuditLog', icon: 'FileText' }

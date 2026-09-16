@@ -1,0 +1,1517 @@
+diff --git a/major_data_link_backend/src/admin/cac.ts b/major_data_link_backend/src/admin/cac.ts
+new file mode 100644
+index 0000000..2c3234f
+--- /dev/null
++++ b/major_data_link_backend/src/admin/cac.ts
+@@ -0,0 +1,334 @@
++import { readFile } from 'node:fs/promises';
++import type { Request, Router } from 'express';
++import { TransactionStatus, TransactionType } from '@prisma/client';
++import { prisma } from '../lib/prisma.js';
++import { completeCacRequest, decryptCacPII, updateCacProgressNotes } from '../services/cac.service.js';
++import { logAdminAction } from './audit.js';
++import type { AdminSessionUser } from './auth.js';
++
++declare module 'express-session' {
++  interface SessionData {
++    adminUser?: AdminSessionUser;
++  }
++}
++
++/**
++ * Custom admin page for handling a CAC request while it's PENDING - same
++ * shape as admin/newspaper-publication.ts/admin/birth-attestation.ts
++ * (progress notes + upload-to-complete), adapted from infoverify's
++ * admin/cac.ts. Two differences from those two:
++ *  - The certificate upload here marks the request SUCCESS but keeps the
++ *    final PDF alongside the submission PDF in sealed PII (matching
++ *    infoverify's completeCacRequest()) rather than going through
++ *    Deliveries - CAC customers already have a dedicated "Progress Notes +
++ *    download" history table on their own CAC page, so a second inbox
++ *    (Deliveries) would just be a second place to check for the same file.
++ *  - Customer-uploaded supporting documents (ID, passport photo, proof of
++ *    address, signature) each get their own download route, since there
++ *    can be several per request.
++ */
++
++type Upload = { filepath?: string; path?: string; originalFilename?: string; name?: string; mimetype?: string; type?: string };
++function uploadedFile(req: Request) {
++  const files = (req as unknown as { files?: Record<string, Upload | Upload[]> }).files;
++  const value = files?.file;
++  return Array.isArray(value) ? value[0] : value;
++}
++function formField(req: Request, key: string): string {
++  const fields = (req as unknown as { fields?: Record<string, string | string[]> }).fields;
++  const value = fields?.[key];
++  return Array.isArray(value) ? (value[0] ?? '') : (value ?? '');
++}
++
++function escapeHtml(value: string) {
++  return value.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
++}
++
++function renderPage(params: {
++  transactionId: string;
++  reference: string;
++  status: string;
++  cacType: string;
++  pii: ReturnType<typeof decryptCacPII>;
++  progressNotes: string;
++  flash?: string;
++}) {
++  const { transactionId, reference, status, cacType, pii, progressNotes, flash } = params;
++  const isPending = status === 'PENDING';
++  const hasCertificate = typeof pii?.certificate_pdf_base64 === 'string' && pii.certificate_pdf_base64.length > 0;
++  const hasSubmissionForm = typeof pii?.submission_pdf_base64 === 'string' && pii.submission_pdf_base64.length > 0;
++  const documents = Array.isArray(pii?.supporting_documents) ? pii.supporting_documents : [];
++
++  const row = (label: string, value: unknown) => `<dt>${escapeHtml(label)}</dt><dd>${escapeHtml(String(value ?? '\u2014'))}</dd>`;
++
++  return `<!doctype html><html><head><meta charset="utf-8"><title>CAC Request ${escapeHtml(reference)}</title>
++<style>
++  body{font:14px Arial,sans-serif;background:#f6f3ea;color:#201708;max-width:680px;margin:32px auto;padding:0 16px}
++  a{color:#8a6712}
++  section{background:#fff;border:1px solid #d4af37;border-radius:14px;padding:22px;margin:16px 0}
++  dl{display:grid;grid-template-columns:230px 1fr;gap:6px 12px;margin:0}
++  dt{font-weight:600;color:#6c5a2a}
++  dd{margin:0}
++  h2{margin:0 0 10px;font-size:15px}
++  input[type=file],textarea{display:block;width:100%;box-sizing:border-box;margin:12px 0;font:inherit;padding:8px}
++  textarea{min-height:90px}
++  button{background:#171106;color:#ffe9a3;border:0;border-radius:8px;padding:11px 18px;font-weight:bold;cursor:pointer;font-size:1rem}
++  .badge{display:inline-block;padding:3px 12px;border-radius:12px;font-size:.8rem;font-weight:700}
++  .pending{background:#fff3cd;color:#856404}
++  .success{background:#d4edda;color:#155724}
++  .flash{background:#fdecea;color:#a12622;border-radius:8px;padding:10px 14px;margin-bottom:16px}
++  .hint{color:#6c5a2a;font-size:.9rem}
++  ul.docs{list-style:none;margin:0;padding:0}
++  ul.docs li{padding:8px 0;border-bottom:1px solid #eee}
++  ul.docs li:last-child{border-bottom:0}
++</style></head><body>
++  <p><a href="/admin/resources/Transaction/records/${transactionId}/show">&larr; Back to transaction</a></p>
++  <h1 style="margin-bottom:4px">CAC Request</h1>
++  <p class="hint">${escapeHtml(reference)} &middot; ${escapeHtml(cacType)}</p>
++  ${flash ? `<p class="flash">${escapeHtml(flash)}</p>` : ''}
++
++  <section>
++    <p><span class="badge ${isPending ? 'pending' : 'success'}">${escapeHtml(status)}</span></p>
++    <p><strong>Proposed name 1:</strong> ${escapeHtml(pii?.proposed_name_1 ?? '\u2014')}<br><strong>Proposed name 2:</strong> ${escapeHtml(pii?.proposed_name_2 ?? '\u2014')}</p>
++    <h2>Business Details</h2>
++    <dl>
++      ${row('Nature of business', pii?.business_nature)}
++      ${row('Business address', pii?.business_address)}
++    </dl>
++    <h2 style="margin-top:16px">Proprietor / Applicant Details</h2>
++    <dl>
++      ${row('Full name', pii?.proprietor_full_name)}
++      ${row('Phone', pii?.proprietor_phone)}
++      ${row('Email', pii?.proprietor_email)}
++      ${row('Date of birth', pii?.proprietor_date_of_birth)}
++      ${row('Gender', pii?.proprietor_gender)}
++      ${row('NIN', pii?.proprietor_nin)}
++      ${row('Residential address', pii?.proprietor_residential_address)}
++    </dl>
++    ${
++      hasSubmissionForm
++        ? `<p class="hint" style="margin-top:16px"><a href="/admin/cac/${transactionId}/submission-pdf">Download submission form (PDF)</a> - file this with CAC when registering the business.</p>`
++        : '<p class="hint">No submission form was generated for this request.</p>'
++    }
++    ${hasCertificate ? `<p class="hint"><a href="/admin/cac/${transactionId}/certificate-pdf">Download the attached certificate</a>.</p>` : ''}
++  </section>
++
++  <section>
++    <h2>Customer uploads</h2>
++    ${
++      documents.length
++        ? `<ul class="docs">${documents.map((document, index) => `<li><a href="/admin/cac/${transactionId}/upload/${index}">${escapeHtml(document.label)} &mdash; ${escapeHtml(document.name)}</a></li>`).join('')}</ul>`
++        : '<p class="hint">No supporting documents were uploaded.</p>'
++    }
++  </section>
++
++  <section>
++    <h2>Progress note</h2>
++    <p class="hint">Visible to the customer on their CAC history table.</p>
++    <form method="post" action="/admin/cac/${transactionId}/notes">
++      <textarea name="progress_notes" placeholder="e.g. Name reservation submitted, awaiting CAC approval">${escapeHtml(progressNotes)}</textarea>
++      <button type="submit">Save progress note</button>
++    </form>
++  </section>
++
++  ${
++    isPending
++      ? `<section>
++          <h2>Complete request</h2>
++          <p class="hint">Upload the final CAC certificate once registration is done. This marks the request complete and lets the customer download it immediately.</p>
++          <form method="post" action="/admin/cac/${transactionId}/complete" enctype="multipart/form-data">
++            <input type="file" name="file" accept="application/pdf" required>
++            <button type="submit">Mark complete &amp; attach certificate</button>
++          </form>
++        </section>`
++      : `<p class="hint">This request is already ${escapeHtml(status)}.</p>`
++  }
++</body></html>`;
++}
++
++export function registerCacRoutes(router: Router) {
++  async function loadTransaction(req: Request) {
++    const transactionId = Array.isArray(req.params.transactionId) ? req.params.transactionId[0] : req.params.transactionId;
++    const transaction = await prisma.transaction.findUnique({ where: { id: transactionId } });
++    if (!transaction || transaction.type !== TransactionType.CAC_SERVICE_REQUEST) return null;
++    return transaction;
++  }
++
++  router.get('/cac/:transactionId/manage', async (req: Request, res) => {
++    const admin = req.session?.adminUser;
++    if (!admin) return res.redirect('/admin/login');
++    if (admin.role === 'SUPPORT') return res.status(403).type('html').send('<p>Support admins cannot manage CAC requests.</p>');
++
++    const transaction = await loadTransaction(req);
++    if (!transaction) return res.status(404).type('html').send('<p>CAC request not found.</p>');
++
++    await logAdminAction({
++      adminId: admin.id,
++      action: 'VIEW_TRANSACTION_PII',
++      targetType: 'Transaction',
++      targetId: transaction.id,
++      metadata: { reference: transaction.reference, via: 'cac_manage' }
++    });
++
++    const metadata = transaction.metadata as Record<string, unknown> | null;
++    const pii = decryptCacPII(transaction);
++    const progressNotes = typeof metadata?.progress_notes === 'string' ? metadata.progress_notes : '';
++
++    res.type('html').send(
++      renderPage({
++        transactionId: transaction.id,
++        reference: transaction.reference,
++        status: transaction.status,
++        cacType: typeof metadata?.cac_type === 'string' ? metadata.cac_type : '',
++        pii,
++        progressNotes,
++        flash: typeof req.query.flash === 'string' ? req.query.flash : undefined
++      })
++    );
++  });
++
++  router.get('/cac/:transactionId/upload/:index', async (req: Request, res) => {
++    const admin = req.session?.adminUser;
++    if (!admin) return res.redirect('/admin/login');
++    if (admin.role === 'SUPPORT') return res.status(403).type('html').send('<p>Support admins cannot download customer documents.</p>');
++
++    const transaction = await loadTransaction(req);
++    if (!transaction) return res.status(404).type('html').send('<p>CAC request not found.</p>');
++
++    const index = Number(req.params.index);
++    const documents = decryptCacPII(transaction)?.supporting_documents ?? [];
++    const document = Number.isInteger(index) ? documents[index] : undefined;
++    if (!document?.base64 || !document.name || !document.mime_type) {
++      return res.status(404).type('html').send('<p>Document not found.</p>');
++    }
++
++    await logAdminAction({
++      adminId: admin.id,
++      action: 'DOWNLOAD_CAC_CUSTOMER_UPLOAD',
++      targetType: 'Transaction',
++      targetId: transaction.id,
++      metadata: { reference: transaction.reference, fileName: document.name }
++    });
++
++    res
++      .type(document.mime_type)
++      .setHeader('Content-Disposition', `attachment; filename="${document.name.replace(/[^a-zA-Z0-9._-]/g, '_')}"`)
++      .send(Buffer.from(document.base64.replace(/^data:[^;]+;base64,/, ''), 'base64'));
++  });
++
++  router.get('/cac/:transactionId/submission-pdf', async (req: Request, res) => {
++    const admin = req.session?.adminUser;
++    if (!admin) return res.redirect('/admin/login');
++    if (admin.role !== 'SUPER_ADMIN') {
++      return res.status(403).type('html').send('<p>Only a Super Admin can open CAC submission PDFs.</p>');
++    }
++
++    const transaction = await loadTransaction(req);
++    if (!transaction) return res.status(404).type('html').send('<p>CAC request not found.</p>');
++
++    const pii = decryptCacPII(transaction);
++    if (!pii?.submission_pdf_base64) return res.status(404).type('html').send('<p>No submission form was generated for this request.</p>');
++
++    await logAdminAction({
++      adminId: admin.id,
++      action: 'DOWNLOAD_CAC_SUBMISSION_PDF',
++      targetType: 'Transaction',
++      targetId: transaction.id,
++      metadata: { reference: transaction.reference }
++    });
++
++    res
++      .type('application/pdf')
++      .setHeader('Content-Disposition', `inline; filename="${transaction.reference}-submission-form.pdf"`)
++      .send(Buffer.from(pii.submission_pdf_base64.replace(/^data:[^;]+;base64,/, ''), 'base64'));
++  });
++
++  router.get('/cac/:transactionId/certificate-pdf', async (req: Request, res) => {
++    const admin = req.session?.adminUser;
++    if (!admin) return res.redirect('/admin/login');
++    if (admin.role !== 'SUPER_ADMIN') {
++      return res.status(403).type('html').send('<p>Only a Super Admin can open CAC certificates.</p>');
++    }
++
++    const transaction = await loadTransaction(req);
++    if (!transaction) return res.status(404).type('html').send('<p>CAC request not found.</p>');
++
++    const pii = decryptCacPII(transaction);
++    if (!pii?.certificate_pdf_base64) return res.status(404).type('html').send('<p>No certificate has been attached to this request yet.</p>');
++
++    await logAdminAction({
++      adminId: admin.id,
++      action: 'DOWNLOAD_CAC_CERTIFICATE_PDF',
++      targetType: 'Transaction',
++      targetId: transaction.id,
++      metadata: { reference: transaction.reference }
++    });
++
++    res
++      .type('application/pdf')
++      .setHeader('Content-Disposition', `inline; filename="${transaction.reference}-certificate.pdf"`)
++      .send(Buffer.from(pii.certificate_pdf_base64.replace(/^data:[^;]+;base64,/, ''), 'base64'));
++  });
++
++  router.post('/cac/:transactionId/notes', async (req: Request, res) => {
++    const admin = req.session?.adminUser;
++    if (!admin) return res.redirect('/admin/login');
++    if (admin.role === 'SUPPORT') return res.status(403).type('html').send('<p>Support admins cannot manage CAC requests.</p>');
++
++    const transaction = await loadTransaction(req);
++    if (!transaction) return res.status(404).type('html').send('<p>CAC request not found.</p>');
++
++    await updateCacProgressNotes({ transactionId: transaction.id, notes: formField(req, 'progress_notes').slice(0, 2000) });
++    await logAdminAction({
++      adminId: admin.id,
++      action: 'UPDATE_CAC_PROGRESS',
++      targetType: 'Transaction',
++      targetId: transaction.id,
++      metadata: { reference: transaction.reference }
++    });
++
++    res.redirect(`/admin/cac/${transaction.id}/manage?flash=${encodeURIComponent('Progress note saved.')}`);
++  });
++
++  router.post('/cac/:transactionId/complete', async (req: Request, res) => {
++    const admin = req.session?.adminUser;
++    if (!admin) return res.redirect('/admin/login');
++    if (admin.role === 'SUPPORT') return res.status(403).type('html').send('<p>Support admins cannot manage CAC requests.</p>');
++
++    const transaction = await loadTransaction(req);
++    const redirectBack = (flash: string) => res.redirect(`/admin/cac/${req.params.transactionId as string}/manage?flash=${encodeURIComponent(flash)}`);
++
++    if (!transaction) return res.status(404).type('html').send('<p>CAC request not found.</p>');
++    if (transaction.status !== TransactionStatus.PENDING) {
++      return redirectBack('This request is no longer pending.');
++    }
++
++    const file = uploadedFile(req);
++    const filePath = file?.filepath ?? file?.path;
++    if (!filePath) {
++      return redirectBack('No file was uploaded. Please choose a PDF and try again.');
++    }
++    const mime = file?.mimetype ?? file?.type ?? '';
++    if (mime !== 'application/pdf') {
++      return redirectBack('Please upload the certificate as a PDF file.');
++    }
++
++    try {
++      const bytes = await readFile(filePath);
++      await completeCacRequest({ transactionId: transaction.id, certificatePdfBase64: bytes.toString('base64') });
++
++      await logAdminAction({
++        adminId: admin.id,
++        action: 'COMPLETE_CAC_REQUEST',
++        targetType: 'Transaction',
++        targetId: transaction.id,
++        metadata: { reference: transaction.reference }
++      });
++
++      res.redirect(`/admin/resources/Transaction/records/${transaction.id}/show`);
++    } catch (error) {
++      const message = error instanceof Error ? error.message : 'Could not complete this request.';
++      redirectBack(message);
++    }
++  });
++}
+diff --git a/major_data_link_backend/src/admin/resources/transaction.resource.ts b/major_data_link_backend/src/admin/resources/transaction.resource.ts
+index 9b78d35..287cc6f 100644
+--- a/major_data_link_backend/src/admin/resources/transaction.resource.ts
++++ b/major_data_link_backend/src/admin/resources/transaction.resource.ts
+@@ -66,7 +66,7 @@ export const transactionResource: ResourceWithOptions = {
+           // other transaction type, where PENDING means "still in flight,
+           // don't touch it", so this is the one type reverse() also allows
+           // from PENDING.
+-          if (status === 'PENDING') return ['NIN_MODIFICATION', 'BVN_LICENSE_ONBOARDING', 'JAMB_SERVICE_REQUEST', 'BVN_CRM'].includes(record?.params?.type as string);
++          if (status === 'PENDING') return ['NIN_MODIFICATION', 'BVN_LICENSE_ONBOARDING', 'JAMB_SERVICE_REQUEST', 'BVN_CRM', 'NEWSPAPER_PUBLICATION', 'BIRTH_ATTESTATION', 'CAC_SERVICE_REQUEST'].includes(record?.params?.type as string);
+           return status === 'SUCCESS' || status === 'FAILED';
+         },
+         handler: async (request, response, context) => {
+@@ -258,6 +258,48 @@ export const transactionResource: ResourceWithOptions = {
+           return { record: record.toJSON(currentAdmin), redirectUrl: `/admin/jamb/${record.params.id as string}/fulfil` };
+         }
+       },
++      // Opens the Newspaper Publication manage page (progress notes +
++      // upload-to-complete) - same redirect-to-custom-page pattern as
++      // completeJambRequest above. Accessible any time the row is a
++      // Newspaper Publication request (not just while PENDING) so an admin
++      // can still open it afterwards to re-download the submission PDF or
++      // read past progress notes.
++      manageNewspaperPublication: {
++        actionType: 'record', icon: 'Edit',
++        isAccessible: ({ currentAdmin, record }) => {
++          const admin = currentAdmin as unknown as AdminSessionUser | undefined;
++          return !!admin && admin.role !== 'SUPPORT' && record?.params?.type === 'NEWSPAPER_PUBLICATION';
++        },
++        handler: async (_request, _response, context) => {
++          const { record, currentAdmin } = context;
++          if (!record) throw new Error('Missing record');
++          return { record: record.toJSON(currentAdmin), redirectUrl: `/admin/newspaper-publication/${record.params.id as string}/manage` };
++        }
++      },
++      manageBirthAttestation: {
++        actionType: 'record', icon: 'Edit',
++        isAccessible: ({ currentAdmin, record }) => {
++          const admin = currentAdmin as unknown as AdminSessionUser | undefined;
++          return !!admin && admin.role !== 'SUPPORT' && record?.params?.type === 'BIRTH_ATTESTATION';
++        },
++        handler: async (_request, _response, context) => {
++          const { record, currentAdmin } = context;
++          if (!record) throw new Error('Missing record');
++          return { record: record.toJSON(currentAdmin), redirectUrl: `/admin/birth-attestation/${record.params.id as string}/manage` };
++        }
++      },
++      manageCacRequest: {
++        actionType: 'record', icon: 'Edit',
++        isAccessible: ({ currentAdmin, record }) => {
++          const admin = currentAdmin as unknown as AdminSessionUser | undefined;
++          return !!admin && admin.role !== 'SUPPORT' && record?.params?.type === 'CAC_SERVICE_REQUEST';
++        },
++        handler: async (_request, _response, context) => {
++          const { record, currentAdmin } = context;
++          if (!record) throw new Error('Missing record');
++          return { record: record.toJSON(currentAdmin), redirectUrl: `/admin/cac/${record.params.id as string}/manage` };
++        }
++      },
+       downloadBvnLicensePdf: {
+         actionType: 'record', icon: 'Download',
+         isAccessible: ({ currentAdmin, record }) => {
+diff --git a/major_data_link_backend/src/admin/setup.ts b/major_data_link_backend/src/admin/setup.ts
+index 622d9ea..c589848 100644
+--- a/major_data_link_backend/src/admin/setup.ts
++++ b/major_data_link_backend/src/admin/setup.ts
+@@ -15,6 +15,9 @@ import { registerCustomerActivityRoutes } from './customer-activity.js';
+ import { registerNinModificationRoutes } from './nin-modification.js';
+ import { registerBvnLicenseRoutes } from './bvn-license-onboarding.js';
+ import { registerJambRoutes } from './jamb.js';
++import { registerNewspaperPublicationRoutes } from './newspaper-publication.js';
++import { registerBirthAttestationRoutes } from './birth-attestation.js';
++import { registerCacRoutes } from './cac.js';
+ import { registerPendingSummaryRoutes } from './pending-summary.js';
+ import { componentLoader, Components } from './component-loader.js';
+ import { userResource } from './resources/user.resource.js';
+@@ -184,6 +187,9 @@ export async function buildAdminRouter() {
+   registerNinModificationRoutes(router);
+   registerBvnLicenseRoutes(router);
+   registerJambRoutes(router);
++  registerNewspaperPublicationRoutes(router);
++  registerBirthAttestationRoutes(router);
++  registerCacRoutes(router);
+   registerPendingSummaryRoutes(router);
+   registerUserDeliveryRoutes(router);
+ 
+diff --git a/major_data_link_backend/src/app.ts b/major_data_link_backend/src/app.ts
+index 5bfe1f8..d9dc4cb 100644
+--- a/major_data_link_backend/src/app.ts
++++ b/major_data_link_backend/src/app.ts
+@@ -35,6 +35,9 @@ import { userRoutes } from './routes/user.routes.js';
+ import { verificationRoutes } from './routes/verification.routes.js';
+ import { ninModificationRoutes } from './routes/nin-modification.routes.js';
+ import { bvnCrmRoutes } from './routes/bvn-crm.routes.js';
++import { newspaperPublicationRoutes } from './routes/newspaper-publication.routes.js';
++import { birthAttestationRoutes } from './routes/birth-attestation.routes.js';
++import { cacRoutes } from './routes/cac.routes.js';
+ import { jambRoutes } from './routes/jamb.routes.js';
+ import { vtuRoutes } from './routes/vtu.routes.js';
+ import { cableRoutes } from './routes/cable.routes.js';
+@@ -197,7 +200,23 @@ export function createApp() {
+   // and signature check exactly as before.
+   app.use('/api/webhooks', express.raw({ type: '*/*' }), webhookRoutes);
+ 
+-  app.use(express.json({ limit: '1mb' }));
++  // CAC submissions can include up to 4 supporting documents (ID, passport
++  // photo, proof of address, signature - see CAC_DOCUMENT_LABELS in
++  // cac.service.ts) at up to ~5.5MB base64 each, well past the global 8mb
++  // limit below. Mounted with its own parser BEFORE that global one so this
++  // path gets the larger limit; express.json() is a no-op on a request
++  // whose body a prior json() call already consumed, so the global
++  // middleware just passes these requests through afterwards.
++  app.use('/api/cac', express.json({ limit: '25mb' }), cacRoutes);
++
++  // 1mb was too small for routes whose zod schemas accept up to a 7MB
++  // base64 document/photo (nin-modification.routes.ts's
++  // MAX_DOCUMENT_BASE64_LENGTH, and birth-attestation.routes.ts's image
++  // field) - anything over 1MB was being rejected by this parser with a 413
++  // before ever reaching that validation, silently defeating those larger
++  // limits. Bumped to comfortably cover the largest documented field plus
++  // JSON/other-fields overhead.
++  app.use(express.json({ limit: '8mb' }));
+ 
+   app.use('/api/auth', authLimiter, authRoutes);
+   app.use('/api/assistant', assistantRoutes);
+@@ -216,6 +235,8 @@ export function createApp() {
+   app.use('/api/verification', verificationRoutes);
+   app.use('/api/nin-modification', ninModificationRoutes);
+   app.use('/api/bvn-crm', bvnCrmRoutes);
++  app.use('/api/newspaper-publication', newspaperPublicationRoutes);
++  app.use('/api/birth-attestation', birthAttestationRoutes);
+   app.use('/api/jamb', jambRoutes);
+   // This MUST be mounted before the catch-all customer VTU router below.
+   // `vtuRoutes` is mounted at /api and applies customer JWT auth to every
+diff --git a/major_data_link_backend/src/routes/cac.routes.ts b/major_data_link_backend/src/routes/cac.routes.ts
+new file mode 100644
+index 0000000..5a13e58
+--- /dev/null
++++ b/major_data_link_backend/src/routes/cac.routes.ts
+@@ -0,0 +1,97 @@
++import { Router } from 'express';
++import { z } from 'zod';
++import { requireAuth } from '../middleware/auth.js';
++import { pinField, requirePinConfirmation } from '../lib/require-pin.js';
++import {
++  CAC_DOCUMENT_LABELS,
++  CAC_TYPES,
++  getCacPrice,
++  listCacHistory,
++  listCacPrices,
++  submitCacRequest,
++  type CacType
++} from '../services/cac.service.js';
++
++export const cacRoutes = Router();
++
++cacRoutes.use(requireAuth);
++
++function idempotencyKeyFrom(req: { header: (name: string) => string | undefined }) {
++  const header = req.header('Idempotency-Key');
++  return header && header.trim().length > 0 ? header.trim() : undefined;
++}
++
++// 4MB raw per document (matches the frontend's own client-side cap) -
++// base64 adds ~33%, so ~5.4MB each; with up to 4 named slots (see
++// CAC_DOCUMENT_LABELS) that's comfortably inside the route-specific 25mb
++// body limit app.ts gives this router (see the comment there for why CAC
++// gets its own limit instead of the global 8mb one).
++const MAX_DOCUMENT_BASE64_LENGTH = 5_500_000;
++
++const submitSchema = z.object({
++  cac_type: z.enum(CAC_TYPES),
++  proposed_name_1: z.string().trim().min(2).max(200),
++  proposed_name_2: z.string().trim().max(200).optional(),
++  business_nature: z.string().trim().min(2).max(300),
++  business_address: z.string().trim().min(3).max(300),
++  proprietor_full_name: z.string().trim().min(2).max(200),
++  proprietor_phone: z.string().trim().length(11).regex(/^\d{11}$/, 'Must be 11 digits'),
++  proprietor_email: z.string().trim().email(),
++  proprietor_residential_address: z.string().trim().min(3).max(300),
++  proprietor_date_of_birth: z.string().trim().min(8),
++  proprietor_gender: z.enum(['Male', 'Female']),
++  proprietor_nin: z.string().trim().length(11).regex(/^\d{11}$/, 'Must be 11 digits'),
++  supporting_documents: z
++    .array(
++      z.object({
++        label: z.enum(CAC_DOCUMENT_LABELS),
++        name: z.string().trim().min(1).max(200),
++        mime_type: z.enum(['application/pdf', 'image/jpeg', 'image/png']),
++        base64: z.string().min(20).max(MAX_DOCUMENT_BASE64_LENGTH)
++      })
++    )
++    .max(CAC_DOCUMENT_LABELS.length)
++    .optional(),
++  ...pinField
++});
++
++cacRoutes.get('/document-labels', (_req, res) => {
++  res.json({ status: true, data: CAC_DOCUMENT_LABELS });
++});
++
++cacRoutes.get('/prices', async (_req, res) => {
++  const prices = await listCacPrices();
++  res.json({ status: true, data: prices });
++});
++
++cacRoutes.get('/price', async (req, res) => {
++  const type = z.enum(CAC_TYPES).parse(req.query.type);
++  const price = await getCacPrice(type);
++  res.json({ status: true, data: { unit_price: price.unitPrice } });
++});
++
++cacRoutes.get('/history', async (req, res) => {
++  res.set('Cache-Control', 'no-store');
++  const data = await listCacHistory(req.user!.id);
++  res.json({ status: true, data });
++});
++
++cacRoutes.post('/submit', async (req, res) => {
++  const body = submitSchema.parse(req.body);
++  await requirePinConfirmation(req.user!.id, body.pin);
++  const { pin, cac_type, proposed_name_1, proposed_name_2, ...details } = body;
++  void pin;
++  const result = await submitCacRequest({
++    userId: req.user!.id,
++    type: cac_type as CacType,
++    proposedName1: proposed_name_1,
++    proposedName2: proposed_name_2,
++    details,
++    idempotencyKey: idempotencyKeyFrom(req)
++  });
++  res.json({
++    status: true,
++    message: `Request submitted \u2014 reference ${result.reference}. We'll register your business and update the status below.`,
++    data: { reference: result.reference, balance_after: result.balanceAfter }
++  });
++});
+diff --git a/major_data_link_backend/src/services/cac.service.ts b/major_data_link_backend/src/services/cac.service.ts
+new file mode 100644
+index 0000000..b26f73b
+--- /dev/null
++++ b/major_data_link_backend/src/services/cac.service.ts
+@@ -0,0 +1,407 @@
++import PDFDocument from 'pdfkit';
++import { Prisma, TransactionStatus, TransactionType } from '@prisma/client';
++import { koboToNaira } from '../lib/money.js';
++import { sealPII, openPII, mergeSealedPII } from '../lib/pii.js';
++import { prisma } from '../lib/prisma.js';
++import { ApiError } from '../middleware/error.js';
++import { debitWallet } from './wallet.service.js';
++
++/**
++ * CAC Services — business name / company registration. Ported from
++ * infoverify (DIGITAL-BRANDING/maria-digital-services).
++ *
++ * There is no provider API for this (confirmed - CAC registration is
++ * admin-processed by hand, same as Birth Attestation/Newspaper
++ * Publication/BVN CRM, NOT the FranceVerified CAC *search* endpoint in
++ * services/franceverified/cac.service.ts, which is a different, unrelated
++ * feature - a one-off "look up an existing RC number" lookup, not filing a
++ * new registration). It follows the exact same manual pattern as NIN
++ * Modification: the customer is debited at submission, the transaction sits
++ * PENDING, and an admin does the actual CAC filing by hand. From the
++ * "manage" page (see admin/cac.ts) an admin can:
++ *   - Download the auto-generated submission PDF (every field the customer
++ *     supplied, laid out as a proper form) - this is what they'd actually
++ *     take to the CAC portal to register the business.
++ *   - Download each customer-uploaded supporting document individually.
++ *   - Save progress notes, visible to the customer on their history table.
++ *   - Mark it complete and attach the FINAL certificate PDF that CAC
++ *     issues once registration is done.
++ *
++ * "Company more than 1M, NGO, Clubs, Association, Etc." has no fixed price
++ * ("quote on request") and isn't included in CAC_TYPES below - support
++ * handles that one manually outside the app rather than through a
++ * zero-price submission.
++ */
++export const CAC_TYPES = ['sole', 'partnership', 'llc'] as const;
++export type CacType = (typeof CAC_TYPES)[number];
++
++const CAC_CONFIG: Record<CacType, { title: string; price: number }> = {
++  sole: { title: 'Business Name \u2014 Sole Proprietorship', price: 28000 },
++  partnership: { title: 'Business Name \u2014 Partnership', price: 32000 },
++  llc: { title: 'Limited Liability \u2014 1M Share', price: 40000 }
++};
++
++/** The four document types CAC actually asks for at this stage of
++ *  registration - matches the reference design's own upload slots exactly
++ *  (not a freeform "attach anything" bag), so the submitted paperwork looks
++ *  like a real CAC intake rather than an ad-hoc attachment list. */
++export const CAC_DOCUMENT_LABELS = ['Valid ID document(s)', 'Passport photograph(s)', 'Proof of address', 'Signature specimen(s)'] as const;
++export type CacDocumentLabel = (typeof CAC_DOCUMENT_LABELS)[number];
++
++export type CacSupportingDocument = { label: CacDocumentLabel; name: string; mime_type: string; base64: string };
++
++/**
++ * The applicant/proprietor details actually needed to file with CAC - a
++ * business name/company alone isn't enough to register anything.
++ */
++export type CacApplicantDetails = {
++  business_nature: string;
++  business_address: string;
++  proprietor_full_name: string;
++  proprietor_phone: string;
++  proprietor_email: string;
++  proprietor_residential_address: string;
++  proprietor_date_of_birth: string;
++  proprietor_gender: 'Male' | 'Female';
++  proprietor_nin: string;
++  supporting_documents?: CacSupportingDocument[];
++};
++
++function serviceKeyFor(type: CacType) {
++  return `CAC_${type.toUpperCase()}`;
++}
++
++function priceToKobo(amount: number) {
++  return BigInt(Math.round(amount * 100));
++}
++
++/** Same plain-findUnique-then-conditional-create shape used throughout -
++ *  never resets an admin's already-configured price back to the default. */
++async function getOrCreatePricingRow(type: CacType) {
++  const config = CAC_CONFIG[type];
++  const service = serviceKeyFor(type);
++  const existing = await prisma.servicePricing.findUnique({ where: { service } });
++  if (existing) return existing;
++
++  try {
++    return await prisma.servicePricing.create({
++      data: {
++        service,
++        provider: 'manual',
++        label: config.title,
++        providerCostKobo: priceToKobo(config.price)
++      }
++    });
++  } catch (error) {
++    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
++      return prisma.servicePricing.findUniqueOrThrow({ where: { service } });
++    }
++    throw error;
++  }
++}
++
++export async function getCacPrice(type: CacType) {
++  const row = await getOrCreatePricingRow(type);
++  if (!row.isActive) {
++    throw new ApiError(422, `${row.label} is currently unavailable`, 'SERVICE_INACTIVE');
++  }
++  const unitKobo = row.sellingPriceKobo ?? row.providerCostKobo;
++  return { unitPrice: koboToNaira(unitKobo), providerCostKobo: row.providerCostKobo };
++}
++
++/** Public price list - never throws on a disabled service. */
++export async function listCacPrices() {
++  const rows = await Promise.all(CAC_TYPES.map((type) => getOrCreatePricingRow(type)));
++  return rows.map((row, index) => ({
++    type: CAC_TYPES[index],
++    title: CAC_CONFIG[CAC_TYPES[index]].title,
++    unitPrice: koboToNaira(row.sellingPriceKobo ?? row.providerCostKobo),
++    isActive: row.isActive
++  }));
++}
++
++function createCacReference() {
++  return `CAC-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
++}
++
++/** Renders every submitted field into a proper form-style PDF the admin can
++ *  print or upload straight into the CAC portal - bordered field-box grid,
++ *  not a loose stack of text lines. */
++async function renderSubmissionPdf(params: {
++  cacType: CacType;
++  proposedName1: string;
++  proposedName2?: string | null;
++  details: CacApplicantDetails;
++  trackingRef: string;
++}) {
++  const doc = new PDFDocument({ size: 'A4', margin: 40 });
++  const chunks: Buffer[] = [];
++  doc.on('data', (c: Buffer) => chunks.push(c));
++  const done = new Promise<string>((resolve, reject) => {
++    doc.on('end', () => resolve(Buffer.concat(chunks).toString('base64')));
++    doc.on('error', reject);
++  });
++
++  const PAGE_LEFT = 40;
++  const PAGE_WIDTH = 515;
++  const GOLD_DARK = '#6b4f0b';
++  const GOLD = '#c9971f';
++  const INK = '#1f2937';
++  const MUTED = '#6b7280';
++  const BORDER = '#d1d5db';
++
++  doc.rect(0, 0, doc.page.width, 86).fill('#171106');
++  doc.fillColor('#ffe9a3').fontSize(16).font('Helvetica-Bold').text('CAC BUSINESS REGISTRATION', PAGE_LEFT, 24, { width: PAGE_WIDTH });
++  doc.fontSize(10).font('Helvetica').fillColor('#d8c58b').text('Submission Form \u2014 for manual filing on the CAC portal', PAGE_LEFT, 46);
++  doc.rect(0, 82, doc.page.width, 4).fill(GOLD);
++  doc.y = 106;
++
++  doc.fontSize(9).font('Helvetica-Bold').fillColor(MUTED).text('REFERENCE', PAGE_LEFT, doc.y);
++  doc.fontSize(11).font('Helvetica-Bold').fillColor(INK).text(params.trackingRef, PAGE_LEFT, doc.y + 2);
++  const metaRightX = PAGE_LEFT + 300;
++  const metaTop = 106;
++  doc.fontSize(9).font('Helvetica-Bold').fillColor(MUTED).text('SUBMITTED', metaRightX, metaTop);
++  doc.fontSize(10).font('Helvetica').fillColor(INK).text(new Date().toLocaleString('en-NG'), metaRightX, metaTop + 13);
++  doc.fontSize(9).font('Helvetica-Bold').fillColor(MUTED).text('REGISTRATION TYPE', metaRightX, metaTop + 32);
++  doc.fontSize(10).font('Helvetica').fillColor(INK).text(CAC_CONFIG[params.cacType].title, metaRightX, metaTop + 45, { width: 215 });
++  doc.y = 168;
++
++  function sectionHeader(title: string) {
++    doc.moveDown(0.6);
++    const y = doc.y;
++    doc.rect(PAGE_LEFT, y, PAGE_WIDTH, 20).fill('#f3ede0');
++    doc.rect(PAGE_LEFT, y, 4, 20).fill(GOLD);
++    doc.fontSize(10.5).font('Helvetica-Bold').fillColor(GOLD_DARK).text(title.toUpperCase(), PAGE_LEFT + 12, y + 5);
++    doc.y = y + 28;
++  }
++
++  function fieldGrid(fields: { label: string; value: string }[], columns: 1 | 2 = 2) {
++    const gap = 10;
++    const colWidth = columns === 2 ? (PAGE_WIDTH - gap) / 2 : PAGE_WIDTH;
++    const rowHeight = 34;
++    let x = PAGE_LEFT;
++    let col = 0;
++    let rowStartY = doc.y;
++
++    for (const field of fields) {
++      if (rowStartY + rowHeight > doc.page.height - 60) {
++        doc.addPage();
++        rowStartY = 40;
++        col = 0;
++        x = PAGE_LEFT;
++      }
++
++      doc.rect(x, rowStartY, colWidth, rowHeight).strokeColor(BORDER).lineWidth(0.75).stroke();
++      doc.fontSize(8).font('Helvetica-Bold').fillColor(MUTED).text(field.label.toUpperCase(), x + 8, rowStartY + 6, { width: colWidth - 16 });
++      doc.fontSize(10.5).font('Helvetica').fillColor(INK).text(field.value || '\u2014', x + 8, rowStartY + 18, { width: colWidth - 16 });
++
++      if (columns === 2 && col === 0) {
++        col = 1;
++        x = PAGE_LEFT + colWidth + gap;
++      } else {
++        col = 0;
++        x = PAGE_LEFT;
++        rowStartY += rowHeight;
++      }
++    }
++    doc.y = col === 0 ? rowStartY + 4 : rowStartY + rowHeight + 4;
++  }
++
++  sectionHeader('Proposed Business Name(s)');
++  fieldGrid(
++    [
++      { label: 'Option 1', value: params.proposedName1 },
++      { label: 'Option 2', value: params.proposedName2 ?? '' }
++    ],
++    2
++  );
++
++  sectionHeader('Business Details');
++  fieldGrid(
++    [
++      { label: 'Nature of business', value: params.details.business_nature },
++      { label: 'Business address', value: params.details.business_address }
++    ],
++    1
++  );
++
++  sectionHeader('Proprietor / Applicant Details');
++  fieldGrid(
++    [
++      { label: 'Full name', value: params.details.proprietor_full_name },
++      { label: 'Phone', value: params.details.proprietor_phone },
++      { label: 'Email', value: params.details.proprietor_email },
++      { label: 'Date of birth', value: params.details.proprietor_date_of_birth },
++      { label: 'Gender', value: params.details.proprietor_gender },
++      { label: 'NIN', value: params.details.proprietor_nin },
++      { label: 'Residential address', value: params.details.proprietor_residential_address }
++    ],
++    2
++  );
++
++  if (params.details.supporting_documents?.length) {
++    sectionHeader('Supporting Documents Attached');
++    fieldGrid(
++      params.details.supporting_documents.map((document) => ({ label: document.label, value: document.name })),
++      2
++    );
++  }
++
++  doc.moveDown(1.5);
++  doc.moveTo(PAGE_LEFT, doc.y).lineTo(PAGE_LEFT + PAGE_WIDTH, doc.y).strokeColor(BORDER).lineWidth(0.75).stroke();
++  doc.moveDown(0.5);
++  doc
++    .fontSize(8)
++    .font('Helvetica-Oblique')
++    .fillColor(MUTED)
++    .text('Generated automatically at submission time for manual CAC filing. Not a CAC certificate.', PAGE_LEFT, doc.y, { width: PAGE_WIDTH });
++
++  doc.end();
++  return done;
++}
++
++export type SubmitCacResult = { reference: string; balanceAfter: number };
++
++export async function submitCacRequest(params: {
++  userId: string;
++  type: CacType;
++  proposedName1: string;
++  proposedName2?: string;
++  details: CacApplicantDetails;
++  idempotencyKey?: string;
++}): Promise<SubmitCacResult> {
++  const config = CAC_CONFIG[params.type];
++  const price = await getCacPrice(params.type);
++  const service = serviceKeyFor(params.type);
++  const trackingRef = createCacReference();
++
++  const submissionPdfBase64 = await renderSubmissionPdf({
++    cacType: params.type,
++    proposedName1: params.proposedName1,
++    proposedName2: params.proposedName2,
++    details: params.details,
++    trackingRef
++  });
++
++  const debit = await debitWallet({
++    userId: params.userId,
++    amount: price.unitPrice,
++    type: TransactionType.CAC_SERVICE_REQUEST,
++    description: `CAC Services \u2014 ${config.title}`,
++    metadata: {
++      service,
++      cac_type: params.type,
++      unit_price: price.unitPrice,
++      progress_notes: null,
++      tracking_ref: trackingRef,
++      pii: sealPII({
++        proposed_name_1: params.proposedName1,
++        proposed_name_2: params.proposedName2 ?? null,
++        ...params.details,
++        submission_pdf_base64: submissionPdfBase64
++      })
++    } as Prisma.InputJsonValue,
++    idempotencyKey: params.idempotencyKey,
++    // No provider was actually paid yet - an admin pays CAC's fee when they manually file this.
++    costKobo: price.providerCostKobo
++  });
++
++  return { reference: debit.reference, balanceAfter: debit.balanceAfter };
++}
++
++export type CacHistoryEntry = {
++  reference: string;
++  status: string;
++  cac_type: string | null;
++  proposed_name_1: string | null;
++  proposed_name_2: string | null;
++  amount: number;
++  progress_notes: string | null;
++  submission_pdf_base64: string | null;
++  certificate_pdf_base64: string | null;
++  created_at: string;
++  updated_at: string;
++};
++
++type CacPII = Partial<CacApplicantDetails> & {
++  proposed_name_1?: string;
++  proposed_name_2?: string | null;
++  submission_pdf_base64?: string;
++  certificate_pdf_base64?: string;
++};
++
++/** Every status is included here (not just SUCCESS, unlike e.g. NIN
++ *  Modification's history) - CAC registration can take days, and the whole
++ *  point of this table is for the customer to track a request while it's
++ *  still PENDING. */
++export async function listCacHistory(userId: string) {
++  const transactions = await prisma.transaction.findMany({
++    where: { userId, type: TransactionType.CAC_SERVICE_REQUEST },
++    orderBy: { createdAt: 'desc' },
++    take: 50
++  });
++
++  return transactions.map((transaction): CacHistoryEntry => {
++    const metadata = transaction.metadata as Record<string, unknown> | null;
++    const pii = openPII<CacPII>(metadata?.pii);
++    return {
++      reference: transaction.reference,
++      status: transaction.status.toLowerCase(),
++      cac_type: typeof metadata?.cac_type === 'string' ? metadata.cac_type : null,
++      proposed_name_1: pii?.proposed_name_1 ?? null,
++      proposed_name_2: pii?.proposed_name_2 ?? null,
++      amount: koboToNaira(transaction.amountKobo),
++      progress_notes: typeof metadata?.progress_notes === 'string' ? metadata.progress_notes : null,
++      submission_pdf_base64: typeof pii?.submission_pdf_base64 === 'string' ? pii.submission_pdf_base64 : null,
++      certificate_pdf_base64: typeof pii?.certificate_pdf_base64 === 'string' ? pii.certificate_pdf_base64 : null,
++      created_at: transaction.createdAt.toISOString(),
++      updated_at: transaction.updatedAt.toISOString()
++    };
++  });
++}
++
++/** Admin-only: update the customer-visible progress note without changing status. */
++export async function updateCacProgressNotes(params: { transactionId: string; notes: string }) {
++  const transaction = await prisma.transaction.findUnique({ where: { id: params.transactionId } });
++  if (!transaction || transaction.type !== TransactionType.CAC_SERVICE_REQUEST) {
++    throw new ApiError(404, 'CAC transaction not found', 'TRANSACTION_NOT_FOUND');
++  }
++  const metadata = (transaction.metadata as Record<string, unknown> | null) ?? {};
++  await prisma.transaction.update({
++    where: { id: transaction.id },
++    data: { metadata: { ...metadata, progress_notes: params.notes } as Prisma.InputJsonValue }
++  });
++}
++
++/** Admin-only: attaches the completed certificate and marks the request
++ *  SUCCESS. There is no automatic path here - an admin has actually
++ *  finished the CAC filing by hand. */
++export async function completeCacRequest(params: { transactionId: string; certificatePdfBase64: string }) {
++  const transaction = await prisma.transaction.findUnique({ where: { id: params.transactionId } });
++  if (!transaction || transaction.type !== TransactionType.CAC_SERVICE_REQUEST) {
++    throw new ApiError(404, 'CAC transaction not found', 'TRANSACTION_NOT_FOUND');
++  }
++  if (transaction.status !== TransactionStatus.PENDING) {
++    throw new ApiError(422, 'Only a pending CAC request can be marked complete', 'INVALID_STATUS');
++  }
++
++  const metadata = (transaction.metadata as Record<string, unknown> | null) ?? {};
++  await prisma.transaction.update({
++    where: { id: transaction.id },
++    data: {
++      status: TransactionStatus.SUCCESS,
++      metadata: {
++        ...metadata,
++        pii: mergeSealedPII(metadata.pii, { certificate_pdf_base64: params.certificatePdfBase64 })
++      } as Prisma.InputJsonValue
++    }
++  });
++}
++
++/** Decrypts the sealed PII (applicant details, supporting documents,
++ *  submission PDF, certificate) for the admin's manage page. Never call
++ *  this from a user-facing endpoint. */
++export function decryptCacPII(transaction: { metadata: unknown }) {
++  const metadata = transaction.metadata as Record<string, unknown> | null;
++  return openPII<CacPII>(metadata?.pii);
++}
+diff --git a/web/src/pages/CacServicesPage.tsx b/web/src/pages/CacServicesPage.tsx
+index 04ddc78..649ec07 100644
+--- a/web/src/pages/CacServicesPage.tsx
++++ b/web/src/pages/CacServicesPage.tsx
+@@ -1,33 +1,499 @@
+-import { useState, type FormEvent } from 'react';
+-import { BriefcaseBusiness, CheckCircle2, Loader2, Send } from 'lucide-react';
++import { useEffect, useMemo, useState, type FormEvent } from 'react';
++import { useNavigate } from 'react-router-dom';
++import { Building2, Download, Loader2, Upload } from 'lucide-react';
+ import AppShell from '../components/AppShell';
+-import { api } from '../lib/api';
++import { api, ApiError } from '../lib/api';
++import { PinConfirmDialog } from '../components/PinConfirmDialog';
+ 
+-const services = ['CAC Business Name Registration', 'CAC Company Registration', 'CAC Verification'] as const;
++type CacType = 'sole' | 'partnership' | 'llc';
++type CacPriceRow = { type: CacType; title: string; unitPrice: number; isActive: boolean };
++type CacHistoryEntry = {
++  reference: string;
++  status: string;
++  cac_type: string | null;
++  proposed_name_1: string | null;
++  proposed_name_2: string | null;
++  amount: number;
++  progress_notes: string | null;
++  submission_pdf_base64: string | null;
++  certificate_pdf_base64: string | null;
++  created_at: string;
++  updated_at: string;
++};
++type Details = {
++  business_nature: string;
++  business_address: string;
++  proprietor_full_name: string;
++  proprietor_phone: string;
++  proprietor_email: string;
++  proprietor_residential_address: string;
++  proprietor_date_of_birth: string;
++  proprietor_gender: 'Male' | 'Female' | '';
++  proprietor_nin: string;
++};
++type DocumentLabel = 'Valid ID document(s)' | 'Passport photograph(s)' | 'Proof of address' | 'Signature specimen(s)';
++type SupportingDocument = { label: DocumentLabel; name: string; mime_type: 'application/pdf' | 'image/jpeg' | 'image/png'; base64: string };
+ 
+-/** Manual CAC work is tracked as a ticket; staff complete it and attach the final document using User Deliveries. */
++const EMPTY_DETAILS: Details = {
++  business_nature: '',
++  business_address: '',
++  proprietor_full_name: '',
++  proprietor_phone: '',
++  proprietor_email: '',
++  proprietor_residential_address: '',
++  proprietor_date_of_birth: '',
++  proprietor_gender: '',
++  proprietor_nin: ''
++};
++
++const SERVICE_OPTIONS: { value: CacType; label: string }[] = [
++  { value: 'sole', label: 'Business Name \u2014 Sole Proprietorship' },
++  { value: 'partnership', label: 'Business Name \u2014 Partnership' }
++];
++
++const STATUS_LABEL: Record<string, string> = { pending: 'Processing', success: 'Completed', failed: 'Rejected', reversed: 'Refunded' };
++
++const money = (amount?: number) =>
++  amount === undefined ? '…' : `₦${amount.toLocaleString('en-NG', { maximumFractionDigits: 2 })}`;
++
++/**
++ * Ported from infoverify (DIGITAL-BRANDING/maria-digital-services)'s
++ * pages/verification/CacServicesPage.tsx - same /api/cac endpoints and
++ * document-upload flow (4 named slots matching what CAC actually asks for:
++ * ID, passport photo, proof of address, signature), restyled onto
++ * MAJOR-DATA-LINK's own ink/parchment/gold theme. Replaces the old
++ * /cac page, which was just a generic manual support-ticket form with no
++ * real form fields or document upload at all.
++ */
+ export default function CacServicesPage() {
+-  const [service, setService] = useState<(typeof services)[number]>(services[0]);
+-  const [fullName, setFullName] = useState('');
+-  const [businessName, setBusinessName] = useState('');
+-  const [phone, setPhone] = useState('');
+-  const [notes, setNotes] = useState('');
+-  const [sending, setSending] = useState(false);
+-  const [feedback, setFeedback] = useState('');
+-
+-  async function submit(event: FormEvent) {
++  const nav = useNavigate();
++  const [prices, setPrices] = useState<CacPriceRow[]>([]);
++  const [registrationTab, setRegistrationTab] = useState<'business' | 'company'>('business');
++  const [service, setService] = useState<CacType>('sole');
++  const [name1, setName1] = useState('');
++  const [name2, setName2] = useState('');
++  const [details, setDetails] = useState<Details>(EMPTY_DETAILS);
++  const [documents, setDocuments] = useState<SupportingDocument[]>([]);
++  const [uploadingLabel, setUploadingLabel] = useState<string | null>(null);
++  const [consent, setConsent] = useState(false);
++  const [showPin, setShowPin] = useState(false);
++  const [busy, setBusy] = useState(false);
++  const [message, setMessage] = useState('');
++  const [reference, setReference] = useState('');
++  const [history, setHistory] = useState<CacHistoryEntry[]>([]);
++  const [loadingHistory, setLoadingHistory] = useState(true);
++
++  const selectedPrice = useMemo(() => prices.find((p) => p.type === service)?.unitPrice, [prices, service]);
++
++  function detailField<K extends keyof Details>(key: K, value: Details[K]) {
++    setDetails((prev) => ({ ...prev, [key]: value }));
++  }
++
++  async function addDocument(label: DocumentLabel, file?: File) {
++    if (!file) return;
++    if (!['application/pdf', 'image/jpeg', 'image/png'].includes(file.type) || file.size > 4 * 1024 * 1024) {
++      setMessage('Use a PDF, JPG or PNG document under 4MB.');
++      return;
++    }
++    setUploadingLabel(label);
++    try {
++      const base64 = await new Promise<string>((resolve, reject) => {
++        const reader = new FileReader();
++        reader.onload = () => resolve(String(reader.result).split(',')[1] ?? '');
++        reader.onerror = reject;
++        reader.readAsDataURL(file);
++      });
++      setDocuments((current) => [
++        ...current.filter((document) => document.label !== label),
++        { label, name: file.name, mime_type: file.type as SupportingDocument['mime_type'], base64 }
++      ]);
++    } finally {
++      setUploadingLabel(null);
++    }
++  }
++
++  async function loadHistory() {
++    setLoadingHistory(true);
++    try {
++      const result = await api.get<{ data: CacHistoryEntry[] }>('/cac/history');
++      setHistory(result.data ?? []);
++    } catch {
++      setHistory([]);
++    } finally {
++      setLoadingHistory(false);
++    }
++  }
++
++  useEffect(() => {
++    api
++      .get<{ data: CacPriceRow[] }>('/cac/prices')
++      .then((result) => setPrices(result.data ?? []))
++      .catch(() => setPrices([]));
++    void loadHistory();
++  }, []);
++
++  function prepare(event: FormEvent) {
+     event.preventDefault();
+-    if (fullName.trim().length < 3 || businessName.trim().length < 2 || phone.trim().length < 7) {
+-      setFeedback('Enter your full name, business name and phone number.'); return;
++    if (!consent) {
++      setMessage('Please check the consent box before continuing.');
++      return;
+     }
+-    setSending(true); setFeedback('');
++    setMessage('');
++    setShowPin(true);
++  }
++
++  async function submit(pin: string) {
++    setShowPin(false);
++    setBusy(true);
++    setMessage('');
+     try {
+-      await api.post('/support/tickets', { subject: `CAC Service: ${service}`, message: `CAC service requested: ${service}\n\nCustomer name: ${fullName.trim()}\nBusiness name: ${businessName.trim()}\nPhone: ${phone.trim()}\nAdditional details: ${notes.trim() || 'None'}` });
+-      setFullName(''); setBusinessName(''); setPhone(''); setNotes('');
+-      setFeedback('Your CAC request is now with K-Tech Solutions. We will process it and upload your completed file to Deliveries.');
+-    } catch (error) { setFeedback(error instanceof Error ? error.message : 'Unable to send your CAC request.'); }
+-    finally { setSending(false); }
++      const result = await api.post<{ status: boolean; message: string; data: { reference: string } }>('/cac/submit', {
++        cac_type: service,
++        proposed_name_1: name1,
++        proposed_name_2: name2 || undefined,
++        ...details,
++        supporting_documents: documents.length ? documents : undefined,
++        pin
++      });
++      setReference(result.data.reference);
++      setMessage(result.message);
++      setService('sole');
++      setRegistrationTab('business');
++      setName1('');
++      setName2('');
++      setDetails(EMPTY_DETAILS);
++      setDocuments([]);
++      setConsent(false);
++      void loadHistory();
++    } catch (error) {
++      setMessage(error instanceof ApiError ? error.message : 'Request failed. Please try again.');
++    } finally {
++      setBusy(false);
++    }
+   }
+ 
+-  return <AppShell><div className="mx-auto max-w-3xl"><header className="rounded-3xl bg-ink px-6 py-8 text-cream shadow-lg sm:px-9"><div className="flex items-center gap-3 text-gold-400"><BriefcaseBusiness size={28}/><span className="text-sm font-bold uppercase tracking-[0.16em]">K-Tech Solutions</span></div><h1 className="mt-4 font-display text-3xl font-bold">CAC Services</h1><p className="mt-2 max-w-xl text-sm leading-6 text-cream/80">Send your CAC request here. Our admin team processes it and securely uploads the completed document to your dashboard.</p></header><div className="mt-6 grid gap-6 lg:grid-cols-[0.85fr_1.15fr]"><section className="rounded-2xl border border-parchment-line bg-parchment p-5"><h2 className="font-display text-lg font-bold text-ink">How delivery works</h2><ol className="mt-4 space-y-3">{['Submit the required request details.', 'K-Tech Solutions reviews and processes it.', 'Your completed document is uploaded to Deliveries.'].map((item) => <li key={item} className="flex gap-2 text-sm text-ink-700"><CheckCircle2 className="mt-0.5 shrink-0 text-gold-500" size={16}/>{item}</li>)}</ol></section><form onSubmit={submit} className="rounded-2xl border border-parchment-line bg-parchment p-5"><h2 className="font-display text-lg font-bold text-ink">Start a CAC request</h2><label className="mt-4 block text-sm font-semibold text-ink">Service<select value={service} onChange={(e) => setService(e.target.value as typeof service)} className="mt-1.5 w-full rounded-lg border border-parchment-line bg-cream px-3 py-2.5 text-sm">{services.map((item) => <option key={item}>{item}</option>)}</select></label><label className="mt-4 block text-sm font-semibold text-ink">Your full name<input value={fullName} onChange={(e) => setFullName(e.target.value)} required className="mt-1.5 w-full rounded-lg border border-parchment-line bg-cream px-3 py-2.5 text-sm"/></label><label className="mt-4 block text-sm font-semibold text-ink">Business / company name<input value={businessName} onChange={(e) => setBusinessName(e.target.value)} required className="mt-1.5 w-full rounded-lg border border-parchment-line bg-cream px-3 py-2.5 text-sm"/></label><label className="mt-4 block text-sm font-semibold text-ink">Phone number<input value={phone} onChange={(e) => setPhone(e.target.value)} required inputMode="tel" className="mt-1.5 w-full rounded-lg border border-parchment-line bg-cream px-3 py-2.5 text-sm"/></label><label className="mt-4 block text-sm font-semibold text-ink">Other details (optional)<textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} placeholder="Add any required information. Do not share passwords or OTPs." className="mt-1.5 w-full resize-y rounded-lg border border-parchment-line bg-cream px-3 py-2.5 text-sm"/></label>{feedback && <p className={`mt-3 rounded-lg p-3 text-sm ${feedback.startsWith('Your') ? 'bg-success-500/10 text-success-700' : 'bg-ember-500/10 text-ember-600'}`}>{feedback}</p>}<button disabled={sending} className="mt-4 flex items-center gap-2 rounded-lg bg-gold-500 px-4 py-2.5 text-sm font-bold text-ink disabled:opacity-60">{sending ? <Loader2 className="animate-spin" size={16}/> : <Send size={16}/>} Send request</button></form></div></div></AppShell>;
++  return (
++    <AppShell>
++      <div className="mx-auto max-w-3xl">
++        <button onClick={() => nav('/dashboard')} className="font-body text-sm font-semibold text-gold-700">
++          ← Dashboard
++        </button>
++
++        <header className="mt-5 rounded-2xl border border-parchment-line bg-parchment p-6">
++          <p className="font-body text-sm font-semibold text-gold-700">Identity services</p>
++          <h1 className="mt-1 font-display text-3xl font-bold text-ink">CAC Registration</h1>
++          <p className="mt-2 font-body text-sm text-ink-600">
++            Register your business or company with the Corporate Affairs Commission. Complete the details below and
++            our team will process the request. NGOs, incorporated trustees, and companies above ₦1m share capital
++            are quoted individually via Support.
++          </p>
++        </header>
++
++        <section className="mt-6 rounded-2xl border border-parchment-line bg-parchment p-6">
++          <div className="flex items-center gap-2 border-b border-parchment-line pb-3">
++            <Building2 size={20} className="text-gold-700" />
++            <h2 className="font-display text-lg font-bold text-ink">Registration Type</h2>
++          </div>
++          <div className="mt-4 flex gap-5 border-b border-parchment-line">
++            <button
++              type="button"
++              onClick={() => {
++                setRegistrationTab('business');
++                setService('sole');
++              }}
++              className={`border-b-2 px-1 pb-3 font-body text-sm font-semibold ${registrationTab === 'business' ? 'border-gold-500 text-ink' : 'border-transparent text-ink-400'}`}
++            >
++              Business Name Registration
++            </button>
++            <button
++              type="button"
++              onClick={() => {
++                setRegistrationTab('company');
++                setService('llc');
++              }}
++              className={`border-b-2 px-1 pb-3 font-body text-sm font-semibold ${registrationTab === 'company' ? 'border-gold-500 text-ink' : 'border-transparent text-ink-400'}`}
++            >
++              Company Registration
++            </button>
++          </div>
++
++          {registrationTab === 'business' && (
++            <div className="mt-4 flex gap-4 font-body text-sm text-ink-600">
++              {SERVICE_OPTIONS.map((option) => (
++                <label key={option.value} className="flex items-center gap-2">
++                  <input type="radio" checked={service === option.value} onChange={() => setService(option.value)} />
++                  {option.label}
++                </label>
++              ))}
++            </div>
++          )}
++
++          <p className="mt-4 rounded-xl bg-gold-500/15 px-4 py-3 font-body text-sm text-ink">
++            Service cost: <strong>{money(selectedPrice)}</strong>
++          </p>
++
++          <form onSubmit={prepare} className="mt-5 space-y-5">
++            <div>
++              <h3 className="font-body text-sm font-semibold text-ink-600">
++                Proposed {registrationTab === 'business' ? 'Business' : 'Company'} Name(s)
++              </h3>
++              <div className="mt-2 grid gap-3 sm:grid-cols-2">
++                <label className="block font-body text-sm font-medium text-ink-600">
++                  Option 1 <span className="text-ember">*</span>
++                  <input
++                    required
++                    maxLength={200}
++                    placeholder="e.g. Amana Traders"
++                    className="mt-1 w-full rounded-xl border border-parchment-line bg-cream p-3 text-ink outline-none focus:border-gold-500"
++                    value={name1}
++                    onChange={(e) => setName1(e.target.value)}
++                  />
++                </label>
++                <label className="block font-body text-sm font-medium text-ink-600">
++                  Option 2
++                  <input
++                    maxLength={200}
++                    placeholder="e.g. Amana Global Ventures"
++                    className="mt-1 w-full rounded-xl border border-parchment-line bg-cream p-3 text-ink outline-none focus:border-gold-500"
++                    value={name2}
++                    onChange={(e) => setName2(e.target.value)}
++                  />
++                </label>
++              </div>
++            </div>
++
++            {registrationTab === 'company' && (
++              <div className="rounded-xl bg-cream p-4 font-body text-sm text-ink-600">
++                <p className="font-semibold text-ink">Type of Company</p>
++                <label className="mt-2 flex items-center gap-2">
++                  <input type="radio" checked readOnly /> Private Limited Company (Ltd) — 1M Share
++                </label>
++                <label className="mt-1 flex items-center gap-2 opacity-50">
++                  <input type="radio" disabled /> Public Limited Company (Plc) — quoted individually via Support
++                </label>
++                <label className="mt-1 flex items-center gap-2 opacity-50">
++                  <input type="radio" disabled /> Incorporated Trustee / NGO — quoted individually via Support
++                </label>
++              </div>
++            )}
++
++            <div>
++              <h3 className="font-body text-sm font-semibold text-ink-600">Business Details</h3>
++              <div className="mt-2 grid gap-3">
++                <label className="block font-body text-sm font-medium text-ink-600">
++                  Nature of Business <span className="text-ember">*</span>
++                  <input
++                    required
++                    placeholder="e.g. Retail of electronics and accessories"
++                    className="mt-1 w-full rounded-xl border border-parchment-line bg-cream p-3 text-ink outline-none focus:border-gold-500"
++                    value={details.business_nature}
++                    onChange={(e) => detailField('business_nature', e.target.value)}
++                  />
++                </label>
++                <label className="block font-body text-sm font-medium text-ink-600">
++                  Business Address <span className="text-ember">*</span>
++                  <input
++                    required
++                    className="mt-1 w-full rounded-xl border border-parchment-line bg-cream p-3 text-ink outline-none focus:border-gold-500"
++                    value={details.business_address}
++                    onChange={(e) => detailField('business_address', e.target.value)}
++                  />
++                </label>
++              </div>
++            </div>
++
++            <div>
++              <h3 className="font-body text-sm font-semibold text-ink-600">Proprietor / Applicant Details</h3>
++              <div className="mt-2 grid gap-3 sm:grid-cols-2">
++                <label className="block font-body text-sm font-medium text-ink-600 sm:col-span-2">
++                  Full Name <span className="text-ember">*</span>
++                  <input
++                    required
++                    className="mt-1 w-full rounded-xl border border-parchment-line bg-cream p-3 text-ink outline-none focus:border-gold-500"
++                    value={details.proprietor_full_name}
++                    onChange={(e) => detailField('proprietor_full_name', e.target.value)}
++                  />
++                </label>
++                <label className="block font-body text-sm font-medium text-ink-600">
++                  Phone <span className="text-ember">*</span>
++                  <input
++                    required
++                    type="tel"
++                    inputMode="numeric"
++                    maxLength={11}
++                    className="mt-1 w-full rounded-xl border border-parchment-line bg-cream p-3 text-ink outline-none focus:border-gold-500"
++                    value={details.proprietor_phone}
++                    onChange={(e) => detailField('proprietor_phone', e.target.value.replace(/\D/g, '').slice(0, 11))}
++                  />
++                </label>
++                <label className="block font-body text-sm font-medium text-ink-600">
++                  Email <span className="text-ember">*</span>
++                  <input
++                    required
++                    type="email"
++                    className="mt-1 w-full rounded-xl border border-parchment-line bg-cream p-3 text-ink outline-none focus:border-gold-500"
++                    value={details.proprietor_email}
++                    onChange={(e) => detailField('proprietor_email', e.target.value)}
++                  />
++                </label>
++                <label className="block font-body text-sm font-medium text-ink-600">
++                  Date of Birth <span className="text-ember">*</span>
++                  <input
++                    required
++                    type="date"
++                    className="mt-1 w-full rounded-xl border border-parchment-line bg-cream p-3 text-ink outline-none focus:border-gold-500"
++                    value={details.proprietor_date_of_birth}
++                    onChange={(e) => detailField('proprietor_date_of_birth', e.target.value)}
++                  />
++                </label>
++                <label className="block font-body text-sm font-medium text-ink-600">
++                  Gender <span className="text-ember">*</span>
++                  <select
++                    required
++                    className="mt-1 w-full rounded-xl border border-parchment-line bg-cream p-3 text-ink outline-none focus:border-gold-500"
++                    value={details.proprietor_gender}
++                    onChange={(e) => detailField('proprietor_gender', e.target.value as Details['proprietor_gender'])}
++                  >
++                    <option value="">Select…</option>
++                    <option value="Male">Male</option>
++                    <option value="Female">Female</option>
++                  </select>
++                </label>
++                <label className="block font-body text-sm font-medium text-ink-600">
++                  NIN <span className="text-ember">*</span>
++                  <input
++                    required
++                    type="tel"
++                    inputMode="numeric"
++                    maxLength={11}
++                    className="mt-1 w-full rounded-xl border border-parchment-line bg-cream p-3 text-ink outline-none focus:border-gold-500"
++                    value={details.proprietor_nin}
++                    onChange={(e) => detailField('proprietor_nin', e.target.value.replace(/\D/g, '').slice(0, 11))}
++                  />
++                </label>
++                <label className="block font-body text-sm font-medium text-ink-600 sm:col-span-2">
++                  Residential Address <span className="text-ember">*</span>
++                  <input
++                    required
++                    className="mt-1 w-full rounded-xl border border-parchment-line bg-cream p-3 text-ink outline-none focus:border-gold-500"
++                    value={details.proprietor_residential_address}
++                    onChange={(e) => detailField('proprietor_residential_address', e.target.value)}
++                  />
++                </label>
++              </div>
++            </div>
++
++            <div className="border-t border-parchment-line pt-5">
++              <h3 className="font-display font-bold text-ink">Supporting Documents</h3>
++              <p className="mt-1 font-body text-xs text-ink-400">
++                Upload PDF, JPG or PNG files (maximum 4MB each). Your files are stored securely and made available to
++                the CAC admin only.
++              </p>
++              <div className="mt-3 grid gap-3 sm:grid-cols-2">
++                {(['Valid ID document(s)', 'Passport photograph(s)', 'Proof of address', 'Signature specimen(s)'] as DocumentLabel[]).map(
++                  (label) => {
++                    const uploaded = documents.find((document) => document.label === label);
++                    const uploading = uploadingLabel === label;
++                    return (
++                      <label key={label} className="block rounded-xl border border-dashed border-parchment-line bg-cream p-3 font-body text-sm font-medium text-ink-600">
++                        {label}
++                        <span className="mt-2 flex items-center gap-2 font-body text-xs text-ink-400">
++                          {uploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}{' '}
++                          {uploading ? 'Preparing secure upload…' : uploaded ? `Ready: ${uploaded.name}` : 'Choose file'}
++                        </span>
++                        <input
++                          disabled={uploading || Boolean(uploadingLabel)}
++                          type="file"
++                          accept="application/pdf,image/jpeg,image/png"
++                          className="mt-2 block w-full text-xs disabled:opacity-50"
++                          onChange={(e) => void addDocument(label, e.target.files?.[0])}
++                        />
++                      </label>
++                    );
++                  }
++                )}
++              </div>
++            </div>
++
++            <label className="flex items-start gap-2 font-body text-xs text-ink-600">
++              <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} className="mt-0.5" />
++              I confirm the details above are accurate and I authorize MAJOR DATA-LINK to file this registration with
++              the Corporate Affairs Commission on my behalf.
++            </label>
++
++            <div>
++              <button
++                disabled={busy}
++                className="flex w-full items-center justify-center gap-2 rounded-xl bg-gold-500 py-3 font-display font-semibold text-ink disabled:opacity-60"
++              >
++                {busy ? <Loader2 size={16} className="animate-spin" /> : 'Continue to PIN confirmation'}
++              </button>
++              {message && <p className="mt-3 rounded-lg bg-cream p-3 font-body text-sm text-ink-600">{message}</p>}
++            </div>
++          </form>
++
++          {reference && (
++            <div className="mt-5 rounded-xl border border-emerald-200 bg-emerald-50 p-5 text-center">
++              <p className="font-body text-sm font-semibold text-emerald-800">Reference: {reference}</p>
++            </div>
++          )}
++
++          <div className="mt-8">
++            <h3 className="font-body text-sm font-semibold text-ink-600">Recent requests</h3>
++            {loadingHistory ? (
++              <p className="mt-2 font-body text-xs text-ink-400">Loading…</p>
++            ) : history.length === 0 ? (
++              <p className="mt-2 font-body text-xs text-ink-400">No requests yet.</p>
++            ) : (
++              <ul className="mt-2 space-y-2">
++                {history.map((entry) => (
++                  <li key={entry.reference} className="rounded-xl border border-parchment-line bg-cream p-3 font-body text-xs text-ink-600">
++                    <div className="flex items-center justify-between gap-2">
++                      <span>
++                        {entry.proposed_name_1 ?? entry.reference} · {new Date(entry.created_at).toLocaleString()} ·{' '}
++                        <span
++                          className={
++                            entry.status === 'success'
++                              ? 'font-semibold text-emerald-700'
++                              : entry.status === 'failed'
++                                ? 'font-semibold text-rose-600'
++                                : 'font-semibold text-amber-600'
++                          }
++                        >
++                          {STATUS_LABEL[entry.status] ?? entry.status}
++                        </span>
++                      </span>
++                      <span className="flex shrink-0 gap-2">
++                        {entry.submission_pdf_base64 && (
++                          <a
++                            href={`data:application/pdf;base64,${entry.submission_pdf_base64}`}
++                            download={`${entry.reference}-submission.pdf`}
++                            className="flex items-center gap-1 font-semibold text-gold-700"
++                          >
++                            <Download size={12} /> Form
++                          </a>
++                        )}
++                        {entry.certificate_pdf_base64 && (
++                          <a
++                            href={`data:application/pdf;base64,${entry.certificate_pdf_base64}`}
++                            download={`${entry.reference}-certificate.pdf`}
++                            className="flex items-center gap-1 font-semibold text-emerald-700"
++                          >
++                            <Download size={12} /> Certificate
++                          </a>
++                        )}
++                      </span>
++                    </div>
++                    {entry.progress_notes && <p className="mt-1 text-ink-400">{entry.progress_notes}</p>}
++                  </li>
++                ))}
++              </ul>
++            )}
++          </div>
++        </section>
++      </div>
++
++      <PinConfirmDialog open={showPin} onClose={() => setShowPin(false)} onVerified={submit} />
++    </AppShell>
++  );
+ }

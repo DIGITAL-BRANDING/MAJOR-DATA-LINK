@@ -10,6 +10,7 @@ import {
   rotatePartnerRefreshToken
 } from '../lib/auth-token.js';
 import { createPartnerApiKey } from '../lib/partner-api-key.js';
+import { getPartnerActivitySummary } from '../services/partner-wallet.service.js';
 import { requirePartnerSession } from '../middleware/partner-auth.js';
 import { ApiError } from '../middleware/error.js';
 import {
@@ -23,7 +24,7 @@ import {
   provisionPartnerVirtualAccount,
   verifyPartnerFunding
 } from '../services/partner-funding.service.js';
-import { TransactionStatus, TransactionType } from '@prisma/client';
+import { TransactionType } from '@prisma/client';
 import { listVerificationPricesForPartner } from '../services/verification.service.js';
 import { partnerAccessSummary } from '../services/partner-access.service.js';
 
@@ -351,26 +352,15 @@ partnerPortalRoutes.get('/webhook/deliveries', requirePartnerSession, async (req
 // integrate against programmatically.
 
 partnerPortalRoutes.get('/summary', requirePartnerSession, async (req, res) => {
-  const partnerId = req.partner!.id;
-  const startOfToday = new Date();
-  startOfToday.setHours(0, 0, 0, 0);
-
-  const [todayCalls, totalCalls, successAgg, successfulCalls, failedCalls] = await Promise.all([
-    prisma.partnerTransaction.count({ where: { partnerId, createdAt: { gte: startOfToday } } }),
-    prisma.partnerTransaction.count({ where: { partnerId } }),
-    prisma.partnerTransaction.aggregate({ where: { partnerId, status: TransactionStatus.SUCCESS }, _sum: { amountKobo: true } }),
-    prisma.partnerTransaction.count({ where: { partnerId, status: TransactionStatus.SUCCESS } }),
-    prisma.partnerTransaction.count({ where: { partnerId, status: TransactionStatus.FAILED } })
-  ]);
-
+  const summary = await getPartnerActivitySummary(req.partner!.id);
   res.json({
     status: true,
     data: {
-      today_calls: todayCalls,
-      total_calls: totalCalls,
-      total_spend: koboToNaira(successAgg._sum.amountKobo ?? 0n),
-      successful_calls: successfulCalls,
-      failed_calls: failedCalls
+      today_calls: summary.todayCalls,
+      total_calls: summary.totalCalls,
+      total_spend: summary.totalSpend,
+      successful_calls: summary.successfulCalls,
+      failed_calls: summary.failedCalls
     }
   });
 });

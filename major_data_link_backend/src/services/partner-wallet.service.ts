@@ -129,3 +129,105 @@ export function partnerTransactionResponse(tx: { reference: string; status: Tran
     created_at: tx.createdAt.toISOString()
   };
 }
+
+/**
+ * Admin-facing manual credit/debit for a Partner's prepaid wallet - e.g. a
+ * bank transfer a partner made outside their virtual account, or a
+ * goodwill/negotiated adjustment. Mirrors manualWalletAdjustment() in
+ * wallet.service.ts (the same tool for ordinary Users) as closely as
+ * possible: same debit-guard-via-updateMany pattern to avoid a
+ * check-then-act race under concurrent requests, same
+ * TransactionType.MANUAL_ADJUSTMENT categorisation, same
+ * before/after-balance bookkeeping on the ledger row.
+ */
+export async function manualPartnerWalletAdjustment(params: {
+  partnerId: string;
+  direction: 'credit' | 'debit';
+  amount: number;
+  reason: string;
+  adminId: string;
+}) {
+  const amountKobo = nairaToKobo(params.amount);
+
+  return prisma.$transaction(
+    async (tx) => {
+      const before = await tx.partner.findUnique({ where: { id: params.partnerId } });
+      if (!before) throw new ApiError(404, 'Partner not found', 'PARTNER_NOT_FOUND');
+
+      let after;
+      if (params.direction === 'debit') {
+        const updateResult = await tx.partner.updateMany({
+          where: { id: params.partnerId, walletBalanceKobo: { gte: amountKobo } },
+          data: { walletBalanceKobo: { decrement: amountKobo } }
+        });
+        if (updateResult.count === 0) {
+          throw new ApiError(402, 'Insufficient partner wallet balance for this debit', 'INSUFFICIENT_BALANCE');
+        }
+        after = await tx.partner.findUniqueOrThrow({ where: { id: params.partnerId } });
+      } else {
+        after = await tx.partner.update({
+          where: { id: params.partnerId },
+          data: { walletBalanceKobo: { increment: amountKobo } }
+        });
+      }
+
+      const transaction = await tx.partnerTransaction.create({
+        data: {
+          partnerId: params.partnerId,
+          type: TransactionType.MANUAL_ADJUSTMENT,
+          status: TransactionStatus.SUCCESS,
+          amountKobo,
+          balanceBeforeKobo: before.walletBalanceKobo,
+          balanceAfterKobo: after.walletBalanceKobo,
+          reference: `MDL-ADJ-${Date.now()}-${nanoid(8).toUpperCase()}`,
+          // Manual admin adjustments have no natural client-supplied
+          // idempotency key (unlike an API-driven purchase) - a fresh
+          // random one per adjustment satisfies the (partnerId,
+          // idempotencyKey) unique constraint without risking a collision.
+          idempotencyKey: `manual-adjustment:${nanoid(16)}`,
+          description: `Manual ${params.direction} by admin: ${params.reason}`,
+          metadata: { adminId: params.adminId, direction: params.direction, reason: params.reason }
+        }
+      });
+
+      return { transaction, balanceAfter: after.walletBalanceKobo };
+    },
+    { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+  );
+}
+
+/**
+ * "API calls" for a partner = PartnerTransaction rows - every commercial
+ * /api/v1 purchase (data, airtime, verification, result-pin, etc.) debits
+ * the partner's wallet through debitPartnerWallet() and leaves exactly one
+ * row behind, so counting rows is counting calls. Manual admin credits/
+ * debits (MANUAL_ADJUSTMENT) and refunds also land in this same table, so
+ * "total_spend" here - like the Partner Portal's own /summary endpoint this
+ * was extracted from - is the sum of every SUCCESS row's amount, not
+ * strictly limited to genuine API purchases. Keeping that one shared
+ * definition (rather than a stricter one just for admin) is deliberate: the
+ * admin lookup page and the partner's own portal dashboard must always
+ * agree on these numbers, or a partner and an admin looking at the same
+ * account at the same time would see different totals and neither could
+ * trust either one.
+ */
+export async function getPartnerActivitySummary(partnerId: string) {
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+
+  const [todayCalls, totalCalls, successAgg, successfulCalls, failedCalls] = await Promise.all([
+    prisma.partnerTransaction.count({ where: { partnerId, createdAt: { gte: startOfToday } } }),
+    prisma.partnerTransaction.count({ where: { partnerId } }),
+    prisma.partnerTransaction.aggregate({ where: { partnerId, status: TransactionStatus.SUCCESS }, _sum: { amountKobo: true } }),
+    prisma.partnerTransaction.count({ where: { partnerId, status: TransactionStatus.SUCCESS } }),
+    prisma.partnerTransaction.count({ where: { partnerId, status: TransactionStatus.FAILED } })
+  ]);
+
+  return {
+    todayCalls,
+    totalCalls,
+    totalSpend: koboToNaira(successAgg._sum.amountKobo ?? 0n),
+    successfulCalls,
+    failedCalls
+  };
+}

@@ -11,6 +11,7 @@ import { registerCompanyWalletRoutes } from './company-wallet.js';
 import { registerProviderLedgerRoutes } from './provider-ledger.js';
 import { registerProviderReconciliationRoutes } from './provider-reconciliation.js';
 import { registerUserWalletRoutes } from './user-wallet.js';
+import { registerPartnerLookupRoutes } from './partner-lookup.js';
 import { registerCustomerActivityRoutes } from './customer-activity.js';
 import { registerLoginActivityRoutes } from './login-activity.js';
 import { registerNinModificationRoutes } from './nin-modification.js';
@@ -182,6 +183,7 @@ export async function buildAdminRouter() {
   registerProviderLedgerRoutes(router);
   registerProviderReconciliationRoutes(router);
   registerUserWalletRoutes(router);
+  registerPartnerLookupRoutes(router);
   registerCustomerActivityRoutes(router);
   registerLoginActivityRoutes(router);
   registerNinModificationRoutes(router);
