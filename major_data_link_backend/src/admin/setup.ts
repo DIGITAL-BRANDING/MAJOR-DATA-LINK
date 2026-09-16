@@ -7,6 +7,7 @@ import { Database, Resource } from '@adminjs/prisma';
 import { env } from '../config/env.js';
 import { authenticateAdmin } from './auth.js';
 import { registerBulkPricingRoutes } from './bulk-pricing.js';
+import { registerPartnerPricingRoutes } from './partner-pricing.js';
 import { registerCompanyWalletRoutes } from './company-wallet.js';
 import { registerProviderLedgerRoutes } from './provider-ledger.js';
 import { registerProviderReconciliationRoutes } from './provider-reconciliation.js';
@@ -179,6 +180,7 @@ export async function buildAdminRouter() {
   );
 
   registerBulkPricingRoutes(router);
+  registerPartnerPricingRoutes(router);
   registerCompanyWalletRoutes(router);
   registerProviderLedgerRoutes(router);
   registerProviderReconciliationRoutes(router);

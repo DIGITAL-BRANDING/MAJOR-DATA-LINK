@@ -106,8 +106,8 @@ const quickLinks: QuickLink[] = [
   },
   {
     label: 'Partner Pricing',
-    description: 'Set the separate API-partner price for each service',
-    resourceId: 'ServicePricing',
+    description: 'Set API-partner-only prices in bulk without changing normal-user prices',
+    href: `${ADMIN_ROOT_PATH}/partner-pricing`,
     icon: 'DollarSign'
   },
   {
