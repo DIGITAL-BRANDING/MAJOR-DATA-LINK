@@ -112,8 +112,8 @@ const quickLinks: QuickLink[] = [
   },
   {
     label: 'NIN/BVN Provider',
-    description: 'Switch NIN and BVN services between Techhub and FranceVerified',
-    href: `${ADMIN_ROOT_PATH}/resources/ServicePricing`,
+    description: 'Choose the provider separately for every NIN/BVN service',
+    href: `${ADMIN_ROOT_PATH}/nin-bvn-provider`,
     icon: 'Repeat'
   },
   { label: 'Coupons', description: 'Discount codes & promotions', resourceId: 'Coupon', icon: 'CreditCard' },
