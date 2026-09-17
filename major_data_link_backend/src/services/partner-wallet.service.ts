@@ -96,7 +96,14 @@ export async function reversePartnerPurchase(transactionId: string, message: str
     const partner = await tx.partner.findUniqueOrThrow({ where: { id: original.partnerId } });
     const balanceAfterKobo = partner.walletBalanceKobo + original.amountKobo;
     await tx.partner.update({ where: { id: partner.id }, data: { walletBalanceKobo: balanceAfterKobo } });
-    await tx.partnerTransaction.update({ where: { id: original.id }, data: { status: TransactionStatus.REVERSED } });
+    // Keep the reason on the original API call, not only on the separate
+    // REFUND entry. The partner's transaction-history endpoint can then
+    // explain exactly why a request failed without exposing provider raw data.
+    const existingMetadata = (original.metadata as Record<string, unknown> | null) ?? {};
+    await tx.partnerTransaction.update({ where: { id: original.id }, data: {
+      status: TransactionStatus.REVERSED,
+      metadata: { ...existingMetadata, failure_reason: message, failed_at: new Date().toISOString() } as Prisma.InputJsonValue
+    } });
     await tx.partnerTransaction.create({
       data: {
         partnerId: original.partnerId,
@@ -111,7 +118,12 @@ export async function reversePartnerPurchase(transactionId: string, message: str
         metadata: { original_reference: original.reference }
       }
     });
-    return { ...original, status: TransactionStatus.REVERSED, balanceAfterKobo };
+    return {
+      ...original,
+      status: TransactionStatus.REVERSED,
+      balanceAfterKobo,
+      metadata: { ...existingMetadata, failure_reason: message }
+    };
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   void import('./partner-webhook.service.js').then(({ enqueuePartnerTransactionWebhook, deliverDuePartnerWebhooks }) =>
     enqueuePartnerTransactionWebhook(transaction).then(() => deliverDuePartnerWebhooks(1)).catch((error) => console.error('[partner-webhooks] could not queue reversal event', error))
@@ -119,14 +131,23 @@ export async function reversePartnerPurchase(transactionId: string, message: str
   return transaction;
 }
 
-export function partnerTransactionResponse(tx: { reference: string; status: TransactionStatus; amountKobo: bigint; balanceAfterKobo: bigint; type: TransactionType; createdAt: Date }) {
+export function partnerTransactionResponse(tx: { reference: string; status: TransactionStatus; amountKobo: bigint; balanceAfterKobo: bigint; type: TransactionType; createdAt: Date; metadata?: unknown }) {
+  const metadata = (tx.metadata as Record<string, unknown> | null) ?? {};
+  const failureReason = typeof metadata.failure_reason === 'string'
+    ? metadata.failure_reason
+    : typeof (metadata.reconciliation as Record<string, unknown> | undefined)?.note === 'string'
+      ? (metadata.reconciliation as Record<string, unknown>).note as string
+      : null;
   return {
     reference: tx.reference,
     status: tx.status.toLowerCase(),
     type: tx.type.toLowerCase(),
     amount: koboToNaira(tx.amountKobo),
     balance_after: koboToNaira(tx.balanceAfterKobo),
-    created_at: tx.createdAt.toISOString()
+    created_at: tx.createdAt.toISOString(),
+    // Present only for a failed/reversed API call. This makes error handling
+    // possible for partners polling /transactions after an async request.
+    failure_reason: failureReason
   };
 }
 
@@ -215,12 +236,15 @@ export async function getPartnerActivitySummary(partnerId: string) {
   const startOfToday = new Date();
   startOfToday.setHours(0, 0, 0, 0);
 
+  // Funding, manual adjustments and the refund ledger record are wallet
+  // movements, not API calls. A reversed purchase remains one failed call.
+  const apiCallWhere = { partnerId, type: { notIn: [TransactionType.WALLET_FUNDING, TransactionType.REFUND, TransactionType.MANUAL_ADJUSTMENT] } };
   const [todayCalls, totalCalls, successAgg, successfulCalls, failedCalls] = await Promise.all([
-    prisma.partnerTransaction.count({ where: { partnerId, createdAt: { gte: startOfToday } } }),
-    prisma.partnerTransaction.count({ where: { partnerId } }),
-    prisma.partnerTransaction.aggregate({ where: { partnerId, status: TransactionStatus.SUCCESS }, _sum: { amountKobo: true } }),
-    prisma.partnerTransaction.count({ where: { partnerId, status: TransactionStatus.SUCCESS } }),
-    prisma.partnerTransaction.count({ where: { partnerId, status: TransactionStatus.FAILED } })
+    prisma.partnerTransaction.count({ where: { ...apiCallWhere, createdAt: { gte: startOfToday } } }),
+    prisma.partnerTransaction.count({ where: apiCallWhere }),
+    prisma.partnerTransaction.aggregate({ where: { ...apiCallWhere, status: TransactionStatus.SUCCESS }, _sum: { amountKobo: true } }),
+    prisma.partnerTransaction.count({ where: { ...apiCallWhere, status: TransactionStatus.SUCCESS } }),
+    prisma.partnerTransaction.count({ where: { ...apiCallWhere, status: { in: [TransactionStatus.FAILED, TransactionStatus.REVERSED] } } })
   ]);
 
   return {

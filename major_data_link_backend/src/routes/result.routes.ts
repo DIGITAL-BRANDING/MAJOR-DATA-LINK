@@ -45,7 +45,9 @@ resultRoutes.post('/:exam/pin', async (req, res) => {
     data: {
       reference: result.reference,
       pin: result.pin,
+      pins: result.pins,
       serial: result.serial,
+      serials: result.serials,
       balance_after: result.balanceAfter
     }
   });

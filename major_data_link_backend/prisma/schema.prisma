@@ -527,6 +527,28 @@ model ServicePricing {
 
   @@index([isActive])
 }
+
+/// PINs bought by the business in advance for instant customer fulfilment.
+/// PIN/serial values are AES-GCM encrypted; an admin listing stock can see
+/// stock movement but can never accidentally expose an unused scratch card.
+model ResultPinInventory {
+  id                 String   @id @default(uuid())
+  examType           String
+  pinEncrypted       String
+  serialEncrypted    String?
+  purchaseCostKobo   BigInt
+  sourceReference    String?
+  status             String   @default("AVAILABLE")
+  soldToUserId       String?
+  transactionId      String?  @unique
+  addedByAdminId     String?
+  soldAt             DateTime?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([examType, status, createdAt])
+  @@index([soldToUserId, createdAt])
+}
 enum TicketStatus {
   OPEN
   PENDING
@@ -624,14 +646,16 @@ model PricingSettings {
   id                       String   @id @default("default")
   dataPlanMarkupPercent    Float    @default(0)
   dataPlanMarkupNaira      Float    @default(0)
-  // Which upstream provider handles data/airtime/result-pin purchases right
-  // now - 'alrahuz' or 'bilalsadasub'. Admin-editable at /admin/bulk-pricing
+  // Which upstream provider handles data/airtime purchases right now -
+  // 'alrahuz' or 'bilalsadasub'. Admin-editable at /admin/bulk-pricing.
   // (no redeploy needed), read fresh on every purchase/list call so a
   // switch takes effect immediately. Cable/electricity have no Alrahuz
   // equivalent in this codebase at all, so they always go through
   // bilalsadasub.service.ts regardless of these two settings.
   dataAirtimeProvider      String   @default("alrahuz")
-  resultPinProvider        String   @default("alrahuz")
+  // Legacy value retained only for backwards-compatible database migrations.
+  // Result PINs are now always fulfilled from ResultPinInventory.
+  resultPinProvider        String   @default("inventory")
   cableMarkupPercent       Float    @default(0)
   electricityMarkupPercent Float    @default(0)
   updatedAt                DateTime @updatedAt

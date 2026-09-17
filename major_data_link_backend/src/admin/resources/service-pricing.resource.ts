@@ -61,7 +61,7 @@ function applyNairaOverrides(payload: Record<string, unknown>) {
 
 /**
  * Admin page for the ServicePricing table - covers BOTH Techhub's NIN/BVN
- * verification services and Alrahuz's WAEC/NECO/NABTEB result-pin services
+ * verification services and locally-stocked WAEC/NECO/NABTEB result-pin services
  * (distinguished by the `provider` column). Until this resource existed,
  * there was no AdminJS UI for either: rows were only readable/editable via
  * the raw `GET/PATCH /api/admin/service-prices` API, which is why prices
@@ -155,11 +155,11 @@ export const servicePricingResource: ResourceWithOptions = {
     properties: {
       provider: {
         description:
-          'Which upstream API fulfils this service - must exactly match a value the code recognizes (case-sensitive, lowercase): "techhub" or "franceverified" for NIN/BVN verification services (service starts with NIN_/BVN_/IPE_), "alrahuz" for WAEC/NECO/NABTEB result-pin services. An unrecognized value fails the purchase loudly instead of silently charging the wrong provider - check verification.service.ts / result-pin.service.ts if unsure.'
+          'Which source fulfils this service: "techhub" or "franceverified" for NIN/BVN verification services, and "inventory" for WAEC/NECO/NABTEB result PINs. Result PIN stock is added from the Result PIN Stock admin page.'
       },
       providerCostKobo: {
         isDisabled: true,
-        description: 'What the provider (Techhub/Alrahuz) charges us, in kobo. Example: 12000 = NGN 120.'
+        description: 'Reference cost in kobo. Actual result-PIN cost comes from the specific prepaid stock item sold. Example: 12000 = NGN 120.'
       },
       providerCostNaira: {
         type: 'string',

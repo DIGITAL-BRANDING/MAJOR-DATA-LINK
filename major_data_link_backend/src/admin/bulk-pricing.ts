@@ -92,7 +92,7 @@ export function registerBulkPricingRoutes(router: Router) {
         listVerificationPricesForAdmin()
       ]);
       const manualServices = [
-        ...resultPinPrices.map((s) => ({ ...s, provider: 'alrahuz' as const })),
+        ...resultPinPrices.map((s) => ({ ...s, provider: 'inventory' as const })),
         ...verificationPrices.map((s) => ({ ...s, provider: 'techhub' as const }))
       ];
 
@@ -154,27 +154,25 @@ export function registerBulkPricingRoutes(router: Router) {
     if (!admin) return res.redirect('/admin/login');
 
     const dataAirtimeProviderRaw = field(req, 'dataAirtimeProvider');
-    const resultPinProviderRaw = field(req, 'resultPinProvider');
     const cableMarkupPercent = parseNonNegativeNumber(field(req, 'cableMarkupPercent'));
     const electricityMarkupPercent = parseNonNegativeNumber(field(req, 'electricityMarkupPercent'));
 
     const dataAirtimeProvider = dataAirtimeProviderRaw === 'bilalsadasub' ? 'bilalsadasub' : 'alrahuz';
-    const resultPinProvider = resultPinProviderRaw === 'bilalsadasub' ? 'bilalsadasub' : 'alrahuz';
 
     if (cableMarkupPercent === null || electricityMarkupPercent === null) {
       return res.redirect('/admin/bulk-pricing?flash=' + encodeFlash('error', 'Cable and electricity markup % must both be valid numbers ≥ 0.'));
     }
 
     try {
-      await updatePricingSettings({ dataAirtimeProvider, resultPinProvider, cableMarkupPercent, electricityMarkupPercent });
+      await updatePricingSettings({ dataAirtimeProvider, cableMarkupPercent, electricityMarkupPercent });
       await logAdminAction({
         adminId: admin.id,
         action: 'UPDATE_PROVIDER_SWITCH',
         targetType: 'PricingSettings',
         targetId: 'default',
-        metadata: { dataAirtimeProvider, resultPinProvider, cableMarkupPercent, electricityMarkupPercent }
+        metadata: { dataAirtimeProvider, resultPinSource: 'inventory', cableMarkupPercent, electricityMarkupPercent }
       });
-      res.redirect('/admin/bulk-pricing?flash=' + encodeFlash('success', `Providers updated - Data/Airtime: ${dataAirtimeProvider}, Result Pins: ${resultPinProvider}.`));
+      res.redirect('/admin/bulk-pricing?flash=' + encodeFlash('success', `Providers updated - Data/Airtime: ${dataAirtimeProvider}. Result PINs are fulfilled from your local stock.`));
     } catch (error) {
       console.error('[bulk-pricing] provider-switch update failed:', error);
       res.redirect('/admin/bulk-pricing?flash=' + encodeFlash('error', 'Something went wrong updating the provider switch. Check the server logs.'));
@@ -372,7 +370,7 @@ type ManualDataPlanRow = {
 type ManualServiceRow = {
   service: string;
   label: string;
-  provider: 'alrahuz' | 'techhub';
+  provider: 'inventory' | 'techhub';
   provider_cost: number;
   selling_price: number | null;
   is_active: boolean;
@@ -384,7 +382,6 @@ function renderPage(params: {
     dataPlanMarkupPercent: number;
     dataPlanMarkupNaira: number;
     dataAirtimeProvider: string;
-    resultPinProvider: string;
     cableMarkupPercent: number;
     electricityMarkupPercent: number;
   };
@@ -475,17 +472,12 @@ function renderPage(params: {
 
   <div class="card">
     <h2>1. Provider switch</h2>
-    <p class="hint">Which upstream fulfills each purchase type. Switches instantly, no redeploy - a live customer's very next request uses the new provider. Cable TV and Electricity always use BilalSadaSub (Alrahuz doesn't offer them).</p>
+    <p class="hint">Choose the upstream for Data and Airtime. Result PINs are fulfilled instantly from the local stock you add in Result PIN Stock. Cable TV and Electricity always use BilalSadaSub.</p>
     <form method="POST" action="/admin/bulk-pricing/provider-switch">
       <label>Data &amp; Airtime provider</label>
       <select name="dataAirtimeProvider">
         <option value="alrahuz" ${settings.dataAirtimeProvider === 'alrahuz' ? 'selected' : ''}>Alrahuz</option>
         <option value="bilalsadasub" ${settings.dataAirtimeProvider === 'bilalsadasub' ? 'selected' : ''}>BilalSadaSub</option>
-      </select>
-      <label>Result Pin (WAEC/NECO/NABTEB) provider</label>
-      <select name="resultPinProvider">
-        <option value="alrahuz" ${settings.resultPinProvider === 'alrahuz' ? 'selected' : ''}>Alrahuz</option>
-        <option value="bilalsadasub" ${settings.resultPinProvider === 'bilalsadasub' ? 'selected' : ''}>BilalSadaSub</option>
       </select>
       <div class="row">
         <div>

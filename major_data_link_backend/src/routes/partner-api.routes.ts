@@ -159,7 +159,9 @@ partnerApiRoutes.get('/dashboard', async (req, res) => {
   const [partner, all, recent, verificationPrices] = await Promise.all([
     prisma.partner.findUniqueOrThrow({ where: { id: req.partner!.id } }),
     prisma.partnerTransaction.findMany({
-      where: { partnerId: req.partner!.id, createdAt: { gte: thirtyDaysAgo }, type: { not: TransactionType.REFUND } },
+      // A refund is the accounting counterpart of an already-counted failed
+      // call; funding and manual adjustments are wallet movements, not calls.
+      where: { partnerId: req.partner!.id, createdAt: { gte: thirtyDaysAgo }, type: { notIn: [TransactionType.WALLET_FUNDING, TransactionType.REFUND, TransactionType.MANUAL_ADJUSTMENT] } },
       select: { status: true, amountKobo: true, createdAt: true }
     }),
     prisma.partnerTransaction.findMany({

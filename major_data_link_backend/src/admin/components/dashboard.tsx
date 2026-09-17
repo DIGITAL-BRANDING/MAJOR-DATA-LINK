@@ -100,9 +100,15 @@ const quickLinks: QuickLink[] = [
   },
   {
     label: 'Service Pricing',
-    description: 'NIN/BVN provider, prices & result-pin prices',
+    description: 'NIN/BVN provider, prices & result-pin selling prices',
     resourceId: 'ServicePricing',
     icon: 'Tag'
+  },
+  {
+    label: 'Result PIN Stock',
+    description: 'Add prepaid WAEC, NECO and NABTEB PINs for instant delivery',
+    href: `${ADMIN_ROOT_PATH}/result-pin-stock`,
+    icon: 'Package'
   },
   {
     label: 'Partner Pricing',
