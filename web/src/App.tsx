@@ -18,6 +18,8 @@ import VerificationPage from './pages/VerificationPage';
 import NinModificationPage from './pages/NinModificationPage';
 import BvnCrmPage from './pages/BvnCrmPage';
 import NewspaperPublicationPage from './pages/NewspaperPublicationPage';
+import BirthAttestationPage from './pages/BirthAttestationPage';
+import BvnModificationPage from './pages/BvnModificationPage';
 import FundWalletPage from './pages/FundWalletPage';
 import PaymentCallbackPage from './pages/PaymentCallbackPage';
 import DeliveriesPage from './pages/DeliveriesPage';
@@ -81,9 +83,9 @@ export default function App() {
           <Route path="/demo" element={<ProtectedRoute><VerificationPage mode="nin" initialService="demographic" /></ProtectedRoute>} />
           <Route path="/cac" element={<ProtectedRoute><CacServicesPage /></ProtectedRoute>} />
           <Route path="/verifications" element={<ProtectedRoute><ServiceHistoryPage /></ProtectedRoute>} />
-          <Route path="/bvn-modification" element={<ProtectedRoute><ManualServiceRequestPage title="BVN Modification" prompt="Submit the BVN modification details for a K-Tech agent to process." /></ProtectedRoute>} />
+          <Route path="/bvn-modification" element={<ProtectedRoute><BvnModificationPage /></ProtectedRoute>} />
           <Route path="/bvn-crm" element={<ProtectedRoute><BvnCrmPage /></ProtectedRoute>} />
-          <Route path="/attestation" element={<ProtectedRoute><ManualServiceRequestPage title="Birth Attestation" prompt="Submit the information needed for a birth attestation request." /></ProtectedRoute>} />
+          <Route path="/attestation" element={<ProtectedRoute><BirthAttestationPage /></ProtectedRoute>} />
           <Route path="/tin" element={<ProtectedRoute><ManualServiceRequestPage title="TIN Certificate" prompt="Submit the information needed for your TIN certificate request." /></ProtectedRoute>} />
           <Route path="/newspaper" element={<ProtectedRoute><NewspaperPublicationPage /></ProtectedRoute>} />
           <Route path="/jamb-services" element={<ProtectedRoute><JambServicesPage /></ProtectedRoute>} />

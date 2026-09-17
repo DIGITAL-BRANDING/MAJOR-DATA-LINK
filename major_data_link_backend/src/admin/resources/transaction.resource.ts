@@ -3,6 +3,7 @@ import type { ResourceWithOptions } from 'adminjs';
 import { prisma } from '../../lib/prisma.js';
 import { decryptTransactionPII } from '../../services/verification.service.js';
 import { completeModification } from '../../services/nin-modification.service.js';
+import { completeBvnModification } from '../../services/bvn-modification.service.js';
 import { completeBvnCrm } from '../../services/bvn-crm.service.js';
 import { TransactionStatus, TransactionType } from '@prisma/client';
 import { refundWallet } from '../../services/wallet.service.js';
@@ -66,7 +67,7 @@ export const transactionResource: ResourceWithOptions = {
           // other transaction type, where PENDING means "still in flight,
           // don't touch it", so this is the one type reverse() also allows
           // from PENDING.
-          if (status === 'PENDING') return ['NIN_MODIFICATION', 'BVN_LICENSE_ONBOARDING', 'JAMB_SERVICE_REQUEST', 'BVN_CRM', 'NEWSPAPER_PUBLICATION'].includes(record?.params?.type as string);
+          if (status === 'PENDING') return ['NIN_MODIFICATION', 'BVN_LICENSE_ONBOARDING', 'JAMB_SERVICE_REQUEST', 'BVN_CRM', 'NEWSPAPER_PUBLICATION', 'BIRTH_ATTESTATION', 'CAC_SERVICE_REQUEST', 'BVN_MODIFICATION'].includes(record?.params?.type as string);
           return status === 'SUCCESS' || status === 'FAILED';
         },
         handler: async (request, response, context) => {
@@ -210,6 +211,24 @@ export const transactionResource: ResourceWithOptions = {
           return { record: record.toJSON(currentAdmin), notice: { message: 'BVN CRM request marked as completed.', type: 'success' } };
         }
       },
+      // Same no-wallet-movement completion pattern as completeModification
+      // above, for BVN Modification instead - the admin has actually
+      // processed the change on the bank/NIBSS agent portal by hand.
+      completeBvnModification: {
+        actionType: 'record', icon: 'CheckCircle',
+        guard: 'Mark this BVN Modification request as completed? Only do this after it has actually gone through with the bank/NIBSS.',
+        isAccessible: ({ currentAdmin, record }) => {
+          const admin = currentAdmin as unknown as AdminSessionUser | undefined;
+          return !!admin && admin.role !== 'SUPPORT' && record?.params?.type === 'BVN_MODIFICATION' && record?.params?.status === 'PENDING';
+        },
+        handler: async (_request, _response, context) => {
+          const { record, currentAdmin } = context; const admin = currentAdmin as unknown as AdminSessionUser;
+          if (!record || !admin) throw new Error('Missing record or admin context');
+          await completeBvnModification({ transactionId: record.params.id as string });
+          await logAdminAction({ adminId: admin.id, action: 'COMPLETE_BVN_MODIFICATION', targetType: 'Transaction', targetId: record.params.id as string, metadata: { reference: record.params.reference } });
+          return { record: record.toJSON(currentAdmin), notice: { message: 'BVN Modification request marked as completed.', type: 'success' } };
+        }
+      },
       // Opens the generated submission PDF - same SUPER_ADMIN-only,
       // audit-logged posture as viewPii above (see src/admin/nin-modification.ts),
       // but streams the real PDF instead of dumping raw JSON into a notice.
@@ -228,6 +247,24 @@ export const transactionResource: ResourceWithOptions = {
           return {
             record: record.toJSON(currentAdmin),
             redirectUrl: `/admin/nin-modification/${record.params.id as string}/pdf`
+          };
+        }
+      },
+      downloadBvnModificationPdf: {
+        actionType: 'record',
+        icon: 'Download',
+        isAccessible: ({ currentAdmin, record }) => {
+          const admin = currentAdmin as unknown as AdminSessionUser | undefined;
+          return admin?.role === 'SUPER_ADMIN' && record?.params?.type === 'BVN_MODIFICATION';
+        },
+        handler: async (request, response, context) => {
+          const { record, currentAdmin } = context;
+          if (!record) {
+            throw new Error('Missing record');
+          }
+          return {
+            record: record.toJSON(currentAdmin),
+            redirectUrl: `/admin/bvn-modification/${record.params.id as string}/pdf`
           };
         }
       },
@@ -274,6 +311,30 @@ export const transactionResource: ResourceWithOptions = {
           const { record, currentAdmin } = context;
           if (!record) throw new Error('Missing record');
           return { record: record.toJSON(currentAdmin), redirectUrl: `/admin/newspaper-publication/${record.params.id as string}/manage` };
+        }
+      },
+      manageBirthAttestation: {
+        actionType: 'record', icon: 'Edit',
+        isAccessible: ({ currentAdmin, record }) => {
+          const admin = currentAdmin as unknown as AdminSessionUser | undefined;
+          return !!admin && admin.role !== 'SUPPORT' && record?.params?.type === 'BIRTH_ATTESTATION';
+        },
+        handler: async (_request, _response, context) => {
+          const { record, currentAdmin } = context;
+          if (!record) throw new Error('Missing record');
+          return { record: record.toJSON(currentAdmin), redirectUrl: `/admin/birth-attestation/${record.params.id as string}/manage` };
+        }
+      },
+      manageCacRequest: {
+        actionType: 'record', icon: 'Edit',
+        isAccessible: ({ currentAdmin, record }) => {
+          const admin = currentAdmin as unknown as AdminSessionUser | undefined;
+          return !!admin && admin.role !== 'SUPPORT' && record?.params?.type === 'CAC_SERVICE_REQUEST';
+        },
+        handler: async (_request, _response, context) => {
+          const { record, currentAdmin } = context;
+          if (!record) throw new Error('Missing record');
+          return { record: record.toJSON(currentAdmin), redirectUrl: `/admin/cac/${record.params.id as string}/manage` };
         }
       },
       downloadBvnLicensePdf: {

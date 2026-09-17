@@ -36,6 +36,9 @@ import { verificationRoutes } from './routes/verification.routes.js';
 import { ninModificationRoutes } from './routes/nin-modification.routes.js';
 import { bvnCrmRoutes } from './routes/bvn-crm.routes.js';
 import { newspaperPublicationRoutes } from './routes/newspaper-publication.routes.js';
+import { birthAttestationRoutes } from './routes/birth-attestation.routes.js';
+import { cacRoutes } from './routes/cac.routes.js';
+import { bvnModificationRoutes } from './routes/bvn-modification.routes.js';
 import { jambRoutes } from './routes/jamb.routes.js';
 import { vtuRoutes } from './routes/vtu.routes.js';
 import { cableRoutes } from './routes/cable.routes.js';
@@ -198,7 +201,23 @@ export function createApp() {
   // and signature check exactly as before.
   app.use('/api/webhooks', express.raw({ type: '*/*' }), webhookRoutes);
 
-  app.use(express.json({ limit: '1mb' }));
+  // CAC gets its own larger body-size limit, mounted before the global
+  // express.json() below (whichever json() middleware runs first "claims"
+  // the body - express-formidable-style middlewares check req._body and
+  // skip re-parsing, so the global one downstream is a no-op for this
+  // path). Up to 4 supporting documents at ~5.5MB base64 each (see
+  // cac.routes.ts's MAX_DOCUMENT_BASE64_LENGTH) plus form fields comfortably
+  // exceeds the 8mb every other route gets.
+  app.use('/api/cac', express.json({ limit: '25mb' }), cacRoutes);
+
+  // 1mb was too small for routes whose zod schemas accept up to a 7MB
+  // base64 document/photo (nin-modification.routes.ts's
+  // MAX_DOCUMENT_BASE64_LENGTH, and birth-attestation.routes.ts's image
+  // field) - anything over 1MB was being rejected by this parser with a 413
+  // before ever reaching that validation, silently defeating those larger
+  // limits. Bumped to comfortably cover the largest documented field plus
+  // JSON/other-fields overhead.
+  app.use(express.json({ limit: '8mb' }));
 
   app.use('/api/auth', authLimiter, authRoutes);
   app.use('/api/assistant', assistantRoutes);
@@ -218,6 +237,8 @@ export function createApp() {
   app.use('/api/nin-modification', ninModificationRoutes);
   app.use('/api/bvn-crm', bvnCrmRoutes);
   app.use('/api/newspaper-publication', newspaperPublicationRoutes);
+  app.use('/api/birth-attestation', birthAttestationRoutes);
+  app.use('/api/bvn-modification', bvnModificationRoutes);
   app.use('/api/jamb', jambRoutes);
   // This MUST be mounted before the catch-all customer VTU router below.
   // `vtuRoutes` is mounted at /api and applies customer JWT auth to every
