@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Fingerprint,
@@ -145,6 +145,7 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
   const [history, setHistory] = useState<VerificationHistory[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [initialApplied, setInitialApplied] = useState(false);
+  const ticketRequestInFlight = useRef(false);
 
   useEffect(() => {
     if (!initialService || initialApplied) return;
@@ -256,6 +257,10 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
 
   async function checkTicket(silent = false) {
     if (!selected || !asyncResult) return;
+    // The automatic six-second poll must not start another provider request
+    // while the last one is still pending.
+    if (ticketRequestInFlight.current) return;
+    ticketRequestInFlight.current = true;
     if (!silent) setPolling(true);
     try {
       const result = await api.get<{ status: boolean; data: TicketStatus }>(`${selected.path}/${asyncResult.ticket_id}`);
@@ -264,6 +269,7 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
       // transient failures just mean "still can't tell yet" - the poll loop will retry
     } finally {
       if (!silent) setPolling(false);
+      ticketRequestInFlight.current = false;
     }
   }
 

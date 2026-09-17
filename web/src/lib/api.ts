@@ -7,6 +7,7 @@ export const PARTNER_API_BASE = `${API_BASE}/api/v1`;
 
 const TOKEN_KEY = 'mdl_access_token';
 const REFRESH_KEY = 'mdl_refresh_token';
+const REQUEST_TIMEOUT_MS = 25_000;
 
 export function getAccessToken() {
   return localStorage.getItem(TOKEN_KEY);
@@ -48,11 +49,20 @@ async function request<T>(
     if (token) headers.Authorization = `Bearer ${token}`;
   }
 
-  const res = await fetch(`${API_BASE}/api${path}`, {
-    method,
-    headers,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/api${path}`, {
+      method,
+      headers,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'TimeoutError') {
+      throw new ApiError('The request is taking too long. Please try again.', 408, 'REQUEST_TIMEOUT');
+    }
+    throw new ApiError('Could not connect to the server. Please check your connection and try again.', 0, 'NETWORK_ERROR');
+  }
 
   let payload: unknown = null;
   try {

@@ -2,6 +2,9 @@ import { env } from '../config/env.js';
 import { ApiError } from '../middleware/error.js';
 import { prisma } from '../lib/prisma.js';
 
+// No upstream verification call may wait indefinitely.
+const TECHHUB_REQUEST_TIMEOUT_MS = 20_000;
+
 /**
  * Techhubltd — NIN / BVN identity verification provider.
  *
@@ -192,7 +195,8 @@ export class TechhubService {
       response = await fetch(`${this.baseUrl()}/${path}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ api_key: this.apiKey(), ...body })
+        body: JSON.stringify({ api_key: this.apiKey(), ...body }),
+        signal: AbortSignal.timeout(TECHHUB_REQUEST_TIMEOUT_MS)
       });
     } catch (error) {
       console.error(`[techhub] network error calling ${path}:`, error);
@@ -301,7 +305,8 @@ export class TechhubService {
       response = await fetch(`${this.baseUrl()}/${path}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ api_key: this.apiKey(), ...body })
+        body: JSON.stringify({ api_key: this.apiKey(), ...body }),
+        signal: AbortSignal.timeout(TECHHUB_REQUEST_TIMEOUT_MS)
       });
     } catch (error) {
       console.error(`[techhub] network error calling ${path}:`, error);
@@ -394,7 +399,10 @@ export class TechhubService {
 
     let response: Response;
     try {
-      response = await fetch(url, { headers: { 'Content-Type': 'application/json' } });
+      response = await fetch(url, {
+        headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(TECHHUB_REQUEST_TIMEOUT_MS)
+      });
     } catch (error) {
       console.error(`[techhub] network error checking ${path} (ticket=${ticketId}):`, error);
       throw new ApiError(502, 'Could not reach the verification provider - please try again shortly', 'TECHHUB_UNREACHABLE');

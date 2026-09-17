@@ -1,5 +1,9 @@
 import { env } from '../../config/env.js';
 
+// Return a clear provider error instead of leaving customers on a loading
+// state when an upstream request stalls.
+const PROVIDER_TIMEOUT_MS = 20_000;
+
 export type FranceVerifiedResult = {
   ok: boolean;
   message: string;
@@ -43,7 +47,7 @@ async function franceVerifiedRequest(path: string, init: { method: 'GET' | 'POST
         'x-api-key': env.FRANCEVERIFIED_API_KEY
       },
       body: init.body,
-      signal: AbortSignal.timeout(30_000)
+      signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS)
     });
   } catch (error) {
     console.error(`[franceverified] network error calling ${path}:`, error);
