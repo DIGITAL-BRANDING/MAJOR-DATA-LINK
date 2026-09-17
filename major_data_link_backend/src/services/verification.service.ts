@@ -9,9 +9,12 @@ import {
   techhubService,
   type TechhubBvnTier,
   type TechhubSlipResult,
-  type TechhubSlipTier
+  type TechhubSlipTier,
+  type TechhubAsyncSubmitResult,
+  type TechhubAsyncStatusResult
 } from './techhub.service.js';
 import { franceverifiedSlipAdapter } from './franceverified-slip-adapter.service.js';
+import { submitNinValidationFV, checkNinValidationFV } from './franceverified-nin-validation-adapter.service.js';
 
 /**
  * Which upstream API actually fulfils a given ServicePricing row right now -
@@ -502,15 +505,20 @@ export type AsyncStatusResult = { ticketId: string; status: 'pending' | 'success
 /**
  * Shared by all five async flows. Debits immediately (the wallet charge
  * happens at submit time, same as Techhub's own docs describe for THEIR
- * balance), submits to Techhub, and refunds right away if Techhub rejects
- * the submission outright. If Techhub accepts it, the transaction stays
- * PENDING with providerRef = Techhub's ticket_id - the eventual
- * success/failure (and any refund for a failure) only happens later, when
- * checkAsyncServiceStatus() below is polled and Techhub reports an outcome.
+ * balance), submits to whichever provider this service's ServicePricing row
+ * is currently pointed at (same callByProvider dispatch purchaseSlip() uses
+ * above - only techhub has an implementation for most of these five so far;
+ * franceverified is only wired for NIN Validation's five supported
+ * sub-types, see franceverified-nin-validation-adapter.service.ts), and
+ * refunds right away if the provider rejects the submission outright. If
+ * accepted, the transaction stays PENDING with providerRef = the provider's
+ * own ticket_id/reference - the eventual success/failure (and any refund
+ * for a failure) only happens later, when checkAsyncServiceStatus() below
+ * is polled and the provider reports an outcome.
  *
  * Same PII split as purchaseSlip() above: `operational` metadata (service,
  * ticket_id) stays plaintext; `pii` (nin/email/tracking_id/names/phone, plus
- * Techhub's submit_raw once it responds) is sealed with sealPII().
+ * the provider's submit_raw once it responds) is sealed with sealPII().
  */
 async function submitAsyncService(params: {
   userId: string;
@@ -519,9 +527,20 @@ async function submitAsyncService(params: {
   operational: Record<string, unknown>;
   pii: Record<string, unknown>;
   idempotencyKey?: string;
-  call: () => ReturnType<typeof techhubService.submitDelinking>;
+  callByProvider: Partial<Record<VerificationProvider, () => Promise<TechhubAsyncSubmitResult>>>;
 }): Promise<AsyncSubmitResult> {
   const price = await getVerificationPrice(params.service);
+  const call = params.callByProvider[price.provider];
+  if (!call) {
+    // Same "fail loud" reasoning as purchaseSlip() above - an admin pointed
+    // this service at a provider with no implementation for it (e.g. NIN
+    // Delinking has no FranceVerified equivalent at all yet).
+    throw new ApiError(
+      500,
+      `${price.label} has no implementation for provider "${price.provider}" - check the Verification Pricing admin page`,
+      'PROVIDER_NOT_IMPLEMENTED'
+    );
+  }
 
   const debit = await debitWallet({
     userId: params.userId,
@@ -544,26 +563,26 @@ async function submitAsyncService(params: {
     if (ticketId) {
       return { reference: debit.reference, ticketId, balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo) };
     }
-    // Reused but never actually reached Techhub (submit failed last time,
-    // already refunded) - fall through and retry the submission below.
+    // Reused but never actually reached the provider (submit failed last
+    // time, already refunded) - fall through and retry the submission below.
   }
 
-  const result = await params.call();
+  const result = await call();
 
   if (!result.ok || !result.ticketId) {
     await prisma.transaction.update({
       where: { id: debit.transaction.id },
-      data: { status: TransactionStatus.FAILED, provider: 'techhub' }
+      data: { status: TransactionStatus.FAILED, provider: price.provider }
     });
     await refundWallet({ transactionId: debit.transaction.id, userId: params.userId });
-    throw new ApiError(502, result.message, 'TECHHUB_SUBMIT_FAILED');
+    throw new ApiError(502, result.message, 'VERIFICATION_SUBMIT_FAILED');
   }
 
   const existingMetadata = debit.transaction.metadata as Record<string, unknown> | null;
   await prisma.transaction.update({
     where: { id: debit.transaction.id },
     data: {
-      provider: 'techhub',
+      provider: price.provider,
       providerRef: result.ticketId,
       metadata: {
         service: params.service,
@@ -580,18 +599,20 @@ async function submitAsyncService(params: {
 }
 
 /**
- * Polls Techhub for a ticket this user already submitted. Settles (and, on
- * failure, refunds) the underlying Transaction the first time Techhub
+ * Polls whichever provider originally accepted this ticket (read back off
+ * the transaction's own `provider` column - set by submitAsyncService()
+ * above) for a ticket this user already submitted. Settles (and, on
+ * failure, refunds) the underlying Transaction the first time the provider
  * reports success/failed; safe to call repeatedly after that since it reads
  * straight back from our own DB once a ticket is no longer PENDING.
  */
 async function checkAsyncServiceStatus(params: {
   userId: string;
   ticketId: string;
-  call: (ticketId: string) => ReturnType<typeof techhubService.checkDelinking>;
+  callByProvider: Partial<Record<VerificationProvider, (ticketId: string) => Promise<TechhubAsyncStatusResult>>>;
 }): Promise<AsyncStatusResult> {
   const transaction = await prisma.transaction.findFirst({
-    where: { userId: params.userId, providerRef: params.ticketId, provider: 'techhub' }
+    where: { userId: params.userId, providerRef: params.ticketId }
   });
   if (!transaction) {
     throw new ApiError(404, 'Unknown ticket_id', 'TICKET_NOT_FOUND');
@@ -607,7 +628,13 @@ async function checkAsyncServiceStatus(params: {
     };
   }
 
-  const result = await params.call(params.ticketId);
+  const provider = (transaction.provider ?? 'techhub') as VerificationProvider;
+  const call = params.callByProvider[provider];
+  if (!call) {
+    throw new ApiError(500, `No status-check implementation for provider "${provider}"`, 'PROVIDER_NOT_IMPLEMENTED');
+  }
+
+  const result = await call(params.ticketId);
   const existingMetadata = (transaction.metadata as Record<string, unknown> | null) ?? {};
 
   if (result.status === 'pending') {
@@ -627,12 +654,13 @@ async function checkAsyncServiceStatus(params: {
     });
 
     // costKobo was captured at submit time in submitAsyncService() above
-    // (Techhub charges our balance on submit, same as their own docs
-    // describe) - reuse it here rather than re-deriving the price, since
-    // pricing could have changed between submit and this eventual outcome.
+    // (the provider charges our balance on submit, same as Techhub's own
+    // docs describe for theirs) - reuse it here rather than re-deriving the
+    // price, since pricing could have changed between submit and this
+    // eventual outcome.
     if (transaction.costKobo) {
       await recordProviderDebit({
-        provider: 'techhub',
+        provider,
         amountKobo: transaction.costKobo,
         relatedTransactionId: transaction.id,
         description: transaction.description
@@ -670,14 +698,14 @@ export function submitDelinking(params: { userId: string; nin: string; email: st
     operational: {},
     pii: { nin: params.nin, email: params.email },
     idempotencyKey: params.idempotencyKey,
-    call: () => techhubService.submitDelinking(params.nin, params.email)
+    callByProvider: { techhub: () => techhubService.submitDelinking(params.nin, params.email) }
   });
 }
 export function checkDelinkingStatus(params: { userId: string; ticketId: string }) {
   return checkAsyncServiceStatus({
     userId: params.userId,
     ticketId: params.ticketId,
-    call: (id) => techhubService.checkDelinking(id)
+    callByProvider: { techhub: (id) => techhubService.checkDelinking(id) }
   });
 }
 
@@ -690,14 +718,20 @@ export function submitNinValidation(params: { userId: string; nin: string; valid
     operational: { validation_type: params.validationType ?? 'nin_validation' },
     pii: { nin: params.nin },
     idempotencyKey: params.idempotencyKey,
-    call: () => techhubService.submitNinValidation(params.nin, params.validationType)
+    callByProvider: {
+      techhub: () => techhubService.submitNinValidation(params.nin, params.validationType),
+      franceverified: () => submitNinValidationFV(params.nin, params.validationType)
+    }
   });
 }
 export function checkNinValidationStatus(params: { userId: string; ticketId: string }) {
   return checkAsyncServiceStatus({
     userId: params.userId,
     ticketId: params.ticketId,
-    call: (id) => techhubService.checkNinValidation(id)
+    callByProvider: {
+      techhub: (id) => techhubService.checkNinValidation(id),
+      franceverified: (id) => checkNinValidationFV(id)
+    }
   });
 }
 
@@ -709,14 +743,14 @@ export function submitPersonalization(params: { userId: string; trackingId: stri
     operational: {},
     pii: { tracking_id: params.trackingId },
     idempotencyKey: params.idempotencyKey,
-    call: () => techhubService.submitPersonalization(params.trackingId)
+    callByProvider: { techhub: () => techhubService.submitPersonalization(params.trackingId) }
   });
 }
 export function checkPersonalizationStatus(params: { userId: string; ticketId: string }) {
   return checkAsyncServiceStatus({
     userId: params.userId,
     ticketId: params.ticketId,
-    call: (id) => techhubService.checkPersonalization(id)
+    callByProvider: { techhub: (id) => techhubService.checkPersonalization(id) }
   });
 }
 
@@ -734,19 +768,21 @@ export function submitBvnRetrieval(params: {
     operational: {},
     pii: { first_name: params.firstName, last_name: params.lastName, phone_number: params.phoneNumber },
     idempotencyKey: params.idempotencyKey,
-    call: () =>
-      techhubService.submitBvnRetrieval({
-        first_name: params.firstName,
-        last_name: params.lastName,
-        phone_number: params.phoneNumber
-      })
+    callByProvider: {
+      techhub: () =>
+        techhubService.submitBvnRetrieval({
+          first_name: params.firstName,
+          last_name: params.lastName,
+          phone_number: params.phoneNumber
+        })
+    }
   });
 }
 export function checkBvnRetrievalStatus(params: { userId: string; ticketId: string }) {
   return checkAsyncServiceStatus({
     userId: params.userId,
     ticketId: params.ticketId,
-    call: (id) => techhubService.checkBvnRetrieval(id)
+    callByProvider: { techhub: (id) => techhubService.checkBvnRetrieval(id) }
   });
 }
 
@@ -758,14 +794,14 @@ export function submitIpeClearance(params: { userId: string; trackingId: string;
     operational: {},
     pii: { tracking_id: params.trackingId },
     idempotencyKey: params.idempotencyKey,
-    call: () => techhubService.submitIpeClearance(params.trackingId)
+    callByProvider: { techhub: () => techhubService.submitIpeClearance(params.trackingId) }
   });
 }
 export function checkIpeClearanceStatus(params: { userId: string; ticketId: string }) {
   return checkAsyncServiceStatus({
     userId: params.userId,
     ticketId: params.ticketId,
-    call: (id) => techhubService.checkIpeClearance(id)
+    callByProvider: { techhub: (id) => techhubService.checkIpeClearance(id) }
   });
 }
 
