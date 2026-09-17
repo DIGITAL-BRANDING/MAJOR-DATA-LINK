@@ -510,8 +510,14 @@ function SlipResultView({ result, message, onDone }: { result: SlipResult; messa
     : result.pdf_url?.startsWith('https://')
       ? result.pdf_url
       : null;
+  const photoValue = result.user_data
+    ? Object.entries(result.user_data).find(([key, value]) => /^(image|photo|picture|passport(?:_?photo)?)$/i.test(key) && typeof value === 'string' && value.trim())?.[1] as string | undefined
+    : undefined;
+  const photoSrc = normaliseProviderPhoto(photoValue);
   const dataEntries = result.user_data
-    ? Object.entries(result.user_data).filter(([, v]) => v !== null && v !== undefined)
+    ? Object.entries(result.user_data).filter(([key, value]) =>
+        value !== null && value !== undefined && !/^(image|photo|picture|passport(?:_?photo)?)$/i.test(key)
+      )
     : [];
 
   return (
@@ -522,13 +528,16 @@ function SlipResultView({ result, message, onDone }: { result: SlipResult; messa
       </div>
 
       {dataEntries.length > 0 && (
-        <div className="mt-4 grid gap-x-6 gap-y-2 rounded-xl bg-cream p-4 sm:grid-cols-2">
+        <div className="mt-4 grid gap-4 rounded-xl bg-cream p-4 sm:grid-cols-[minmax(0,1fr)_10rem]">
+          <div className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
           {dataEntries.map(([key, value]) => (
-            <div key={key} className="flex justify-between border-b border-parchment-line py-1.5 text-sm">
+            <div key={key} className="flex min-w-0 justify-between gap-3 border-b border-parchment-line py-1.5 text-sm">
               <span className="font-body capitalize text-ink-600">{key.replace(/_/g, ' ')}</span>
-              <span className="font-body font-semibold text-ink">{String(value)}</span>
+              <span className="break-all text-right font-body font-semibold text-ink">{String(value)}</span>
             </div>
           ))}
+          </div>
+          {photoSrc && <img src={photoSrc} alt="Verified identity photograph" className="h-44 w-40 rounded-lg border border-parchment-line bg-white object-cover p-1" />}
         </div>
       )}
 
@@ -555,6 +564,17 @@ function SlipResultView({ result, message, onDone }: { result: SlipResult; messa
       </button>
     </div>
   );
+}
+
+function normaliseProviderPhoto(value?: string): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (/^data:image\/(png|jpe?g|webp);base64,/i.test(trimmed)) return trimmed;
+  const compact = trimmed.replace(/\s/g, '');
+  // FranceVerify returns raw JPEG/PNG base64. Do not render arbitrary URLs.
+  if (!/^[a-z0-9+/]+={0,2}$/i.test(compact) || compact.length < 32) return null;
+  const mime = compact.startsWith('iVBOR') ? 'image/png' : 'image/jpeg';
+  return `data:${mime};base64,${compact}`;
 }
 
 function AsyncResultView({

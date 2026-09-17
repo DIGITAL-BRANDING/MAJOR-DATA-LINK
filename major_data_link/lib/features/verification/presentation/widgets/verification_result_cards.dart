@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -45,6 +47,7 @@ class SlipResultCard extends StatelessWidget {
     }
 
     final data = result.userData;
+    final photo = _providerPhoto(data);
     return KDCard(
       backgroundColor: AppColors.success50,
       border: Border.all(color: AppColors.success100),
@@ -70,6 +73,20 @@ class SlipResultCard extends StatelessWidget {
           ),
           if (data != null && data.isNotEmpty) ...[
             const SizedBox(height: 14),
+            if (photo != null)
+              Center(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: Image.memory(
+                    photo,
+                    width: 132,
+                    height: 160,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                  ),
+                ),
+              ),
+            if (photo != null) const SizedBox(height: 12),
             ..._identityRows(data),
           ],
           const SizedBox(height: 6),
@@ -124,26 +141,39 @@ class SlipResultCard extends StatelessWidget {
   }
 
   List<Widget> _identityRows(Map<String, dynamic> data) {
-    const labels = {
-      'nin': 'NIN',
-      'bvn': 'BVN',
-      'first_name': 'First name',
-      'last_name': 'Last name',
-      'middle_name': 'Middle name',
-      'gender': 'Gender',
-      'date_of_birth': 'Date of birth',
-      'phone_number': 'Phone number',
-      'address': 'Address',
-    };
-    return labels.entries
-        .where((e) => data[e.key] != null && data[e.key].toString().isNotEmpty)
+    const photoKeys = {'image', 'photo', 'picture', 'passport', 'passportphoto'};
+    return data.entries
+        .where((e) => e.value != null && e.value.toString().isNotEmpty)
+        .where((e) => !photoKeys.contains(e.key.replaceAll('_', '').toLowerCase()))
         .map(
           (e) => Builder(
             builder: (context) =>
-                _row(context, e.value, data[e.key].toString()),
+                _row(context, e.key.replaceAll('_', ' ').titleCase, e.value.toString()),
           ),
         )
         .toList();
+  }
+
+  /// FranceVerify returns a raw image base64 string while other providers may
+  /// return a data URL. Render it as a photo and never expose that long value
+  /// as a result row.
+  List<int>? _providerPhoto(Map<String, dynamic>? data) {
+    if (data == null) return null;
+    for (final entry in data.entries) {
+      final key = entry.key.replaceAll('_', '').toLowerCase();
+      if (!{'image', 'photo', 'picture', 'passport', 'passportphoto'}.contains(key) || entry.value is! String) continue;
+      final value = (entry.value as String)
+          .trim()
+          .replaceFirst(RegExp(r'^data:image/(?:png|jpe?g|webp);base64,', caseSensitive: false), '')
+          .replaceAll(RegExp(r'\s'), '');
+      if (value.length < 32) continue;
+      try {
+        return base64Decode(value);
+      } on FormatException {
+        // Try the next recognised photo field, if one exists.
+      }
+    }
+    return null;
   }
 
   Widget _row(BuildContext context, String label, String value) {

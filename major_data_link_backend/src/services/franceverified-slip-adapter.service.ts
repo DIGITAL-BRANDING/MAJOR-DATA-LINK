@@ -33,6 +33,45 @@ function str(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
 }
 
+const IMAGE_KEYS = new Set(['image', 'photo', 'picture', 'passport', 'passportphoto']);
+const INTERNAL_KEYS = new Set(['trackingid', 'reference', 'status', 'message', 'success']);
+
+function labelFor(key: string): string {
+  return key
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+/**
+ * Provider schemas vary between endpoints. Keep the recognised identity
+ * fields first, then retain every other scalar returned by the live API.
+ * Images and nested response objects are intentionally omitted: images are
+ * rendered separately and objects would otherwise print as [object Object].
+ */
+function fieldsFromRaw(
+  data: Record<string, unknown>,
+  preferred: IdentitySlipField[]
+): IdentitySlipField[] {
+  const seen = new Set<string>();
+  const fields = preferred.filter((field) => {
+    const key = field.label.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  for (const [key, value] of Object.entries(data)) {
+    const normalised = key.replace(/[_-]/g, '').toLowerCase();
+    if (IMAGE_KEYS.has(normalised) || INTERNAL_KEYS.has(normalised) || typeof value === 'object' || value === null) continue;
+    const label = labelFor(key);
+    if (!seen.has(label.toLowerCase()) && (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean')) {
+      seen.add(label.toLowerCase());
+      fields.push({ label, value: String(value) });
+    }
+  }
+  return fields;
+}
+
 async function renderSlip(params: {
   title: 'NIN Slip' | 'BVN Slip';
   subtitle: string;
@@ -63,7 +102,7 @@ export const franceverifiedSlipAdapter = {
       subtitle: 'Verified by NIN',
       reference,
       photoBase64: str(d.image),
-      fields: [
+      fields: fieldsFromRaw(d, [
         { label: 'First Name', value: str(d.firstname) },
         { label: 'Middle Name', value: str(d.middlename) },
         { label: 'Surname', value: str(d.surname) },
@@ -74,7 +113,7 @@ export const franceverifiedSlipAdapter = {
         { label: 'State of Residence', value: str(d.residence_state) },
         { label: 'LGA of Residence', value: str(d.residence_lga) },
         { label: 'Address', value: str(d.residence_AdressLine1) }
-      ]
+      ])
     });
     return { ok: true, message: result.message, userData: d, pdfBase64, raw: result.raw };
   },
@@ -92,7 +131,7 @@ export const franceverifiedSlipAdapter = {
       subtitle: 'Verified by Phone',
       reference,
       photoBase64: str(d.photo),
-      fields: [
+      fields: fieldsFromRaw(d, [
         { label: 'First Name', value: str(d.firstName) },
         { label: 'Middle Name', value: str(d.middleName) },
         { label: 'Surname', value: str(d.lastName) },
@@ -103,7 +142,7 @@ export const franceverifiedSlipAdapter = {
         { label: 'State', value: str(address.state) },
         { label: 'LGA', value: str(address.lga) },
         { label: 'Address', value: str(address.addressLine) }
-      ]
+      ])
     });
     return { ok: true, message: result.message, userData: d, pdfBase64, raw: result.raw };
   },
@@ -120,14 +159,14 @@ export const franceverifiedSlipAdapter = {
       subtitle: 'Verified by Demographic Details',
       reference,
       photoBase64: str(d.image ?? d.photo),
-      fields: [
+      fields: fieldsFromRaw(d, [
         { label: 'First Name', value: str(d.firstname ?? d.firstName) ?? params.firstname },
         { label: 'Middle Name', value: str(d.middlename ?? d.middleName) },
         { label: 'Surname', value: str(d.surname ?? d.lastName) ?? params.lastname },
         { label: 'NIN', value: str(d.nin ?? d.idNumber) },
         { label: 'Gender', value: titleCaseGender(d.gender) ?? titleCaseGender(params.gender) },
         { label: 'Date of Birth', value: str(d.birthdate ?? d.dateOfBirth) ?? params.dob }
-      ]
+      ])
     });
     return { ok: true, message: result.message, userData: d, pdfBase64, raw: result.raw };
   },
@@ -144,7 +183,7 @@ export const franceverifiedSlipAdapter = {
       subtitle: 'Verified by BVN',
       reference,
       photoBase64: str(d.photo),
-      fields: [
+      fields: fieldsFromRaw(d, [
         { label: 'First Name', value: str(d.firstName) },
         { label: 'Middle Name', value: str(d.middleName) },
         { label: 'Surname', value: str(d.lastName) },
@@ -153,7 +192,7 @@ export const franceverifiedSlipAdapter = {
         { label: 'Date of Birth', value: str(d.birthday) },
         { label: 'Phone', value: str(d.phoneNumber) },
         { label: 'Name on Card', value: str(d.nameOnCard) }
-      ]
+      ])
     });
     return { ok: true, message: result.message, userData: d, pdfBase64, raw: result.raw };
   },
@@ -171,14 +210,14 @@ export const franceverifiedSlipAdapter = {
       subtitle: 'Verified by Phone',
       reference,
       photoBase64: str(d.photo),
-      fields: [
+      fields: fieldsFromRaw(d, [
         { label: 'First Name', value: str(d.firstName) },
         { label: 'Middle Name', value: str(d.middleName) },
         { label: 'Surname', value: str(d.lastName) },
         { label: 'BVN', value: str(d.bvn) },
         { label: 'Date of Birth', value: str(d.birthday ?? d.dateOfBirth) },
         { label: 'Phone', value: str(d.phoneNumber) ?? phone }
-      ]
+      ])
     });
     return { ok: true, message: result.message, userData: d, pdfBase64, raw: result.raw };
   }

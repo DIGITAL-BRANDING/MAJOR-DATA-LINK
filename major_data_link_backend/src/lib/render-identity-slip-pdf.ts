@@ -18,6 +18,24 @@ export type IdentitySlipPhoto = { base64: string; format?: 'jpeg' | 'png' };
 
 export type IdentitySlipField = { label: string; value: string | null | undefined };
 
+const pageLeft = 50;
+const pageRight = 545;
+
+function valueForPdf(value: string | null | undefined): string {
+  return value === undefined || value === null || value.trim() === '' || value === '****'
+    ? 'N/A'
+    : value;
+}
+
+/** Accept either raw base64 or a browser-friendly data URL from a provider. */
+function imageBuffer(value: string): Buffer {
+  const base64 = value
+    .trim()
+    .replace(/^data:image\/(?:png|jpe?g|webp);base64,/i, '')
+    .replace(/\s/g, '');
+  return Buffer.from(base64, 'base64');
+}
+
 export function renderIdentitySlipPdf(params: {
   title: 'NIN Slip' | 'BVN Slip';
   subtitle: string;
@@ -33,57 +51,76 @@ export function renderIdentitySlipPdf(params: {
     doc.on('end', () => resolve(Buffer.concat(chunks).toString('base64')));
     doc.on('error', reject);
 
-    doc.fontSize(16).font('Helvetica-Bold').text('MAJOR DATA-LINK', { align: 'center' });
-    doc.moveDown(0.2);
-    doc.fontSize(13).font('Helvetica-Bold').text(params.title, { align: 'center' });
-    doc.fontSize(10).font('Helvetica').fillColor('#555').text(params.subtitle, { align: 'center' });
-    doc.moveDown(0.8);
-    doc.fillColor('#000');
+    doc.rect(pageLeft, 50, pageRight - pageLeft, 72).fill('#102a5c');
+    doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(18).text('MAJOR DATA-LINK', pageLeft + 20, 70);
+    doc.font('Helvetica').fontSize(9).text('Identity verification result', pageLeft + 20, 94);
+    doc.fillColor('#111111').font('Helvetica-Bold').fontSize(14).text(
+      `${params.title} successfully verified`,
+      pageLeft,
+      145,
+      { width: pageRight - pageLeft, align: 'center' }
+    );
+    doc.font('Helvetica').fontSize(9).fillColor('#555555').text(params.subtitle, pageLeft, 165, {
+      width: pageRight - pageLeft,
+      align: 'center'
+    });
 
-    doc.moveTo(50, doc.y).lineTo(545, doc.y).strokeColor('#ccc').stroke();
-    doc.moveDown(0.8);
-
-    // Photo (top-right, when the provider returned one) - text fields start
-    // at the same y and wrap around it since pdfkit has no float layout.
-    const photoBoxWidth = 120;
-    const textWidth = params.photo ? 545 - 50 - photoBoxWidth - 15 : 545 - 50;
-    const fieldsTop = doc.y;
-
+    const photoX = pageLeft;
+    const photoY = 210;
+    const photoWidth = 170;
+    const photoHeight = 205;
+    let hasPhoto = false;
     if (params.photo) {
       try {
-        const buffer = Buffer.from(params.photo.base64, 'base64');
-        doc.image(buffer, 545 - photoBoxWidth, fieldsTop, { width: photoBoxWidth, height: photoBoxWidth * 1.15, fit: [photoBoxWidth, photoBoxWidth * 1.15] });
+        doc.rect(photoX, photoY, photoWidth, photoHeight).fill('#f3f4f6');
+        doc.image(imageBuffer(params.photo.base64), photoX, photoY, {
+          fit: [photoWidth, photoHeight],
+          align: 'center',
+          valign: 'center'
+        });
+        hasPhoto = true;
       } catch (error) {
-        // A malformed/truncated base64 photo shouldn't fail the whole slip -
-        // the customer still gets every other field.
         console.error('[identity-slip-pdf] failed to embed photo, continuing without it:', error);
       }
     }
 
-    doc.font('Helvetica-Bold').fontSize(10).text('Reference: ', 50, fieldsTop, { continued: true, width: textWidth });
-    doc.font('Helvetica').text(params.reference);
-    doc.font('Helvetica-Bold').text('Issued: ', 50, doc.y, { continued: true, width: textWidth });
-    doc.font('Helvetica').text(params.issuedAt.toISOString());
-    doc.moveDown(0.6);
+    const tableX = hasPhoto ? photoX + photoWidth + 24 : pageLeft;
+    const tableWidth = pageRight - tableX;
+    const labelWidth = Math.min(140, tableWidth * 0.39);
+    let y = photoY;
+    const rows: IdentitySlipField[] = [
+      { label: 'Reference', value: params.reference },
+      { label: 'Issued', value: params.issuedAt.toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ' UTC') },
+      ...params.fields
+    ];
 
-    for (const field of params.fields) {
-      const value = field.value === undefined || field.value === null || field.value === '' || field.value === '****' ? '\u2014' : field.value;
-      doc.font('Helvetica-Bold').fontSize(10).text(`${field.label}: `, 50, doc.y, { continued: true, width: textWidth });
-      doc.font('Helvetica').text(value, { width: textWidth });
+    for (const field of rows) {
+      const value = valueForPdf(field.value);
+      const valueHeight = doc.heightOfString(value, { width: tableWidth - labelWidth - 16, lineGap: 2 });
+      const rowHeight = Math.max(29, valueHeight + 14);
+      if (y + rowHeight > 760) {
+        doc.addPage();
+        y = 60;
+      }
+      doc.rect(tableX, y, labelWidth, rowHeight).fill('#eef2f7');
+      doc.rect(tableX + labelWidth, y, tableWidth - labelWidth, rowHeight).fill('#ffffff');
+      doc.rect(tableX, y, tableWidth, rowHeight).lineWidth(0.5).strokeColor('#94a3b8').stroke();
+      doc.fillColor('#111111').font('Helvetica-Bold').fontSize(9).text(field.label, tableX + 9, y + 9, {
+        width: labelWidth - 18
+      });
+      doc.font('Helvetica').text(value, tableX + labelWidth + 8, y + 9, {
+        width: tableWidth - labelWidth - 16,
+        lineGap: 2
+      });
+      y += rowHeight;
     }
 
-    // If the photo box is taller than the text block ended up being, make
-    // sure whatever comes next starts below it, not overlapping it.
-    if (params.photo) {
-      doc.y = Math.max(doc.y, fieldsTop + photoBoxWidth * 1.15 + 10);
-    }
-
-    doc.moveDown(1.2);
-    doc.fontSize(8).fillColor('#888').text(
-      'Generated by MAJOR DATA-LINK from verified provider data. Not a NIMC/NIBSS-issued document.',
-      50,
-      doc.y,
-      { align: 'left' }
+    const footerY = Math.max(y + 18, hasPhoto ? photoY + photoHeight + 20 : y + 18);
+    doc.fillColor('#6b7280').fontSize(8).text(
+      'Generated by MAJOR DATA-LINK from verified provider data. This is not a NIMC/NIBSS-issued document.',
+      pageLeft,
+      footerY,
+      { width: pageRight - pageLeft, align: 'center' }
     );
 
     doc.end();
