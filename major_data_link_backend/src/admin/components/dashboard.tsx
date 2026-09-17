@@ -116,6 +116,12 @@ const quickLinks: QuickLink[] = [
     href: `${ADMIN_ROOT_PATH}/nin-bvn-provider`,
     icon: 'Repeat'
   },
+  {
+    label: 'Service Status',
+    description: 'Activate or deactivate each NIN/BVN and result-pin service',
+    href: `${ADMIN_ROOT_PATH}/service-status`,
+    icon: 'Power'
+  },
   { label: 'Coupons', description: 'Discount codes & promotions', resourceId: 'Coupon', icon: 'CreditCard' },
   {
     label: 'Provider Balance',

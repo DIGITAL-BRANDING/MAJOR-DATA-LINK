@@ -12,16 +12,14 @@ import type { TechhubAsyncSubmitResult, TechhubAsyncStatusResult } from './techh
  * naming coincidence - each mapping below was matched by meaning, not by
  * string similarity, and only included where that meaning is actually
  * confident:
+ *   nin_validation     -> bypass_nin
  *   no_record          -> no_record            (exact match)
  *   bank_validation     -> bank_validation       (exact match)
  *   modification        -> modification_validation
  *   photo_error         -> photography_error
  *   v.nin_validation    -> vnin_validation
  *
- * Deliberately NOT mapped - FranceVerified has no confirmed equivalent:
- *   nin_validation (General) - closest candidate is their "bypass_nin", but
- *     that is NOT confirmed to mean the same thing as Techhub's general NIN
- *     validation, so it is left out rather than guessed.
+ * Deliberately NOT mapped - FranceVerified has no corresponding type:
  *   sim               - no matching type in FranceVerified's enum at all.
  *   update_records     - no matching type in FranceVerified's enum at all.
  * A service in this gap simply has no `franceverified` entry, which makes
@@ -29,6 +27,10 @@ import type { TechhubAsyncSubmitResult, TechhubAsyncStatusResult } from './techh
  * message rather than silently submitting the wrong validation type.
  */
 const TYPE_MAP: Partial<Record<string, NinValidationType>> = {
+  // FranceVerified exposes its general validation route as `bypass_nin`.
+  // It is intentionally the route used when admin selects FranceVerified
+  // for our General NIN Validation service.
+  nin_validation: 'bypass_nin',
   no_record: 'no_record',
   bank_validation: 'bank_validation',
   modification: 'modification_validation',

@@ -29,10 +29,11 @@ const FRANCEVERIFIED_SERVICES = new Set([
   'NIN_SLIP_PREMIUM', 'NIN_SLIP_STANDARD', 'NIN_SLIP_REGULAR', 'NIN_SLIP_VNIN',
   'NIN_PHONE_SLIP_PREMIUM', 'NIN_PHONE_SLIP_STANDARD', 'NIN_PHONE_SLIP_REGULAR',
   'NIN_DEMOGRAPHIC', 'BVN_SLIP_PREMIUM', 'BVN_SLIP_STANDARD',
-  // FranceVerified's NIN Validation adapter maps these five internal
-  // services to confirmed FranceVerified validation types. The other
-  // validation variants remain Techhub-only until a real equivalent is
+  // FranceVerified's NIN Validation adapter maps these internal services
+  // to FranceVerified validation types. SIM and Update Records remain
+  // Techhub-only because FranceVerified has no corresponding API type.
   // confirmed; see franceverified-nin-validation-adapter.service.ts.
+  'NIN_VALIDATION_GENERAL',
   'NIN_VALIDATION_NO_RECORD',
   'NIN_VALIDATION_BANK',
   'NIN_VALIDATION_MODIFICATION',
