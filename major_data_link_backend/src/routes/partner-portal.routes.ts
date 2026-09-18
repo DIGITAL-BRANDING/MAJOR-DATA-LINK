@@ -26,7 +26,7 @@ import {
 } from '../services/partner-funding.service.js';
 import { TransactionType } from '@prisma/client';
 import { listVerificationPricesForPartner } from '../services/verification.service.js';
-import { partnerAccessSummary } from '../services/partner-access.service.js';
+import { getPartnerAccessSummary } from '../services/partner-access.service.js';
 
 /**
  * Self-service partner portal - a normal email+password login for the
@@ -47,7 +47,7 @@ export const partnerPortalRoutes = Router();
 const MAX_PASSWORD_FAILURES = 5;
 const PASSWORD_LOCKOUT_MINUTES = 30;
 
-function partnerProfile(partner: {
+async function partnerProfile(partner: {
   id: string;
   businessName: string;
   email: string;
@@ -63,7 +63,7 @@ function partnerProfile(partner: {
     phone: partner.phone,
     status: partner.status.toLowerCase(),
     wallet_balance: koboToNaira(partner.walletBalanceKobo),
-    api_access: partnerAccessSummary(partner.walletBalanceKobo),
+    api_access: await getPartnerAccessSummary(partner.id, partner.walletBalanceKobo),
     created_at: partner.createdAt.toISOString()
   };
 }
@@ -104,7 +104,7 @@ partnerPortalRoutes.post('/register', async (req, res) => {
       access_token: tokens.accessToken,
       refresh_token: tokens.refreshToken,
       expires_in: tokens.expiresIn,
-      partner: partnerProfile(partner)
+      partner: await partnerProfile(partner)
     }
   });
 });
@@ -157,7 +157,7 @@ partnerPortalRoutes.post('/login', async (req, res) => {
       access_token: tokens.accessToken,
       refresh_token: tokens.refreshToken,
       expires_in: tokens.expiresIn,
-      partner: partnerProfile(partner)
+      partner: await partnerProfile(partner)
     }
   });
 });
@@ -167,7 +167,7 @@ partnerPortalRoutes.post('/refresh', async (req, res) => {
   const { partner, tokens } = await rotatePartnerRefreshToken(body.refresh_token);
   res.json({
     status: true,
-    data: { access_token: tokens.accessToken, refresh_token: tokens.refreshToken, expires_in: tokens.expiresIn, partner: partnerProfile(partner) }
+    data: { access_token: tokens.accessToken, refresh_token: tokens.refreshToken, expires_in: tokens.expiresIn, partner: await partnerProfile(partner) }
   });
 });
 
@@ -180,7 +180,7 @@ partnerPortalRoutes.post('/logout', requirePartnerSession, async (req, res) => {
 partnerPortalRoutes.get('/me', requirePartnerSession, async (req, res) => {
   const partner = await prisma.partner.findUniqueOrThrow({ where: { id: req.partner!.id } });
   const webhook = await webhookConfiguration(partner.id);
-  res.json({ status: true, data: { ...partnerProfile(partner), webhook } });
+  res.json({ status: true, data: { ...(await partnerProfile(partner)), webhook } });
 });
 
 // GET /transactions below (in the "Dashboard" section further down) is a

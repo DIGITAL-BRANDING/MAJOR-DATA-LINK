@@ -226,7 +226,9 @@ partnerApiRoutes.get('/transactions', async (req, res) => {
 });
 
 // An approved partner can always access wallet/funding and transaction
-// history. Data/airtime requires the full ₦10,000 tier.
+// history. Data/airtime requires that they have previously made one
+// successful ₦10,000 funding payment; spending that balance later does not
+// take the full-API entitlement away.
 partnerApiRoutes.use('/data', requirePartnerApiTier('FULL_API'));
 partnerApiRoutes.use('/airtime', requirePartnerApiTier('FULL_API'));
 
@@ -248,8 +250,8 @@ partnerApiRoutes.get('/data/plans/:network', async (req, res) => {
 });
 
 // Identity endpoints (including their status polls and price catalogue) are
-// the ₦5,000 NIN/BVN tier. At ₦10,000 they continue to work as part of full
-// API access.
+// unlocked by one successful ₦5,000 funding payment. At ₦10,000 they remain
+// available as part of the permanently unlocked full API suite.
 partnerApiRoutes.use('/verification', requirePartnerApiTier('NIN_BVN'));
 
 partnerApiRoutes.get('/verification/prices', async (_req, res) => {
