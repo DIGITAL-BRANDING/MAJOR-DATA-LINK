@@ -57,6 +57,9 @@ export async function creditPartnerFundingByReference(reference: string) {
     const funding = await tx.partnerTransaction.findUnique({ where: { reference } });
     if (!funding || funding.type !== TransactionType.WALLET_FUNDING) throw new ApiError(404, 'Partner funding transaction not found', 'PARTNER_FUNDING_NOT_FOUND');
     if (funding.status === TransactionStatus.SUCCESS) return funding;
+    if (funding.status !== TransactionStatus.PENDING) {
+      throw new ApiError(409, 'Only a pending partner funding transaction can be credited', 'PARTNER_FUNDING_NOT_PENDING');
+    }
     const partner = await tx.partner.update({ where: { id: funding.partnerId }, data: { walletBalanceKobo: { increment: funding.amountKobo } } });
     return tx.partnerTransaction.update({ where: { id: funding.id }, data: { status: TransactionStatus.SUCCESS, balanceAfterKobo: partner.walletBalanceKobo } });
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
@@ -64,6 +67,45 @@ export async function creditPartnerFundingByReference(reference: string) {
     enqueuePartnerTransactionWebhook(transaction).then(() => deliverDuePartnerWebhooks(1)).catch((error) => console.error('[partner-webhooks] could not queue funding event', error))
   );
   return transaction;
+}
+
+/** Finance fallback for a partner funding webhook that did not arrive. */
+export async function reconcilePartnerPendingFundingByAdmin(params: {
+  transactionId: string;
+  partnerId: string;
+  resolution: 'success' | 'failed' | 'ignored' | 'declined';
+  adminId: string;
+  note?: string;
+}) {
+  const existing = await prisma.partnerTransaction.findFirst({
+    where: { id: params.transactionId, partnerId: params.partnerId, type: TransactionType.WALLET_FUNDING }
+  });
+  if (!existing) throw new ApiError(404, 'Partner funding transaction not found', 'PARTNER_FUNDING_NOT_FOUND');
+  if (existing.status !== TransactionStatus.PENDING) {
+    throw new ApiError(409, 'This partner funding transaction has already been resolved', 'PARTNER_FUNDING_NOT_PENDING');
+  }
+
+  if (params.resolution === 'success') {
+    const credited = await creditPartnerFundingByReference(existing.reference);
+    const metadata = (credited.metadata as Record<string, unknown> | null) ?? {};
+    return prisma.partnerTransaction.update({
+      where: { id: credited.id },
+      data: { metadata: { ...metadata, reconciliation: { resolution: params.resolution, adminId: params.adminId, note: params.note || null, resolvedAt: new Date().toISOString() } } }
+    });
+  }
+
+  const metadata = (existing.metadata as Record<string, unknown> | null) ?? {};
+  return prisma.partnerTransaction.update({
+    where: { id: existing.id },
+    data: {
+      status: params.resolution === 'failed'
+        ? TransactionStatus.FAILED
+        : params.resolution === 'ignored'
+          ? TransactionStatus.IGNORED
+          : TransactionStatus.DECLINED,
+      metadata: { ...metadata, reconciliation: { resolution: params.resolution, adminId: params.adminId, note: params.note || null, resolvedAt: new Date().toISOString() } }
+    }
+  });
 }
 
 export async function verifyPartnerFunding(reference: string) {

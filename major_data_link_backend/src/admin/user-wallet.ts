@@ -5,7 +5,7 @@ import { prisma } from '../lib/prisma.js';
 import { koboToNaira } from '../lib/money.js';
 import { ApiError } from '../middleware/error.js';
 import { getUserWalletSummary } from '../services/company-wallet.service.js';
-import { manualWalletAdjustment } from '../services/wallet.service.js';
+import { manualWalletAdjustment, reconcilePendingFundingByAdmin } from '../services/wallet.service.js';
 
 declare module 'express-session' {
   interface SessionData {
@@ -132,6 +132,43 @@ export function registerUserWalletRoutes(router: Router) {
       return res.redirect(backTo(encodeFlash('error', message)));
     }
   });
+
+  router.post('/user-wallet/:userId/funding/:transactionId/reconcile', async (req, res) => {
+    const admin = requireFinanceOrSuper(req);
+    const q = field(req, 'q');
+    const backTo = (flash: string) => `/admin/user-wallet?q=${encodeURIComponent(q)}&flash=${flash}`;
+    if (!admin) return res.redirect('/admin/login');
+
+    const resolution = field(req, 'resolution');
+    if (!['success', 'failed', 'ignored', 'declined'].includes(resolution)) {
+      return res.redirect(backTo(encodeFlash('error', 'Choose a valid funding resolution.')));
+    }
+
+    try {
+      const transaction = await reconcilePendingFundingByAdmin({
+        transactionId: req.params.transactionId,
+        userId: req.params.userId,
+        resolution: resolution as 'success' | 'failed' | 'ignored' | 'declined',
+        adminId: admin.id,
+        note: field(req, 'note').trim()
+      });
+      await logAdminAction({
+        adminId: admin.id,
+        action: `WALLET_FUNDING_${resolution.toUpperCase()}`,
+        targetType: 'Transaction',
+        targetId: transaction.id,
+        metadata: { userId: req.params.userId, reference: transaction.reference, resolution, amountKobo: transaction.amountKobo.toString() }
+      });
+      const result = resolution === 'success'
+        ? `Funding marked successful. Wallet credited with ${naira(koboToNaira(transaction.amountKobo))}; the normal wallet funding fee was applied.`
+        : `Funding marked ${resolution}. No wallet credit was made.`;
+      return res.redirect(backTo(encodeFlash('success', result)));
+    } catch (error) {
+      const message = error instanceof ApiError ? error.message : 'Something went wrong resolving this funding transaction.';
+      console.error('[user-wallet] funding reconciliation failed:', error);
+      return res.redirect(backTo(encodeFlash('error', message)));
+    }
+  });
 }
 
 function requireFinanceOrSuper(req: Request): AdminSessionUser | null {
@@ -203,6 +240,8 @@ const STATUS_COLOR: Record<string, string> = {
   SUCCESS: '#1E7B34',
   PENDING: '#9C7A17',
   FAILED: '#B3261E',
+  IGNORED: '#6B6248',
+  DECLINED: '#B3261E',
   REVERSED: '#6B6248'
 };
 
@@ -280,7 +319,7 @@ function renderPage(params: {
           <td>${escape(t.type)}</td>
           <td>${escape(t.description)}</td>
           <td class="num">${naira(koboToNaira(t.amountKobo))}</td>
-          <td><span class="status" style="color:${STATUS_COLOR[t.status] ?? '#1A1508'}">${escape(t.status)}</span></td>
+          <td><span class="status" style="color:${STATUS_COLOR[t.status] ?? '#1A1508'}">${escape(t.status)}</span>${canFinance(admin) && t.type === 'WALLET_FUNDING' && t.status === 'PENDING' ? `<form method="POST" action="/admin/user-wallet/${encodeURIComponent(user.id)}/funding/${encodeURIComponent(t.id)}/reconcile" class="resolve-form"><input type="hidden" name="q" value="${escape(q)}"><select name="resolution" aria-label="Funding resolution"><option value="success">Mark successful</option><option value="failed">Mark failed</option><option value="ignored">Mark ignored</option><option value="declined">Mark declined</option></select><input name="note" maxlength="300" placeholder="Optional reconciliation note"><button type="submit">Resolve</button></form>` : ''}</td>
         </tr>`
           )
           .join('')}</tbody>
@@ -327,6 +366,10 @@ function renderPage(params: {
   td { padding: 9px 10px; border-bottom: 1px solid var(--border); }
   td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   .status { font-weight: 700; font-size: 12px; }
+  .resolve-form { display: flex; align-items: center; gap: 6px; margin-top: 7px; }
+  .resolve-form select, .resolve-form input { font: inherit; font-size: 12px; padding: 5px 6px; border: 1px solid var(--border); border-radius: 6px; background: #FFFDF5; }
+  .resolve-form input { min-width: 155px; }
+  .resolve-form button { font: inherit; font-size: 12px; padding: 5px 8px; border: 0; border-radius: 6px; background: var(--gold); color: var(--text); font-weight: 700; cursor: pointer; }
   .current { font-size: 13px; color: var(--muted); margin-top: 4px; }
 </style>
 </head>

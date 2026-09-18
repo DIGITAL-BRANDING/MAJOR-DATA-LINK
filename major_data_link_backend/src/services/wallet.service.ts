@@ -276,6 +276,12 @@ export async function creditWalletByReference(reference: string) {
     if (transaction.status === TransactionStatus.SUCCESS) {
       return { transaction, finalBalanceKobo: transaction.balanceAfterKobo, alreadyCredited: true };
     }
+    // A failed/ignored/declined funding attempt is final.  In particular, do
+    // not let a late webhook (or an accidental admin click) credit a deposit
+    // that finance has already reconciled as not received.
+    if (transaction.status !== TransactionStatus.PENDING) {
+      throw new ApiError(409, 'Only a pending funding transaction can be credited', 'FUNDING_NOT_PENDING');
+    }
 
     const user = await tx.user.update({
       where: { id: transaction.userId },
@@ -322,6 +328,58 @@ export async function creditWalletByReference(reference: string) {
   // in order, ahead of the separate WALLET_FUNDING_FEE row) - only this
   // in-memory returned copy carries the convenience override.
   return { ...result.transaction, balanceAfterKobo: result.finalBalanceKobo };
+}
+
+/**
+ * Finance fallback for a gateway funding record whose webhook never arrived.
+ * `success` uses the normal funding credit path, including the configured
+ * WALLET_FUNDING_FEE_PERCENT charge. The non-credit resolutions are recorded
+ * exactly as FAILED, IGNORED, or DECLINED in the ledger and metadata.
+ */
+export async function reconcilePendingFundingByAdmin(params: {
+  transactionId: string;
+  userId: string;
+  resolution: 'success' | 'failed' | 'ignored' | 'declined';
+  adminId: string;
+  note?: string;
+}) {
+  const existing = await prisma.transaction.findFirst({
+    where: { id: params.transactionId, userId: params.userId, type: TransactionType.WALLET_FUNDING }
+  });
+  if (!existing) throw new ApiError(404, 'Funding transaction not found', 'TRANSACTION_NOT_FOUND');
+  if (existing.status !== TransactionStatus.PENDING) {
+    throw new ApiError(409, 'This funding transaction has already been resolved', 'FUNDING_NOT_PENDING');
+  }
+
+  if (params.resolution === 'success') {
+    const credited = await creditWalletByReference(existing.reference);
+    const metadata = (credited.metadata as Record<string, unknown> | null) ?? {};
+    return prisma.transaction.update({
+      where: { id: credited.id },
+      data: {
+        metadata: {
+          ...metadata,
+          reconciliation: { resolution: params.resolution, adminId: params.adminId, note: params.note || null, resolvedAt: new Date().toISOString() }
+        }
+      }
+    });
+  }
+
+  const metadata = (existing.metadata as Record<string, unknown> | null) ?? {};
+  return prisma.transaction.update({
+    where: { id: existing.id },
+    data: {
+      status: params.resolution === 'failed'
+        ? TransactionStatus.FAILED
+        : params.resolution === 'ignored'
+          ? TransactionStatus.IGNORED
+          : TransactionStatus.DECLINED,
+      metadata: {
+        ...metadata,
+        reconciliation: { resolution: params.resolution, adminId: params.adminId, note: params.note || null, resolvedAt: new Date().toISOString() }
+      }
+    }
+  });
 }
 
 /**

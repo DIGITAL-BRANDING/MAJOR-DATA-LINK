@@ -41,6 +41,12 @@ enum TransactionStatus {
   PENDING
   SUCCESS
   FAILED
+  /// Finance confirmed this pending funding row is not applicable (for
+  /// example, a duplicate or an unrelated gateway record). No wallet credit.
+  IGNORED
+  /// Finance confirmed that the gateway declined the funding attempt. No
+  /// wallet credit.
+  DECLINED
   REVERSED
 }
 
