@@ -1,8 +1,9 @@
 import { Prisma, TransactionStatus, TransactionType } from '@prisma/client';
 import { koboToNaira } from '../lib/money.js';
 import { mergeSealedPII, openPII, sealPII } from '../lib/pii.js';
-import { getVerificationPrice, type VerificationServiceKey } from './verification.service.js';
+import { getVerificationPrice, type VerificationServiceKey, type VerificationProvider } from './verification.service.js';
 import { techhubService, type TechhubBvnTier, type TechhubSlipTier } from './techhub.service.js';
+import { franceverifiedSlipAdapter } from './franceverified-slip-adapter.service.js';
 import { completePartnerPurchase, debitPartnerWallet, reversePartnerPurchase } from './partner-wallet.service.js';
 import { prisma } from '../lib/prisma.js';
 import { ApiError } from '../middleware/error.js';
@@ -115,9 +116,24 @@ export async function reconcilePendingPartnerVerificationTickets(limit = 20) {
 export async function purchasePartnerSlip(params: {
   partnerId: string; service: VerificationServiceKey; type: TransactionType;
   description: string; operational: Record<string, unknown>; pii: Record<string, unknown>;
-  idempotencyKey: string; call: () => ReturnType<typeof techhubService.ninByNin>;
+  idempotencyKey: string;
+  // One call per provider this service could be routed to - same dispatch
+  // shape as purchaseSlip() in verification.service.ts. Previously this
+  // took a single hardcoded `call` (always techhubService.xxx), which meant
+  // the Partner API silently ignored ServicePricing.provider entirely and
+  // ALWAYS hit Techhub no matter what an admin selected on the "NIN/BVN
+  // Provider" admin page - fixed.
+  callByProvider: Partial<Record<VerificationProvider, () => ReturnType<typeof techhubService.ninByNin>>>;
 }): Promise<PartnerSlipResult> {
   const price = await getVerificationPrice(params.service, { forPartner: true });
+  const call = params.callByProvider[price.provider];
+  if (!call) {
+    throw new ApiError(
+      500,
+      `${price.label} has no implementation for provider "${price.provider}" - check the NIN/BVN Provider admin page`,
+      'PROVIDER_NOT_IMPLEMENTED'
+    );
+  }
   const debit = await debitPartnerWallet({
     partnerId: params.partnerId, amount: price.unitPrice, type: params.type,
     description: params.description, idempotencyKey: params.idempotencyKey,
@@ -129,7 +145,7 @@ export async function purchasePartnerSlip(params: {
     return { status: debit.transaction.status === TransactionStatus.SUCCESS, message: 'Transaction already processed', reference: debit.transaction.reference,
       balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo), userData: pii?.user_data, pdfBase64: pii?.pdf_base64, pdfUrl: pii?.pdf_url };
   }
-  const provider = await params.call();
+  const provider = await call();
   if (!provider.ok) {
     const reversed = await reversePartnerPurchase(debit.transaction.id, provider.message);
     return { status: false, message: provider.message, reference: reversed.reference, balanceAfter: koboToNaira(reversed.balanceAfterKobo) };
@@ -139,27 +155,31 @@ export async function purchasePartnerSlip(params: {
     metadata: { service: params.service, ...params.operational, unit_price: price.unitPrice,
       pii: mergeSealedPII(current?.pii, { ...params.pii, user_data: provider.userData, pdf_base64: provider.pdfBase64, pdf_url: provider.pdfUrl }) } as Prisma.InputJsonValue
   }});
-  const transaction = await completePartnerPurchase(debit.transaction.id, 'techhub', undefined, price.providerCostKobo);
+  // Record the provider that ACTUALLY fulfilled this request, not a hardcoded 'techhub'.
+  const transaction = await completePartnerPurchase(debit.transaction.id, price.provider, undefined, price.providerCostKobo);
   return { status: true, message: provider.message, reference: transaction.reference, balanceAfter: koboToNaira(transaction.balanceAfterKobo), userData: provider.userData, pdfBase64: provider.pdfBase64, pdfUrl: provider.pdfUrl };
 }
 
 export const partnerVerification = {
   ninByNin: (partnerId: string, nin: string, tier: TechhubSlipTier, idempotencyKey: string) => purchasePartnerSlip({
     partnerId, service: ({ premium: 'NIN_SLIP_PREMIUM', standard: 'NIN_SLIP_STANDARD', regular: 'NIN_SLIP_REGULAR', vnin: 'NIN_SLIP_VNIN' } as const)[tier], type: TransactionType.NIN_VERIFICATION,
-    description: `NIN slip (${tier}) by NIN`, operational: { mode: 'by_nin', tier }, pii: { nin }, idempotencyKey, call: () => techhubService.ninByNin(nin, tier)
+    description: `NIN slip (${tier}) by NIN`, operational: { mode: 'by_nin', tier }, pii: { nin }, idempotencyKey,
+    callByProvider: { techhub: () => techhubService.ninByNin(nin, tier), franceverified: () => franceverifiedSlipAdapter.ninByNin(nin, tier === 'premium' ? 'premium' : undefined) }
   }),
   ninByPhone: (partnerId: string, phone: string, tier: Exclude<TechhubSlipTier, 'vnin'>, idempotencyKey: string) => purchasePartnerSlip({
     partnerId, service: ({ premium: 'NIN_PHONE_SLIP_PREMIUM', standard: 'NIN_PHONE_SLIP_STANDARD', regular: 'NIN_PHONE_SLIP_REGULAR' } as const)[tier], type: TransactionType.NIN_VERIFICATION,
-    description: `NIN slip (${tier}) by phone`, operational: { mode: 'by_phone', tier }, pii: { phone }, idempotencyKey, call: () => techhubService.ninByPhone(phone, tier)
+    description: `NIN slip (${tier}) by phone`, operational: { mode: 'by_phone', tier }, pii: { phone }, idempotencyKey,
+    callByProvider: { techhub: () => techhubService.ninByPhone(phone, tier), franceverified: () => franceverifiedSlipAdapter.ninByPhone(phone, tier === 'premium' ? 'premium' : undefined) }
   }),
   ninByDemographic: (partnerId: string, values: { firstname: string; lastname: string; dob: string; gender?: string }, idempotencyKey: string) => purchasePartnerSlip({
     partnerId, service: 'NIN_DEMOGRAPHIC', type: TransactionType.NIN_VERIFICATION,
     description: 'NIN slip by demographic details', operational: { mode: 'by_demographic' }, pii: values, idempotencyKey,
-    call: () => techhubService.ninByDemographic(values)
+    callByProvider: { techhub: () => techhubService.ninByDemographic(values), franceverified: () => franceverifiedSlipAdapter.ninByDemographic(values) }
   }),
   bvnSlip: (partnerId: string, bvn: string, tier: TechhubBvnTier, idempotencyKey: string) => purchasePartnerSlip({
     partnerId, service: ({ premium: 'BVN_SLIP_PREMIUM', standard: 'BVN_SLIP_STANDARD' } as const)[tier], type: TransactionType.BVN_VERIFICATION,
-    description: `BVN slip (${tier})`, operational: { tier }, pii: { bvn }, idempotencyKey, call: () => techhubService.bvnSlip(bvn, tier)
+    description: `BVN slip (${tier})`, operational: { tier }, pii: { bvn }, idempotencyKey,
+    callByProvider: { techhub: () => techhubService.bvnSlip(bvn, tier), franceverified: () => franceverifiedSlipAdapter.bvnSlip(bvn, tier) }
   }),
   submitNinValidation: (partnerId: string, nin: string, validationType: string | undefined, idempotencyKey: string) => {
     const services: Record<string, VerificationServiceKey> = { nin_validation: 'NIN_VALIDATION_GENERAL', no_record: 'NIN_VALIDATION_NO_RECORD', sim: 'NIN_VALIDATION_SIM', bank_validation: 'NIN_VALIDATION_BANK', update_records: 'NIN_VALIDATION_UPDATE_RECORDS', modification: 'NIN_VALIDATION_MODIFICATION', photo_error: 'NIN_VALIDATION_PHOTO_ERROR', 'v.nin_validation': 'NIN_VALIDATION_VNIN' };

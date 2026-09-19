@@ -1,4 +1,4 @@
-import { renderIdentitySlipPdf, type IdentitySlipField } from '../lib/render-identity-slip-pdf.js';
+import { renderIdentitySlipPdf, type IdentitySlipField, type IdentitySlipTier } from '../lib/render-identity-slip-pdf.js';
 import { verifyNin, verifyNinByPhone, verifyNinByDemographic } from './franceverified/nin.service.js';
 import { verifyBvn, verifyBvnByPhone } from './franceverified/bvn.service.js';
 import type { TechhubSlipResult } from './techhub.service.js';
@@ -78,6 +78,7 @@ async function renderSlip(params: {
   reference: string;
   fields: IdentitySlipField[];
   photoBase64?: string;
+  tier?: IdentitySlipTier;
 }) {
   return renderIdentitySlipPdf({
     title: params.title,
@@ -85,12 +86,13 @@ async function renderSlip(params: {
     reference: params.reference,
     fields: params.fields,
     photo: params.photoBase64 ? { base64: params.photoBase64, format: 'jpeg' } : undefined,
-    issuedAt: new Date()
+    issuedAt: new Date(),
+    tier: params.tier
   });
 }
 
 export const franceverifiedSlipAdapter = {
-  async ninByNin(nin: string): Promise<TechhubSlipResult> {
+  async ninByNin(nin: string, tier?: IdentitySlipTier): Promise<TechhubSlipResult> {
     const result = await verifyNin(nin);
     if (!result.ok || !result.data) {
       return { ok: false, message: result.message, raw: result.raw };
@@ -102,6 +104,7 @@ export const franceverifiedSlipAdapter = {
       subtitle: 'Verified by NIN',
       reference,
       photoBase64: str(d.image),
+      tier,
       fields: fieldsFromRaw(d, [
         { label: 'First Name', value: str(d.firstname) },
         { label: 'Middle Name', value: str(d.middlename) },
@@ -118,7 +121,7 @@ export const franceverifiedSlipAdapter = {
     return { ok: true, message: result.message, userData: d, pdfBase64, raw: result.raw };
   },
 
-  async ninByPhone(phone: string): Promise<TechhubSlipResult> {
+  async ninByPhone(phone: string, tier?: IdentitySlipTier): Promise<TechhubSlipResult> {
     const result = await verifyNinByPhone(phone);
     if (!result.ok || !result.data) {
       return { ok: false, message: result.message, raw: result.raw };
@@ -131,6 +134,7 @@ export const franceverifiedSlipAdapter = {
       subtitle: 'Verified by Phone',
       reference,
       photoBase64: str(d.photo),
+      tier,
       fields: fieldsFromRaw(d, [
         { label: 'First Name', value: str(d.firstName) },
         { label: 'Middle Name', value: str(d.middleName) },
@@ -171,7 +175,7 @@ export const franceverifiedSlipAdapter = {
     return { ok: true, message: result.message, userData: d, pdfBase64, raw: result.raw };
   },
 
-  async bvnSlip(bvn: string): Promise<TechhubSlipResult> {
+  async bvnSlip(bvn: string, tier?: IdentitySlipTier): Promise<TechhubSlipResult> {
     const result = await verifyBvn(bvn);
     if (!result.ok || !result.data) {
       return { ok: false, message: result.message, raw: result.raw };
@@ -183,6 +187,7 @@ export const franceverifiedSlipAdapter = {
       subtitle: 'Verified by BVN',
       reference,
       photoBase64: str(d.photo),
+      tier,
       fields: fieldsFromRaw(d, [
         { label: 'First Name', value: str(d.firstName) },
         { label: 'Middle Name', value: str(d.middleName) },

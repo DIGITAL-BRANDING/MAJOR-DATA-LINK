@@ -415,7 +415,11 @@ export function purchaseNinByNin(params: { userId: string; nin: string; tier: Te
     // underlying endpoint. Admin can still price each tier differently.
     callByProvider: {
       techhub: () => techhubService.ninByNin(params.nin, params.tier),
-      franceverified: () => franceverifiedSlipAdapter.ninByNin(params.nin)
+      // FranceVerified's NIN result is identical regardless of which
+      // Techhub-style tier was requested - only 'premium' gets the richer
+      // visual treatment (see IdentitySlipTier); 'standard'/'regular'/'vnin'
+      // all render with the same plain look.
+      franceverified: () => franceverifiedSlipAdapter.ninByNin(params.nin, params.tier === 'premium' ? 'premium' : undefined)
     }
   });
 }
@@ -436,7 +440,7 @@ export function purchaseNinByPhone(params: {
     idempotencyKey: params.idempotencyKey,
     callByProvider: {
       techhub: () => techhubService.ninByPhone(params.phone, params.tier),
-      franceverified: () => franceverifiedSlipAdapter.ninByPhone(params.phone)
+      franceverified: () => franceverifiedSlipAdapter.ninByPhone(params.phone, params.tier === 'premium' ? 'premium' : undefined)
     }
   });
 }
@@ -492,7 +496,7 @@ export function purchaseBvnSlip(params: { userId: string; bvn: string; tier: Tec
     idempotencyKey: params.idempotencyKey,
     callByProvider: {
       techhub: () => techhubService.bvnSlip(params.bvn, params.tier),
-      franceverified: () => franceverifiedSlipAdapter.bvnSlip(params.bvn)
+      franceverified: () => franceverifiedSlipAdapter.bvnSlip(params.bvn, params.tier)
     }
   });
 }
