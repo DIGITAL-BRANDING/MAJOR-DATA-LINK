@@ -84,10 +84,12 @@ export function createApp() {
         contentSecurityPolicy: {
           directives: {
             ...helmet.contentSecurityPolicy.getDefaultDirectives(),
-            'script-src': ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+            'script-src': ["'self'", "'unsafe-inline'", "'unsafe-eval'", 'https://embed.tawk.to'],
             'style-src': ["'self'", "'unsafe-inline'"],
             'img-src': ["'self'", 'data:', 'https:'],
-            'font-src': ["'self'", 'data:']
+            'font-src': ["'self'", 'data:'],
+            'connect-src': ["'self'", 'https://*.tawk.to', 'wss://*.tawk.to'],
+            'frame-src': ["'self'", 'https://*.tawk.to']
           }
         }
       })(req, res, next);
@@ -116,8 +118,11 @@ export function createApp() {
             "'sha256-MS6/3FCg4WjP9gwgaBGwLpRCY6fZBgwmhVCdrPrNf3E='",
             "'sha256-tQjf8gvb2ROOMapIxFvFAYBeUJ0v1HCbOcSmDNXGtDo='",
             "'sha256-w36slEqa9euNKxfvkw+LLGsDIr++3rsZXpZxtmRh8Aw='",
-            "'sha256-+5XkZFazzJo8n0iOP4ti/cLCMUudTf//Mzkb7xNPXIc='"
-          ]
+            "'sha256-+5XkZFazzJo8n0iOP4ti/cLCMUudTf//Mzkb7xNPXIc='",
+            'https://embed.tawk.to'
+          ],
+          'connect-src': ["'self'", 'https://*.tawk.to', 'wss://*.tawk.to'],
+          'frame-src': ["'self'", 'https://*.tawk.to']
         }
       }
     })(req, res, next);

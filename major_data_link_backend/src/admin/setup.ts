@@ -94,6 +94,12 @@ export async function buildAdminRouter() {
     dashboard: {
       component: Components.Dashboard
     },
+    // The customer/partner app loads this same file from web/public. Adding
+    // it here gives the internal AdminJS portal access to the Tawk.to support
+    // conversation too.
+    assets: {
+      scripts: ['/tawk-widget.js']
+    },
     branding: {
       companyName: 'K-Tech Solutions',
       logo: '/branding/logo.png',
