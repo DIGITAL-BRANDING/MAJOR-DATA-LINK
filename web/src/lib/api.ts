@@ -10,17 +10,32 @@ const REFRESH_KEY = 'mdl_refresh_token';
 const REQUEST_TIMEOUT_MS = 25_000;
 
 export function getAccessToken() {
-  return localStorage.getItem(TOKEN_KEY);
+  return localStorage.getItem(TOKEN_KEY) ?? sessionStorage.getItem(TOKEN_KEY);
 }
 
-export function setTokens(accessToken: string, refreshToken: string) {
-  localStorage.setItem(TOKEN_KEY, accessToken);
-  localStorage.setItem(REFRESH_KEY, refreshToken);
+/**
+ * `remember` picks where the tokens live: localStorage survives closing the
+ * browser (default - matches the app's previous always-persistent
+ * behavior), sessionStorage clears when the tab/browser closes ("Remember
+ * Me" off, e.g. on a shared/public computer). getAccessToken() above checks
+ * both, so every other call site keeps working unmodified either way.
+ */
+export function setTokens(accessToken: string, refreshToken: string, remember = true) {
+  const store = remember ? localStorage : sessionStorage;
+  const other = remember ? sessionStorage : localStorage;
+  // Clear the other backend first so switching "Remember Me" between logins
+  // never leaves a stale duplicate token sitting in the other one.
+  other.removeItem(TOKEN_KEY);
+  other.removeItem(REFRESH_KEY);
+  store.setItem(TOKEN_KEY, accessToken);
+  store.setItem(REFRESH_KEY, refreshToken);
 }
 
 export function clearTokens() {
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(REFRESH_KEY);
+  sessionStorage.removeItem(TOKEN_KEY);
+  sessionStorage.removeItem(REFRESH_KEY);
 }
 
 export class ApiError extends Error {

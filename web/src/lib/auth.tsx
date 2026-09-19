@@ -30,7 +30,7 @@ type AuthContextValue = {
   mustChangePassword: boolean;
   requiresLoginPinSetup: boolean;
   requiresTransactionPinSetup: boolean;
-  login: (identifier: string, password: string, loginPin?: string) => Promise<void>;
+  login: (identifier: string, password: string, loginPin?: string, remember?: boolean) => Promise<void>;
   register: (input: {
     full_name: string;
     email: string;
@@ -76,14 +76,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function login(identifier: string, password: string, loginPin?: string) {
+  async function login(identifier: string, password: string, loginPin?: string, remember = true) {
     try {
       const res = await api.post<AuthResponse>(
         '/auth/login',
         { identifier, password, login_pin: loginPin },
         false
       );
-      setTokens(res.data.access_token, res.data.refresh_token);
+      setTokens(res.data.access_token, res.data.refresh_token, remember);
       setUser(res.data.user);
       setMustChangePassword(!!res.data.requires_password_change);
       setRequiresLoginPinSetup(!!res.data.requires_login_pin_setup);
