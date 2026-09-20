@@ -17,7 +17,7 @@ export const userDeliveryResource: ResourceWithOptions = {
     showProperties: ['id', 'title', 'description', 'user', 'fileName', 'mimeType', 'fileSize', 'reference', 'createdByAdmin', 'createdAt'],
     editProperties: [],
     actions: {
-      new: { isAccessible: canManage, handler: async () => ({ redirectUrl: '/admin/user-deliveries' }) },
+      new: { component: false, isAccessible: canManage, handler: async () => ({ redirectUrl: '/admin/user-deliveries' }) },
       edit: { isAccessible: false },
       delete: { isAccessible: false },
       list: { isAccessible: canManage },

@@ -173,7 +173,7 @@ export const partnerTransactionResource: ResourceWithOptions = {
     actions: {
       new: { isAccessible: false }, edit: { isAccessible: false }, delete: { isAccessible: false }, list: { isAccessible: canManagePartners }, show: { isAccessible: canManagePartners },
       completeManualVerification: {
-        actionType: 'record', icon: 'CheckCircle', guard: 'Mark this manually-routed partner verification request as completed?',
+        actionType: 'record', icon: 'CheckCircle', component: false, guard: 'Mark this manually-routed partner verification request as completed?',
         isAccessible: ({ currentAdmin, record }) => canManagePartners({ currentAdmin }) && ['IDENTITY_SERVICE_REQUEST', 'NIN_VERIFICATION', 'BVN_VERIFICATION'].includes(record?.params?.type as string) && record?.params?.provider === 'manual' && record?.params?.status === 'PENDING',
         handler: async (_request, _response, context) => {
           const record = context.record; const admin = context.currentAdmin as unknown as AdminSessionUser | undefined;
@@ -184,7 +184,7 @@ export const partnerTransactionResource: ResourceWithOptions = {
         }
       },
       reverseManualVerification: {
-        actionType: 'record', icon: 'RotateCcw', guard: 'Reverse this manual partner verification request and refund the partner wallet?',
+        actionType: 'record', icon: 'RotateCcw', component: false, guard: 'Reverse this manual partner verification request and refund the partner wallet?',
         isAccessible: ({ currentAdmin, record }) => canManagePartners({ currentAdmin }) && ['IDENTITY_SERVICE_REQUEST', 'NIN_VERIFICATION', 'BVN_VERIFICATION'].includes(record?.params?.type as string) && record?.params?.provider === 'manual' && record?.params?.status === 'PENDING',
         handler: async (_request, _response, context) => {
           const record = context.record; const admin = context.currentAdmin as unknown as AdminSessionUser | undefined;

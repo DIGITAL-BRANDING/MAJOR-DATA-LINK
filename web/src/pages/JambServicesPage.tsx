@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { CheckCircle2, GraduationCap, Loader2, Send } from 'lucide-react';
+import { CheckCircle2, Clock3, GraduationCap, Loader2, Send } from 'lucide-react';
 import AppShell from '../components/AppShell';
 import { PinConfirmDialog } from '../components/PinConfirmDialog';
 import { api } from '../lib/api';
@@ -51,7 +51,7 @@ export default function JambServicesPage() {
       });
       setRegistrationNumber(''); setFullName('');
       setFeedback({
-        message: `₦${service.price.toLocaleString()} has been deducted. Your request is now with K-Tech Solutions and will be delivered to My Deliveries.`,
+        message: `₦${service.price.toLocaleString()} has been deducted. Your request will be processed within 2–3 hours during 8:00 AM–6:00 PM, then delivered to My Deliveries.`,
         status: 'success'
       });
     } catch (error) {
@@ -80,6 +80,10 @@ export default function JambServicesPage() {
 
           <form onSubmit={prepare} className="rounded-2xl border border-parchment-line bg-parchment p-5">
             <h2 className="font-display text-lg font-bold text-ink">Start a request</h2>
+            <div className="mt-3 flex gap-3 rounded-xl border border-gold-500/30 bg-gold-500/10 p-3 text-sm leading-5 text-ink-700">
+              <Clock3 className="mt-0.5 shrink-0 text-gold-700" size={18} />
+              <p><strong>Processing time:</strong> Your JAMB service will be processed within 2–3 hours, from 8:00 AM to 6:00 PM. Requests submitted outside these hours will be handled during the next working period.</p>
+            </div>
             <label className="mt-4 block text-sm font-semibold text-ink">Service
               <select value={serviceId} onChange={(e) => setServiceId(e.target.value as typeof serviceId)} className="mt-1.5 w-full rounded-lg border border-parchment-line bg-cream px-3 py-2.5 text-sm">
                 {services.map((item) => <option key={item.id} value={item.id}>{item.name} — ₦{item.price.toLocaleString()}</option>)}

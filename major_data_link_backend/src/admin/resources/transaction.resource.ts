@@ -54,7 +54,7 @@ export const transactionResource: ResourceWithOptions = {
       edit: { isAccessible: false },
       delete: { isAccessible: false },
       reverse: {
-        actionType: 'record',
+        actionType: 'record', component: false,
         icon: 'RotateCcw',
         guard: "This credits the amount back to the user's wallet and marks the transaction REVERSED. Continue?",
         isAccessible: ({ currentAdmin, record }) => {
@@ -108,7 +108,7 @@ export const transactionResource: ResourceWithOptions = {
         }
       },
       completeManualVerification: {
-        actionType: 'record', icon: 'CheckCircle',
+        actionType: 'record', icon: 'CheckCircle', component: false,
         guard: 'Mark this manually-routed NIN/BVN request as completed? Confirm it has been processed first.',
         isAccessible: ({ currentAdmin, record }) => {
           const admin = currentAdmin as unknown as AdminSessionUser | undefined;
@@ -134,6 +134,7 @@ export const transactionResource: ResourceWithOptions = {
       viewPii: {
         actionType: 'record',
         icon: 'Eye',
+        component: false,
         guard:
           'This decrypts and displays the NIN/BVN/name/phone/slip data on this transaction, and is logged to the audit trail. Continue?',
         isAccessible: ({ currentAdmin }) => {
@@ -174,6 +175,7 @@ export const transactionResource: ResourceWithOptions = {
       completeModification: {
         actionType: 'record',
         icon: 'CheckCircle',
+        component: false,
         guard: 'Mark this NIN Modification request as completed? Only do this after it has actually gone through on techhubltd.co.',
         isAccessible: ({ currentAdmin, record }) => {
           const admin = currentAdmin as unknown as AdminSessionUser | undefined;
@@ -214,7 +216,7 @@ export const transactionResource: ResourceWithOptions = {
         }
       },
       completeBvnCrm: {
-        actionType: 'record', icon: 'CheckCircle', guard: 'Mark this BVN CRM ticket follow-up as completed?',
+        actionType: 'record', icon: 'CheckCircle', component: false, guard: 'Mark this BVN CRM ticket follow-up as completed?',
         isAccessible: ({ currentAdmin, record }) => {
           const admin = currentAdmin as unknown as AdminSessionUser | undefined;
           return !!admin && admin.role !== 'SUPPORT' && record?.params?.type === 'BVN_CRM' && record?.params?.status === 'PENDING';
@@ -231,7 +233,7 @@ export const transactionResource: ResourceWithOptions = {
       // above, for BVN Modification instead - the admin has actually
       // processed the change on the bank/NIBSS agent portal by hand.
       completeBvnModification: {
-        actionType: 'record', icon: 'CheckCircle',
+        actionType: 'record', icon: 'CheckCircle', component: false,
         guard: 'Mark this BVN Modification request as completed? Only do this after it has actually gone through with the bank/NIBSS.',
         isAccessible: ({ currentAdmin, record }) => {
           const admin = currentAdmin as unknown as AdminSessionUser | undefined;
@@ -251,6 +253,7 @@ export const transactionResource: ResourceWithOptions = {
       downloadModificationPdf: {
         actionType: 'record',
         icon: 'Download',
+        component: false,
         isAccessible: ({ currentAdmin, record }) => {
           const admin = currentAdmin as unknown as AdminSessionUser | undefined;
           return admin?.role === 'SUPER_ADMIN' && record?.params?.type === 'NIN_MODIFICATION';
@@ -269,6 +272,7 @@ export const transactionResource: ResourceWithOptions = {
       downloadBvnModificationPdf: {
         actionType: 'record',
         icon: 'Download',
+        component: false,
         isAccessible: ({ currentAdmin, record }) => {
           const admin = currentAdmin as unknown as AdminSessionUser | undefined;
           return admin?.role === 'SUPER_ADMIN' && record?.params?.type === 'BVN_MODIFICATION';
@@ -285,7 +289,7 @@ export const transactionResource: ResourceWithOptions = {
         }
       },
       completeBvnLicense: {
-        actionType: 'record', icon: 'CheckCircle',
+        actionType: 'record', icon: 'CheckCircle', component: false,
         guard: 'Mark this BVN License request as completed?',
         isAccessible: ({ currentAdmin, record }) => {
           const admin = currentAdmin as unknown as AdminSessionUser | undefined;
@@ -299,11 +303,13 @@ export const transactionResource: ResourceWithOptions = {
           return { record: record.toJSON(currentAdmin), notice: { message: 'BVN License request marked as completed.', type: 'success' } };
         }
       },
-      completeJambRequest: {
-        actionType: 'record', icon: 'UploadCloud',
+      manageJambRequest: {
+        actionType: 'record', icon: 'UploadCloud', component: false, label: 'Manage JAMB Request',
         isAccessible: ({ currentAdmin, record }) => {
           const admin = currentAdmin as unknown as AdminSessionUser | undefined;
-          return !!admin && admin.role !== 'SUPPORT' && record?.params?.type === 'JAMB_SERVICE_REQUEST' && record?.params?.status === 'PENDING';
+          // Keep this available after completion too, so the admin can reopen
+          // the request and view the candidate details/delivery state.
+          return !!admin && admin.role !== 'SUPPORT' && record?.params?.type === 'JAMB_SERVICE_REQUEST';
         },
         handler: async (_request, _response, context) => {
           const { record, currentAdmin } = context;
@@ -313,12 +319,12 @@ export const transactionResource: ResourceWithOptions = {
       },
       // Opens the Newspaper Publication manage page (progress notes +
       // upload-to-complete) - same redirect-to-custom-page pattern as
-      // completeJambRequest above. Accessible any time the row is a
+      // manageJambRequest above. Accessible any time the row is a
       // Newspaper Publication request (not just while PENDING) so an admin
       // can still open it afterwards to re-download the submission PDF or
       // read past progress notes.
       manageNewspaperPublication: {
-        actionType: 'record', icon: 'Edit',
+        actionType: 'record', icon: 'Edit', component: false,
         isAccessible: ({ currentAdmin, record }) => {
           const admin = currentAdmin as unknown as AdminSessionUser | undefined;
           return !!admin && admin.role !== 'SUPPORT' && record?.params?.type === 'NEWSPAPER_PUBLICATION';
@@ -330,7 +336,7 @@ export const transactionResource: ResourceWithOptions = {
         }
       },
       manageBirthAttestation: {
-        actionType: 'record', icon: 'Edit',
+        actionType: 'record', icon: 'Edit', component: false,
         isAccessible: ({ currentAdmin, record }) => {
           const admin = currentAdmin as unknown as AdminSessionUser | undefined;
           return !!admin && admin.role !== 'SUPPORT' && record?.params?.type === 'BIRTH_ATTESTATION';
@@ -342,7 +348,7 @@ export const transactionResource: ResourceWithOptions = {
         }
       },
       manageCacRequest: {
-        actionType: 'record', icon: 'Edit',
+        actionType: 'record', icon: 'Edit', component: false,
         isAccessible: ({ currentAdmin, record }) => {
           const admin = currentAdmin as unknown as AdminSessionUser | undefined;
           return !!admin && admin.role !== 'SUPPORT' && record?.params?.type === 'CAC_SERVICE_REQUEST';
@@ -354,7 +360,7 @@ export const transactionResource: ResourceWithOptions = {
         }
       },
       downloadBvnLicensePdf: {
-        actionType: 'record', icon: 'Download',
+        actionType: 'record', icon: 'Download', component: false,
         isAccessible: ({ currentAdmin, record }) => {
           const admin = currentAdmin as unknown as AdminSessionUser | undefined;
           return admin?.role === 'SUPER_ADMIN' && record?.params?.type === 'BVN_LICENSE_ONBOARDING';
