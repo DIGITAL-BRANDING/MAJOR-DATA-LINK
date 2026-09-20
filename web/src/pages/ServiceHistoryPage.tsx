@@ -19,7 +19,11 @@ export default function ServiceHistoryPage() {
   const group = params.get('group') ?? '';
 
   useEffect(() => {
-    api.get<{ data: Transaction[] }>('/transactions').then((response) => setItems(response.data ?? [])).finally(() => setLoading(false));
+    api
+      .get<{ status: boolean; data: Transaction[] }>('/transactions/services')
+      .then((response) => setItems(response.data ?? []))
+      .catch(() => setItems([]))
+      .finally(() => setLoading(false));
   }, []);
 
   const visible = useMemo(() => items.filter((item) => {

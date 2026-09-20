@@ -129,6 +129,16 @@ async function request<T>(
     throw new ApiError(message, res.status, code);
   }
 
+  // A proxy or an interrupted deployment can occasionally answer 200 with an
+  // empty/non-JSON body. Returning that `null` to screens used to turn into a
+  // misleading browser crash such as "Cannot read properties of null (reading
+  // 'status')" after the provider had already completed the request. Surface
+  // a recoverable message instead, and never let an invalid API envelope reach
+  // a purchase screen.
+  if (payload === null || typeof payload !== 'object') {
+    throw new ApiError('The server returned an invalid response. Please refresh your history before trying again.', 502, 'INVALID_API_RESPONSE');
+  }
+
   return payload as T;
 }
 
