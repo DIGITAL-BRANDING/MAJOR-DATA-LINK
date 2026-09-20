@@ -37,9 +37,11 @@ const SERVICE_KEYS = [
   'NIN_SLIP_STANDARD',
   'NIN_SLIP_REGULAR',
   'NIN_SLIP_VNIN',
+  'NIN_PERSONAL_INFO_SLIP',
   'NIN_PHONE_SLIP_PREMIUM',
   'NIN_PHONE_SLIP_STANDARD',
   'NIN_PHONE_SLIP_REGULAR',
+  'NIN_PHONE_PERSONAL_INFO_SLIP',
   'NIN_DEMOGRAPHIC',
   'BVN_SLIP_PREMIUM',
   'BVN_SLIP_STANDARD',
@@ -80,9 +82,11 @@ const DEFAULTS: Record<VerificationServiceKey, { label: string; price: number }>
   NIN_SLIP_STANDARD: { label: 'NIN Slip (Standard) — by NIN', price: 120 },
   NIN_SLIP_REGULAR: { label: 'NIN Slip (Regular) — by NIN', price: 120 },
   NIN_SLIP_VNIN: { label: 'NIN Slip (VNIN) — by NIN', price: 120 },
+  NIN_PERSONAL_INFO_SLIP: { label: 'NIN Personal Information Slip — by NIN', price: 120 },
   NIN_PHONE_SLIP_PREMIUM: { label: 'NIN Slip (Premium) — by Phone', price: 130 },
   NIN_PHONE_SLIP_STANDARD: { label: 'NIN Slip (Standard) — by Phone', price: 130 },
   NIN_PHONE_SLIP_REGULAR: { label: 'NIN Slip (Regular) — by Phone', price: 130 },
+  NIN_PHONE_PERSONAL_INFO_SLIP: { label: 'NIN Personal Information Slip — by Phone', price: 130 },
   NIN_DEMOGRAPHIC: { label: 'NIN Slip — by Demographic', price: 130 },
   BVN_SLIP_PREMIUM: { label: 'BVN Slip (Premium)', price: 80 },
   BVN_SLIP_STANDARD: { label: 'BVN Slip (Standard)', price: 80 },
@@ -389,6 +393,9 @@ const NIN_SLIP_SERVICE_BY_TIER: Record<TechhubSlipTier, VerificationServiceKey> 
   vnin: 'NIN_SLIP_VNIN'
 };
 
+type NinSlipChoice = TechhubSlipTier | 'personal';
+type NinPhoneSlipChoice = Exclude<TechhubSlipTier, 'vnin'> | 'personal';
+
 const NIN_PHONE_SLIP_SERVICE_BY_TIER: Record<Exclude<TechhubSlipTier, 'vnin'>, VerificationServiceKey> = {
   premium: 'NIN_PHONE_SLIP_PREMIUM',
   standard: 'NIN_PHONE_SLIP_STANDARD',
@@ -400,10 +407,10 @@ const BVN_SLIP_SERVICE_BY_TIER: Record<TechhubBvnTier, VerificationServiceKey> =
   standard: 'BVN_SLIP_STANDARD'
 };
 
-export function purchaseNinByNin(params: { userId: string; nin: string; tier: TechhubSlipTier; idempotencyKey?: string }) {
+export function purchaseNinByNin(params: { userId: string; nin: string; tier: NinSlipChoice; idempotencyKey?: string }) {
   return purchaseSlip({
     userId: params.userId,
-    service: NIN_SLIP_SERVICE_BY_TIER[params.tier],
+    service: params.tier === 'personal' ? 'NIN_PERSONAL_INFO_SLIP' : NIN_SLIP_SERVICE_BY_TIER[params.tier],
     transactionType: TransactionType.NIN_VERIFICATION,
     description: `NIN slip (${params.tier}) by NIN`,
     operational: { mode: 'by_nin', tier: params.tier },
@@ -414,12 +421,12 @@ export function purchaseNinByNin(params: { userId: string; nin: string; tier: Te
     // tier's ServicePricing row is pointed at franceverified calls the same
     // underlying endpoint. Admin can still price each tier differently.
     callByProvider: {
-      techhub: () => techhubService.ninByNin(params.nin, params.tier),
+      techhub: () => params.tier === 'personal' ? techhubService.ninPersonalInfoByNin(params.nin) : techhubService.ninByNin(params.nin, params.tier),
       // FranceVerified's NIN result is identical regardless of which
       // Techhub-style tier was requested - only 'premium' gets the richer
       // visual treatment (see IdentitySlipTier); 'standard'/'regular'/'vnin'
       // all render with the same plain look.
-      franceverified: () => franceverifiedSlipAdapter.ninByNin(params.nin, params.tier === 'premium' ? 'premium' : undefined)
+      franceverified: () => franceverifiedSlipAdapter.ninByNin(params.nin, params.tier === 'personal' ? undefined : params.tier === 'premium' ? 'premium' : undefined, params.tier === 'personal')
     }
   });
 }
@@ -427,20 +434,20 @@ export function purchaseNinByNin(params: { userId: string; nin: string; tier: Te
 export function purchaseNinByPhone(params: {
   userId: string;
   phone: string;
-  tier: Exclude<TechhubSlipTier, 'vnin'>;
+  tier: NinPhoneSlipChoice;
   idempotencyKey?: string;
 }) {
   return purchaseSlip({
     userId: params.userId,
-    service: NIN_PHONE_SLIP_SERVICE_BY_TIER[params.tier],
+    service: params.tier === 'personal' ? 'NIN_PHONE_PERSONAL_INFO_SLIP' : NIN_PHONE_SLIP_SERVICE_BY_TIER[params.tier],
     transactionType: TransactionType.NIN_VERIFICATION,
     description: `NIN slip (${params.tier}) by Phone`,
     operational: { mode: 'by_phone', tier: params.tier },
     pii: { phone: params.phone },
     idempotencyKey: params.idempotencyKey,
     callByProvider: {
-      techhub: () => techhubService.ninByPhone(params.phone, params.tier),
-      franceverified: () => franceverifiedSlipAdapter.ninByPhone(params.phone, params.tier === 'premium' ? 'premium' : undefined)
+      techhub: () => params.tier === 'personal' ? techhubService.ninPersonalInfoByPhone(params.phone) : techhubService.ninByPhone(params.phone, params.tier),
+      franceverified: () => franceverifiedSlipAdapter.ninByPhone(params.phone, params.tier === 'personal' ? undefined : params.tier === 'premium' ? 'premium' : undefined, params.tier === 'personal')
     }
   });
 }

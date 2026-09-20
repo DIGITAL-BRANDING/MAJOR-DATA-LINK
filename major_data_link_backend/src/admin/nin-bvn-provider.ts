@@ -27,7 +27,9 @@ function parseMessage(query: Record<string, unknown>): { type: 'success' | 'erro
 // admin from saving a route that would fail on the next customer request.
 const FRANCEVERIFIED_SERVICES = new Set([
   'NIN_SLIP_PREMIUM', 'NIN_SLIP_STANDARD', 'NIN_SLIP_REGULAR', 'NIN_SLIP_VNIN',
+  'NIN_PERSONAL_INFO_SLIP',
   'NIN_PHONE_SLIP_PREMIUM', 'NIN_PHONE_SLIP_STANDARD', 'NIN_PHONE_SLIP_REGULAR',
+  'NIN_PHONE_PERSONAL_INFO_SLIP',
   'NIN_DEMOGRAPHIC', 'BVN_SLIP_PREMIUM', 'BVN_SLIP_STANDARD',
   // FranceVerified's NIN Validation adapter maps these internal services
   // to FranceVerified validation types. SIM and Update Records remain

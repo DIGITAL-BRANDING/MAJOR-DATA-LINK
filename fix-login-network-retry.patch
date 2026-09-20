@@ -1,0 +1,104 @@
+diff --git a/web/src/lib/api.ts b/web/src/lib/api.ts
+index 9956df2..ad599f1 100644
+--- a/web/src/lib/api.ts
++++ b/web/src/lib/api.ts
+@@ -50,9 +50,9 @@ export class ApiError extends Error {
+ 
+ async function request<T>(
+   path: string,
+-  options: { method?: string; body?: unknown; auth?: boolean } = {}
++  options: { method?: string; body?: unknown; auth?: boolean; retryOnNetworkError?: boolean } = {}
+ ): Promise<T> {
+-  const { method = 'GET', body, auth = true } = options;
++  const { method = 'GET', body, auth = true, retryOnNetworkError = false } = options;
+ 
+   const headers: Record<string, string> = {
+     'Content-Type': 'application/json',
+@@ -64,19 +64,55 @@ async function request<T>(
+     if (token) headers.Authorization = `Bearer ${token}`;
+   }
+ 
+-  let res: Response;
+-  try {
+-    res = await fetch(`${API_BASE}/api${path}`, {
++  const doFetch = () =>
++    fetch(`${API_BASE}/api${path}`, {
+       method,
+       headers,
+       body: body !== undefined ? JSON.stringify(body) : undefined,
+       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+     });
++
++  // Every GET is naturally safe to retry. A mutating (non-GET) request is
++  // only retried when the caller explicitly says so via
++  // retryOnNetworkError=true - e.g. login (see auth.tsx), which has no side
++  // effect worth worrying about if the first attempt actually reached the
++  // server and only the RESPONSE got lost (it just issues another valid
++  // token). Left off (the default) for money-moving POSTs elsewhere in the
++  // app, where that same scenario could mean silently double-submitting a
++  // purchase - those already guard against exactly this with their own
++  // Idempotency-Key headers rather than a blind client retry.
++  const canRetry = method === 'GET' || retryOnNetworkError;
++
++  let res: Response;
++  try {
++    try {
++      res = await doFetch();
++    } catch (firstError) {
++      const isTimeout = firstError instanceof DOMException && firstError.name === 'TimeoutError';
++      if (isTimeout || !canRetry) throw firstError;
++      // Patchy Nigerian mobile data very often fails once and succeeds a
++      // moment later when the signal comes back - one retry after a short
++      // pause meaningfully cuts down on "could not connect" errors without
++      // masking a genuinely dead connection (it still fails after this).
++      await new Promise((resolve) => setTimeout(resolve, 800));
++      res = await doFetch();
++    }
+   } catch (error) {
+     if (error instanceof DOMException && error.name === 'TimeoutError') {
+       throw new ApiError('The request is taking too long. Please try again.', 408, 'REQUEST_TIMEOUT');
+     }
+-    throw new ApiError('Could not connect to the server. Please check your connection and try again.', 0, 'NETWORK_ERROR');
++    // navigator.onLine is only reliable for "definitely offline" (false),
++    // never for "definitely online" (true can still mean no real route to
++    // the server) - so it only ever sharpens the message, never replaces
++    // the check above.
++    const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
++    throw new ApiError(
++      offline
++        ? "You're offline. Please check your internet connection and try again."
++        : 'Could not connect to the server. Please check your connection and try again.',
++      0,
++      'NETWORK_ERROR'
++    );
+   }
+ 
+   let payload: unknown = null;
+@@ -98,6 +134,6 @@ async function request<T>(
+ 
+ export const api = {
+   get: <T>(path: string, auth = true) => request<T>(path, { method: 'GET', auth }),
+-  post: <T>(path: string, body?: unknown, auth = true) =>
+-    request<T>(path, { method: 'POST', body, auth }),
++  post: <T>(path: string, body?: unknown, auth = true, retryOnNetworkError = false) =>
++    request<T>(path, { method: 'POST', body, auth, retryOnNetworkError }),
+ };
+diff --git a/web/src/lib/auth.tsx b/web/src/lib/auth.tsx
+index b6d9e5b..2789499 100644
+--- a/web/src/lib/auth.tsx
++++ b/web/src/lib/auth.tsx
+@@ -81,7 +81,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
+       const res = await api.post<AuthResponse>(
+         '/auth/login',
+         { identifier, password, login_pin: loginPin },
+-        false
++        false,
++        // Safe to retry once on a pure network failure: login has no side
++        // effect worth worrying about if the first attempt actually reached
++        // the server and only the response got lost on a patchy connection
++        // - it would just issue another valid token. See the comment on
++        // request()/canRetry in api.ts.
++        true
+       );
+       setTokens(res.data.access_token, res.data.refresh_token, remember);
+       setUser(res.data.user);

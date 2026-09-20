@@ -1,4 +1,4 @@
-import { renderIdentitySlipPdf, type IdentitySlipField, type IdentitySlipTier } from '../lib/render-identity-slip-pdf.js';
+import { renderIdentitySlipPdf, renderPersonalInformationSlipPdf, type IdentitySlipField, type IdentitySlipTier } from '../lib/render-identity-slip-pdf.js';
 import { verifyNin, verifyNinByPhone, verifyNinByDemographic } from './franceverified/nin.service.js';
 import { verifyBvn, verifyBvnByPhone } from './franceverified/bvn.service.js';
 import type { TechhubSlipResult } from './techhub.service.js';
@@ -33,43 +33,30 @@ function str(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
 }
 
-const IMAGE_KEYS = new Set(['image', 'photo', 'picture', 'passport', 'passportphoto']);
-const INTERNAL_KEYS = new Set(['trackingid', 'reference', 'status', 'message', 'success']);
-
-function labelFor(key: string): string {
-  return key
-    .replace(/([a-z])([A-Z])/g, '$1 $2')
-    .replace(/[_-]+/g, ' ')
-    .replace(/\b\w/g, (letter) => letter.toUpperCase());
-}
-
 /**
- * Provider schemas vary between endpoints. Keep the recognised identity
- * fields first, then retain every other scalar returned by the live API.
- * Images and nested response objects are intentionally omitted: images are
- * rendered separately and objects would otherwise print as [object Object].
+ * Provider schemas vary between endpoints. Only the recognised identity
+ * fields are approved for a customer-facing slip and preview; provider
+ * operational metadata and nested response objects stay private.
  */
 function fieldsFromRaw(
-  data: Record<string, unknown>,
+  _data: Record<string, unknown>,
   preferred: IdentitySlipField[]
 ): IdentitySlipField[] {
   const seen = new Set<string>();
-  const fields = preferred.filter((field) => {
+  return preferred.filter((field) => {
     const key = field.label.toLowerCase();
-    if (seen.has(key)) return false;
+    if (seen.has(key) || field.value === undefined || field.value === null || field.value.trim() === '') return false;
     seen.add(key);
     return true;
   });
-  for (const [key, value] of Object.entries(data)) {
-    const normalised = key.replace(/[_-]/g, '').toLowerCase();
-    if (IMAGE_KEYS.has(normalised) || INTERNAL_KEYS.has(normalised) || typeof value === 'object' || value === null) continue;
-    const label = labelFor(key);
-    if (!seen.has(label.toLowerCase()) && (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean')) {
-      seen.add(label.toLowerCase());
-      fields.push({ label, value: String(value) });
-    }
-  }
-  return fields;
+}
+
+function previewData(fields: IdentitySlipField[], photo?: string): Record<string, string> {
+  const data = Object.fromEntries(fields
+    .filter((field): field is IdentitySlipField & { value: string } => typeof field.value === 'string' && field.value.trim() !== '')
+    .map((field) => [field.label, field.value]));
+  if (photo) data.photo = photo;
+  return data;
 }
 
 async function renderSlip(params: {
@@ -79,8 +66,10 @@ async function renderSlip(params: {
   fields: IdentitySlipField[];
   photoBase64?: string;
   tier?: IdentitySlipTier;
-}) {
-  return renderIdentitySlipPdf({
+  personalInfo?: boolean;
+}): Promise<{ pdfBase64: string; userData: Record<string, string> }> {
+  const render = params.personalInfo ? renderPersonalInformationSlipPdf : renderIdentitySlipPdf;
+  const pdfBase64 = await render({
     title: params.title,
     subtitle: params.subtitle,
     reference: params.reference,
@@ -89,22 +78,24 @@ async function renderSlip(params: {
     issuedAt: new Date(),
     tier: params.tier
   });
+  return { pdfBase64, userData: previewData(params.fields, params.photoBase64) };
 }
 
 export const franceverifiedSlipAdapter = {
-  async ninByNin(nin: string, tier?: IdentitySlipTier): Promise<TechhubSlipResult> {
+  async ninByNin(nin: string, tier?: IdentitySlipTier, personalInfo = false): Promise<TechhubSlipResult> {
     const result = await verifyNin(nin);
     if (!result.ok || !result.data) {
       return { ok: false, message: result.message, raw: result.raw };
     }
     const d = result.data as Record<string, unknown>;
     const reference = str(d.trackingId) ?? `FV-${Date.now()}`;
-    const pdfBase64 = await renderSlip({
+    const slip = await renderSlip({
       title: 'NIN Slip',
       subtitle: 'Verified by NIN',
       reference,
       photoBase64: str(d.image),
       tier,
+      personalInfo,
       fields: fieldsFromRaw(d, [
         { label: 'First Name', value: str(d.firstname) },
         { label: 'Middle Name', value: str(d.middlename) },
@@ -118,10 +109,10 @@ export const franceverifiedSlipAdapter = {
         { label: 'Address', value: str(d.residence_AdressLine1) }
       ])
     });
-    return { ok: true, message: result.message, userData: d, pdfBase64, raw: result.raw };
+    return { ok: true, message: result.message, userData: slip.userData, pdfBase64: slip.pdfBase64, raw: result.raw };
   },
 
-  async ninByPhone(phone: string, tier?: IdentitySlipTier): Promise<TechhubSlipResult> {
+  async ninByPhone(phone: string, tier?: IdentitySlipTier, personalInfo = false): Promise<TechhubSlipResult> {
     const result = await verifyNinByPhone(phone);
     if (!result.ok || !result.data) {
       return { ok: false, message: result.message, raw: result.raw };
@@ -129,12 +120,13 @@ export const franceverifiedSlipAdapter = {
     const d = result.data as Record<string, unknown>;
     const address = (d.address as Record<string, unknown> | undefined) ?? {};
     const reference = str(d.trackingId) ?? `FV-${Date.now()}`;
-    const pdfBase64 = await renderSlip({
+    const slip = await renderSlip({
       title: 'NIN Slip',
       subtitle: 'Verified by Phone',
       reference,
       photoBase64: str(d.photo),
       tier,
+      personalInfo,
       fields: fieldsFromRaw(d, [
         { label: 'First Name', value: str(d.firstName) },
         { label: 'Middle Name', value: str(d.middleName) },
@@ -148,7 +140,7 @@ export const franceverifiedSlipAdapter = {
         { label: 'Address', value: str(address.addressLine) }
       ])
     });
-    return { ok: true, message: result.message, userData: d, pdfBase64, raw: result.raw };
+    return { ok: true, message: result.message, userData: slip.userData, pdfBase64: slip.pdfBase64, raw: result.raw };
   },
 
   async ninByDemographic(params: { firstname: string; lastname: string; dob: string; gender?: string }): Promise<TechhubSlipResult> {
@@ -158,7 +150,7 @@ export const franceverifiedSlipAdapter = {
     }
     const d = result.data as Record<string, unknown>;
     const reference = str(d.trackingId) ?? `FV-${Date.now()}`;
-    const pdfBase64 = await renderSlip({
+    const slip = await renderSlip({
       title: 'NIN Slip',
       subtitle: 'Verified by Demographic Details',
       reference,
@@ -172,7 +164,7 @@ export const franceverifiedSlipAdapter = {
         { label: 'Date of Birth', value: str(d.birthdate ?? d.dateOfBirth) ?? params.dob }
       ])
     });
-    return { ok: true, message: result.message, userData: d, pdfBase64, raw: result.raw };
+    return { ok: true, message: result.message, userData: slip.userData, pdfBase64: slip.pdfBase64, raw: result.raw };
   },
 
   async bvnSlip(bvn: string, tier?: IdentitySlipTier): Promise<TechhubSlipResult> {
@@ -182,7 +174,7 @@ export const franceverifiedSlipAdapter = {
     }
     const d = result.data as Record<string, unknown>;
     const reference = `FV-${Date.now()}`;
-    const pdfBase64 = await renderSlip({
+    const slip = await renderSlip({
       title: 'BVN Slip',
       subtitle: 'Verified by BVN',
       reference,
@@ -199,7 +191,7 @@ export const franceverifiedSlipAdapter = {
         { label: 'Name on Card', value: str(d.nameOnCard) }
       ])
     });
-    return { ok: true, message: result.message, userData: d, pdfBase64, raw: result.raw };
+    return { ok: true, message: result.message, userData: slip.userData, pdfBase64: slip.pdfBase64, raw: result.raw };
   },
 
   /** FranceVerified's /bvn/verify/phone doc doesn't publish a full sample body - field names are best-effort from their "Returned Information" list; confirm against a live response and adjust if any come back empty. */
@@ -210,7 +202,7 @@ export const franceverifiedSlipAdapter = {
     }
     const d = result.data as Record<string, unknown>;
     const reference = `FV-${Date.now()}`;
-    const pdfBase64 = await renderSlip({
+    const slip = await renderSlip({
       title: 'BVN Slip',
       subtitle: 'Verified by Phone',
       reference,
@@ -224,6 +216,6 @@ export const franceverifiedSlipAdapter = {
         { label: 'Phone', value: str(d.phoneNumber) ?? phone }
       ])
     });
-    return { ok: true, message: result.message, userData: d, pdfBase64, raw: result.raw };
+    return { ok: true, message: result.message, userData: slip.userData, pdfBase64: slip.pdfBase64, raw: result.raw };
   }
 };

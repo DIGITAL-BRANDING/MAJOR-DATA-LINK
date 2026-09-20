@@ -63,6 +63,52 @@ export function renderIdentitySlipPdf(params: {
   return params.tier === 'premium' ? renderPremiumSlip(params) : renderStandardSlip(params);
 }
 
+export function renderPersonalInformationSlipPdf(params: {
+  title: 'NIN Slip' | 'BVN Slip'; subtitle: string; reference: string;
+  fields: IdentitySlipField[]; photo?: IdentitySlipPhoto; issuedAt: Date; tier?: IdentitySlipTier;
+}): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ size: 'A4', margin: 46 });
+    const chunks: Buffer[] = [];
+    doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+    doc.on('end', () => resolve(Buffer.concat(chunks).toString('base64')));
+    doc.on('error', reject);
+
+    const left = 46; const right = 549; const width = right - left;
+    doc.rect(left, 45, width, 76).fill('#102a5c');
+    doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(18).text('MAJOR DATA-LINK', left + 20, 65);
+    doc.font('Helvetica').fontSize(9).text('Verified identity service', left + 20, 91);
+    doc.fillColor('#111111').font('Helvetica-Bold').fontSize(17).text('Personal Information Slip', left, 144, { width, align: 'center' });
+    doc.font('Helvetica').fontSize(9).fillColor('#555555').text(`${params.title} - ${params.subtitle}`, left, 168, { width, align: 'center' });
+
+    const photoX = left; const photoY = 210; const photoWidth = 175; const photoHeight = 220;
+    doc.rect(photoX, photoY, photoWidth, photoHeight).fill('#f4f6f8');
+    if (params.photo) {
+      try { doc.image(imageBuffer(params.photo.base64), photoX, photoY, { fit: [photoWidth, photoHeight], align: 'center', valign: 'center' }); }
+      catch (error) { console.error('[identity-slip-pdf] failed to embed photo, continuing without it:', error); }
+    } else {
+      doc.fillColor('#64748b').font('Helvetica').fontSize(10).text('No photograph returned', photoX, photoY + 100, { width: photoWidth, align: 'center' });
+    }
+
+    const tableX = photoX + photoWidth + 22; const tableWidth = right - tableX; const labelWidth = Math.min(135, tableWidth * .46);
+    let y = photoY;
+    doc.rect(tableX, y, tableWidth, 31).fill('#eef2f7').strokeColor('#94a3b8').lineWidth(.5).stroke();
+    doc.fillColor('#334155').font('Helvetica-Bold').fontSize(12).text('Personal Information', tableX, y + 9, { width: tableWidth, align: 'center' }); y += 31;
+    const rows: IdentitySlipField[] = [{ label: 'Reference', value: params.reference }, ...params.fields];
+    for (const field of rows) {
+      const value = valueForPdf(field.value); const valueWidth = tableWidth - labelWidth - 16;
+      const height = Math.max(29, doc.heightOfString(value, { width: valueWidth, lineGap: 2 }) + 14);
+      doc.rect(tableX, y, labelWidth, height).fill('#f8fafc'); doc.rect(tableX + labelWidth, y, tableWidth - labelWidth, height).fill('#ffffff');
+      doc.rect(tableX, y, tableWidth, height).lineWidth(.5).strokeColor('#94a3b8').stroke();
+      doc.fillColor('#475569').font('Helvetica-Bold').fontSize(8.5).text(field.label, tableX + 7, y + 9, { width: labelWidth - 14 });
+      doc.fillColor('#111111').font('Helvetica').fontSize(8.5).text(value, tableX + labelWidth + 8, y + 9, { width: valueWidth, lineGap: 2 }); y += height;
+    }
+    const footerY = Math.max(y, photoY + photoHeight) + 35;
+    doc.fillColor('#64748b').font('Helvetica').fontSize(8).text(`Generated ${params.issuedAt.toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ' UTC')} from provider-verified data. This is not an official NIMC or NIBSS-issued identity document.`, left, footerY, { width, align: 'center' });
+    doc.end();
+  });
+}
+
 function renderStandardSlip(params: {
   title: 'NIN Slip' | 'BVN Slip';
   subtitle: string;

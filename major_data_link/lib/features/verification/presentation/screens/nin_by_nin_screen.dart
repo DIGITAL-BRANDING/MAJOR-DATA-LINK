@@ -17,6 +17,7 @@ const _priceKeyFor = {
   SlipTier.standard: VerificationService.ninSlipStandard,
   SlipTier.regular: VerificationService.ninSlipRegular,
   SlipTier.vnin: VerificationService.ninSlipVnin,
+  SlipTier.personal: VerificationService.ninPersonalInfoSlip,
 };
 
 class NinByNinScreen extends ConsumerStatefulWidget {
@@ -81,6 +82,7 @@ class _NinByNinScreenState extends ConsumerState<NinByNinScreen>
                     SlipTier.standard,
                     SlipTier.regular,
                     SlipTier.vnin,
+                    SlipTier.personal,
                   ],
                   selected: _tier,
                   labelOf: (t) => t.label,

@@ -81,7 +81,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const res = await api.post<AuthResponse>(
         '/auth/login',
         { identifier, password, login_pin: loginPin },
-        false
+        false,
+        // Safe to retry once on a pure network failure: login has no side
+        // effect worth worrying about if the first attempt actually reached
+        // the server and only the response got lost on a patchy connection
+        // - it would just issue another valid token. See the comment on
+        // request()/canRetry in api.ts.
+        true
       );
       setTokens(res.data.access_token, res.data.refresh_token, remember);
       setUser(res.data.user);

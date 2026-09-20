@@ -8,7 +8,7 @@ import '../../../../core/error/error_handler.dart';
 /// Mirrors the Techhubltd slip tiers documented for NIN-by-NIN / NIN-by-Phone.
 /// `vnin` only exists for NIN-by-NIN — NIN-by-Phone excludes it (see
 /// `SlipTierX.availableFor`).
-enum SlipTier { premium, standard, regular, vnin }
+enum SlipTier { premium, standard, regular, vnin, personal }
 
 extension SlipTierX on SlipTier {
   String get label => switch (this) {
@@ -16,6 +16,7 @@ extension SlipTierX on SlipTier {
     SlipTier.standard => 'Standard',
     SlipTier.regular => 'Regular',
     SlipTier.vnin => 'VNIN',
+    SlipTier.personal => 'Personal Info',
   };
 
   String get apiValue => name;
@@ -94,9 +95,11 @@ enum VerificationService {
   ninSlipStandard,
   ninSlipRegular,
   ninSlipVnin,
+  ninPersonalInfoSlip,
   ninPhoneSlipPremium,
   ninPhoneSlipStandard,
   ninPhoneSlipRegular,
+  ninPhonePersonalInfoSlip,
   ninDemographic,
   bvnSlipPremium,
   bvnSlipStandard,
@@ -113,9 +116,12 @@ extension VerificationServiceX on VerificationService {
     VerificationService.ninSlipStandard => 'NIN_SLIP_STANDARD',
     VerificationService.ninSlipRegular => 'NIN_SLIP_REGULAR',
     VerificationService.ninSlipVnin => 'NIN_SLIP_VNIN',
+    VerificationService.ninPersonalInfoSlip => 'NIN_PERSONAL_INFO_SLIP',
     VerificationService.ninPhoneSlipPremium => 'NIN_PHONE_SLIP_PREMIUM',
     VerificationService.ninPhoneSlipStandard => 'NIN_PHONE_SLIP_STANDARD',
     VerificationService.ninPhoneSlipRegular => 'NIN_PHONE_SLIP_REGULAR',
+    VerificationService.ninPhonePersonalInfoSlip =>
+      'NIN_PHONE_PERSONAL_INFO_SLIP',
     VerificationService.ninDemographic => 'NIN_DEMOGRAPHIC',
     VerificationService.bvnSlipPremium => 'BVN_SLIP_PREMIUM',
     VerificationService.bvnSlipStandard => 'BVN_SLIP_STANDARD',

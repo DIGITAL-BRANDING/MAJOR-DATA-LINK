@@ -35,8 +35,8 @@ type Item = {
 type PriceRow = { service: string; unitPrice: number; isActive: boolean };
 
 const nin: Item[] = [
-  { id: 'by-nin', label: 'NIN Verification', path: '/verification/nin/by-nin', fields: ['nin'], icon: IdCard, tiers: ['premium', 'standard', 'regular', 'vnin'] },
-  { id: 'by-phone', label: 'NIN by Phone', path: '/verification/nin/by-phone', fields: ['phone'], icon: Phone, tiers: ['premium', 'standard', 'regular'] },
+  { id: 'by-nin', label: 'NIN Verification', path: '/verification/nin/by-nin', fields: ['nin'], icon: IdCard, tiers: ['premium', 'standard', 'regular', 'vnin', 'personal'] },
+  { id: 'by-phone', label: 'NIN by Phone', path: '/verification/nin/by-phone', fields: ['phone'], icon: Phone, tiers: ['premium', 'standard', 'regular', 'personal'] },
   { id: 'demographic', label: 'NIN Demographic', path: '/verification/nin/by-demographic', fields: ['firstname', 'lastname', 'dob', 'gender'], icon: UserRoundCheck },
   { id: 'validation', label: 'NIN Validation', path: '/verification/nin-validation', fields: ['nin', 'validation_type'], icon: SearchCheck, async: true },
   { id: 'modification', label: 'NIN Modification', path: '/verification/nin-validation', fields: ['nin'], icon: PenLine, async: true },
@@ -83,8 +83,8 @@ const labels: Record<string, string> = {
 
 function keyFor(item: Item, tier = 'premium') {
   const name = tier.toUpperCase();
-  if (item.id === 'by-nin') return `NIN_SLIP_${name}`;
-  if (item.id === 'by-phone') return `NIN_PHONE_SLIP_${name}`;
+  if (item.id === 'by-nin') return tier === 'personal' ? 'NIN_PERSONAL_INFO_SLIP' : `NIN_SLIP_${name}`;
+  if (item.id === 'by-phone') return tier === 'personal' ? 'NIN_PHONE_PERSONAL_INFO_SLIP' : `NIN_PHONE_SLIP_${name}`;
   if (item.id === 'slip') return `BVN_SLIP_${name}`;
   return (
     {
@@ -113,6 +113,7 @@ const NIN_SLIP_IMAGES: Record<string, string> = {
   standard: '/branding/standard slip.jpg',
   regular: '/branding/regular slip.jpg',
   vnin: '/branding/Vnin slip.jpg',
+  personal: '/branding/information slip.jpg',
 };
 
 type SlipResult = { user_data?: Record<string, unknown>; pdf_base64?: string; pdf_url?: string; reference: string };
@@ -400,7 +401,7 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
                   <div className="sm:col-span-2 font-body text-sm font-medium text-ink-600">
                     <span>Slip type</span>
                     <div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-                      {selected.tiers.map((option) => <button key={option} type="button" onClick={() => setTier(option)} className={`rounded-xl border p-3 text-center transition hover:-translate-y-0.5 ${tier === option ? 'border-[#8b6914] bg-[#6b4f0b] text-white shadow-md' : 'border-parchment-line bg-cream text-ink hover:border-gold-500'}`}><img src={NIN_SLIP_IMAGES[option]} alt={`${option} slip preview`} className="mx-auto h-14 w-full rounded-lg bg-white object-contain p-1"/><span className="mt-2 block font-semibold">{option === 'vnin' ? 'V-NIN Slip' : `${option[0].toUpperCase() + option.slice(1)} Slip`}</span><span className={`mt-1 block text-xs font-bold ${tier === option ? 'text-[#ffe9a3]' : 'text-gold-700'}`}>{money(prices[keyFor(selected, option)])}</span></button>)}
+                      {selected.tiers.map((option) => <button key={option} type="button" onClick={() => setTier(option)} className={`rounded-xl border p-3 text-center transition hover:-translate-y-0.5 ${tier === option ? 'border-[#8b6914] bg-[#6b4f0b] text-white shadow-md' : 'border-parchment-line bg-cream text-ink hover:border-gold-500'}`}><img src={NIN_SLIP_IMAGES[option]} alt={`${option} slip preview`} className="mx-auto h-14 w-full rounded-lg bg-white object-contain p-1"/><span className="mt-2 block font-semibold">{option === 'vnin' ? 'V-NIN Slip' : option === 'personal' ? 'Personal Info Slip' : `${option[0].toUpperCase() + option.slice(1)} Slip`}</span><span className={`mt-1 block text-xs font-bold ${tier === option ? 'text-[#ffe9a3]' : 'text-gold-700'}`}>{money(prices[keyFor(selected, option)])}</span></button>)}
                     </div>
                   </div>
                 )}

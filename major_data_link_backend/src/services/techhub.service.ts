@@ -1,6 +1,7 @@
 import { env } from '../config/env.js';
 import { ApiError } from '../middleware/error.js';
 import { prisma } from '../lib/prisma.js';
+import { renderPersonalInformationSlipPdf, type IdentitySlipField } from '../lib/render-identity-slip-pdf.js';
 
 // No upstream verification call may wait indefinitely.
 const TECHHUB_REQUEST_TIMEOUT_MS = 20_000;
@@ -102,6 +103,36 @@ function firstNonEmptyString(records: Array<Record<string, unknown> | undefined>
   return undefined;
 }
 
+function stringValue(records: Array<Record<string, unknown> | undefined>, keys: string[]) {
+  return firstNonEmptyString(records, keys);
+}
+
+function personalInfoFields(data: Record<string, unknown> | undefined, fallback: Record<string, unknown>): IdentitySlipField[] {
+  const address = data?.address !== null && typeof data?.address === 'object' && !Array.isArray(data.address)
+    ? data.address as Record<string, unknown> : undefined;
+  const records = [data, address, fallback];
+  const fields: IdentitySlipField[] = [
+    { label: 'National Identification Number (NIN)', value: stringValue(records, ['nin', 'idNumber', 'id_number']) },
+    { label: 'Tracking ID', value: stringValue(records, ['trackingId', 'tracking_id', 'reference']) },
+    { label: 'First Name', value: stringValue(records, ['firstName', 'first_name', 'firstname']) },
+    { label: 'Middle Name', value: stringValue(records, ['middleName', 'middle_name', 'middlename']) },
+    { label: 'Last Name', value: stringValue(records, ['lastName', 'last_name', 'surname', 'lastname']) },
+    { label: 'Phone Number', value: stringValue(records, ['phoneNumber', 'phone', 'mobile', 'telephoneno']) },
+    { label: 'Date of Birth', value: stringValue(records, ['dateOfBirth', 'date_of_birth', 'birthdate', 'birthday', 'dob']) },
+    { label: 'Gender', value: stringValue(records, ['gender']) },
+    { label: 'Residence State', value: stringValue(records, ['residence_state', 'state']) },
+    { label: 'LGA/Town', value: stringValue(records, ['residence_lga', 'lga', 'localGovernment']) },
+    { label: 'Address', value: stringValue(records, ['residence_AdressLine1', 'residence_address', 'addressLine', 'address_line']) }
+  ];
+  return fields.filter((field) => typeof field.value === 'string' && field.value.trim().length > 0);
+}
+
+function previewData(fields: IdentitySlipField[], photo?: string): Record<string, string> {
+  const result = Object.fromEntries(fields.filter((field): field is IdentitySlipField & { value: string } => typeof field.value === 'string' && field.value.trim() !== '').map((field) => [field.label, field.value]));
+  if (photo) result.photo = photo;
+  return result;
+}
+
 export type TechhubAsyncSubmitResult = {
   ok: boolean;
   ticketId?: string;
@@ -167,8 +198,16 @@ export class TechhubService {
     return this.postSlip(NIN_BY_NIN_PATH[tier], { nin });
   }
 
+  async ninPersonalInfoByNin(nin: string) {
+    return this.postSlip(NIN_BY_NIN_PATH.premium, { nin }, { personalInfoSlip: true });
+  }
+
   async ninByPhone(phone: string, tier: Exclude<TechhubSlipTier, 'vnin'>) {
     return this.postSlip(NIN_BY_PHONE_PATH[tier], { phone });
+  }
+
+  async ninPersonalInfoByPhone(phone: string) {
+    return this.postSlip(NIN_BY_PHONE_PATH.premium, { phone }, { personalInfoSlip: true });
   }
 
   async ninByDemographic(params: { firstname: string; lastname: string; dob: string; gender?: string }) {
@@ -179,12 +218,19 @@ export class TechhubService {
     return this.postSlip(BVN_SLIP_PATH[tier], { bvn });
   }
 
-  private async postSlip(path: string, body: Record<string, unknown>): Promise<TechhubSlipResult> {
+  private async postSlip(path: string, body: Record<string, unknown>, options?: { personalInfoSlip?: boolean }): Promise<TechhubSlipResult> {
     if (env.MOCK_TECHHUB) {
+      const userData = { first_name: 'JOHN', last_name: 'DOE', gender: 'MALE', ...body };
+      if (options?.personalInfoSlip) {
+        const fields = personalInfoFields(userData, body);
+        const reference = stringValue([userData], ['trackingId', 'tracking_id', 'reference']) ?? `TECHHUB-${Date.now()}`;
+        const pdfBase64 = await renderPersonalInformationSlipPdf({ title: 'NIN Slip', subtitle: 'Verified by Techhub', reference, fields, issuedAt: new Date() });
+        return { ok: true, message: 'Personal information slip generated (mock)', userData: previewData(fields), pdfBase64, raw: { mock: true } };
+      }
       return {
         ok: true,
         message: 'PDF generated successfully (mock)',
-        userData: { first_name: 'JOHN', last_name: 'DOE', gender: 'MALE', ...body },
+        userData,
         pdfBase64: mockPdfBase64(),
         raw: { mock: true }
       };
@@ -238,6 +284,14 @@ export class TechhubService {
     // embedding the PDF.  Preserve it for the user dashboard rather than
     // showing a misleading success without a document.
     const pdfUrl = firstNonEmptyString(records, ['pdf_url', 'slip_url', 'download_url']);
+
+    if (options?.personalInfoSlip) {
+      const fields = personalInfoFields(userDataRecord, body);
+      const photo = stringValue(records, ['image', 'photo', 'picture', 'passport', 'passport_photo']);
+      const reference = stringValue(records, ['trackingId', 'tracking_id', 'reference']) ?? `TECHHUB-${Date.now()}`;
+      const generatedPdf = await renderPersonalInformationSlipPdf({ title: 'NIN Slip', subtitle: 'Verified by Techhub', reference, fields, photo: photo ? { base64: photo, format: 'jpeg' } : undefined, issuedAt: new Date() });
+      return { ok: true, message: data.message ?? 'Personal information slip generated successfully', userData: previewData(fields, photo), pdfBase64: generatedPdf, raw: data };
+    }
 
     return {
       ok: true,
