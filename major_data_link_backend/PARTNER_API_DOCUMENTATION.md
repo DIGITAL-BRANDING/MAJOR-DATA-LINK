@@ -295,6 +295,8 @@ riƙa poll status endpoint da ticket ɗin; kada ya sake submit da sabon
 | NIN IPE Clearance | `POST /verification/nin/ipe-clearance` | `GET /verification/nin/ipe-clearance/{ticket_id}` |
 | NIN Personalization | `POST /verification/nin/personalization` | `GET /verification/nin/personalization/{ticket_id}` |
 
+NIN Validation, IPE Clearance, and NIN Personalization normally complete within **6–72 hours**. Personalization can be instant when our network is stable. If an administrator has routed a service to Manual admin processing, the submit response still returns a `pending` ticket; poll its status endpoint until the administrator completes it or reverses it.
+
 NIN Validation body:
 
 ```json

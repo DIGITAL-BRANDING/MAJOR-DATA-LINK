@@ -6,6 +6,7 @@ import { prisma } from '../../lib/prisma.js';
 import { logAdminAction } from '../audit.js';
 import type { AdminSessionUser } from '../auth.js';
 import { createPartnerApiKey } from '../../lib/partner-api-key.js';
+import { completePartnerPurchase, reversePartnerPurchase } from '../../services/partner-wallet.service.js';
 
 const canManagePartners = ({ currentAdmin }: { currentAdmin?: Record<string, unknown> }) => {
   const admin = currentAdmin as unknown as AdminSessionUser | undefined;
@@ -169,7 +170,31 @@ export const partnerTransactionResource: ResourceWithOptions = {
     showProperties: ['id', 'partner', 'reference', 'type', 'status', 'amountKobo', 'balanceBeforeKobo', 'balanceAfterKobo', 'provider', 'providerRef', 'description', 'createdAt', 'updatedAt'],
     filterProperties: ['partner', 'reference', 'type', 'status', 'provider', 'createdAt'],
     properties: { idempotencyKey: { isVisible: false }, metadata: { isVisible: false } },
-    actions: { new: { isAccessible: false }, edit: { isAccessible: false }, delete: { isAccessible: false }, list: { isAccessible: canManagePartners }, show: { isAccessible: canManagePartners } }
+    actions: {
+      new: { isAccessible: false }, edit: { isAccessible: false }, delete: { isAccessible: false }, list: { isAccessible: canManagePartners }, show: { isAccessible: canManagePartners },
+      completeManualVerification: {
+        actionType: 'record', icon: 'CheckCircle', guard: 'Mark this manually-routed partner verification request as completed?',
+        isAccessible: ({ currentAdmin, record }) => canManagePartners({ currentAdmin }) && ['IDENTITY_SERVICE_REQUEST', 'NIN_VERIFICATION', 'BVN_VERIFICATION'].includes(record?.params?.type as string) && record?.params?.provider === 'manual' && record?.params?.status === 'PENDING',
+        handler: async (_request, _response, context) => {
+          const record = context.record; const admin = context.currentAdmin as unknown as AdminSessionUser | undefined;
+          if (!record || !admin) throw new Error('Missing partner transaction or admin context');
+          await completePartnerPurchase(record.params.id as string, 'manual', record.params.providerRef as string | undefined);
+          await logAdminAction({ adminId: admin.id, action: 'COMPLETE_MANUAL_PARTNER_VERIFICATION', targetType: 'PartnerTransaction', targetId: record.params.id as string, metadata: { reference: record.params.reference } });
+          return { record: record.toJSON(context.currentAdmin), notice: { type: 'success', message: 'Partner manual verification request marked as completed.' } };
+        }
+      },
+      reverseManualVerification: {
+        actionType: 'record', icon: 'RotateCcw', guard: 'Reverse this manual partner verification request and refund the partner wallet?',
+        isAccessible: ({ currentAdmin, record }) => canManagePartners({ currentAdmin }) && ['IDENTITY_SERVICE_REQUEST', 'NIN_VERIFICATION', 'BVN_VERIFICATION'].includes(record?.params?.type as string) && record?.params?.provider === 'manual' && record?.params?.status === 'PENDING',
+        handler: async (_request, _response, context) => {
+          const record = context.record; const admin = context.currentAdmin as unknown as AdminSessionUser | undefined;
+          if (!record || !admin) throw new Error('Missing partner transaction or admin context');
+          await reversePartnerPurchase(record.params.id as string, 'Manual verification request reversed by admin');
+          await logAdminAction({ adminId: admin.id, action: 'REVERSE_MANUAL_PARTNER_VERIFICATION', targetType: 'PartnerTransaction', targetId: record.params.id as string, metadata: { reference: record.params.reference } });
+          return { record: record.toJSON(context.currentAdmin), notice: { type: 'success', message: 'Partner wallet refunded.' } };
+        }
+      }
+    }
   }
 };
 

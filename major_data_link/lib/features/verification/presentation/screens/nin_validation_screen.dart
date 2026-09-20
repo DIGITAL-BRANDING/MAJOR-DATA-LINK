@@ -86,6 +86,8 @@ class _NinValidationScreenState extends ConsumerState<NinValidationScreen>
                   'depends on the type chosen.',
                   style: const TextStyle(fontSize: 12),
                 ),
+                const SizedBox(height: 8),
+                const Text('Service completion: 6–72 hours.', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
                 const SizedBox(height: 16),
                 KDTextField(
                   controller: _ninController,

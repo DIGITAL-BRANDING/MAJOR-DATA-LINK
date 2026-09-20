@@ -25,7 +25,8 @@ import { submitNinValidationFV, checkNinValidationFV } from './franceverified-ni
  * flows (FranceVerified's JSON-only responses get turned into a PDF by
  * franceverified-slip-adapter.service.ts).
  */
-export type VerificationProvider = 'techhub' | 'franceverified';
+/** `manual` keeps an accepted request in our encrypted queue for an admin. */
+export type VerificationProvider = 'techhub' | 'franceverified' | 'manual';
 
 /**
  * Matches VerificationServiceX.key in the Flutter app's
@@ -281,6 +282,20 @@ async function purchaseSlip(params: {
   callByProvider: Partial<Record<VerificationProvider, () => Promise<TechhubSlipResult>>>;
 }): Promise<SlipPurchaseResult> {
   const price = await getVerificationPrice(params.service);
+  if (price.provider === 'manual') {
+    const debit = await debitWallet({
+      userId: params.userId, amount: price.unitPrice, type: params.transactionType, description: params.description,
+      metadata: { service: params.service, ...params.operational, unit_price: price.unitPrice, manual_processing: true, pii: sealPII(params.pii) } as Prisma.InputJsonValue,
+      idempotencyKey: params.idempotencyKey
+    });
+    const metadata = debit.transaction.metadata as Record<string, unknown> | null;
+    if (!debit.transaction.providerRef) {
+      const ticketId = `MANUAL-${debit.reference}`;
+      await prisma.transaction.update({ where: { id: debit.transaction.id }, data: { provider: 'manual', providerRef: ticketId,
+        metadata: { service: params.service, ...params.operational, unit_price: price.unitPrice, ticket_id: ticketId, manual_processing: true, pii: mergeSealedPII(metadata?.pii, params.pii) } as Prisma.InputJsonValue } });
+    }
+    return { status: true, message: 'Request received and queued for manual admin processing.', reference: debit.reference, balanceAfter: debit.balanceAfter };
+  }
   const call = params.callByProvider[price.provider];
   if (!call) {
     // Admin pointed this service at a provider that has no implementation
@@ -541,6 +556,27 @@ async function submitAsyncService(params: {
   callByProvider: Partial<Record<VerificationProvider, () => Promise<TechhubAsyncSubmitResult>>>;
 }): Promise<AsyncSubmitResult> {
   const price = await getVerificationPrice(params.service);
+  // Manual routing deliberately does not call an upstream. The paid request
+  // remains PENDING for an authorised admin to fulfil from the transaction
+  // ledger (where its submitted PII is still encrypted at rest).
+  if (price.provider === 'manual') {
+    const debit = await debitWallet({
+      userId: params.userId, amount: price.unitPrice, type: TransactionType.IDENTITY_SERVICE_REQUEST,
+      description: params.description,
+      metadata: { service: params.service, ...params.operational, unit_price: price.unitPrice, manual_processing: true, pii: sealPII(params.pii) } as Prisma.InputJsonValue,
+      idempotencyKey: params.idempotencyKey
+    });
+    const existingMetadata = debit.transaction.metadata as Record<string, unknown> | null;
+    const existingTicket = existingMetadata?.ticket_id?.toString();
+    if (existingTicket) return { reference: debit.reference, ticketId: existingTicket, balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo) };
+    const ticketId = `MANUAL-${debit.reference}`;
+    await prisma.transaction.update({ where: { id: debit.transaction.id }, data: {
+      provider: 'manual', providerRef: ticketId,
+      metadata: { service: params.service, ...params.operational, unit_price: price.unitPrice, ticket_id: ticketId, manual_processing: true,
+        pii: mergeSealedPII(existingMetadata?.pii, params.pii) } as Prisma.InputJsonValue
+    }});
+    return { reference: debit.reference, ticketId, balanceAfter: debit.balanceAfter };
+  }
   const call = params.callByProvider[price.provider];
   if (!call) {
     // Same "fail loud" reasoning as purchaseSlip() above - an admin pointed
@@ -640,6 +676,9 @@ async function checkAsyncServiceStatus(params: {
   }
 
   const provider = (transaction.provider ?? 'techhub') as VerificationProvider;
+  if (provider === 'manual') {
+    return { ticketId: params.ticketId, status: 'pending', response: null };
+  }
   const call = params.callByProvider[provider];
   if (!call) {
     throw new ApiError(500, `No status-check implementation for provider "${provider}"`, 'PROVIDER_NOT_IMPLEMENTED');

@@ -84,6 +84,8 @@ class _NinPersonalizationScreenState
                   'ID from your enrollment.',
                   style: const TextStyle(fontSize: 12),
                 ),
+                const SizedBox(height: 8),
+                const Text('Service completion: 6–72 hours. Personalization may be instant when our network is stable.', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
                 const SizedBox(height: 16),
                 KDTextField(
                   controller: _trackingIdController,

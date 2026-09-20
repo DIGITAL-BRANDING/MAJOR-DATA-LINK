@@ -4,6 +4,7 @@ import { mergeSealedPII, openPII, sealPII } from '../lib/pii.js';
 import { getVerificationPrice, type VerificationServiceKey, type VerificationProvider } from './verification.service.js';
 import { techhubService, type TechhubBvnTier, type TechhubSlipTier } from './techhub.service.js';
 import { franceverifiedSlipAdapter } from './franceverified-slip-adapter.service.js';
+import { submitNinValidationFV, checkNinValidationFV } from './franceverified-nin-validation-adapter.service.js';
 import { completePartnerPurchase, debitPartnerWallet, reversePartnerPurchase } from './partner-wallet.service.js';
 import { prisma } from '../lib/prisma.js';
 import { ApiError } from '../middleware/error.js';
@@ -25,9 +26,24 @@ export type PartnerAsyncStatusResult = { reference: string; ticketId: string; st
 async function submitPartnerAsync(params: {
   partnerId: string; service: VerificationServiceKey; description: string;
   operational: Record<string, unknown>; pii: Record<string, unknown>; idempotencyKey: string;
-  call: () => ReturnType<typeof techhubService.submitNinValidation>;
+  callByProvider: Partial<Record<VerificationProvider, () => ReturnType<typeof techhubService.submitNinValidation>>>;
 }): Promise<PartnerAsyncSubmitResult> {
   const price = await getVerificationPrice(params.service, { forPartner: true });
+  if (price.provider === 'manual') {
+    const debit = await debitPartnerWallet({
+      partnerId: params.partnerId, amount: price.unitPrice, type: TransactionType.IDENTITY_SERVICE_REQUEST,
+      description: params.description, idempotencyKey: params.idempotencyKey,
+      metadata: { service: params.service, ...params.operational, unit_price: price.unitPrice, manual_processing: true, pii: sealPII(params.pii) } as Prisma.InputJsonValue
+    });
+    const existing = debit.transaction.providerRef;
+    if (existing) return { reference: debit.transaction.reference, ticketId: existing, balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo), status: 'pending' };
+    const ticketId = `MANUAL-${debit.transaction.reference}`;
+    await prisma.partnerTransaction.update({ where: { id: debit.transaction.id }, data: { provider: 'manual', providerRef: ticketId,
+      metadata: { service: params.service, ...params.operational, unit_price: price.unitPrice, ticket_id: ticketId, manual_processing: true, pii: sealPII(params.pii) } as Prisma.InputJsonValue } });
+    return { reference: debit.transaction.reference, ticketId, balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo), status: 'pending' };
+  }
+  const call = params.callByProvider[price.provider];
+  if (!call) throw new ApiError(500, `${price.label} has no implementation for provider "${price.provider}"`, 'PROVIDER_NOT_IMPLEMENTED');
   const debit = await debitPartnerWallet({
     partnerId: params.partnerId, amount: price.unitPrice, type: TransactionType.IDENTITY_SERVICE_REQUEST,
     description: params.description, idempotencyKey: params.idempotencyKey,
@@ -46,14 +62,14 @@ async function submitPartnerAsync(params: {
       throw new ApiError(409, 'This idempotency key was already processed. Use a new Idempotency-Key for another request.', 'IDEMPOTENCY_KEY_REUSED');
     }
   }
-  const result = await params.call();
+  const result = await call();
   if (!result.ok || !result.ticketId) {
     await reversePartnerPurchase(debit.transaction.id, result.message);
     throw new ApiError(502, result.message || 'Verification provider could not accept this request', 'TECHHUB_SUBMIT_FAILED');
   }
   const current = debit.transaction.metadata as Record<string, unknown> | null;
   await prisma.partnerTransaction.update({ where: { id: debit.transaction.id }, data: {
-    provider: 'techhub', providerRef: result.ticketId,
+    provider: price.provider, providerRef: result.ticketId,
     metadata: { service: params.service, ...params.operational, unit_price: price.unitPrice, ticket_id: result.ticketId,
       pii: mergeSealedPII(current?.pii, { ...params.pii, submit_raw: result.raw }) } as Prisma.InputJsonValue
   }});
@@ -62,9 +78,9 @@ async function submitPartnerAsync(params: {
 
 async function checkPartnerAsync(params: {
   partnerId: string; ticketId: string;
-  call: (ticketId: string) => ReturnType<typeof techhubService.checkNinValidation>;
+  callByProvider: Partial<Record<VerificationProvider, (ticketId: string) => ReturnType<typeof techhubService.checkNinValidation>>>;
 }): Promise<PartnerAsyncStatusResult> {
-  const transaction = await prisma.partnerTransaction.findFirst({ where: { partnerId: params.partnerId, provider: 'techhub', providerRef: params.ticketId } });
+  const transaction = await prisma.partnerTransaction.findFirst({ where: { partnerId: params.partnerId, providerRef: params.ticketId } });
   if (!transaction) throw new ApiError(404, 'Unknown ticket_id', 'TICKET_NOT_FOUND');
   const metadata = (transaction.metadata as Record<string, unknown> | null) ?? {};
   const stored = openPII<{ response?: Record<string, unknown> | null }>(metadata.pii);
@@ -72,7 +88,10 @@ async function checkPartnerAsync(params: {
     return { reference: transaction.reference, ticketId: params.ticketId,
       status: transaction.status === TransactionStatus.SUCCESS ? 'success' : 'failed', response: stored?.response ?? null };
   }
-  const result = await params.call(params.ticketId);
+  if (transaction.provider === 'manual') return { reference: transaction.reference, ticketId: params.ticketId, status: 'pending', response: null };
+  const call = params.callByProvider[transaction.provider as VerificationProvider];
+  if (!call) throw new ApiError(500, `No status-check implementation for provider "${transaction.provider}"`, 'PROVIDER_NOT_IMPLEMENTED');
+  const result = await call(params.ticketId);
   if (result.status === 'pending') return { reference: transaction.reference, ticketId: result.ticketId, status: 'pending', response: null };
   const nextMetadata = { ...metadata, pii: mergeSealedPII(metadata.pii, { response: result.response, check_raw: result.raw }) } as Prisma.InputJsonValue;
   if (result.status === 'success') {
@@ -80,7 +99,7 @@ async function checkPartnerAsync(params: {
     // transaction.costKobo was captured at submit time in submitPartnerAsync()
     // above (Techhub's actual cost, not the partner's unit_price) - reuse it
     // rather than re-deriving.
-    await completePartnerPurchase(transaction.id, 'techhub', transaction.providerRef ?? undefined, transaction.costKobo ?? undefined);
+    await completePartnerPurchase(transaction.id, transaction.provider ?? 'techhub', transaction.providerRef ?? undefined, transaction.costKobo ?? undefined);
     return { reference: transaction.reference, ticketId: result.ticketId, status: 'success', response: result.response };
   }
   await prisma.partnerTransaction.update({ where: { id: transaction.id }, data: { metadata: nextMetadata } });
@@ -126,6 +145,19 @@ export async function purchasePartnerSlip(params: {
   callByProvider: Partial<Record<VerificationProvider, () => ReturnType<typeof techhubService.ninByNin>>>;
 }): Promise<PartnerSlipResult> {
   const price = await getVerificationPrice(params.service, { forPartner: true });
+  if (price.provider === 'manual') {
+    const debit = await debitPartnerWallet({
+      partnerId: params.partnerId, amount: price.unitPrice, type: params.type, description: params.description,
+      idempotencyKey: params.idempotencyKey,
+      metadata: { service: params.service, ...params.operational, unit_price: price.unitPrice, manual_processing: true, pii: sealPII(params.pii) } as Prisma.InputJsonValue
+    });
+    if (!debit.transaction.providerRef) {
+      const ticketId = `MANUAL-${debit.transaction.reference}`;
+      await prisma.partnerTransaction.update({ where: { id: debit.transaction.id }, data: { provider: 'manual', providerRef: ticketId,
+        metadata: { service: params.service, ...params.operational, unit_price: price.unitPrice, ticket_id: ticketId, manual_processing: true, pii: sealPII(params.pii) } as Prisma.InputJsonValue } });
+    }
+    return { status: true, message: 'Request received and queued for manual admin processing.', reference: debit.transaction.reference, balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo) };
+  }
   const call = params.callByProvider[price.provider];
   if (!call) {
     throw new ApiError(
@@ -184,11 +216,11 @@ export const partnerVerification = {
   submitNinValidation: (partnerId: string, nin: string, validationType: string | undefined, idempotencyKey: string) => {
     const services: Record<string, VerificationServiceKey> = { nin_validation: 'NIN_VALIDATION_GENERAL', no_record: 'NIN_VALIDATION_NO_RECORD', sim: 'NIN_VALIDATION_SIM', bank_validation: 'NIN_VALIDATION_BANK', update_records: 'NIN_VALIDATION_UPDATE_RECORDS', modification: 'NIN_VALIDATION_MODIFICATION', photo_error: 'NIN_VALIDATION_PHOTO_ERROR', 'v.nin_validation': 'NIN_VALIDATION_VNIN' };
     const type = validationType ?? 'nin_validation';
-    return submitPartnerAsync({ partnerId, service: services[type] ?? 'NIN_VALIDATION_GENERAL', description: `NIN validation (${type})`, operational: { validation_type: type }, pii: { nin }, idempotencyKey, call: () => techhubService.submitNinValidation(nin, validationType) });
+    return submitPartnerAsync({ partnerId, service: services[type] ?? 'NIN_VALIDATION_GENERAL', description: `NIN validation (${type})`, operational: { validation_type: type }, pii: { nin }, idempotencyKey, callByProvider: { techhub: () => techhubService.submitNinValidation(nin, validationType), franceverified: () => submitNinValidationFV(nin, validationType) } });
   },
-  checkNinValidation: (partnerId: string, ticketId: string) => checkPartnerAsync({ partnerId, ticketId, call: (id) => techhubService.checkNinValidation(id) }),
-  submitIpeClearance: (partnerId: string, trackingId: string, idempotencyKey: string) => submitPartnerAsync({ partnerId, service: 'IPE_CLEARANCE', description: 'IPE clearance request', operational: {}, pii: { tracking_id: trackingId }, idempotencyKey, call: () => techhubService.submitIpeClearance(trackingId) }),
-  checkIpeClearance: (partnerId: string, ticketId: string) => checkPartnerAsync({ partnerId, ticketId, call: (id) => techhubService.checkIpeClearance(id) }),
-  submitPersonalization: (partnerId: string, trackingId: string, idempotencyKey: string) => submitPartnerAsync({ partnerId, service: 'NIN_PERSONALIZATION', description: 'NIN personalization request', operational: {}, pii: { tracking_id: trackingId }, idempotencyKey, call: () => techhubService.submitPersonalization(trackingId) }),
-  checkPersonalization: (partnerId: string, ticketId: string) => checkPartnerAsync({ partnerId, ticketId, call: (id) => techhubService.checkPersonalization(id) })
+  checkNinValidation: (partnerId: string, ticketId: string) => checkPartnerAsync({ partnerId, ticketId, callByProvider: { techhub: (id) => techhubService.checkNinValidation(id), franceverified: (id) => checkNinValidationFV(id) } }),
+  submitIpeClearance: (partnerId: string, trackingId: string, idempotencyKey: string) => submitPartnerAsync({ partnerId, service: 'IPE_CLEARANCE', description: 'IPE clearance request', operational: {}, pii: { tracking_id: trackingId }, idempotencyKey, callByProvider: { techhub: () => techhubService.submitIpeClearance(trackingId) } }),
+  checkIpeClearance: (partnerId: string, ticketId: string) => checkPartnerAsync({ partnerId, ticketId, callByProvider: { techhub: (id) => techhubService.checkIpeClearance(id) } }),
+  submitPersonalization: (partnerId: string, trackingId: string, idempotencyKey: string) => submitPartnerAsync({ partnerId, service: 'NIN_PERSONALIZATION', description: 'NIN personalization request', operational: {}, pii: { tracking_id: trackingId }, idempotencyKey, callByProvider: { techhub: () => techhubService.submitPersonalization(trackingId) } }),
+  checkPersonalization: (partnerId: string, ticketId: string) => checkPartnerAsync({ partnerId, ticketId, callByProvider: { techhub: (id) => techhubService.checkPersonalization(id) } })
 };

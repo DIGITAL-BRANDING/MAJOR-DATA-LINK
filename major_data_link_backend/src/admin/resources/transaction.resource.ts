@@ -67,7 +67,7 @@ export const transactionResource: ResourceWithOptions = {
           // other transaction type, where PENDING means "still in flight,
           // don't touch it", so this is the one type reverse() also allows
           // from PENDING.
-          if (status === 'PENDING') return ['NIN_MODIFICATION', 'BVN_LICENSE_ONBOARDING', 'JAMB_SERVICE_REQUEST', 'BVN_CRM', 'NEWSPAPER_PUBLICATION', 'BIRTH_ATTESTATION', 'CAC_SERVICE_REQUEST', 'BVN_MODIFICATION'].includes(record?.params?.type as string);
+          if (status === 'PENDING') return ['NIN_MODIFICATION', 'BVN_LICENSE_ONBOARDING', 'JAMB_SERVICE_REQUEST', 'BVN_CRM', 'NEWSPAPER_PUBLICATION', 'BIRTH_ATTESTATION', 'CAC_SERVICE_REQUEST', 'BVN_MODIFICATION'].includes(record?.params?.type as string) || (record?.params?.provider === 'manual' && ['IDENTITY_SERVICE_REQUEST', 'NIN_VERIFICATION', 'BVN_VERIFICATION'].includes(record?.params?.type as string));
           return status === 'SUCCESS' || status === 'FAILED';
         },
         handler: async (request, response, context) => {
@@ -105,6 +105,22 @@ export const transactionResource: ResourceWithOptions = {
               }
             };
           }
+        }
+      },
+      completeManualVerification: {
+        actionType: 'record', icon: 'CheckCircle',
+        guard: 'Mark this manually-routed NIN/BVN request as completed? Confirm it has been processed first.',
+        isAccessible: ({ currentAdmin, record }) => {
+          const admin = currentAdmin as unknown as AdminSessionUser | undefined;
+          return !!admin && admin.role !== 'SUPPORT' && record?.params?.provider === 'manual' && ['IDENTITY_SERVICE_REQUEST', 'NIN_VERIFICATION', 'BVN_VERIFICATION'].includes(record?.params?.type as string) && record?.params?.status === 'PENDING';
+        },
+        handler: async (_request, _response, context) => {
+          const { record, currentAdmin } = context;
+          const admin = currentAdmin as unknown as AdminSessionUser | undefined;
+          if (!record || !admin) throw new Error('Missing record or admin context');
+          await prisma.transaction.update({ where: { id: record.params.id as string }, data: { status: TransactionStatus.SUCCESS } });
+          await logAdminAction({ adminId: admin.id, action: 'COMPLETE_MANUAL_VERIFICATION', targetType: 'Transaction', targetId: record.params.id as string, metadata: { reference: record.params.reference } });
+          return { record: record.toJSON(currentAdmin), notice: { message: 'Manual verification request marked as completed.', type: 'success' } };
         }
       },
       // NIN/BVN/names/phone/generated slip PDFs are encrypted at rest under
