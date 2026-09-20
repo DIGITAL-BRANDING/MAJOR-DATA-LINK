@@ -146,4 +146,23 @@ export const api = {
   get: <T>(path: string, auth = true) => request<T>(path, { method: 'GET', auth }),
   post: <T>(path: string, body?: unknown, auth = true, retryOnNetworkError = false) =>
     request<T>(path, { method: 'POST', body, auth, retryOnNetworkError }),
+  // PDFs cannot use request() because that helper correctly expects a JSON
+  // envelope. Keep the Authorization header here so documents are never put
+  // behind a token-bearing URL that could leak through browser history.
+  getFile: async (path: string) => {
+    const token = getAccessToken();
+    const res = await fetch(`${API_BASE}/api${path}`, {
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        'X-Client-Channel': 'web',
+      },
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+    if (!res.ok) {
+      let message = `Could not open the document (${res.status}).`;
+      try { message = (await res.json() as { message?: string }).message ?? message; } catch { /* PDF/proxy error body */ }
+      throw new ApiError(message, res.status);
+    }
+    return res.blob();
+  },
 };
