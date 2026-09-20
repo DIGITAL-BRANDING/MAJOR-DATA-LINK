@@ -304,7 +304,7 @@ export const transactionResource: ResourceWithOptions = {
         }
       },
       manageJambRequest: {
-        actionType: 'record', icon: 'UploadCloud', component: false, label: 'Manage JAMB Request',
+        actionType: 'record', icon: 'UploadCloud', component: false,
         isAccessible: ({ currentAdmin, record }) => {
           const admin = currentAdmin as unknown as AdminSessionUser | undefined;
           // Keep this available after completion too, so the admin can reopen
