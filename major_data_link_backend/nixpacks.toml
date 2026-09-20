@@ -4,7 +4,7 @@ nixPkgs = ["nodejs_22"]
 
 [phases.install]
 cmds = [
-  "NPM_CONFIG_PRODUCTION=false npm install --cache /tmp/.npm --no-audit --no-fund"
+  "npm ci --include=dev --cache /tmp/.npm --no-audit --no-fund"
 ]
 
 [phases.build]

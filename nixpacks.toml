@@ -4,8 +4,8 @@ nixPkgs = ["nodejs_22"]
 
 [phases.install]
 cmds = [
-  "cd major_data_link_backend && NPM_CONFIG_PRODUCTION=false npm ci --cache /tmp/.npm --no-audit --no-fund",
-  "cd web && NPM_CONFIG_PRODUCTION=false npm ci --cache /tmp/.npm --no-audit --no-fund"
+  "cd major_data_link_backend && npm ci --include=dev --cache /tmp/.npm --no-audit --no-fund",
+  "cd web && npm ci --include=dev --cache /tmp/.npm --no-audit --no-fund"
 ]
 
 [phases.build]
