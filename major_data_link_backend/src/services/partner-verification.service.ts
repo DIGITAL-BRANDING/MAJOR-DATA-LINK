@@ -123,11 +123,11 @@ export async function reconcilePendingPartnerVerificationTickets(limit = 20) {
     const service = metadata?.service;
     const ticketId = transaction.providerRef!;
     if (service === 'NIN_PERSONALIZATION') {
-      await checkPartnerAsync({ partnerId: transaction.partnerId, ticketId, call: (id) => techhubService.checkPersonalization(id) });
+      await checkPartnerAsync({ partnerId: transaction.partnerId, ticketId, callByProvider: { techhub: (id: string) => techhubService.checkPersonalization(id) } });
     } else if (service === 'IPE_CLEARANCE') {
-      await checkPartnerAsync({ partnerId: transaction.partnerId, ticketId, call: (id) => techhubService.checkIpeClearance(id) });
+      await checkPartnerAsync({ partnerId: transaction.partnerId, ticketId, callByProvider: { techhub: (id: string) => techhubService.checkIpeClearance(id) } });
     } else if (typeof service === 'string' && service.startsWith('NIN_VALIDATION_')) {
-      await checkPartnerAsync({ partnerId: transaction.partnerId, ticketId, call: (id) => techhubService.checkNinValidation(id) });
+      await checkPartnerAsync({ partnerId: transaction.partnerId, ticketId, callByProvider: { techhub: (id: string) => techhubService.checkNinValidation(id), franceverified: (id: string) => checkNinValidationFV(id) } });
     }
   }));
 }
