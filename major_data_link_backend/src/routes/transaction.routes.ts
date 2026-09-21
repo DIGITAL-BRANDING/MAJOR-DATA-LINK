@@ -21,7 +21,7 @@ function nonEmptyString(value: unknown) {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
 }
 
-function firstString(record: Record<string, unknown> | undefined, keys: string[]) {
+function firstString(record: Record<string, unknown> | null | undefined, keys: string[]) {
   for (const key of keys) {
     const value = nonEmptyString(record?.[key]);
     if (value) return value;

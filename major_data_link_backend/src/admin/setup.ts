@@ -43,6 +43,7 @@ import { partnerApiKeyResource, partnerResource, partnerTransactionResource, par
 import { registerUserDeliveryRoutes } from './user-deliveries.js';
 import { registerResultPinStockRoutes } from './result-pin-stock.js';
 import { registerPartnerManualRequestRoutes } from './partner-manual-request.js';
+import { registerManualRequestRoutes } from './manual-requests.js';
 
 AdminJS.registerAdapter({ Database, Resource });
 
@@ -214,6 +215,7 @@ export async function buildAdminRouter() {
   registerUserDeliveryRoutes(router);
   registerResultPinStockRoutes(router);
   registerPartnerManualRequestRoutes(router);
+  registerManualRequestRoutes(router);
 
   return { admin, router };
 }

@@ -1,14 +1,25 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Box, Button, H2, H4, Icon, Text } from '@adminjs/design-system';
 
 const ADMIN_ROOT_PATH = '/admin';
-type PendingSummary = { total_pending: number; total_new_last_24h: number; by_type: Array<{ type: string; label: string; pending: number }> };
+type PendingSummary = { total_pending: number; total_new_last_24h: number; by_type: Array<{ type: string; label: string; href: string; pending: number }> };
 
 function PendingRequestsPopup() {
   const [summary, setSummary] = useState<PendingSummary | null>(null); const [dismissed, setDismissed] = useState(false);
-  useEffect(() => { fetch(`${ADMIN_ROOT_PATH}/pending-summary`, { credentials: 'include' }).then((r) => r.ok ? r.json() : Promise.reject()).then((body) => setSummary(body.data)).catch(() => {}); }, []);
+  const previousPending = useRef<number | null>(null);
+  useEffect(() => {
+    let active = true;
+    const load = () => fetch(`${ADMIN_ROOT_PATH}/pending-summary`, { credentials: 'include' }).then((r) => r.ok ? r.json() : Promise.reject()).then((body) => { if (active) setSummary(body.data); }).catch(() => {});
+    void load();
+    const interval = window.setInterval(load, 45_000);
+    return () => { active = false; window.clearInterval(interval); };
+  }, []);
+  useEffect(() => {
+    if (summary && previousPending.current !== null && summary.total_pending > previousPending.current) setDismissed(false);
+    if (summary) previousPending.current = summary.total_pending;
+  }, [summary]);
   if (dismissed || !summary || summary.total_pending === 0) return null;
-  return <Box style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.55)', zIndex: 1000 }} display="flex" alignItems="center" justifyContent="center" onClick={() => setDismissed(true)}><Box variant="white" boxShadow="card" p="xl" style={{ width: 'min(480px,92vw)', borderRadius: 14 }} onClick={(e: React.MouseEvent) => e.stopPropagation()}><H4 mb="default">Requests waiting on you</H4><Text mb="lg">{summary.total_pending} unresolved request{summary.total_pending === 1 ? '' : 's'}{summary.total_new_last_24h ? ` • ${summary.total_new_last_24h} new today` : ''}</Text>{summary.by_type.filter((row) => row.pending).map((row) => <a key={row.type} href={`${ADMIN_ROOT_PATH}/resources/Transaction?filters.type=${row.type}&filters.status=PENDING`} style={{ display: 'block', padding: '10px 0', borderBottom: '1px solid #eee', textDecoration: 'none' }}><Text fontWeight="bold">{row.label}: {row.pending} pending →</Text></a>)}<Button mt="lg" onClick={() => setDismissed(true)} style={{ width: '100%' }}>Got it</Button></Box></Box>;
+  return <Box style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.55)', zIndex: 1000 }} display="flex" alignItems="center" justifyContent="center" onClick={() => setDismissed(true)}><Box variant="white" boxShadow="card" p="xl" style={{ width: 'min(480px,92vw)', borderRadius: 14 }} onClick={(e: React.MouseEvent) => e.stopPropagation()}><H4 mb="default">Requests waiting on you</H4><Text mb="lg">{summary.total_pending} unresolved request{summary.total_pending === 1 ? '' : 's'}{summary.total_new_last_24h ? ` • ${summary.total_new_last_24h} new today` : ''}</Text>{summary.by_type.filter((row) => row.pending).map((row) => <a key={row.type} href={row.href} style={{ display: 'block', padding: '10px 0', borderBottom: '1px solid #eee', textDecoration: 'none' }}><Text fontWeight="bold">{row.label}: {row.pending} pending →</Text></a>)}<Button mt="lg" onClick={() => setDismissed(true)} style={{ width: '100%' }}>Got it</Button></Box></Box>;
 }
 
 type QuickLink = {
@@ -21,147 +32,24 @@ type QuickLink = {
   icon: string;
 };
 
-// One card per resource an admin actually works with day-to-day. Kept in the
-// same grouping order as the sidebar navigation (Customers, Ledger, Products,
-// Wallet, Communication, Access Control) so the dashboard reads as a map of
-// the sidebar rather than a separate, unrelated list.
+// Keep the dashboard intentionally short. Every specialist tool still lives
+// in the AdminJS sidebar; these cards are the everyday work queues and the
+// few control areas an admin needs most often.
 const quickLinks: QuickLink[] = [
   { label: 'Customers', description: 'Users, KYC status & profiles', resourceId: 'User', icon: 'Users' },
   { label: 'Ledger', description: 'Transactions, reversals & history', resourceId: 'Transaction', icon: 'List' },
-  { label: 'CAC Registration Requests', description: 'CAC registration and verification requests awaiting processing', resourceId: 'SupportTicket', icon: 'Briefcase' },
-  { label: 'JAMB Service Requests', description: 'Paid JAMB documents and admission requests awaiting processing', href: `${ADMIN_ROOT_PATH}/resources/Transaction?filters.type=JAMB_SERVICE_REQUEST`, icon: 'GraduationCap' },
-  { label: 'BVN Licence Requests', description: 'BVN licence onboarding requests awaiting agent processing', href: `${ADMIN_ROOT_PATH}/resources/Transaction?filters.type=BVN_LICENSE_ONBOARDING`, icon: 'CreditCard' },
-  { label: 'NIN Modification Requests', description: 'Manual NIN correction requests awaiting processing', href: `${ADMIN_ROOT_PATH}/resources/Transaction?filters.type=NIN_MODIFICATION`, icon: 'Edit' },
-  {
-    label: 'User Wallet Activity',
-    description: 'Look up any customer: funding, spend & recent transactions',
-    href: `${ADMIN_ROOT_PATH}/user-wallet`,
-    icon: 'Search'
-  },
-  {
-    label: 'Customer Activity',
-    description: 'Top customers, what they bought, and reward candidates',
-    href: `${ADMIN_ROOT_PATH}/customer-activity`,
-    icon: 'Award'
-  },
-  {
-    label: 'Login Activity',
-    description: 'Latest customer App/Web logins and partner portal access',
-    href: `${ADMIN_ROOT_PATH}/login-activity`,
-    icon: 'LogIn'
-  },
-  {
-    label: 'User Deliveries',
-    description: 'Upload completed CAC, JAMB or other service files to a customer',
-    href: `${ADMIN_ROOT_PATH}/user-deliveries`,
-    icon: 'Upload'
-  },
-  {
-    label: 'Service Requests',
-    description: 'Open and process CAC, JAMB and customer support requests',
-    resourceId: 'SupportTicket',
-    icon: 'MessageCircle'
-  },
-  {
-    label: 'Request Replies',
-    description: 'Send updates to customers while a request is being processed',
-    resourceId: 'SupportTicketMessage',
-    icon: 'Send'
-  },
-  {
-    label: 'Company Wallet',
-    description: 'Revenue, provider cost & net profit by service',
-    href: `${ADMIN_ROOT_PATH}/company-wallet`,
-    icon: 'TrendingUp'
-  },
-  {
-    label: 'Provider Ledger',
-    description: 'Our balance at Alrahuz/Techhub, settlements & adjustments',
-    href: `${ADMIN_ROOT_PATH}/provider-ledger`,
-    icon: 'Repeat'
-  },
-  {
-    label: 'Provider Reconciliation',
-    description: 'Transactions stuck "processing" at any provider - confirm success/failure by hand',
-    href: `${ADMIN_ROOT_PATH}/provider-reconciliation`,
-    icon: 'AlertTriangle'
-  },
-  {
-    label: 'Data Plan Pricing',
-    description: 'Set prices for data plans',
-    resourceId: 'DataPlanPricing',
-    icon: 'ShoppingCart'
-  },
-  {
-    label: 'Bulk Pricing',
-    description: 'Reprice every data plan / service in one click',
-    href: `${ADMIN_ROOT_PATH}/bulk-pricing`,
-    icon: 'Sliders'
-  },
-  {
-    label: 'Service Pricing',
-    description: 'NIN/BVN provider, prices & result-pin selling prices',
-    resourceId: 'ServicePricing',
-    icon: 'Tag'
-  },
-  {
-    label: 'Result PIN Stock',
-    description: 'Add prepaid WAEC, NECO and NABTEB PINs for instant delivery',
-    href: `${ADMIN_ROOT_PATH}/result-pin-stock`,
-    icon: 'Package'
-  },
-  {
-    label: 'Partner Pricing',
-    description: 'Set API-partner-only prices in bulk without changing normal-user prices',
-    href: `${ADMIN_ROOT_PATH}/partner-pricing`,
-    icon: 'DollarSign'
-  },
-  {
-    label: 'NIN/BVN Provider',
-    description: 'Choose the provider separately for every NIN/BVN service',
-    href: `${ADMIN_ROOT_PATH}/nin-bvn-provider`,
-    icon: 'Repeat'
-  },
-  {
-    label: 'Service Status',
-    description: 'Activate or deactivate each NIN/BVN and result-pin service',
-    href: `${ADMIN_ROOT_PATH}/service-status`,
-    icon: 'Power'
-  },
-  { label: 'Coupons', description: 'Discount codes & promotions', resourceId: 'Coupon', icon: 'CreditCard' },
-  {
-    label: 'Provider Balance',
-    description: 'Alrahuz, BilalSadaSub & Techhub provider wallet status',
-    resourceId: 'ProviderBalanceStatus',
-    icon: 'AlertTriangle'
-  },
-  {
-    label: 'Referral Settings',
-    description: 'Referral reward configuration',
-    resourceId: 'ReferralSettings',
-    icon: 'Percent'
-  },
-  {
-    label: 'Notifications',
-    description: 'Broadcast messages to users',
-    resourceId: 'NotificationBroadcast',
-    icon: 'Bell'
-  },
-  {
-    label: 'App Base URL & Updates',
-    description: 'Change the live app API URL, version gate and update message',
-    href: `${ADMIN_ROOT_PATH}/resources/AppConfig/records/default/edit`,
-    icon: 'Settings'
-  },
-  {
-    label: 'Partner Lookup',
-    description: 'Look up any API partner: wallet balance, total API calls & manual funding',
-    href: `${ADMIN_ROOT_PATH}/partner-lookup`,
-    icon: 'Search'
-  },
+  { label: 'All Manual Requests', description: 'One queue for every customer and Partner API request awaiting processing', href: `${ADMIN_ROOT_PATH}/manual-requests`, icon: 'List' },
+  { label: 'NIN Services', description: 'NIN validation, personalization, slips and modifications awaiting manual processing', href: `${ADMIN_ROOT_PATH}/manual-requests?group=NIN`, icon: 'Fingerprint' },
+  { label: 'BVN Services', description: 'BVN slips, retrieval, modification, CRM and licence requests', href: `${ADMIN_ROOT_PATH}/manual-requests?group=BVN`, icon: 'CreditCard' },
+  { label: 'CAC Services', description: 'All CAC registration and verification requests in one queue', href: `${ADMIN_ROOT_PATH}/manual-requests?group=CAC`, icon: 'Briefcase' },
+  { label: 'JAMB Services', description: 'All paid JAMB document and admission requests in one queue', href: `${ADMIN_ROOT_PATH}/manual-requests?group=JAMB`, icon: 'GraduationCap' },
+  { label: 'TIN & Other Services', description: 'TIN-ready queue plus Birth Attestation, Newspaper and new manual services', href: `${ADMIN_ROOT_PATH}/manual-requests?group=TIN_OTHER`, icon: 'FileText' },
+  { label: 'User Deliveries', description: 'Upload completed CAC, JAMB or other service files to a customer', href: `${ADMIN_ROOT_PATH}/user-deliveries`, icon: 'Upload' },
+  { label: 'Service Pricing', description: 'Prices and provider routing for all services', resourceId: 'ServicePricing', icon: 'Tag' },
+  { label: 'Company Wallet', description: 'Revenue, provider cost & net profit by service', href: `${ADMIN_ROOT_PATH}/company-wallet`, icon: 'TrendingUp' },
+  { label: 'Notifications', description: 'Broadcast messages to users', resourceId: 'NotificationBroadcast', icon: 'Bell' },
   { label: 'Partners', description: 'Review API partner accounts and status', resourceId: 'Partner', icon: 'Briefcase' },
-  { label: 'Admin Users', description: 'Admin accounts & roles', resourceId: 'AdminUser', icon: 'Shield' },
-  { label: 'Audit Log', description: 'Admin activity history', resourceId: 'AdminAuditLog', icon: 'FileText' }
+  { label: 'Admin Access', description: 'Admin accounts, roles and audit history', resourceId: 'AdminUser', icon: 'Shield' }
 ];
 
 const Dashboard: React.FC = () => (
