@@ -44,6 +44,7 @@ import { registerUserDeliveryRoutes } from './user-deliveries.js';
 import { registerResultPinStockRoutes } from './result-pin-stock.js';
 import { registerPartnerManualRequestRoutes } from './partner-manual-request.js';
 import { registerManualRequestRoutes } from './manual-requests.js';
+import { registerManualVerificationRoutes } from './manual-verification.js';
 
 AdminJS.registerAdapter({ Database, Resource });
 
@@ -216,6 +217,7 @@ export async function buildAdminRouter() {
   registerResultPinStockRoutes(router);
   registerPartnerManualRequestRoutes(router);
   registerManualRequestRoutes(router);
+  registerManualVerificationRoutes(router);
 
   return { admin, router };
 }

@@ -16,7 +16,7 @@ export const MANUAL_TRANSACTION_TYPES: TransactionType[] = [
   TransactionType.JAMB_SERVICE_REQUEST
 ];
 
-const MANUAL_VERIFICATION_TRANSACTION_TYPES: TransactionType[] = [
+export const MANUAL_VERIFICATION_TRANSACTION_TYPES: TransactionType[] = [
   TransactionType.IDENTITY_SERVICE_REQUEST,
   TransactionType.NIN_VERIFICATION,
   TransactionType.BVN_VERIFICATION
@@ -64,8 +64,8 @@ export function registerManualRequestRoutes(router: Router) {
       prisma.partnerTransaction.findMany({ where: { status: TransactionStatus.PENDING }, select: { id: true, reference: true, type: true, provider: true, metadata: true, description: true, createdAt: true }, orderBy: { createdAt: 'asc' } })
     ]);
     const rows = [
-      ...customerRows.filter(isManualWorkItem).map((row) => ({ ...row, source: 'Customer', href: `/admin/resources/Transaction/records/${row.id}/show`, group: groupFor(row.type, row.metadata) })),
-      ...partnerRows.filter(isManualWorkItem).map((row) => ({ ...row, source: 'Partner API', href: `/admin/resources/PartnerTransaction/records/${row.id}/show`, group: groupFor(row.type, row.metadata) }))
+      ...customerRows.filter(isManualWorkItem).map((row) => ({ ...row, source: 'Customer', href: row.provider === 'manual' && MANUAL_VERIFICATION_TRANSACTION_TYPES.includes(row.type) ? `/admin/manual-verification/${row.id}` : `/admin/resources/Transaction/records/${row.id}/show`, group: groupFor(row.type, row.metadata) })),
+      ...partnerRows.filter(isManualWorkItem).map((row) => ({ ...row, source: 'Partner API', href: row.provider === 'manual' && MANUAL_VERIFICATION_TRANSACTION_TYPES.includes(row.type) ? `/admin/resources/PartnerTransaction/records/${row.id}/show` : `/admin/partner-manual-request/${row.id}`, group: groupFor(row.type, row.metadata) }))
     ].filter((row) => !requestedGroup || row.group === requestedGroup);
 
     const tabs = QUEUE_GROUPS.map((group) => {
