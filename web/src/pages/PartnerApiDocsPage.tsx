@@ -216,17 +216,17 @@ export default function PartnerApiDocsPage() {
           </Callout>
           <AsyncServiceCard
             title="NIN Validation"
-            desc="Validate a NIN against a specific issue type."
+            desc="Validate a NIN against a specific issue type. Send an Idempotency-Key, then use the returned ticket ID to check the result."
             submitPath="/verification/nin/validation"
             checkPath="/verification/nin/validation/:ticketId"
             rows={[
               { name: 'nin', type: 'string', required: true, desc: '11-digit NIN' },
-              { name: 'validation_type', type: 'string', required: false, desc: 'nin_validation, no_record, sim, modification, photo_error, bank_validation, update_records' }
+              { name: 'validation_type', type: 'string', required: false, desc: 'nin_validation, v.nin_validation, no_record, sim, modification, photo_error, bank_validation, or update_records' }
             ]}
           />
           <AsyncServiceCard
             title="NIN Personalization"
-            desc="Submit a personalization request by NIMC tracking ID."
+            desc="Submit a personalization request by NIMC tracking ID. Send an Idempotency-Key, then use the returned ticket ID to check the result."
             submitPath="/verification/nin/personalization"
             checkPath="/verification/nin/personalization/:ticketId"
             rows={[{ name: 'tracking_id', type: 'string', required: true, desc: 'NIMC tracking ID' }]}
