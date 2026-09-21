@@ -22,6 +22,22 @@ import { createPartnerDynamicFunding, partnerFundingResponse, provisionPartnerVi
 import { configurePartnerWebhook, queuePartnerWebhookTest, webhookConfiguration } from '../services/partner-webhook.service.js';
 import { flagPartnerPendingReconciliation } from '../services/partner-reconciliation.service.js';
 import { requirePartnerAccess } from '../services/partner-access.service.js';
+import {
+  submitPartnerNinModification,
+  submitPartnerBvnModification,
+  submitPartnerCac,
+  submitPartnerNewspaperPublication,
+  submitPartnerBirthAttestation,
+  submitPartnerBvnCrm,
+  submitPartnerBvnLicense,
+  submitPartnerJamb
+} from '../services/partner-manual-services.service.js';
+import { decryptPartnerManualPII, MANUAL_SERVICE_TRANSACTION_TYPES } from '../services/partner-manual-admin.service.js';
+import { MODIFICATION_TYPES } from '../services/nin-modification.service.js';
+import { BVN_MODIFICATION_TYPES } from '../services/bvn-modification.service.js';
+import { CAC_TYPES, type CacApplicantDetails } from '../services/cac.service.js';
+import { GEO_POLITICAL_ZONES } from '../services/bvn-license-onboarding.service.js';
+import { JAMB_SERVICES } from './jamb.routes.js';
 
 export const partnerApiRoutes = Router();
 
@@ -390,4 +406,112 @@ partnerApiRoutes.get('/transactions/:reference', async (req, res) => {
   const transaction = await prisma.partnerTransaction.findFirst({ where: { partnerId: req.partner!.id, reference: req.params.reference } });
   if (!transaction) return res.status(404).json({ status: false, message: 'Transaction not found', code: 'TRANSACTION_NOT_FOUND' });
   res.json({ status: true, data: partnerTransactionResponse(transaction) });
+});
+
+// ── Manual / non-instant services (NIN & BVN Modification, BVN CRM, BVN
+// License Onboarding, Newspaper Publication, Birth Attestation, CAC, JAMB)
+// ──────────────────────────────────────────────────────────────────────
+// Every retail-website service that is NOT instant lands here on submit:
+// debited immediately, then PENDING until an admin reviews it from the
+// "Manage" action on the PartnerTransaction admin record (see
+// admin/partner-manual-request.ts) and either marks it complete (crediting
+// nothing further - the partner was already charged at submit) or declines
+// it (refunds). A webhook fires the moment an admin acts, so a partner does
+// not have to poll - though GET /identity/requests/:reference below still
+// works for that if they prefer it. Same FULL_API tier as /data and
+// /airtime: these go well beyond basic NIN/BVN verification, so the
+// ₦5,000-minimum NIN_BVN tier does not unlock them.
+partnerApiRoutes.use('/identity', requirePartnerApiTier('FULL_API'));
+
+partnerApiRoutes.post('/identity/nin-modification', async (req, res) => {
+  const body = z.object({ type: z.enum(MODIFICATION_TYPES), values: z.record(z.string(), z.unknown()) }).parse(req.body);
+  const result = await submitPartnerNinModification({ partnerId: req.partner!.id, type: body.type, values: body.values, idempotencyKey: idempotencyKeyFrom(req) });
+  res.status(201).json({ status: true, message: 'NIN modification request received and is pending review.', data: result });
+});
+
+partnerApiRoutes.post('/identity/bvn-modification', async (req, res) => {
+  const body = z.object({ type: z.enum(BVN_MODIFICATION_TYPES), values: z.record(z.string(), z.unknown()) }).parse(req.body);
+  const result = await submitPartnerBvnModification({ partnerId: req.partner!.id, type: body.type, values: body.values, idempotencyKey: idempotencyKeyFrom(req) });
+  res.status(201).json({ status: true, message: 'BVN modification request received and is pending review.', data: result });
+});
+
+partnerApiRoutes.post('/identity/bvn-crm', async (req, res) => {
+  const body = z.object({ ticket_id: z.string().trim().min(4).max(20) }).parse(req.body);
+  const result = await submitPartnerBvnCrm({ partnerId: req.partner!.id, values: { ticket_id: body.ticket_id }, idempotencyKey: idempotencyKeyFrom(req) });
+  res.status(201).json({ status: true, message: 'BVN CRM ticket follow-up received and is pending review.', data: result });
+});
+
+partnerApiRoutes.post('/identity/bvn-license-onboarding', async (req, res) => {
+  const body = z.object({ geo_political_zone: z.enum(GEO_POLITICAL_ZONES), consent: z.boolean() }).and(z.record(z.string(), z.union([z.string(), z.boolean()]))).parse(req.body);
+  const result = await submitPartnerBvnLicense({ partnerId: req.partner!.id, values: body, idempotencyKey: idempotencyKeyFrom(req) });
+  res.status(201).json({ status: true, message: 'BVN License Onboarding request received and is pending review.', data: result });
+});
+
+partnerApiRoutes.post('/identity/newspaper-publication', async (req, res) => {
+  const body = z.object({ values: z.record(z.string(), z.unknown()) }).parse(req.body);
+  const result = await submitPartnerNewspaperPublication({ partnerId: req.partner!.id, values: body.values, idempotencyKey: idempotencyKeyFrom(req) });
+  res.status(201).json({ status: true, message: 'Newspaper Publication request received and is pending review.', data: result });
+});
+
+partnerApiRoutes.post('/identity/birth-attestation', async (req, res) => {
+  const body = z.object({ values: z.record(z.string(), z.unknown()) }).parse(req.body);
+  const result = await submitPartnerBirthAttestation({ partnerId: req.partner!.id, values: body.values, idempotencyKey: idempotencyKeyFrom(req) });
+  res.status(201).json({ status: true, message: 'Birth Attestation request received and is pending review.', data: result });
+});
+
+partnerApiRoutes.post('/identity/cac', async (req, res) => {
+  const body = z.object({
+    type: z.enum(CAC_TYPES),
+    proposed_name_1: z.string().trim().min(3),
+    proposed_name_2: z.string().trim().min(3).optional(),
+    details: z.record(z.string(), z.unknown())
+  }).parse(req.body);
+  const result = await submitPartnerCac({
+    partnerId: req.partner!.id, type: body.type, proposedName1: body.proposed_name_1, proposedName2: body.proposed_name_2,
+    details: body.details as unknown as CacApplicantDetails, idempotencyKey: idempotencyKeyFrom(req)
+  });
+  res.status(201).json({ status: true, message: 'CAC request received and is pending review.', data: result });
+});
+
+partnerApiRoutes.post('/identity/jamb', async (req, res) => {
+  const body = z.object({
+    service: z.enum(Object.keys(JAMB_SERVICES) as [string, ...string[]]),
+    registration_number: z.string().trim().min(4).max(30),
+    candidate_full_name: z.string().trim().min(2).max(120),
+    exam_year: z.coerce.number().int().min(2000).max(new Date().getFullYear() + 1)
+  }).parse(req.body);
+  const result = await submitPartnerJamb({
+    partnerId: req.partner!.id, service: body.service as keyof typeof JAMB_SERVICES, registrationNumber: body.registration_number,
+    candidateFullName: body.candidate_full_name, examYear: body.exam_year, idempotencyKey: idempotencyKeyFrom(req)
+  });
+  res.status(201).json({ status: true, message: 'Your request has been submitted and is being processed.', data: result });
+});
+
+// Shared status-check for all eight manual services above - decrypts the
+// same sealed PII /transactions/:reference deliberately does NOT (that one
+// stays generic and never touches PII), returning the delivered file/note
+// once an admin has completed the request.
+partnerApiRoutes.get('/identity/requests/:reference', async (req, res) => {
+  const transaction = await prisma.partnerTransaction.findFirst({ where: { partnerId: req.partner!.id, reference: req.params.reference } });
+  if (!transaction || !MANUAL_SERVICE_TRANSACTION_TYPES.includes(transaction.type)) {
+    return res.status(404).json({ status: false, message: 'Request not found', code: 'REQUEST_NOT_FOUND' });
+  }
+  const pii = decryptPartnerManualPII(transaction) ?? {};
+  const { pdf_base64, submission_pdf_base64, delivered_file_base64, delivered_file_name, delivered_file_mime, admin_note, ...rest } = pii as Record<string, unknown>;
+  res.set('Cache-Control', 'no-store');
+  res.json({
+    status: true,
+    data: {
+      reference: transaction.reference,
+      type: transaction.type.toLowerCase(),
+      status: transaction.status.toLowerCase(),
+      created_at: transaction.createdAt.toISOString(),
+      submission_pdf_base64: (pdf_base64 as string | undefined) ?? (submission_pdf_base64 as string | undefined) ?? null,
+      delivered_file_base64: (delivered_file_base64 as string | undefined) ?? null,
+      delivered_file_name: (delivered_file_name as string | undefined) ?? null,
+      delivered_file_mime: (delivered_file_mime as string | undefined) ?? null,
+      admin_note: (admin_note as string | undefined) ?? null,
+      details: rest
+    }
+  });
 });

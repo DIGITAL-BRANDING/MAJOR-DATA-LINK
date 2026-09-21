@@ -6,6 +6,7 @@ import { prisma } from '../../lib/prisma.js';
 import { logAdminAction } from '../audit.js';
 import type { AdminSessionUser } from '../auth.js';
 import { createPartnerApiKey } from '../../lib/partner-api-key.js';
+import { MANUAL_SERVICE_TRANSACTION_TYPES } from '../../services/partner-manual-admin.service.js';
 import { completePartnerPurchase, reversePartnerPurchase } from '../../services/partner-wallet.service.js';
 
 const canManagePartners = ({ currentAdmin }: { currentAdmin?: Record<string, unknown> }) => {
@@ -192,6 +193,21 @@ export const partnerTransactionResource: ResourceWithOptions = {
           await reversePartnerPurchase(record.params.id as string, 'Manual verification request reversed by admin');
           await logAdminAction({ adminId: admin.id, action: 'REVERSE_MANUAL_PARTNER_VERIFICATION', targetType: 'PartnerTransaction', targetId: record.params.id as string, metadata: { reference: record.params.reference } });
           return { record: record.toJSON(context.currentAdmin), notice: { type: 'success', message: 'Partner wallet refunded.' } };
+        }
+      },
+      // The eight manual/non-instant services (NIN/BVN Modification, BVN
+      // CRM, BVN License Onboarding, Newspaper Publication, Birth
+      // Attestation, CAC, JAMB) - a different, wider set than the
+      // completeManualVerification/reverseManualVerification pair above
+      // (those two are for a verification manually routed to provider
+      // "manual", a different scenario).
+      manageRequest: {
+        actionType: 'record', icon: 'Edit',
+        isAccessible: ({ currentAdmin, record }) => canManagePartners({ currentAdmin }) && MANUAL_SERVICE_TRANSACTION_TYPES.includes(record?.params?.type as never),
+        handler: async (_request, _response, context) => {
+          const { record, currentAdmin } = context;
+          if (!record) throw new Error('Missing record');
+          return { record: record.toJSON(currentAdmin), redirectUrl: `/admin/partner-manual-request/${record.params.id as string}` };
         }
       }
     }

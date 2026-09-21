@@ -120,7 +120,7 @@ export async function getBirthAttestationPrice() {
 /** Renders exactly what the customer submitted into a PDF, photo included -
  *  the document an admin opens to manually process the attestation with
  *  NPC, and the copy the customer can re-download from their own history. */
-function renderBirthAttestationPdf(params: { reference: string; values: Record<string, unknown>; submittedAt: Date }): Promise<string> {
+export function renderBirthAttestationPdf(params: { reference: string; values: Record<string, unknown>; submittedAt: Date }): Promise<string> {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'A4', margin: 50 });
     const chunks: Buffer[] = [];

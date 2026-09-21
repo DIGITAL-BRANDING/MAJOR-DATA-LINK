@@ -132,6 +132,7 @@ const ha = {
         dataAirtime: 'Data & Airtime',
         nin: 'NIN Slips',
         bvn: 'BVN Slips',
+        identity: 'Identity & Manual Services',
         async: 'Async Services',
         transactions: 'Transactions',
         webhooks: 'Webhooks',

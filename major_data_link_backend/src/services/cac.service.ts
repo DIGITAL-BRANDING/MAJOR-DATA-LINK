@@ -35,7 +35,7 @@ import { debitWallet } from './wallet.service.js';
 export const CAC_TYPES = ['sole', 'partnership', 'llc'] as const;
 export type CacType = (typeof CAC_TYPES)[number];
 
-const CAC_CONFIG: Record<CacType, { title: string; price: number }> = {
+export const CAC_CONFIG: Record<CacType, { title: string; price: number }> = {
   sole: { title: 'Business Name \u2014 Sole Proprietorship', price: 28000 },
   partnership: { title: 'Business Name \u2014 Partnership', price: 32000 },
   llc: { title: 'Limited Liability \u2014 1M Share', price: 40000 }
@@ -127,7 +127,7 @@ function createCacReference() {
 /** Renders every submitted field into a proper form-style PDF the admin can
  *  print or upload straight into the CAC portal - bordered field-box grid,
  *  not a loose stack of text lines. */
-async function renderSubmissionPdf(params: {
+export async function renderSubmissionPdf(params: {
   cacType: CacType;
   proposedName1: string;
   proposedName2?: string | null;

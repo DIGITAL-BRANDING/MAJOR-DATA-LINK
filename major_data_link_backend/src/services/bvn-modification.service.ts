@@ -196,7 +196,7 @@ export async function listBvnModificationPrices() {
 /** Renders exactly what the customer submitted into a one-page PDF - the
  *  document an admin opens to manually process the change, and the copy
  *  the customer can re-download from their own history. */
-function renderBvnModificationPdf(params: {
+export function renderBvnModificationPdf(params: {
   reference: string;
   type: BvnModificationType;
   fields: BvnModificationField[];

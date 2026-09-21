@@ -42,6 +42,7 @@ import { userDeliveryResource } from './resources/user-delivery.resource.js';
 import { partnerApiKeyResource, partnerResource, partnerTransactionResource, partnerWebhookDeliveryResource } from './resources/partner.resource.js';
 import { registerUserDeliveryRoutes } from './user-deliveries.js';
 import { registerResultPinStockRoutes } from './result-pin-stock.js';
+import { registerPartnerManualRequestRoutes } from './partner-manual-request.js';
 
 AdminJS.registerAdapter({ Database, Resource });
 
@@ -212,6 +213,7 @@ export async function buildAdminRouter() {
   registerPendingSummaryRoutes(router);
   registerUserDeliveryRoutes(router);
   registerResultPinStockRoutes(router);
+  registerPartnerManualRequestRoutes(router);
 
   return { admin, router };
 }

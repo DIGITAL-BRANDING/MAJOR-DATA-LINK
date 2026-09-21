@@ -115,7 +115,14 @@ transactionRoutes.get('/services', async (req, res) => {
           'WITHDRAWAL',
           'REFERRAL_COMMISSION',
           'MANUAL_ADJUSTMENT',
-          'COUPON_REDEMPTION'
+          'COUPON_REDEMPTION',
+          // Neither is itself a purchased service: REFUND is the credit-back
+          // entry for some other (already-listed) transaction, and
+          // WALLET_FUNDING_FEE is the per-deposit fee charged alongside a
+          // WALLET_FUNDING credit (already excluded above). Both used to
+          // slip through and show up as their own bogus "service" group.
+          'REFUND',
+          'WALLET_FUNDING_FEE'
         ]
       }
     },
@@ -126,16 +133,31 @@ transactionRoutes.get('/services', async (req, res) => {
   res.set('Cache-Control', 'no-store');
   res.json({
     status: true,
-    data: transactions.map((tx) => ({
-      id: tx.id,
-      reference: tx.reference,
-      type: tx.type.toLowerCase(),
-      status: tx.status.toLowerCase(),
-      amount: koboToNaira(tx.amountKobo),
-      balance_after: koboToNaira(tx.balanceAfterKobo),
-      description: tx.description,
-      created_at: tx.createdAt.toISOString()
-    }))
+    data: transactions.map((tx) => {
+      // metadata.service is the specific VerificationServiceKey (e.g.
+      // "NIN_SLIP_PREMIUM", "IPE_CLEARANCE") for the identity-verification
+      // types, which all share the single generic
+      // NIN_VERIFICATION/BVN_VERIFICATION/IDENTITY_SERVICE_REQUEST
+      // TransactionType - tx.type alone can't tell those apart. Every other
+      // service type (data, airtime, NIN Modification, CAC, ...) is already
+      // 1:1 with its own TransactionType, so this is simply undefined for
+      // them and the frontend groups on tx.type alone in that case. Safe to
+      // expose: this is metadata's plaintext operational half, never the
+      // sealed PII half (see sealPII/pii.ts) - no NIN/BVN/personal data here.
+      const metadata = tx.metadata as { service?: unknown } | null;
+      const service = typeof metadata?.service === 'string' ? metadata.service : undefined;
+      return {
+        id: tx.id,
+        reference: tx.reference,
+        type: tx.type.toLowerCase(),
+        service,
+        status: tx.status.toLowerCase(),
+        amount: koboToNaira(tx.amountKobo),
+        balance_after: koboToNaira(tx.balanceAfterKobo),
+        description: tx.description,
+        created_at: tx.createdAt.toISOString()
+      };
+    })
   });
 });
 

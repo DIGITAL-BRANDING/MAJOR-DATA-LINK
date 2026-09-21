@@ -9,6 +9,7 @@ import {
   Banknote,
   ChevronDown,
   Copy,
+  FileText,
   Fingerprint,
   Hourglass,
   KeyRound,
@@ -30,6 +31,7 @@ const SECTIONS = [
   { id: 'nin', key: 'nin' },
   { id: 'bvn', key: 'bvn' },
   { id: 'async', key: 'async' },
+  { id: 'identity', key: 'identity' },
   { id: 'transactions', key: 'transactions' },
   { id: 'webhooks', key: 'webhooks' },
   { id: 'errors', key: 'errors' }
@@ -236,6 +238,63 @@ export default function PartnerApiDocsPage() {
             checkPath="/verification/nin/ipe-clearance/:ticketId"
             rows={[{ name: 'tracking_id', type: 'string', required: true, desc: 'Tracking ID' }]}
           />
+        </Section>
+
+        <Section id="identity" icon={FileText} title={t('partnerPortal.docs.sections.identity')}>
+          <p className="text-slate-600">
+            Every manual, non-instant service the retail website offers is available here too. These are <strong>not instant</strong>:
+            submitting one debits your wallet immediately and the request goes PENDING for an admin to review, exactly like a request
+            submitted on the website itself. Poll <code>GET /identity/requests/:reference</code> below, or configure a{' '}
+            <Link to="/partner-dashboard" className="font-semibold underline">webhook</Link> to be notified the moment an admin
+            completes or declines it - a decline automatically refunds your wallet.
+          </p>
+          <EndpointCard method="POST" path="/identity/nin-modification" title="NIN Modification" icon={FileText}>
+            <ParamsTable rows={[
+              { name: 'type', type: 'string', required: true, desc: 'One of the NIN modification types (see the website for the current list)' },
+              { name: 'values', type: 'object', required: true, desc: 'Field values for the chosen type' }
+            ]} />
+          </EndpointCard>
+          <EndpointCard method="POST" path="/identity/bvn-modification" title="BVN Modification" icon={FileText}>
+            <ParamsTable rows={[
+              { name: 'type', type: 'string', required: true, desc: 'One of the BVN modification types' },
+              { name: 'values', type: 'object', required: true, desc: 'Field values for the chosen type' }
+            ]} />
+          </EndpointCard>
+          <EndpointCard method="POST" path="/identity/bvn-crm" title="BVN CRM Ticket Follow-up" icon={FileText}>
+            <ParamsTable rows={[{ name: 'ticket_id', type: 'string', required: true, desc: '8-digit CRM ticket ID' }]} />
+          </EndpointCard>
+          <EndpointCard method="POST" path="/identity/bvn-license-onboarding" title="BVN License Onboarding" icon={FileText}>
+            <ParamsTable rows={[
+              { name: 'geo_political_zone', type: 'string', required: true, desc: 'North Central, North East, North West, South East, South South, or South West' },
+              { name: 'consent', type: 'boolean', required: true, desc: 'Must be true' },
+              { name: '...fields', type: 'string', required: true, desc: 'Agent/applicant fields - see the website form for the current list' }
+            ]} />
+          </EndpointCard>
+          <EndpointCard method="POST" path="/identity/newspaper-publication" title="Newspaper Publication" icon={FileText}>
+            <ParamsTable rows={[{ name: 'values', type: 'object', required: true, desc: 'Field values - see the website form for the current list' }]} />
+          </EndpointCard>
+          <EndpointCard method="POST" path="/identity/birth-attestation" title="Birth Attestation" icon={FileText}>
+            <ParamsTable rows={[{ name: 'values', type: 'object', required: true, desc: 'Field values - see the website form for the current list' }]} />
+          </EndpointCard>
+          <EndpointCard method="POST" path="/identity/cac" title="CAC Business Registration" icon={FileText}>
+            <ParamsTable rows={[
+              { name: 'type', type: 'string', required: true, desc: 'sole, partnership, or llc' },
+              { name: 'proposed_name_1', type: 'string', required: true, desc: 'First choice business name' },
+              { name: 'proposed_name_2', type: 'string', required: false, desc: 'Second choice business name' },
+              { name: 'details', type: 'object', required: true, desc: 'Applicant details - see the website form for the current list' }
+            ]} />
+          </EndpointCard>
+          <EndpointCard method="POST" path="/identity/jamb" title="JAMB Services" icon={FileText}>
+            <ParamsTable rows={[
+              { name: 'service', type: 'string', required: true, desc: 'cbt_practice_software, original_result, admission_letter, exam_slip, or result_slip' },
+              { name: 'registration_number', type: 'string', required: true, desc: 'JAMB Registration Number' },
+              { name: 'candidate_full_name', type: 'string', required: true, desc: 'Candidate full name' },
+              { name: 'exam_year', type: 'number', required: true, desc: '4-digit exam year' }
+            ]} />
+          </EndpointCard>
+          <EndpointCard method="GET" path="/identity/requests/:reference" title="Check a Request's Status" icon={FileText}>
+            <ResponseExample json={`{\\n  "status": true,\\n  "data": {\\n    "reference": "MDL-...",\\n    "type": "cac_service_request",\\n    "status": "success",\\n    "delivered_file_base64": "...",\\n    "delivered_file_name": "certificate.pdf",\\n    "admin_note": null\\n  }\\n}`} />
+          </EndpointCard>
         </Section>
 
         <Section id="transactions" icon={ListChecks} title={t('partnerPortal.docs.sections.transactions')}>

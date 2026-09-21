@@ -221,7 +221,7 @@ export async function listModificationPrices() {
  * convention as the Techhub-issued slip PDFs already stored under
  * metadata.pii.pdf_base64 in verification.service.ts.
  */
-function renderModificationPdf(params: {
+export function renderModificationPdf(params: {
   reference: string;
   type: ModificationType;
   fields: ModificationField[];

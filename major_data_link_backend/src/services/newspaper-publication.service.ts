@@ -75,7 +75,7 @@ export async function getNewspaperPublicationPrice() {
   return { unitPrice: koboToNaira(unitKobo), providerCostKobo: row.providerCostKobo };
 }
 
-function renderNewspaperPublicationPdf(params: { reference: string; values: Record<string, unknown>; submittedAt: Date }): Promise<string> {
+export function renderNewspaperPublicationPdf(params: { reference: string; values: Record<string, unknown>; submittedAt: Date }): Promise<string> {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'A4', margin: 50 });
     const chunks: Buffer[] = [];
