@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   Baby,
   CreditCard,
-  Download,
   Eye,
   ExternalLink,
   FileText,
@@ -43,6 +42,10 @@ type Transaction = {
   description: string;
   created_at: string;
   document_available?: boolean;
+  holder_name?: string;
+  identifier?: string;
+  slip_type?: string;
+  expires_at?: string;
 };
 
 const label = (type: string) => type.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
@@ -53,6 +56,15 @@ const statusClass = (status: string) =>
     : status === 'failed' || status === 'reversed'
       ? 'bg-rose-100 text-rose-700'
       : 'bg-amber-100 text-amber-700';
+
+const dateTime = (value: string) => new Date(value).toLocaleString('en-NG', { dateStyle: 'medium', timeStyle: 'short' });
+
+function expiryLabel(value?: string) {
+  if (!value) return null;
+  const remaining = Math.ceil((new Date(value).getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+  if (remaining < 0) return `Expired ${new Date(value).toLocaleDateString('en-NG', { dateStyle: 'medium' })}`;
+  return `${remaining}d ${remaining === 1 ? 'left' : 'left'} — Expires ${new Date(value).toLocaleDateString('en-NG', { dateStyle: 'medium' })}`;
+}
 
 /**
  * Each folder's `match` is the single source of truth for "does this
@@ -275,30 +287,38 @@ export default function ServiceHistoryPage() {
                 const group = groupFor(item);
                 const isIdentity = group?.id === 'NIN_VERIFICATION' || group?.id === 'BVN_VERIFICATION';
                 const IdentityIcon = group?.id === 'NIN_VERIFICATION' ? IdCard : group?.id === 'BVN_VERIFICATION' ? Fingerprint : Wallet;
+                const expiry = isIdentity ? expiryLabel(item.expires_at) : null;
                 return (
-                  <article key={item.id} className="rounded-3xl border border-parchment-line bg-white px-5 py-6 text-center shadow-sm sm:px-10">
+                  <article key={item.id} className={`rounded-3xl border border-parchment-line bg-white px-5 py-5 shadow-sm ${isIdentity ? 'sm:flex sm:items-center sm:gap-5' : 'text-center sm:px-10'}`}>
                     {group && (
-                      <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full border-2 border-gold-500 bg-cream text-gold-700">
+                      <div className={`${isIdentity ? 'mx-auto sm:mx-0' : 'mx-auto'} flex h-16 w-16 shrink-0 items-center justify-center rounded-full border-2 border-gold-500 bg-cream text-gold-700`}>
                         <IdentityIcon size={31} />
                       </div>
                     )}
-                    <div className={group ? 'mt-4' : ''}>
-                      <div className="flex flex-wrap items-center justify-center gap-2">
-                        <h2 className="font-display text-xl font-bold uppercase tracking-tight text-ink">{serviceName(item)}</h2>
+                    <div className={`${group && !isIdentity ? 'mt-4' : ''} min-w-0 flex-1 ${isIdentity ? 'mt-4 sm:mt-0' : ''}`}>
+                      <div className={`flex flex-wrap items-center gap-2 ${isIdentity ? 'justify-center sm:justify-start' : 'justify-center'}`}>
+                        <h2 className="font-display text-xl font-bold uppercase tracking-tight text-ink">{isIdentity ? (item.holder_name ?? serviceName(item)) : serviceName(item)}</h2>
                         {isIdentity && (
                           <span className="rounded-md bg-sky-700 px-2.5 py-1 text-xs font-bold text-white">
                             {group?.id === 'NIN_VERIFICATION' ? 'NIN' : 'BVN'}
                           </span>
                         )}
                       </div>
-                      <p className="mt-3 font-body text-base text-ink-600">ID: {item.reference}</p>
-                      <p className="mt-2 font-body text-base text-ink-600">Type: {label(item.type)}</p>
-                      <p className="mt-2 font-body text-base text-ink-600">
-                        Date: {new Date(item.created_at).toLocaleString('en-NG', { dateStyle: 'medium', timeStyle: 'short' })}
-                      </p>
-                      <span className={`mt-4 inline-block rounded-lg px-4 py-2 text-sm font-bold capitalize ${statusClass(item.status)}`}>{item.status}</span>
+                      {isIdentity ? (
+                        <>
+                          <p className="mt-2 text-center font-body text-sm text-ink-600 sm:text-left">ID: {item.identifier ?? item.reference} &nbsp; Type: {item.slip_type ?? label(item.type)} &nbsp; Date: {dateTime(item.created_at)}</p>
+                          {expiry && <span className={`mt-2 inline-block rounded-md px-3 py-1 font-body text-xs font-bold ${expiry.startsWith('Expired') ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'}`}>{expiry}</span>}
+                        </>
+                      ) : (
+                        <>
+                          <p className="mt-3 font-body text-base text-ink-600">ID: {item.reference}</p>
+                          <p className="mt-2 font-body text-base text-ink-600">Type: {label(item.type)}</p>
+                          <p className="mt-2 font-body text-base text-ink-600">Date: {dateTime(item.created_at)}</p>
+                          <span className={`mt-4 inline-block rounded-lg px-4 py-2 text-sm font-bold capitalize ${statusClass(item.status)}`}>{item.status}</span>
+                        </>
+                      )}
                     </div>
-                    <div className="mt-6 flex flex-wrap justify-center gap-3">
+                    <div className={`${isIdentity ? 'mt-4 sm:mt-0 sm:flex-col sm:items-stretch' : 'mt-6'} flex flex-wrap justify-center gap-3`}>
                       {item.document_available && (
                         <>
                           <button
@@ -306,36 +326,19 @@ export default function ServiceHistoryPage() {
                             onClick={() => void previewDocument(item)}
                             className="inline-flex items-center gap-2 rounded-2xl bg-gold-500 px-5 py-3 font-body text-sm font-bold text-ink shadow-sm transition hover:bg-gold-400 disabled:opacity-60"
                           >
-                            <FileText size={18} /> {documentLoading === item.id ? 'Loading PDF…' : 'Preview slip'}
+                            <Eye size={18} /> {documentLoading === item.id ? 'Loading slip…' : 'Details'}
                           </button>
                           <button
                             disabled={documentLoading === item.id}
                             onClick={() => void openDocument(item)}
                             className="inline-flex items-center gap-2 rounded-2xl border border-parchment-line bg-white px-5 py-3 font-body text-sm font-semibold text-ink shadow-sm transition hover:border-gold-400 hover:bg-cream disabled:opacity-60"
                           >
-                            <ExternalLink size={18} /> Open PDF
+                            <ExternalLink size={18} /> Open slip
                           </button>
-                          <button
-                            disabled={documentLoading === item.id}
-                            onClick={() => void downloadDocument(item)}
-                            className="inline-flex items-center gap-2 rounded-2xl border border-parchment-line bg-white px-5 py-3 font-body text-sm font-semibold text-ink shadow-sm transition hover:border-gold-400 hover:bg-cream disabled:opacity-60"
-                          >
-                            <Download size={18} /> Download PDF
-                          </button>
+                          {isIdentity && <button disabled={documentLoading === item.id} onClick={() => void downloadDocument(item)} className="inline-flex items-center gap-2 rounded-2xl border border-parchment-line bg-white px-5 py-3 font-body text-sm font-semibold text-ink shadow-sm transition hover:border-gold-400 hover:bg-cream disabled:opacity-60"><Printer size={18} /> Reprint</button>}
                         </>
                       )}
-                      <Link
-                        to={`/receipt/${item.id}`}
-                        className="inline-flex items-center gap-2 rounded-2xl border border-parchment-line bg-white px-5 py-3 font-body text-sm font-semibold text-ink shadow-sm transition hover:border-gold-400 hover:bg-cream"
-                      >
-                        <Printer size={18} /> Receipt
-                      </Link>
-                      <Link
-                        to={`/receipt/${item.id}`}
-                        className="inline-flex items-center gap-2 rounded-2xl border border-parchment-line bg-white px-5 py-3 font-body text-sm font-semibold text-ink shadow-sm transition hover:border-gold-400 hover:bg-cream"
-                      >
-                        <Eye size={18} /> Details
-                      </Link>
+                      {!isIdentity && <><Link to={`/receipt/${item.id}`} className="inline-flex items-center gap-2 rounded-2xl border border-parchment-line bg-white px-5 py-3 font-body text-sm font-semibold text-ink shadow-sm transition hover:border-gold-400 hover:bg-cream"><Printer size={18} /> Receipt</Link><Link to={`/receipt/${item.id}`} className="inline-flex items-center gap-2 rounded-2xl border border-parchment-line bg-white px-5 py-3 font-body text-sm font-semibold text-ink shadow-sm transition hover:border-gold-400 hover:bg-cream"><Eye size={18} /> Details</Link></>}
                     </div>
                   </article>
                 );

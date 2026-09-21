@@ -10,6 +10,55 @@ transactionRoutes.use(requireAuth);
 
 type StoredServiceDocument = { base64: string; label: string };
 
+type IdentitySlipSummary = {
+  holder_name?: string;
+  identifier?: string;
+  slip_type?: string;
+  expires_at?: string;
+};
+
+function nonEmptyString(value: unknown) {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function firstString(record: Record<string, unknown> | undefined, keys: string[]) {
+  for (const key of keys) {
+    const value = nonEmptyString(record?.[key]);
+    if (value) return value;
+  }
+  return undefined;
+}
+
+/**
+ * The service-history endpoint is authenticated and owner-scoped, so it can
+ * show the few fields a customer needs to recognise a slip (name, NIN/BVN,
+ * type and expiry) without exposing the full encrypted provider response or
+ * the PDF itself in the list payload.
+ */
+function identitySlipSummary(metadata: unknown, updatedAt: Date): IdentitySlipSummary {
+  if (typeof metadata !== 'object' || metadata === null) return {};
+  const record = metadata as Record<string, unknown>;
+  const pii = openPII<Record<string, unknown>>(record.pii);
+  const userData = pii?.user_data as Record<string, unknown> | undefined;
+  const firstName = firstString(userData, ['first_name', 'firstname', 'firstName']) ?? firstString(pii, ['first_name', 'firstname', 'firstName']);
+  const lastName = firstString(userData, ['last_name', 'lastname', 'lastName']) ?? firstString(pii, ['last_name', 'lastname', 'lastName']);
+  const fullName = firstString(userData, ['full_name', 'fullname', 'fullName', 'name', 'customer_name'])
+    ?? firstString(pii, ['full_name', 'fullname', 'fullName', 'name']);
+  const tier = firstString(record, ['tier']);
+  const service = firstString(record, ['service']);
+  const providerExpiry = firstString(userData, ['expires_at', 'expiry_date', 'expiry', 'expiration_date', 'valid_until']);
+
+  return {
+    holder_name: fullName ?? ([firstName, lastName].filter(Boolean).join(' ') || undefined),
+    identifier: firstString(userData, ['nin', 'nin_number', 'nin_no', 'bvn', 'bvn_number', 'bvn_no', 'tracking_id'])
+      ?? firstString(pii, ['nin', 'nin_number', 'bvn', 'bvn_number', 'tracking_id']),
+    slip_type: tier ? `${tier.toUpperCase()} SLIP` : service?.replace(/_/g, ' '),
+    // Verification slips are reprintable for seven days. A provider-supplied
+    // expiry wins if one is present; old records get the same seven-day rule.
+    expires_at: providerExpiry ?? new Date(updatedAt.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString()
+  };
+}
+
 /**
  * Service PDFs are deliberately kept in encrypted transaction PII instead of
  * being put in the history response.  This helper exposes only a yes/no flag
@@ -155,7 +204,11 @@ transactionRoutes.get('/services', async (req, res) => {
         amount: koboToNaira(tx.amountKobo),
         balance_after: koboToNaira(tx.balanceAfterKobo),
         description: tx.description,
-        created_at: tx.createdAt.toISOString()
+        created_at: tx.createdAt.toISOString(),
+        document_available: Boolean(storedServiceDocument(tx.metadata)),
+        ...(tx.type === 'NIN_VERIFICATION' || tx.type === 'BVN_VERIFICATION'
+          ? identitySlipSummary(tx.metadata, tx.updatedAt)
+          : {})
       };
     })
   });
