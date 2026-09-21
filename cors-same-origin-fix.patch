@@ -1,0 +1,37 @@
+diff --git a/major_data_link_backend/src/app.ts b/major_data_link_backend/src/app.ts
+index a0422a4..08517e8 100644
+--- a/major_data_link_backend/src/app.ts
++++ b/major_data_link_backend/src/app.ts
+@@ -139,11 +139,29 @@ export function createApp() {
+     // validation here can only reject an otherwise valid admin login request
+     // (as happened on Railway when its forwarded origin differed from Host).
+     if (req.path.startsWith(ADMIN_ROOT_PATH)) return next();
+-    const sameOrigin = `${req.protocol}://${req.get('host')}`;
++    // Same idea, one level more forgiving: compare HOSTNAME only, not the
++    // full "scheme://host" string. Railway terminates TLS at its edge and
++    // forwards internally - `trust proxy` (above) makes req.protocol trust
++    // X-Forwarded-Proto for exactly one hop, but on Railway that header has
++    // been observed to occasionally disagree with what the browser actually
++    // saw (this is the exact "forwarded origin differed from Host" quirk
++    // noted for /admin above, just hitting the scheme instead of the host).
++    // A same-site request landing here with `origin: https://` while
++    // req.protocol briefly reports `http` is our own frontend, not a cross-
++    // site attacker - and this API authenticates with a Bearer token, not a
++    // cookie, so there's no CSRF-style exposure in being lenient about the
++    // scheme specifically. The hostname still has to match exactly.
++    const requestHost = req.get('host');
+     return cors({
+       origin(origin, callback) {
+-        if (!origin || origin === sameOrigin || allowedOrigins.has(origin)) {
+-          return callback(null, true);
++        if (!origin) return callback(null, true);
++        if (allowedOrigins.has(origin)) return callback(null, true);
++        if (requestHost) {
++          try {
++            if (new URL(origin).host === requestHost) return callback(null, true);
++          } catch {
++            // Malformed Origin header - fall through to reject below.
++          }
+         }
+         return callback(new Error('Origin is not allowed by CORS policy'));
+       }
