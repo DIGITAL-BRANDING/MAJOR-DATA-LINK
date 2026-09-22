@@ -107,6 +107,16 @@ function stringValue(records: Array<Record<string, unknown> | undefined>, keys: 
   return firstNonEmptyString(records, keys);
 }
 
+// Upstream responses are allowed in server logs for diagnosis, but their
+// wording is shown to customers and partners. Keep supplier names out of
+// every public message even when an upstream happens to include one.
+function publicVerificationMessage(value: unknown, fallback: string) {
+  if (typeof value !== 'string' || !value.trim()) return fallback;
+  return value
+    .trim()
+    .replace(/\b(?:tech\s*hub(?:ltd)?|france\s*verified)\b/gi, 'verification service');
+}
+
 function personalInfoFields(data: Record<string, unknown> | undefined, fallback: Record<string, unknown>): IdentitySlipField[] {
   const address = data?.address !== null && typeof data?.address === 'object' && !Array.isArray(data.address)
     ? data.address as Record<string, unknown> : undefined;
@@ -267,7 +277,7 @@ export class TechhubService {
       console.error(`[techhub] slip lookup failed (path=${path}, http=${response.status}):`, JSON.stringify(data));
       return {
         ok: false,
-        message: data.message ?? `Verification provider returned HTTP ${response.status}`,
+        message: publicVerificationMessage(data.message, `Verification could not be completed (HTTP ${response.status})`),
         raw: data
       };
     }
@@ -295,7 +305,7 @@ export class TechhubService {
 
     return {
       ok: true,
-      message: data.message ?? 'PDF generated successfully',
+      message: publicVerificationMessage(data.message, 'Verification completed successfully'),
       userData: userDataRecord,
       pdfBase64,
       pdfUrl,

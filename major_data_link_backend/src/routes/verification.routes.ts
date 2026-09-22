@@ -28,6 +28,21 @@ export const verificationRoutes = Router();
 
 verificationRoutes.use(requireAuth);
 
+// Production timing signal for paid verification submissions. Intentionally
+// excludes request bodies, user IDs, references, and provider details.
+verificationRoutes.use((req, res, next) => {
+  if (req.method !== 'POST') return next();
+  const startedAt = Date.now();
+  res.once('finish', () => {
+    console.info('[verification] request timing', JSON.stringify({
+      endpoint: req.path,
+      duration_ms: Date.now() - startedAt,
+      status: res.statusCode
+    }));
+  });
+  next();
+});
+
 function idempotencyKeyFrom(req: Request) {
   const header = req.header('Idempotency-Key');
   return header && header.trim().length > 0 ? header.trim() : undefined;

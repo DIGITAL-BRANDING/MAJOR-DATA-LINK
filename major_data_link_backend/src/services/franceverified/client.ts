@@ -17,6 +17,13 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
     : undefined;
 }
 
+function publicVerificationMessage(value: unknown, fallback: string) {
+  if (typeof value !== 'string' || !value.trim()) return fallback;
+  return value
+    .trim()
+    .replace(/\b(?:tech\s*hub(?:ltd)?|france\s*verified)\b/gi, 'verification service');
+}
+
 /** Shared transport for FranceVerified's JSON verification endpoints. */
 export async function franceVerifiedPost(path: string, body: Record<string, unknown>): Promise<FranceVerifiedResult> {
   return franceVerifiedRequest(path, { method: 'POST', body: JSON.stringify(body) });
@@ -34,7 +41,7 @@ export async function franceVerifiedGet(path: string, query?: Record<string, str
 
 async function franceVerifiedRequest(path: string, init: { method: 'GET' | 'POST'; body?: string }): Promise<FranceVerifiedResult> {
   if (!env.FRANCEVERIFIED_API_KEY) {
-    return { ok: false, message: 'FranceVerified API key is not configured', raw: null };
+    return { ok: false, message: 'Verification service is temporarily unavailable. Please try again later.', raw: null };
   }
 
   let response: Response;
@@ -61,8 +68,8 @@ async function franceVerifiedRequest(path: string, init: { method: 'GET' | 'POST
   const data = asRecord(envelope.data) ?? asRecord(envelope.response) ?? (successful ? envelope : undefined);
 
   if (!successful || !data) {
-    return { ok: false, message: typeof envelope.message === 'string' ? envelope.message : `Verification provider returned HTTP ${response.status}`, raw };
+    return { ok: false, message: publicVerificationMessage(envelope.message, `Verification could not be completed (HTTP ${response.status})`), raw };
   }
 
-  return { ok: true, message: typeof envelope.message === 'string' ? envelope.message : 'Verification completed successfully', data, raw };
+  return { ok: true, message: publicVerificationMessage(envelope.message, 'Verification completed successfully'), data, raw };
 }

@@ -29,6 +29,24 @@ import { submitNinValidationFV, checkNinValidationFV } from './franceverified-ni
 export type VerificationProvider = 'techhub' | 'franceverified' | 'manual';
 
 /**
+ * Emits only operational timing: no user ID, identifier, ticket, provider,
+ * or response body. This gives us a production latency baseline without
+ * leaking PII or supplier details into logs visible outside the engineering
+ * environment.
+ */
+async function timedVerificationCall<T>(service: string, operation: 'lookup' | 'submit' | 'status', call: () => Promise<T>): Promise<T> {
+  const startedAt = Date.now();
+  try {
+    const result = await call();
+    console.info('[verification] upstream timing', JSON.stringify({ service, operation, duration_ms: Date.now() - startedAt, outcome: 'completed' }));
+    return result;
+  } catch (error) {
+    console.warn('[verification] upstream timing', JSON.stringify({ service, operation, duration_ms: Date.now() - startedAt, outcome: 'error' }));
+    throw error;
+  }
+}
+
+/**
  * Matches VerificationServiceX.key in the Flutter app's
  * lib/features/verification/presentation/providers/verification_provider.dart
  * - keep the two in sync if either side ever adds/renames a service.
@@ -304,7 +322,7 @@ async function purchaseSlip(params: {
     // than silently falling back to a provider the admin didn't choose.
     throw new ApiError(
       500,
-      `${price.label} has no implementation for provider "${price.provider}" - check the Verification Pricing admin page`,
+      'This verification service is temporarily unavailable. Please try again later.',
       'PROVIDER_NOT_IMPLEMENTED'
     );
   }
@@ -341,7 +359,7 @@ async function purchaseSlip(params: {
     };
   }
 
-  const result = await call();
+  const result = await timedVerificationCall(params.service, 'lookup', call);
 
   if (result.ok) {
     const existingMetadata = debit.transaction.metadata as Record<string, unknown> | null;
@@ -584,7 +602,7 @@ async function submitAsyncService(params: {
     // Delinking has no FranceVerified equivalent at all yet).
     throw new ApiError(
       500,
-      `${price.label} has no implementation for provider "${price.provider}" - check the Verification Pricing admin page`,
+      'This verification service is temporarily unavailable. Please try again later.',
       'PROVIDER_NOT_IMPLEMENTED'
     );
   }
@@ -614,7 +632,7 @@ async function submitAsyncService(params: {
     // time, already refunded) - fall through and retry the submission below.
   }
 
-  const result = await call();
+  const result = await timedVerificationCall(params.service, 'submit', call);
 
   if (!result.ok || !result.ticketId) {
     await prisma.transaction.update({
@@ -681,10 +699,12 @@ async function checkAsyncServiceStatus(params: {
   }
   const call = params.callByProvider[provider];
   if (!call) {
-    throw new ApiError(500, `No status-check implementation for provider "${provider}"`, 'PROVIDER_NOT_IMPLEMENTED');
+    throw new ApiError(500, 'This verification service is temporarily unavailable. Please try again later.', 'PROVIDER_NOT_IMPLEMENTED');
   }
 
-  const result = await call(params.ticketId);
+  const metadata = (transaction.metadata as Record<string, unknown> | null) ?? {};
+  const service = typeof metadata.service === 'string' ? metadata.service : transaction.type.toLowerCase();
+  const result = await timedVerificationCall(service, 'status', () => call(params.ticketId));
   const existingMetadata = (transaction.metadata as Record<string, unknown> | null) ?? {};
 
   if (result.status === 'pending') {

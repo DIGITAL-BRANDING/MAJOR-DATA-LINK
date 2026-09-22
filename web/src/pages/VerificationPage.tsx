@@ -411,8 +411,9 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
                     disabled={busy}
                     className="flex w-full items-center justify-center gap-2 rounded-xl bg-gold-500 py-3 font-display font-semibold text-ink disabled:opacity-60"
                   >
-                    {busy ? <Loader2 size={16} className="animate-spin" /> : 'Continue to PIN confirmation'}
+                    {busy ? <><Loader2 size={16} className="animate-spin" /> Ana tantance request ɗin ku…</> : 'Continue to PIN confirmation'}
                   </button>
+                  {busy && <p role="status" className="mt-3 text-center font-body text-sm text-ink-600">Wannan na iya ɗaukar ƴan dakiku. Kada ku rufe wannan shafin.</p>}
                   {message && <p className="mt-3 rounded-lg bg-cream p-3 font-body text-sm text-ink-600">{message}</p>}
                 </div>
               </form>
