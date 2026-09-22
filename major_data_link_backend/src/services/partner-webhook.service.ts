@@ -95,6 +95,22 @@ export async function enqueuePartnerTransactionWebhook(tx: PartnerTransaction) {
   await enqueuePartnerWebhookEvent(tx.partnerId, 'transaction.updated', `${tx.id}:${tx.status}`, payloadFor(tx, eventId), eventId);
 }
 
+/**
+ * Admin recovery path for a completed/reversed request whose partner did not
+ * receive the first notification. A fresh event key deliberately bypasses
+ * the terminal-event dedupe key, while the event id still lets the partner
+ * deduplicate this retry safely.
+ */
+export async function resendPartnerTransactionWebhook(tx: PartnerTransaction) {
+  if (tx.status === TransactionStatus.PENDING) {
+    throw new ApiError(422, 'Only a resolved transaction can be resent', 'TRANSACTION_STILL_PENDING');
+  }
+  const eventId = randomUUID();
+  await enqueuePartnerWebhookEvent(tx.partnerId, 'transaction.updated', `manual-resend:${tx.id}:${eventId}`, payloadFor(tx, eventId), eventId);
+  await deliverDuePartnerWebhooks(1);
+  return prisma.partnerWebhookDelivery.findUnique({ where: { eventId } });
+}
+
 async function enqueuePartnerWebhookEvent(partnerId: string, event: string, eventKey: string, payload: object, eventId = randomUUID()) {
   const partner = await prisma.partner.findUnique({ where: { id: partnerId }, select: { webhookUrl: true, webhookSecretEncrypted: true } });
   const secret = secretFromSealed(partner?.webhookSecretEncrypted);
