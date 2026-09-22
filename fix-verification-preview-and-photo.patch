@@ -1,0 +1,355 @@
+diff --git a/major_data_link_backend/src/routes/transaction.routes.ts b/major_data_link_backend/src/routes/transaction.routes.ts
+index 7cce1f1..5130929 100644
+--- a/major_data_link_backend/src/routes/transaction.routes.ts
++++ b/major_data_link_backend/src/routes/transaction.routes.ts
+@@ -15,6 +15,7 @@ type IdentitySlipSummary = {
+   identifier?: string;
+   slip_type?: string;
+   expires_at?: string;
++  photo?: string;
+ };
+ 
+ function nonEmptyString(value: unknown) {
+@@ -29,6 +30,17 @@ function firstString(record: Record<string, unknown> | null | undefined, keys: s
+   return undefined;
+ }
+ 
++function normalisePhotoBase64(value: string | undefined): string | undefined {
++  if (!value) return undefined;
++  const trimmed = value.trim();
++  if (/^data:image\/(png|jpe?g|webp);base64,/i.test(trimmed)) return trimmed;
++  const compact = trimmed.replace(/\s/g, '');
++  // Providers return raw JPEG/PNG base64 with no data-URL prefix.
++  if (!/^[a-z0-9+/]+={0,2}$/i.test(compact) || compact.length < 32) return undefined;
++  const mime = compact.startsWith('iVBOR') ? 'image/png' : 'image/jpeg';
++  return `data:${mime};base64,${compact}`;
++}
++
+ /**
+  * The service-history endpoint is authenticated and owner-scoped, so it can
+  * show the few fields a customer needs to recognise a slip (name, NIN/BVN,
+@@ -41,12 +53,19 @@ function identitySlipSummary(metadata: unknown, updatedAt: Date): IdentitySlipSu
+   const pii = openPII<Record<string, unknown>>(record.pii);
+   const userData = pii?.user_data as Record<string, unknown> | undefined;
+   const firstName = firstString(userData, ['first_name', 'firstname', 'firstName']) ?? firstString(pii, ['first_name', 'firstname', 'firstName']);
+-  const lastName = firstString(userData, ['last_name', 'lastname', 'lastName']) ?? firstString(pii, ['last_name', 'lastname', 'lastName']);
++  const lastName = firstString(userData, ['last_name', 'lastname', 'lastName', 'surname']) ?? firstString(pii, ['last_name', 'lastname', 'lastName', 'surname']);
+   const fullName = firstString(userData, ['full_name', 'fullname', 'fullName', 'name', 'customer_name'])
+     ?? firstString(pii, ['full_name', 'fullname', 'fullName', 'name']);
+   const tier = firstString(record, ['tier']);
+   const service = firstString(record, ['service']);
+   const providerExpiry = firstString(userData, ['expires_at', 'expiry_date', 'expiry', 'expiration_date', 'valid_until']);
++  // A photo is only worth including here (rather than left for the
++  // service-document route) because the reference design shows it right
++  // in the list, same as Techhub's own verification_summary.php does -
++  // still small enough per entry (a few KB) that a normal-sized history
++  // list stays fast, unlike the full PDF this function's sibling
++  // (storedServiceDocument) deliberately keeps out of list responses.
++  const photo = normalisePhotoBase64(firstString(userData, ['image', 'photo', 'picture', 'passport', 'passport_photo']));
+ 
+   return {
+     holder_name: fullName ?? ([firstName, lastName].filter(Boolean).join(' ') || undefined),
+@@ -55,7 +74,8 @@ function identitySlipSummary(metadata: unknown, updatedAt: Date): IdentitySlipSu
+     slip_type: tier ? `${tier.toUpperCase()} SLIP` : service?.replace(/_/g, ' '),
+     // Verification slips are reprintable for seven days. A provider-supplied
+     // expiry wins if one is present; old records get the same seven-day rule.
+-    expires_at: providerExpiry ?? new Date(updatedAt.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString()
++    expires_at: providerExpiry ?? new Date(updatedAt.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString(),
++    photo
+   };
+ }
+ 
+diff --git a/web/src/lib/identity-fields.ts b/web/src/lib/identity-fields.ts
+new file mode 100644
+index 0000000..a3cee84
+--- /dev/null
++++ b/web/src/lib/identity-fields.ts
+@@ -0,0 +1,103 @@
++/**
++ * Techhub and FranceVerified return identity-verification results with
++ * different, provider-specific field names for the exact same thing (e.g.
++ * "firstname" vs "firstName", "telephoneno" vs "mobile" vs "phoneNumber") -
++ * see franceverified-slip-adapter.service.ts on the backend for the same
++ * problem solved server-side for the generated PDF. This is the
++ * client-side equivalent: pick a short, curated set of fields a customer
++ * actually cares about (name, photo, phone, gender, ID number, and a
++ * couple of location fields) out of whatever the provider actually sent,
++ * under one consistent label, instead of dumping every raw key the
++ * provider happened to include.
++ */
++
++export type IdentityFields = {
++  firstName?: string;
++  middleName?: string;
++  lastName?: string;
++  gender?: string;
++  dateOfBirth?: string;
++  phone?: string;
++  idNumber?: string;
++  idLabel?: 'NIN' | 'BVN';
++  state?: string;
++  lga?: string;
++  address?: string;
++  photo?: string;
++};
++
++function pick(data: Record<string, unknown>, keys: string[]): string | undefined {
++  for (const key of keys) {
++    const value = data[key];
++    if (typeof value === 'string' && value.trim() && value !== '****') return value.trim();
++  }
++  return undefined;
++}
++
++function normaliseGender(value: string | undefined): string | undefined {
++  if (!value) return undefined;
++  const v = value.trim().toLowerCase();
++  if (v === 'm' || v === 'male') return 'Male';
++  if (v === 'f' || v === 'female') return 'Female';
++  return value;
++}
++
++/** `idHint` says which ID field to prefer when a raw response has neither
++ *  a distinctly-named nin/bvn field (rare, but some FranceVerified shapes
++ *  only expose a generic "idNumber") - pass whichever service the customer
++ *  actually requested (NIN vs BVN) so the label is never guessed wrong. */
++export function extractIdentityFields(data: Record<string, unknown> | undefined, idHint: 'NIN' | 'BVN'): IdentityFields {
++  if (!data) return {};
++
++  const photoRaw = pick(data, ['image', 'photo', 'picture', 'passport', 'passport_photo']);
++
++  const nin = pick(data, ['nin']);
++  const bvn = pick(data, ['bvn']);
++  const genericId = pick(data, ['idNumber', 'id_number']);
++  const idNumber = idHint === 'NIN' ? (nin ?? genericId) : (bvn ?? genericId);
++
++  return {
++    firstName: pick(data, ['firstname', 'firstName', 'first_name']),
++    middleName: pick(data, ['middlename', 'middleName', 'middle_name']),
++    lastName: pick(data, ['surname', 'lastName', 'last_name']),
++    gender: normaliseGender(pick(data, ['gender'])),
++    dateOfBirth: pick(data, ['birthdate', 'dateOfBirth', 'dob', 'birthday', 'date_of_birth']),
++    phone: pick(data, ['telephoneno', 'mobile', 'phoneNumber', 'phone', 'phone_number']),
++    idNumber,
++    idLabel: idNumber ? idHint : undefined,
++    state: pick(data, ['residence_state', 'state']),
++    lga: pick(data, ['residence_lga', 'lga']),
++    address: pick(data, ['residence_AdressLine1', 'address', 'addressLine', 'address_line']),
++    photo: normalisePhoto(photoRaw),
++  };
++}
++
++export function normalisePhoto(value?: string): string | undefined {
++  if (!value) return undefined;
++  const trimmed = value.trim();
++  if (/^data:image\/(png|jpe?g|webp);base64,/i.test(trimmed)) return trimmed;
++  const compact = trimmed.replace(/\s/g, '');
++  // Providers return raw JPEG/PNG base64 with no data-URL prefix - never
++  // render an arbitrary URL string here, only base64 image bytes.
++  if (!/^[a-z0-9+/]+={0,2}$/i.test(compact) || compact.length < 32) return undefined;
++  const mime = compact.startsWith('iVBOR') ? 'image/png' : 'image/jpeg';
++  return `data:${mime};base64,${compact}`;
++}
++
++/** Ordered (label, value) rows for a details table - skips any field the
++ *  provider didn't return rather than showing an empty "N/A" row. */
++export function identityFieldRows(fields: IdentityFields): { label: string; value: string }[] {
++  const rows: { label: string; value: string | undefined }[] = [
++    { label: 'First Name', value: fields.firstName },
++    { label: 'Middle Name', value: fields.middleName },
++    { label: 'Last Name', value: fields.lastName },
++    { label: 'Gender', value: fields.gender },
++    { label: 'Date of Birth', value: fields.dateOfBirth },
++    { label: 'Phone Number', value: fields.phone },
++    { label: fields.idLabel ?? 'ID Number', value: fields.idNumber },
++    { label: 'State', value: fields.state },
++    { label: 'LGA', value: fields.lga },
++    { label: 'Address', value: fields.address },
++  ];
++  return rows.filter((row): row is { label: string; value: string } => !!row.value);
++}
+diff --git a/web/src/pages/ServiceHistoryPage.tsx b/web/src/pages/ServiceHistoryPage.tsx
+index 297b724..73cd082 100644
+--- a/web/src/pages/ServiceHistoryPage.tsx
++++ b/web/src/pages/ServiceHistoryPage.tsx
+@@ -46,6 +46,7 @@ type Transaction = {
+   identifier?: string;
+   slip_type?: string;
+   expires_at?: string;
++  photo?: string;
+ };
+ 
+ const label = (type: string) => type.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+@@ -291,8 +292,12 @@ export default function ServiceHistoryPage() {
+                 return (
+                   <article key={item.id} className={`rounded-3xl border border-parchment-line bg-white px-5 py-5 shadow-sm ${isIdentity ? 'sm:flex sm:items-center sm:gap-5' : 'text-center sm:px-10'}`}>
+                     {group && (
+-                      <div className={`${isIdentity ? 'mx-auto sm:mx-0' : 'mx-auto'} flex h-16 w-16 shrink-0 items-center justify-center rounded-full border-2 border-gold-500 bg-cream text-gold-700`}>
+-                        <IdentityIcon size={31} />
++                      <div className={`${isIdentity ? 'mx-auto sm:mx-0' : 'mx-auto'} flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-gold-500 bg-cream text-gold-700`}>
++                        {item.photo ? (
++                          <img src={item.photo} alt="" className="h-full w-full object-cover" />
++                        ) : (
++                          <IdentityIcon size={31} />
++                        )}
+                       </div>
+                     )}
+                     <div className={`${group && !isIdentity ? 'mt-4' : ''} min-w-0 flex-1 ${isIdentity ? 'mt-4 sm:mt-0' : ''}`}>
+diff --git a/web/src/pages/VerificationPage.tsx b/web/src/pages/VerificationPage.tsx
+index 933c941..886d3c2 100644
+--- a/web/src/pages/VerificationPage.tsx
++++ b/web/src/pages/VerificationPage.tsx
+@@ -17,6 +17,7 @@ import {
+ } from 'lucide-react';
+ import AppShell from '../components/AppShell';
+ import { api, ApiError } from '../lib/api';
++import { extractIdentityFields, identityFieldRows } from '../lib/identity-fields';
+ import { PinConfirmDialog } from '../components/PinConfirmDialog';
+ 
+ type Mode = 'nin' | 'bvn';
+@@ -421,6 +422,7 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
+               <SlipResultView
+                 result={slipResult}
+                 message={message}
++                mode={mode}
+                 onDone={() => {
+                   setSelected(null);
+                   resetResult();
+@@ -434,6 +436,7 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
+                 status={ticketStatus}
+                 polling={polling}
+                 message={message}
++                mode={mode}
+                 onRefresh={() => checkTicket(false)}
+                 onDone={() => {
+                   setSelected(null);
+@@ -510,22 +513,15 @@ function VerificationHistoryView({ history, loading }: { history: VerificationHi
+   );
+ }
+ 
+-function SlipResultView({ result, message, onDone }: { result: SlipResult; message: string; onDone: () => void }) {
++function SlipResultView({ result, message, mode, onDone }: { result: SlipResult; message: string; mode: Mode; onDone: () => void }) {
+   const pdfBase64 = result.pdf_base64?.replace(/^data:application\/pdf;base64,/i, '');
+   const pdfHref = pdfBase64
+     ? `data:application/pdf;base64,${pdfBase64}`
+     : result.pdf_url?.startsWith('https://')
+       ? result.pdf_url
+       : null;
+-  const photoValue = result.user_data
+-    ? Object.entries(result.user_data).find(([key, value]) => /^(image|photo|picture|passport(?:_?photo)?)$/i.test(key) && typeof value === 'string' && value.trim())?.[1] as string | undefined
+-    : undefined;
+-  const photoSrc = normaliseProviderPhoto(photoValue);
+-  const dataEntries = result.user_data
+-    ? Object.entries(result.user_data).filter(([key, value]) =>
+-        value !== null && value !== undefined && !/^(image|photo|picture|passport(?:_?photo)?)$/i.test(key)
+-      )
+-    : [];
++  const fields = extractIdentityFields(result.user_data, mode === 'nin' ? 'NIN' : 'BVN');
++  const rows = identityFieldRows(fields);
+ 
+   return (
+     <div className="mt-6">
+@@ -534,17 +530,17 @@ function SlipResultView({ result, message, onDone }: { result: SlipResult; messa
+         <p className="font-body text-sm text-ink">{message}</p>
+       </div>
+ 
+-      {dataEntries.length > 0 && (
++      {(rows.length > 0 || fields.photo) && (
+         <div className="mt-4 grid gap-4 rounded-xl bg-cream p-4 sm:grid-cols-[minmax(0,1fr)_10rem]">
+           <div className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
+-          {dataEntries.map(([key, value]) => (
+-            <div key={key} className="flex min-w-0 justify-between gap-3 border-b border-parchment-line py-1.5 text-sm">
+-              <span className="font-body capitalize text-ink-600">{key.replace(/_/g, ' ')}</span>
+-              <span className="break-all text-right font-body font-semibold text-ink">{String(value)}</span>
++          {rows.map((row) => (
++            <div key={row.label} className="flex min-w-0 justify-between gap-3 border-b border-parchment-line py-1.5 text-sm">
++              <span className="font-body text-ink-600">{row.label}</span>
++              <span className="break-all text-right font-body font-semibold text-ink">{row.value}</span>
+             </div>
+           ))}
+           </div>
+-          {photoSrc && <img src={photoSrc} alt="Verified identity photograph" className="h-44 w-40 rounded-lg border border-parchment-line bg-white object-cover p-1" />}
++          {fields.photo && <img src={fields.photo} alt="Verified identity photograph" className="h-44 w-40 rounded-lg border border-parchment-line bg-white object-cover p-1" />}
+         </div>
+       )}
+ 
+@@ -573,22 +569,12 @@ function SlipResultView({ result, message, onDone }: { result: SlipResult; messa
+   );
+ }
+ 
+-function normaliseProviderPhoto(value?: string): string | null {
+-  if (!value) return null;
+-  const trimmed = value.trim();
+-  if (/^data:image\/(png|jpe?g|webp);base64,/i.test(trimmed)) return trimmed;
+-  const compact = trimmed.replace(/\s/g, '');
+-  // FranceVerify returns raw JPEG/PNG base64. Do not render arbitrary URLs.
+-  if (!/^[a-z0-9+/]+={0,2}$/i.test(compact) || compact.length < 32) return null;
+-  const mime = compact.startsWith('iVBOR') ? 'image/png' : 'image/jpeg';
+-  return `data:${mime};base64,${compact}`;
+-}
+-
+ function AsyncResultView({
+   ticket,
+   status,
+   polling,
+   message,
++  mode,
+   onRefresh,
+   onDone,
+ }: {
+@@ -596,12 +582,21 @@ function AsyncResultView({
+   status: TicketStatus | null;
+   polling: boolean;
+   message: string;
++  mode: Mode;
+   onRefresh: () => void;
+   onDone: () => void;
+ }) {
+   const state = status?.status ?? 'pending';
+-  const responseEntries = status?.response
+-    ? Object.entries(status.response).filter(([, v]) => v !== null && v !== undefined)
++  const identityFields = status?.response ? extractIdentityFields(status.response, mode === 'bvn' ? 'BVN' : 'NIN') : {};
++  const rows = identityFieldRows(identityFields);
++  // Anything left over that isn't one of the curated identity fields above
++  // and isn't a nested object/array (which would otherwise render as the
++  // useless literal text "[object Object]") - e.g. a provider-specific
++  // status note worth keeping visible even though it has no dedicated row.
++  const extraEntries = status?.response
++    ? Object.entries(status.response).filter(
++        ([, v]) => typeof v === 'string' && v.trim() && !Object.values(identityFields).includes(v)
++      )
+     : [];
+ 
+   return (
+@@ -632,14 +627,23 @@ function AsyncResultView({
+         </div>
+       </div>
+ 
+-      {responseEntries.length > 0 && (
+-        <div className="mt-4 grid gap-x-6 gap-y-2 rounded-xl bg-cream p-4 sm:grid-cols-2">
+-          {responseEntries.map(([key, value]) => (
+-            <div key={key} className="flex justify-between border-b border-parchment-line py-1.5 text-sm">
+-              <span className="font-body capitalize text-ink-600">{key.replace(/_/g, ' ')}</span>
+-              <span className="font-body font-semibold text-ink">{String(value)}</span>
+-            </div>
+-          ))}
++      {(rows.length > 0 || identityFields.photo || extraEntries.length > 0) && (
++        <div className="mt-4 grid gap-4 rounded-xl bg-cream p-4 sm:grid-cols-[minmax(0,1fr)_10rem]">
++          <div className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
++            {rows.map((row) => (
++              <div key={row.label} className="flex min-w-0 justify-between gap-3 border-b border-parchment-line py-1.5 text-sm">
++                <span className="font-body text-ink-600">{row.label}</span>
++                <span className="break-all text-right font-body font-semibold text-ink">{row.value}</span>
++              </div>
++            ))}
++            {extraEntries.map(([key, value]) => (
++              <div key={key} className="flex min-w-0 justify-between gap-3 border-b border-parchment-line py-1.5 text-sm">
++                <span className="font-body capitalize text-ink-600">{key.replace(/_/g, ' ')}</span>
++                <span className="break-all text-right font-body font-semibold text-ink">{String(value)}</span>
++              </div>
++            ))}
++          </div>
++          {identityFields.photo && <img src={identityFields.photo} alt="Verified identity photograph" className="h-44 w-40 rounded-lg border border-parchment-line bg-white object-cover p-1" />}
+         </div>
+       )}
+ 

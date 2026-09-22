@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import AppShell from '../components/AppShell';
 import { api, ApiError } from '../lib/api';
+import { extractIdentityFields, identityFieldRows } from '../lib/identity-fields';
 import { PinConfirmDialog } from '../components/PinConfirmDialog';
 
 type Mode = 'nin' | 'bvn';
@@ -421,6 +422,7 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
               <SlipResultView
                 result={slipResult}
                 message={message}
+                mode={mode}
                 onDone={() => {
                   setSelected(null);
                   resetResult();
@@ -434,6 +436,7 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
                 status={ticketStatus}
                 polling={polling}
                 message={message}
+                mode={mode}
                 onRefresh={() => checkTicket(false)}
                 onDone={() => {
                   setSelected(null);
@@ -510,22 +513,15 @@ function VerificationHistoryView({ history, loading }: { history: VerificationHi
   );
 }
 
-function SlipResultView({ result, message, onDone }: { result: SlipResult; message: string; onDone: () => void }) {
+function SlipResultView({ result, message, mode, onDone }: { result: SlipResult; message: string; mode: Mode; onDone: () => void }) {
   const pdfBase64 = result.pdf_base64?.replace(/^data:application\/pdf;base64,/i, '');
   const pdfHref = pdfBase64
     ? `data:application/pdf;base64,${pdfBase64}`
     : result.pdf_url?.startsWith('https://')
       ? result.pdf_url
       : null;
-  const photoValue = result.user_data
-    ? Object.entries(result.user_data).find(([key, value]) => /^(image|photo|picture|passport(?:_?photo)?)$/i.test(key) && typeof value === 'string' && value.trim())?.[1] as string | undefined
-    : undefined;
-  const photoSrc = normaliseProviderPhoto(photoValue);
-  const dataEntries = result.user_data
-    ? Object.entries(result.user_data).filter(([key, value]) =>
-        value !== null && value !== undefined && !/^(image|photo|picture|passport(?:_?photo)?)$/i.test(key)
-      )
-    : [];
+  const fields = extractIdentityFields(result.user_data, mode === 'nin' ? 'NIN' : 'BVN');
+  const rows = identityFieldRows(fields);
 
   return (
     <div className="mt-6">
@@ -534,17 +530,17 @@ function SlipResultView({ result, message, onDone }: { result: SlipResult; messa
         <p className="font-body text-sm text-ink">{message}</p>
       </div>
 
-      {dataEntries.length > 0 && (
+      {(rows.length > 0 || fields.photo) && (
         <div className="mt-4 grid gap-4 rounded-xl bg-cream p-4 sm:grid-cols-[minmax(0,1fr)_10rem]">
           <div className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
-          {dataEntries.map(([key, value]) => (
-            <div key={key} className="flex min-w-0 justify-between gap-3 border-b border-parchment-line py-1.5 text-sm">
-              <span className="font-body capitalize text-ink-600">{key.replace(/_/g, ' ')}</span>
-              <span className="break-all text-right font-body font-semibold text-ink">{String(value)}</span>
+          {rows.map((row) => (
+            <div key={row.label} className="flex min-w-0 justify-between gap-3 border-b border-parchment-line py-1.5 text-sm">
+              <span className="font-body text-ink-600">{row.label}</span>
+              <span className="break-all text-right font-body font-semibold text-ink">{row.value}</span>
             </div>
           ))}
           </div>
-          {photoSrc && <img src={photoSrc} alt="Verified identity photograph" className="h-44 w-40 rounded-lg border border-parchment-line bg-white object-cover p-1" />}
+          {fields.photo && <img src={fields.photo} alt="Verified identity photograph" className="h-44 w-40 rounded-lg border border-parchment-line bg-white object-cover p-1" />}
         </div>
       )}
 
@@ -573,22 +569,12 @@ function SlipResultView({ result, message, onDone }: { result: SlipResult; messa
   );
 }
 
-function normaliseProviderPhoto(value?: string): string | null {
-  if (!value) return null;
-  const trimmed = value.trim();
-  if (/^data:image\/(png|jpe?g|webp);base64,/i.test(trimmed)) return trimmed;
-  const compact = trimmed.replace(/\s/g, '');
-  // FranceVerify returns raw JPEG/PNG base64. Do not render arbitrary URLs.
-  if (!/^[a-z0-9+/]+={0,2}$/i.test(compact) || compact.length < 32) return null;
-  const mime = compact.startsWith('iVBOR') ? 'image/png' : 'image/jpeg';
-  return `data:${mime};base64,${compact}`;
-}
-
 function AsyncResultView({
   ticket,
   status,
   polling,
   message,
+  mode,
   onRefresh,
   onDone,
 }: {
@@ -596,12 +582,21 @@ function AsyncResultView({
   status: TicketStatus | null;
   polling: boolean;
   message: string;
+  mode: Mode;
   onRefresh: () => void;
   onDone: () => void;
 }) {
   const state = status?.status ?? 'pending';
-  const responseEntries = status?.response
-    ? Object.entries(status.response).filter(([, v]) => v !== null && v !== undefined)
+  const identityFields = status?.response ? extractIdentityFields(status.response, mode === 'bvn' ? 'BVN' : 'NIN') : {};
+  const rows = identityFieldRows(identityFields);
+  // Anything left over that isn't one of the curated identity fields above
+  // and isn't a nested object/array (which would otherwise render as the
+  // useless literal text "[object Object]") - e.g. a provider-specific
+  // status note worth keeping visible even though it has no dedicated row.
+  const extraEntries = status?.response
+    ? Object.entries(status.response).filter(
+        ([, v]) => typeof v === 'string' && v.trim() && !Object.values(identityFields).includes(v)
+      )
     : [];
 
   return (
@@ -632,14 +627,23 @@ function AsyncResultView({
         </div>
       </div>
 
-      {responseEntries.length > 0 && (
-        <div className="mt-4 grid gap-x-6 gap-y-2 rounded-xl bg-cream p-4 sm:grid-cols-2">
-          {responseEntries.map(([key, value]) => (
-            <div key={key} className="flex justify-between border-b border-parchment-line py-1.5 text-sm">
-              <span className="font-body capitalize text-ink-600">{key.replace(/_/g, ' ')}</span>
-              <span className="font-body font-semibold text-ink">{String(value)}</span>
-            </div>
-          ))}
+      {(rows.length > 0 || identityFields.photo || extraEntries.length > 0) && (
+        <div className="mt-4 grid gap-4 rounded-xl bg-cream p-4 sm:grid-cols-[minmax(0,1fr)_10rem]">
+          <div className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
+            {rows.map((row) => (
+              <div key={row.label} className="flex min-w-0 justify-between gap-3 border-b border-parchment-line py-1.5 text-sm">
+                <span className="font-body text-ink-600">{row.label}</span>
+                <span className="break-all text-right font-body font-semibold text-ink">{row.value}</span>
+              </div>
+            ))}
+            {extraEntries.map(([key, value]) => (
+              <div key={key} className="flex min-w-0 justify-between gap-3 border-b border-parchment-line py-1.5 text-sm">
+                <span className="font-body capitalize text-ink-600">{key.replace(/_/g, ' ')}</span>
+                <span className="break-all text-right font-body font-semibold text-ink">{String(value)}</span>
+              </div>
+            ))}
+          </div>
+          {identityFields.photo && <img src={identityFields.photo} alt="Verified identity photograph" className="h-44 w-40 rounded-lg border border-parchment-line bg-white object-cover p-1" />}
         </div>
       )}
 

@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import type { Request, Router } from 'express';
 import { prisma } from '../lib/prisma.js';
 import {
-  MANUAL_SERVICE_TRANSACTION_TYPES,
+  isAdminManageablePartnerRequest,
   decryptPartnerManualPII,
   completePartnerManualRequest,
   declinePartnerManualRequest
@@ -109,7 +109,7 @@ export function registerPartnerManualRequestRoutes(router: Router) {
 
     const transactionId = Array.isArray(req.params.transactionId) ? req.params.transactionId[0] : req.params.transactionId;
     const transaction = await prisma.partnerTransaction.findUnique({ where: { id: transactionId } });
-    if (!transaction || !MANUAL_SERVICE_TRANSACTION_TYPES.includes(transaction.type)) {
+    if (!transaction || !isAdminManageablePartnerRequest(transaction)) {
       return res.status(404).type('html').send('<p>Request not found.</p>');
     }
 

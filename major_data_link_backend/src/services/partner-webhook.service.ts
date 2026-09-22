@@ -55,6 +55,23 @@ export async function webhookConfiguration(partnerId: string) {
 }
 
 function payloadFor(tx: PartnerTransaction, eventId: string) {
+  // Completion data is intentionally small: documents remain available from
+  // the authenticated request-status API instead of being copied (possibly
+  // many megabytes) into a webhook queue. This lets the partner react to the
+  // completion immediately, then fetch the optional attachment safely.
+  const pii = openPII<Record<string, unknown>>((tx.metadata as Record<string, unknown> | null)?.pii) ?? {};
+  const hasAttachment = typeof pii.delivered_file_base64 === 'string';
+  const completion = (hasAttachment || typeof pii.admin_note === 'string') ? {
+    note: typeof pii.admin_note === 'string' ? pii.admin_note : null,
+    attachment: hasAttachment ? {
+      available: true,
+      file_name: typeof pii.delivered_file_name === 'string' ? pii.delivered_file_name : 'document',
+      mime_type: typeof pii.delivered_file_mime === 'string' ? pii.delivered_file_mime : 'application/octet-stream'
+    } : null,
+    // The partner calls GET /identity/requests/:reference with its existing
+    // API key to fetch the optional document/result, never a public URL.
+    result_endpoint: `/identity/requests/${encodeURIComponent(tx.reference)}`
+  } : null;
   return {
     id: eventId,
     event: 'transaction.updated',
@@ -65,7 +82,8 @@ function payloadFor(tx: PartnerTransaction, eventId: string) {
       type: tx.type.toLowerCase(),
       amount: koboToNaira(tx.amountKobo),
       balance_after: koboToNaira(tx.balanceAfterKobo),
-      provider: tx.provider ?? null
+      provider: tx.provider ?? null,
+      completion
     }
   };
 }

@@ -15,6 +15,7 @@ type IdentitySlipSummary = {
   identifier?: string;
   slip_type?: string;
   expires_at?: string;
+  photo?: string;
 };
 
 function nonEmptyString(value: unknown) {
@@ -29,6 +30,17 @@ function firstString(record: Record<string, unknown> | null | undefined, keys: s
   return undefined;
 }
 
+function normalisePhotoBase64(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  if (/^data:image\/(png|jpe?g|webp);base64,/i.test(trimmed)) return trimmed;
+  const compact = trimmed.replace(/\s/g, '');
+  // Providers return raw JPEG/PNG base64 with no data-URL prefix.
+  if (!/^[a-z0-9+/]+={0,2}$/i.test(compact) || compact.length < 32) return undefined;
+  const mime = compact.startsWith('iVBOR') ? 'image/png' : 'image/jpeg';
+  return `data:${mime};base64,${compact}`;
+}
+
 /**
  * The service-history endpoint is authenticated and owner-scoped, so it can
  * show the few fields a customer needs to recognise a slip (name, NIN/BVN,
@@ -41,12 +53,19 @@ function identitySlipSummary(metadata: unknown, updatedAt: Date): IdentitySlipSu
   const pii = openPII<Record<string, unknown>>(record.pii);
   const userData = pii?.user_data as Record<string, unknown> | undefined;
   const firstName = firstString(userData, ['first_name', 'firstname', 'firstName']) ?? firstString(pii, ['first_name', 'firstname', 'firstName']);
-  const lastName = firstString(userData, ['last_name', 'lastname', 'lastName']) ?? firstString(pii, ['last_name', 'lastname', 'lastName']);
+  const lastName = firstString(userData, ['last_name', 'lastname', 'lastName', 'surname']) ?? firstString(pii, ['last_name', 'lastname', 'lastName', 'surname']);
   const fullName = firstString(userData, ['full_name', 'fullname', 'fullName', 'name', 'customer_name'])
     ?? firstString(pii, ['full_name', 'fullname', 'fullName', 'name']);
   const tier = firstString(record, ['tier']);
   const service = firstString(record, ['service']);
   const providerExpiry = firstString(userData, ['expires_at', 'expiry_date', 'expiry', 'expiration_date', 'valid_until']);
+  // A photo is only worth including here (rather than left for the
+  // service-document route) because the reference design shows it right
+  // in the list, same as Techhub's own verification_summary.php does -
+  // still small enough per entry (a few KB) that a normal-sized history
+  // list stays fast, unlike the full PDF this function's sibling
+  // (storedServiceDocument) deliberately keeps out of list responses.
+  const photo = normalisePhotoBase64(firstString(userData, ['image', 'photo', 'picture', 'passport', 'passport_photo']));
 
   return {
     holder_name: fullName ?? ([firstName, lastName].filter(Boolean).join(' ') || undefined),
@@ -55,7 +74,8 @@ function identitySlipSummary(metadata: unknown, updatedAt: Date): IdentitySlipSu
     slip_type: tier ? `${tier.toUpperCase()} SLIP` : service?.replace(/_/g, ' '),
     // Verification slips are reprintable for seven days. A provider-supplied
     // expiry wins if one is present; old records get the same seven-day rule.
-    expires_at: providerExpiry ?? new Date(updatedAt.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString()
+    expires_at: providerExpiry ?? new Date(updatedAt.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+    photo
   };
 }
 

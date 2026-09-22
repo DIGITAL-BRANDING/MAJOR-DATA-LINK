@@ -11,9 +11,9 @@ import { completePartnerPurchase, reversePartnerPurchase } from './partner-walle
  * excluded on purpose - that has its own dedicated review flow with
  * different semantics (crediting money in, not delivering a service).
  * IDENTITY_SERVICE_REQUEST/NIN_VERIFICATION/BVN_VERIFICATION are also
- * excluded - those already have their own completeManualVerification/
- * reverseManualVerification actions on the PartnerTransaction resource
- * (for a manually-routed verification, a different scenario).
+ * excluded from this list because only the ones explicitly routed to the
+ * manual provider are actionable by an admin (see
+ * isAdminManageablePartnerRequest below).
  */
 export const MANUAL_SERVICE_TRANSACTION_TYPES: TransactionType[] = [
   TransactionType.NIN_MODIFICATION,
@@ -26,23 +26,21 @@ export const MANUAL_SERVICE_TRANSACTION_TYPES: TransactionType[] = [
   TransactionType.JAMB_SERVICE_REQUEST
 ];
 
+const MANUAL_VERIFICATION_TYPES: TransactionType[] = [
+  TransactionType.IDENTITY_SERVICE_REQUEST,
+  TransactionType.NIN_VERIFICATION,
+  TransactionType.BVN_VERIFICATION
+];
+
+/** Requests which can be fulfilled by an admin, including a provider that was deliberately routed to manual. */
+export function isAdminManageablePartnerRequest(transaction: { type: TransactionType; provider?: string | null }) {
+  return MANUAL_SERVICE_TRANSACTION_TYPES.includes(transaction.type) ||
+    (MANUAL_VERIFICATION_TYPES.includes(transaction.type) && transaction.provider === 'manual');
+}
+
 export function decryptPartnerManualPII(transaction: { metadata: unknown }) {
   const metadata = transaction.metadata as Record<string, unknown> | null;
   return openPII<Record<string, unknown>>(metadata?.pii);
-}
-
-async function queuePartnerWebhook(transactionId: string) {
-  // Same dynamic-import + fire-and-forget pattern already used in
-  // partner-funding.service.ts, to avoid a circular import
-  // (partner-webhook.service.ts pulls in other services that eventually
-  // lead back here).
-  const fresh = await prisma.partnerTransaction.findUnique({ where: { id: transactionId } });
-  if (!fresh) return;
-  void import('./partner-webhook.service.js').then(({ enqueuePartnerTransactionWebhook, deliverDuePartnerWebhooks }) =>
-    enqueuePartnerTransactionWebhook(fresh)
-      .then(() => deliverDuePartnerWebhooks(1))
-      .catch((error) => console.error('[partner-webhooks] could not queue manual-service completion event', error))
-  );
 }
 
 /**
@@ -65,7 +63,7 @@ export async function completePartnerManualRequest(params: {
   note?: string;
 }) {
   const transaction = await prisma.partnerTransaction.findUnique({ where: { id: params.transactionId } });
-  if (!transaction || !MANUAL_SERVICE_TRANSACTION_TYPES.includes(transaction.type)) {
+  if (!transaction || !isAdminManageablePartnerRequest(transaction)) {
     throw new ApiError(404, 'Manual service request not found', 'MANUAL_REQUEST_NOT_FOUND');
   }
   if (transaction.status !== TransactionStatus.PENDING) {
@@ -87,20 +85,18 @@ export async function completePartnerManualRequest(params: {
   // Provider Ledger still reflects what these requests actually cost,
   // recorded once, here.
   await completePartnerPurchase(transaction.id, 'manual', undefined, transaction.costKobo ?? undefined);
-  await queuePartnerWebhook(transaction.id);
   return prisma.partnerTransaction.findUniqueOrThrow({ where: { id: transaction.id } });
 }
 
 /** Declines a pending manual-service request and refunds the partner's wallet, via the exact same reversePartnerPurchase() every async verification submit failure already uses. */
 export async function declinePartnerManualRequest(params: { transactionId: string; reason: string }) {
   const transaction = await prisma.partnerTransaction.findUnique({ where: { id: params.transactionId } });
-  if (!transaction || !MANUAL_SERVICE_TRANSACTION_TYPES.includes(transaction.type)) {
+  if (!transaction || !isAdminManageablePartnerRequest(transaction)) {
     throw new ApiError(404, 'Manual service request not found', 'MANUAL_REQUEST_NOT_FOUND');
   }
   if (transaction.status !== TransactionStatus.PENDING) {
     throw new ApiError(422, 'Only a pending request can be declined', 'INVALID_STATUS');
   }
   await reversePartnerPurchase(transaction.id, params.reason);
-  await queuePartnerWebhook(transaction.id);
   return prisma.partnerTransaction.findUniqueOrThrow({ where: { id: transaction.id } });
 }

@@ -46,6 +46,7 @@ type Transaction = {
   identifier?: string;
   slip_type?: string;
   expires_at?: string;
+  photo?: string;
 };
 
 const label = (type: string) => type.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
@@ -291,8 +292,12 @@ export default function ServiceHistoryPage() {
                 return (
                   <article key={item.id} className={`rounded-3xl border border-parchment-line bg-white px-5 py-5 shadow-sm ${isIdentity ? 'sm:flex sm:items-center sm:gap-5' : 'text-center sm:px-10'}`}>
                     {group && (
-                      <div className={`${isIdentity ? 'mx-auto sm:mx-0' : 'mx-auto'} flex h-16 w-16 shrink-0 items-center justify-center rounded-full border-2 border-gold-500 bg-cream text-gold-700`}>
-                        <IdentityIcon size={31} />
+                      <div className={`${isIdentity ? 'mx-auto sm:mx-0' : 'mx-auto'} flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-gold-500 bg-cream text-gold-700`}>
+                        {item.photo ? (
+                          <img src={item.photo} alt="" className="h-full w-full object-cover" />
+                        ) : (
+                          <IdentityIcon size={31} />
+                        )}
                       </div>
                     )}
                     <div className={`${group && !isIdentity ? 'mt-4' : ''} min-w-0 flex-1 ${isIdentity ? 'mt-4 sm:mt-0' : ''}`}>

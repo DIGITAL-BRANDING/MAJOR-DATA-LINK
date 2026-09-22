@@ -6,8 +6,7 @@ import { prisma } from '../../lib/prisma.js';
 import { logAdminAction } from '../audit.js';
 import type { AdminSessionUser } from '../auth.js';
 import { createPartnerApiKey } from '../../lib/partner-api-key.js';
-import { MANUAL_SERVICE_TRANSACTION_TYPES } from '../../services/partner-manual-admin.service.js';
-import { completePartnerPurchase, reversePartnerPurchase } from '../../services/partner-wallet.service.js';
+import { isAdminManageablePartnerRequest } from '../../services/partner-manual-admin.service.js';
 
 const canManagePartners = ({ currentAdmin }: { currentAdmin?: Record<string, unknown> }) => {
   const admin = currentAdmin as unknown as AdminSessionUser | undefined;
@@ -173,28 +172,6 @@ export const partnerTransactionResource: ResourceWithOptions = {
     properties: { idempotencyKey: { isVisible: false }, metadata: { isVisible: false } },
     actions: {
       new: { isAccessible: false }, edit: { isAccessible: false }, delete: { isAccessible: false }, list: { isAccessible: canManagePartners }, show: { isAccessible: canManagePartners },
-      completeManualVerification: {
-        actionType: 'record', icon: 'CheckCircle', component: false, guard: 'Mark this manually-routed partner verification request as completed?',
-        isAccessible: ({ currentAdmin, record }) => canManagePartners({ currentAdmin }) && ['IDENTITY_SERVICE_REQUEST', 'NIN_VERIFICATION', 'BVN_VERIFICATION'].includes(record?.params?.type as string) && record?.params?.provider === 'manual' && record?.params?.status === 'PENDING',
-        handler: async (_request, _response, context) => {
-          const record = context.record; const admin = context.currentAdmin as unknown as AdminSessionUser | undefined;
-          if (!record || !admin) throw new Error('Missing partner transaction or admin context');
-          await completePartnerPurchase(record.params.id as string, 'manual', record.params.providerRef as string | undefined);
-          await logAdminAction({ adminId: admin.id, action: 'COMPLETE_MANUAL_PARTNER_VERIFICATION', targetType: 'PartnerTransaction', targetId: record.params.id as string, metadata: { reference: record.params.reference } });
-          return { record: record.toJSON(context.currentAdmin), notice: { type: 'success', message: 'Partner manual verification request marked as completed.' } };
-        }
-      },
-      reverseManualVerification: {
-        actionType: 'record', icon: 'RotateCcw', component: false, guard: 'Reverse this manual partner verification request and refund the partner wallet?',
-        isAccessible: ({ currentAdmin, record }) => canManagePartners({ currentAdmin }) && ['IDENTITY_SERVICE_REQUEST', 'NIN_VERIFICATION', 'BVN_VERIFICATION'].includes(record?.params?.type as string) && record?.params?.provider === 'manual' && record?.params?.status === 'PENDING',
-        handler: async (_request, _response, context) => {
-          const record = context.record; const admin = context.currentAdmin as unknown as AdminSessionUser | undefined;
-          if (!record || !admin) throw new Error('Missing partner transaction or admin context');
-          await reversePartnerPurchase(record.params.id as string, 'Manual verification request reversed by admin');
-          await logAdminAction({ adminId: admin.id, action: 'REVERSE_MANUAL_PARTNER_VERIFICATION', targetType: 'PartnerTransaction', targetId: record.params.id as string, metadata: { reference: record.params.reference } });
-          return { record: record.toJSON(context.currentAdmin), notice: { type: 'success', message: 'Partner wallet refunded.' } };
-        }
-      },
       // The eight manual/non-instant services (NIN/BVN Modification, BVN
       // CRM, BVN License Onboarding, Newspaper Publication, Birth
       // Attestation, CAC, JAMB) - a different, wider set than the
@@ -203,7 +180,7 @@ export const partnerTransactionResource: ResourceWithOptions = {
       // "manual", a different scenario).
       manageRequest: {
         actionType: 'record', icon: 'Edit',
-        isAccessible: ({ currentAdmin, record }) => canManagePartners({ currentAdmin }) && MANUAL_SERVICE_TRANSACTION_TYPES.includes(record?.params?.type as never),
+        isAccessible: ({ currentAdmin, record }) => canManagePartners({ currentAdmin }) && isAdminManageablePartnerRequest({ type: record?.params?.type as never, provider: record?.params?.provider as string | undefined }),
         handler: async (_request, _response, context) => {
           const { record, currentAdmin } = context;
           if (!record) throw new Error('Missing record');

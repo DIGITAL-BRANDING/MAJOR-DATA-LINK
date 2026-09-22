@@ -32,7 +32,7 @@ import {
   submitPartnerBvnLicense,
   submitPartnerJamb
 } from '../services/partner-manual-services.service.js';
-import { decryptPartnerManualPII, MANUAL_SERVICE_TRANSACTION_TYPES } from '../services/partner-manual-admin.service.js';
+import { decryptPartnerManualPII, isAdminManageablePartnerRequest } from '../services/partner-manual-admin.service.js';
 import { MODIFICATION_TYPES } from '../services/nin-modification.service.js';
 import { BVN_MODIFICATION_TYPES } from '../services/bvn-modification.service.js';
 import { CAC_TYPES, type CacApplicantDetails } from '../services/cac.service.js';
@@ -487,13 +487,15 @@ partnerApiRoutes.post('/identity/jamb', async (req, res) => {
   res.status(201).json({ status: true, message: 'Your request has been submitted and is being processed.', data: result });
 });
 
-// Shared status-check for all eight manual services above - decrypts the
-// same sealed PII /transactions/:reference deliberately does NOT (that one
-// stays generic and never touches PII), returning the delivered file/note
-// once an admin has completed the request.
+// Shared status-check for every admin-managed request - decrypts the same
+// sealed PII /transactions/:reference deliberately does NOT (that one stays
+// generic and never touches PII), returning an optional delivered file/note.
+// This also covers NIN/BVN/identity verification requests deliberately
+// routed to the manual provider, so their completion webhook's
+// `result_endpoint` is always usable.
 partnerApiRoutes.get('/identity/requests/:reference', async (req, res) => {
   const transaction = await prisma.partnerTransaction.findFirst({ where: { partnerId: req.partner!.id, reference: req.params.reference } });
-  if (!transaction || !MANUAL_SERVICE_TRANSACTION_TYPES.includes(transaction.type)) {
+  if (!transaction || !isAdminManageablePartnerRequest(transaction)) {
     return res.status(404).json({ status: false, message: 'Request not found', code: 'REQUEST_NOT_FOUND' });
   }
   const pii = decryptPartnerManualPII(transaction) ?? {};
