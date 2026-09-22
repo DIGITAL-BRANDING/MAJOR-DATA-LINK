@@ -202,6 +202,10 @@ export function registerPartnerManualRequestRoutes(router: Router) {
     const admin = req.session?.adminUser;
     if (!admin) return res.redirect('/admin/login');
 
+    // Existing AdminJS/manual-request bookmarks used this singular URL.
+    // Keep them working, but always open the bulk workflow.
+    return res.redirect('/admin/partner-manual-requests');
+
     const transactionId = Array.isArray(req.params.transactionId) ? req.params.transactionId[0] : req.params.transactionId;
     const transaction = await prisma.partnerTransaction.findUnique({ where: { id: transactionId } });
     if (!transaction || !isAdminManageablePartnerRequest(transaction)) {

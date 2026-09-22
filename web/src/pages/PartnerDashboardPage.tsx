@@ -936,8 +936,15 @@ function WebhookCard({
     setBusy(true);
     onError('');
     try {
-      await portalFetch('/webhook/test', { method: 'POST' });
-      onNotice(t('partnerPortal.webhook.testQueued'));
+      // The backend attempts delivery before returning, so surface the real
+      // result instead of only saying that the test entered the queue. This
+      // makes a missing/incorrect partner callback immediately visible.
+      const result = await portalFetch<{ data: { status: string; attempts: number } }>('/webhook/test', { method: 'POST' });
+      if (result.data.status === 'delivered') {
+        onNotice('Webhook test delivered successfully.');
+      } else {
+        onError(`Webhook test was not delivered yet (status: ${result.data.status}, attempt: ${result.data.attempts}). Check the callback route and webhook secret.`);
+      }
     } catch (err) {
       onError(err instanceof Error ? err.message : t('partnerPortal.webhook.testFailed'));
     } finally {

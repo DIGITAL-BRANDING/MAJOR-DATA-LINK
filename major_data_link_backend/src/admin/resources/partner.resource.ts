@@ -189,7 +189,7 @@ export const partnerTransactionResource: ResourceWithOptions = {
         handler: async (_request, _response, context) => {
           const { record, currentAdmin } = context;
           if (!record) throw new Error('Missing record');
-          return { record: record.toJSON(currentAdmin), redirectUrl: `/admin/partner-manual-request/${record.params.id as string}` };
+          return { record: record.toJSON(currentAdmin), redirectUrl: '/admin/partner-manual-requests' };
         }
       }
     }
