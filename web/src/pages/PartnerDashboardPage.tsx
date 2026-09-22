@@ -185,6 +185,17 @@ export default function PartnerDashboardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search]);
 
+  // Admin completion and provider reconciliation happen server-side. While
+  // a partner still has an in-progress call, refresh the ledger quietly so a
+  // completed request becomes SUCCESS without requiring a page reload.
+  useEffect(() => {
+    if (!partner || !transactions.some((transaction) => transaction.status === 'pending')) return;
+    const timer = window.setInterval(() => void loadTransactions(search), 15_000);
+    return () => window.clearInterval(timer);
+    // loadTransactions intentionally stays stable with the current portal session.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [partner, transactions, search]);
+
   function onAuthSuccess(data: { access_token: string; refresh_token: string; partner: Partner }) {
     setTokens(data.access_token, data.refresh_token);
     setPartner(data.partner);

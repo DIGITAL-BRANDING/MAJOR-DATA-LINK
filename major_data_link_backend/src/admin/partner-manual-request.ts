@@ -21,18 +21,47 @@ declare module 'express-session' {
 // every route on this router (see buildAuthenticatedRouter() in setup.ts),
 // so this file must not add a second body parser of its own.
 type Upload = { filepath?: string; path?: string; originalFilename?: string; name?: string; mimetype?: string; type?: string };
-function uploadedFile(req: Request) {
+type PartnerManualTransaction = Awaited<ReturnType<typeof prisma.partnerTransaction.findUniqueOrThrow>>;
+function uploadedFile(req: Request, name = 'file') {
   const files = (req as unknown as { files?: Record<string, Upload | Upload[]> }).files;
-  const value = files?.file;
+  const value = files?.[name];
   return Array.isArray(value) ? value[0] : value;
 }
 function field(req: Request, name: string): string {
   const v = (req as unknown as { fields?: Record<string, string | string[] | undefined> }).fields?.[name];
   return typeof v === 'string' ? v : '';
 }
+function fields(req: Request) {
+  return (req as unknown as { fields?: Record<string, string | string[] | undefined> }).fields ?? {};
+}
 
 function escapeHtml(value: string) {
   return value.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
+}
+
+function requestIdentifier(transaction: PartnerManualTransaction) {
+  const pii = decryptPartnerManualPII(transaction);
+  for (const key of ['tracking_id', 'trackingId', 'ticket_id', 'ticketId', 'nin', 'bvn', 'phone', 'registration_number']) {
+    const value = pii?.[key];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return '—';
+}
+
+function serviceLabel(transaction: PartnerManualTransaction) {
+  const metadata = transaction.metadata as Record<string, unknown> | null;
+  const service = metadata?.service;
+  return typeof service === 'string' ? service.replace(/_/g, ' ') : transaction.type.replace(/_/g, ' ');
+}
+
+function renderBatchPage(params: { rows: Array<PartnerManualTransaction & { partner: { businessName: string; email: string } }>; flash?: string }) {
+  const tableRows = params.rows.length
+    ? params.rows.map((transaction) => {
+        const id = transaction.id;
+        return `<tr><td><strong>${escapeHtml(transaction.partner.businessName)}</strong><br><small>${escapeHtml(transaction.partner.email)}</small></td><td><strong>${escapeHtml(serviceLabel(transaction))}</strong><br><small>${escapeHtml(transaction.reference)}</small></td><td>${escapeHtml(requestIdentifier(transaction))}</td><td>${escapeHtml(transaction.createdAt.toLocaleString())}</td><td><select name="action_${id}"><option value="">No change</option><option value="complete">Complete request</option><option value="decline">Decline &amp; refund</option></select></td><td><textarea name="note_${id}" rows="2" placeholder="Completion note, or decline reason"></textarea></td><td><input type="file" name="file_${id}" accept="application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/png,image/jpeg"><small>Optional; used only when completing.</small></td></tr>`;
+      }).join('')
+    : '<tr><td colspan="7" class="empty">No pending partner requests in this queue.</td></tr>';
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Partner Request Queue</title><style>body{font:14px Arial,sans-serif;background:#f5f6f8;color:#18212f;margin:0;padding:28px}a{color:#0756b8;font-weight:600;text-decoration:none}.top{display:flex;justify-content:space-between;align-items:center;gap:16px}.flash{background:#e6f4ea;border:1px solid #8fd1a1;color:#155724;padding:12px 15px;border-radius:8px;margin:16px 0}form{overflow-x:auto}table{border-collapse:collapse;width:100%;min-width:1180px;background:#fff;box-shadow:0 1px 4px #0001}th,td{text-align:left;padding:12px;border-bottom:1px solid #e7edf4;vertical-align:top}th{background:#0b2f73;color:#fff}textarea,select,input[type=file]{box-sizing:border-box;width:100%;font:inherit;border:1px solid #bdc9d8;border-radius:6px;padding:8px;background:#fff}input[type=file]{font-size:12px}small{display:block;color:#5b6878;margin-top:4px}.empty{text-align:center;padding:32px}.submit{margin-top:16px;background:#0b2f73;color:#fff;border:0;border-radius:8px;padding:12px 20px;font-size:15px;font-weight:bold;cursor:pointer}.hint{color:#536273}</style></head><body><div class="top"><div><h1>Partner request queue</h1><p class="hint">Complete or decline many pending Partner API requests on one page. Only rows with a selected action will change.</p></div><a href="/admin">← Admin Dashboard</a></div><p><a href="/admin/manual-requests">← All manual requests</a></p>${params.flash ? `<p class="flash">${escapeHtml(params.flash)}</p>` : ''}<form method="post" action="/admin/partner-manual-requests/batch" enctype="multipart/form-data"><table><thead><tr><th>Partner</th><th>Request</th><th>Submitted ID</th><th>Submitted</th><th>Action</th><th>Message</th><th>Result file</th></tr></thead><tbody>${tableRows}</tbody></table>${params.rows.length ? '<button class="submit" type="submit">Apply selected changes</button>' : ''}</form></body></html>`;
 }
 
 function renderPage(params: {
@@ -103,6 +132,72 @@ function renderPage(params: {
 }
 
 export function registerPartnerManualRequestRoutes(router: Router) {
+  router.get('/partner-manual-requests', async (req: Request, res) => {
+    const admin = req.session?.adminUser;
+    if (!admin) return res.redirect('/admin/login');
+
+    const rows = await prisma.partnerTransaction.findMany({
+      where: { status: 'PENDING' },
+      include: { partner: { select: { businessName: true, email: true } } },
+      orderBy: { createdAt: 'asc' }
+    });
+    res.type('html').send(renderBatchPage({
+      rows: rows.filter(isAdminManageablePartnerRequest),
+      flash: typeof req.query.flash === 'string' ? req.query.flash : undefined
+    }));
+  });
+
+  router.post('/partner-manual-requests/batch', async (req: Request, res) => {
+    const admin = req.session?.adminUser;
+    if (!admin) return res.redirect('/admin/login');
+    if (admin.role === 'SUPPORT') return res.status(403).type('html').send('<p>Finance or Super Admin access required to act on partner requests.</p>');
+
+    const actions = Object.entries(fields(req))
+      .filter(([name, value]) => name.startsWith('action_') && (value === 'complete' || value === 'decline')) as Array<[string, 'complete' | 'decline']>;
+    let completed = 0;
+    let declined = 0;
+    let failures = 0;
+
+    for (const [name, action] of actions) {
+      const transactionId = name.slice('action_'.length);
+      try {
+        const transaction = await prisma.partnerTransaction.findUnique({ where: { id: transactionId } });
+        if (!transaction || transaction.status !== 'PENDING' || !isAdminManageablePartnerRequest(transaction)) throw new Error('Unavailable');
+
+        const note = field(req, `note_${transactionId}`).trim();
+        if (action === 'decline') {
+          if (!note) throw new Error('A decline reason is required');
+          await declinePartnerManualRequest({ transactionId, reason: note });
+          await logAdminAction({ adminId: admin.id, action: 'DECLINE_PARTNER_MANUAL_REQUEST', targetType: 'PartnerTransaction', targetId: transactionId, metadata: { reason: note, batch: true } });
+          declined += 1;
+          continue;
+        }
+
+        const file = uploadedFile(req, `file_${transactionId}`);
+        const filePath = file?.filepath ?? file?.path;
+        let fileBase64: string | undefined;
+        let fileName: string | undefined;
+        let fileMime: string | undefined;
+        if (filePath) {
+          const bytes = await readFile(filePath);
+          fileBase64 = bytes.toString('base64');
+          fileName = file?.originalFilename ?? file?.name ?? 'document';
+          fileMime = file?.mimetype ?? file?.type ?? 'application/octet-stream';
+        }
+        await completePartnerManualRequest({ transactionId, fileBase64, fileName, fileMime, note: note || undefined });
+        await logAdminAction({ adminId: admin.id, action: 'COMPLETE_PARTNER_MANUAL_REQUEST', targetType: 'PartnerTransaction', targetId: transactionId, metadata: { fileName: fileName ?? null, batch: true } });
+        completed += 1;
+      } catch {
+        failures += 1;
+      }
+    }
+
+    const summary = actions.length
+      ? `${completed} request(s) completed; ${declined} request(s) declined.${failures ? ` ${failures} row(s) could not be processed.` : ''}`
+      : 'Choose at least one action before applying changes.';
+    res.redirect(`/admin/partner-manual-requests?flash=${encodeURIComponent(summary)}`);
+  });
+
   router.get('/partner-manual-request/:transactionId', async (req: Request, res) => {
     const admin = req.session?.adminUser;
     if (!admin) return res.redirect('/admin/login');
