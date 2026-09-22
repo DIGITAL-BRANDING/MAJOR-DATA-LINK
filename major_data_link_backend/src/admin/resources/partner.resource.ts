@@ -180,6 +180,11 @@ export const partnerTransactionResource: ResourceWithOptions = {
       // "manual", a different scenario).
       manageRequest: {
         actionType: 'record', icon: 'Edit',
+        // AdminJS renders record actions with component:false as a client
+        // page before it invokes their handler, yielding "implement action
+        // component". The real processing screen is the Manual Requests
+        // queue, so hide this broken shortcut rather than exposing a dead end.
+        isVisible: false,
         isAccessible: ({ currentAdmin, record }) => canManagePartners({ currentAdmin }) && isAdminManageablePartnerRequest({ type: record?.params?.type as never, provider: record?.params?.provider as string | undefined }),
         handler: async (_request, _response, context) => {
           const { record, currentAdmin } = context;

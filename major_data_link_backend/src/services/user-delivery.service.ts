@@ -3,7 +3,11 @@ import { prisma } from '../lib/prisma.js';
 import { env } from '../config/env.js';
 import { openPII, sealPII } from '../lib/pii.js';
 
-const allowed = new Set(['application/pdf', 'image/png', 'image/jpeg', 'text/plain']);
+const allowed = new Set([
+  'application/pdf', 'image/png', 'image/jpeg', 'text/plain',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+]);
 const maxBytes = 10 * 1024 * 1024;
 const downloadLifetimeSeconds = 300;
 type StoredDelivery = { base64?: string };
