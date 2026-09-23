@@ -13,7 +13,20 @@ const serviceLinks = [
 
 function Sidebar({ close }: { close?: () => void }) {
   const { logout } = useAuth(); const nav = useNavigate();
-  return <aside className="premium-sidebar flex h-full w-72 flex-col px-3 py-5"><Link to="/dashboard" onClick={close} className="mb-8 px-3"><Logo dark /></Link><nav className="flex-1 space-y-1 overflow-y-auto"><NavLink to="/dashboard" onClick={close} className={({isActive}) => `premium-nav-link flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold ${isActive ? 'is-active' : ''}`}><LayoutDashboard size={17}/>Dashboard</NavLink>{serviceLinks.map(([label, to, Icon]) => <NavLink key={to} to={to} onClick={close} className={({isActive}) => `premium-nav-link flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold ${isActive ? 'is-active' : ''}`}><Icon size={17}/>{label}</NavLink>)}<NavLink to="/verifications" onClick={close} className={({isActive}) => `premium-nav-link flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold ${isActive ? 'is-active' : ''}`}><History size={17}/>Service History</NavLink><NavLink to="/deliveries" onClick={close} className={({isActive}) => `premium-nav-link flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold ${isActive ? 'is-active' : ''}`}><PackageOpen size={17}/>My Deliveries</NavLink><NavLink to="/fund-wallet" onClick={close} className={({isActive}) => `premium-nav-link flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold ${isActive ? 'is-active' : ''}`}><WalletCards size={17}/>Wallet Summary</NavLink><NavLink to="/support" onClick={close} className={({isActive}) => `premium-nav-link flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold ${isActive ? 'is-active' : ''}`}><MessageCircle size={17}/>Complaints & Support</NavLink><NavLink to="/jamb-services" onClick={close} className={({isActive}) => `premium-nav-link flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold ${isActive ? 'is-active' : ''}`}><GraduationCap size={17}/>JAMB Services</NavLink></nav><button onClick={() => { logout(); close?.(); nav('/login'); }} className="premium-logout flex items-center gap-3 px-3 py-4 text-sm font-semibold"><LogOut size={18}/>Logout</button></aside>;
+  const navClass = ({ isActive }: { isActive: boolean }) => `premium-nav-link flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold ${isActive ? 'is-active' : ''}`;
+  return <aside className="premium-sidebar flex h-full w-72 flex-col px-3 py-5">
+    <Link to="/dashboard" onClick={close} className="mb-8 px-3"><Logo dark /></Link>
+    <nav className="flex-1 space-y-1 overflow-y-auto">
+      <NavLink to="/dashboard" onClick={close} className={navClass}><LayoutDashboard size={17} />Dashboard</NavLink>
+      {serviceLinks.map(([label, to, Icon]) => <NavLink key={to} to={to} onClick={close} className={navClass}><Icon size={17} />{label}</NavLink>)}
+      <NavLink to="/verifications" onClick={close} className={navClass}><History size={17} />Service History</NavLink>
+      <NavLink to="/deliveries" onClick={close} className={navClass}><PackageOpen size={17} />My Deliveries</NavLink>
+      <NavLink to="/wallet-history" onClick={close} className={navClass}><WalletCards size={17} />Wallet History</NavLink>
+      <NavLink to="/support" onClick={close} className={navClass}><MessageCircle size={17} />Complaints & Support</NavLink>
+      <NavLink to="/jamb-services" onClick={close} className={navClass}><GraduationCap size={17} />JAMB Services</NavLink>
+    </nav>
+    <button onClick={() => { logout(); close?.(); nav('/login'); }} className="premium-logout flex items-center gap-3 px-3 py-4 text-sm font-semibold"><LogOut size={18} />Logout</button>
+  </aside>;
 }
 
 function NotificationBell() {

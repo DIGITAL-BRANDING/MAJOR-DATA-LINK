@@ -82,14 +82,16 @@ function expiryLabel(value?: string) {
  */
 type Group = { id: string; label: string; icon: LucideIcon; match: (item: Transaction) => boolean };
 
+const normaliseService = (item: Transaction) => item.service?.trim().toUpperCase() ?? '';
+
 const GROUPS: Group[] = [
   { id: 'NIN_VERIFICATION', label: 'NIN Verification', icon: IdCard, match: (i) => i.type === 'nin_verification' },
   { id: 'BVN_VERIFICATION', label: 'BVN Verification', icon: Fingerprint, match: (i) => i.type === 'bvn_verification' },
-  { id: 'NIN_VALIDATION', label: 'NIN Validation', icon: ShieldCheck, match: (i) => i.type === 'identity_service_request' && !!i.service?.startsWith('NIN_VALIDATION') },
-  { id: 'IPE_CLEARANCE', label: 'IPE Clearance', icon: ShieldCheck, match: (i) => i.type === 'identity_service_request' && i.service === 'IPE_CLEARANCE' },
-  { id: 'NIN_PERSONALIZATION', label: 'NIN Personalization', icon: UserCog, match: (i) => i.type === 'identity_service_request' && i.service === 'NIN_PERSONALIZATION' },
-  { id: 'NIN_DELINKING', label: 'NIN Delinking', icon: UserCog, match: (i) => i.type === 'identity_service_request' && i.service === 'NIN_DELINKING' },
-  { id: 'BVN_RETRIEVAL', label: 'BVN Retrieval', icon: Fingerprint, match: (i) => i.type === 'identity_service_request' && i.service === 'BVN_RETRIEVAL' },
+  { id: 'NIN_VALIDATION', label: 'NIN Validation', icon: ShieldCheck, match: (i) => i.type === 'identity_service_request' && normaliseService(i).startsWith('NIN_VALIDATION') },
+  { id: 'IPE_CLEARANCE', label: 'IPE Clearance', icon: ShieldCheck, match: (i) => i.type === 'identity_service_request' && normaliseService(i) === 'IPE_CLEARANCE' },
+  { id: 'NIN_PERSONALIZATION', label: 'NIN Personalization', icon: UserCog, match: (i) => i.type === 'identity_service_request' && normaliseService(i) === 'NIN_PERSONALIZATION' },
+  { id: 'NIN_DELINKING', label: 'NIN Delinking', icon: UserCog, match: (i) => i.type === 'identity_service_request' && normaliseService(i) === 'NIN_DELINKING' },
+  { id: 'BVN_RETRIEVAL', label: 'BVN Retrieval', icon: Fingerprint, match: (i) => i.type === 'identity_service_request' && normaliseService(i) === 'BVN_RETRIEVAL' },
   { id: 'NIN_MODIFICATION', label: 'NIN Modification', icon: IdCard, match: (i) => i.type === 'nin_modification' },
   { id: 'BVN_MODIFICATION', label: 'BVN Modification', icon: Fingerprint, match: (i) => i.type === 'bvn_modification' },
   { id: 'BVN_LICENSE_ONBOARDING', label: 'BVN License Onboarding', icon: Fingerprint, match: (i) => i.type === 'bvn_license_onboarding' },
@@ -106,13 +108,19 @@ const GROUPS: Group[] = [
   { id: 'SMS', label: 'Bulk SMS', icon: MessageSquareText, match: (i) => i.type === 'sms' },
 ];
 
+// Historical records created before `metadata.service` was standardised must
+// remain visible. A neutral folder is safer than silently losing a paid
+// service from the customer's history.
+const OTHER_SERVICES: Group = { id: 'OTHER_SERVICES', label: 'Other Services', icon: Wallet, match: () => true };
+
 function groupFor(item: Transaction): Group | undefined {
-  return GROUPS.find((g) => g.match(item));
+  return GROUPS.find((g) => g.match(item)) ?? OTHER_SERVICES;
 }
 
 export default function ServiceHistoryPage() {
   const [items, setItems] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [search, setSearch] = useState('');
   const [documentUrl, setDocumentUrl] = useState<string | null>(null);
   const [documentTitle, setDocumentTitle] = useState('');
@@ -125,8 +133,14 @@ export default function ServiceHistoryPage() {
   useEffect(() => {
     api
       .get<{ status: boolean; data: Transaction[] }>('/transactions/services')
-      .then((response) => setItems(response.data ?? []))
-      .catch(() => setItems([]))
+      .then((response) => {
+        setItems(response.data ?? []);
+        setLoadError('');
+      })
+      .catch(() => {
+        setItems([]);
+        setLoadError('Unable to load service history. Please refresh and try again.');
+      })
       .finally(() => setLoading(false));
   }, []);
 
@@ -236,6 +250,11 @@ export default function ServiceHistoryPage() {
         {documentError && (
           <p role="alert" className="mt-4 rounded-xl bg-rose-50 px-4 py-3 text-center font-body text-sm font-semibold text-rose-700">
             {documentError}
+          </p>
+        )}
+        {loadError && (
+          <p role="alert" className="mt-4 rounded-xl bg-rose-50 px-4 py-3 text-center font-body text-sm font-semibold text-rose-700">
+            {loadError}
           </p>
         )}
         {documentUrl && (

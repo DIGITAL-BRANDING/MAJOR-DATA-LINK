@@ -33,6 +33,7 @@ import CacServicesPage from './pages/CacServicesPage';
 import SupportPage from './pages/SupportPage';
 import ManualServiceRequestPage from './pages/ManualServiceRequestPage';
 import ServiceHistoryPage from './pages/ServiceHistoryPage';
+import WalletHistoryPage from './pages/WalletHistoryPage';
 
 function ProtectedRoute({ children }: { children: ReactNode }) {
   const { user, isLoading, mustChangePassword, requiresLoginPinSetup, requiresTransactionPinSetup } = useAuth();
@@ -99,6 +100,7 @@ export default function App() {
           <Route path="/bvn-services" element={<ProtectedRoute><VerificationPage mode="bvn" /></ProtectedRoute>} />
           <Route path="/terms" element={<PrivacyRedirect page="terms" />} />
           <Route path="/fund-wallet" element={<ProtectedRoute><FundWalletPage /></ProtectedRoute>} />
+          <Route path="/wallet-history" element={<ProtectedRoute><WalletHistoryPage /></ProtectedRoute>} />
           <Route path="/deliveries" element={<ProtectedRoute><DeliveriesPage /></ProtectedRoute>} />
           <Route path="/receipt/:id" element={<ProtectedRoute><ReceiptPage /></ProtectedRoute>} />
           <Route path="/referrals" element={<ProtectedRoute><ReferralPage /></ProtectedRoute>} />

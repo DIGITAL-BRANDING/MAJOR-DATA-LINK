@@ -120,17 +120,17 @@ verificationRoutes.get('/bvn/license-onboarding/history', async (req, res) => {
   }) });
 });
 
-// A customer can retrieve a completed verification result for seven days.
-// Async requests are intentionally absent while PENDING: their window begins
-// when the transaction becomes SUCCESS, using updatedAt as the completion time.
+// Show recently submitted verification work, including requests which a
+// provider is still processing. Customers need to see a pending request as
+// soon as it is submitted; restricting this feed to SUCCESS made a valid
+// Personalization, Validation, or IPE request look as though it vanished.
 verificationRoutes.get('/history', async (req, res) => {
   const service = z.string().trim().min(1).max(60).parse(req.query.service);
-  const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
   const transactions = await prisma.transaction.findMany({
     where: {
       userId: req.user!.id,
-      status: TransactionStatus.SUCCESS,
-      updatedAt: { gte: since },
+      createdAt: { gte: since },
       type: {
         in: [
           TransactionType.NIN_VERIFICATION,
@@ -139,7 +139,7 @@ verificationRoutes.get('/history', async (req, res) => {
         ]
       }
     },
-    orderBy: { updatedAt: 'desc' },
+    orderBy: { createdAt: 'desc' },
     take: 50
   });
 
@@ -173,7 +173,7 @@ verificationRoutes.get('/history', async (req, res) => {
       return {
         reference: transaction.reference,
         status: transaction.status.toLowerCase(),
-        created_at: transaction.updatedAt.toISOString(),
+        created_at: transaction.createdAt.toISOString(),
         // Do not return identity details here. The PDF itself is the
         // retrievable document and the rest remains sealed in storage.
         pdf_base64: pdfBase64,
