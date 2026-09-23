@@ -1,0 +1,16 @@
+User-agent: *
+Allow: /
+Disallow: /login
+Disallow: /register
+Disallow: /forgot-password
+Disallow: /set-new-password
+Disallow: /dashboard
+Disallow: /buy-airtime
+Disallow: /buy-data
+Disallow: /fund-wallet
+Disallow: /receipt/
+Disallow: /payment/
+Disallow: /setup-pins
+Disallow: /partner-dashboard
+
+Sitemap: https://k-tech.com.ng/sitemap.xml

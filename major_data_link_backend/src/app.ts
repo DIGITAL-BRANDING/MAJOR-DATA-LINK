@@ -318,7 +318,18 @@ export function createApp() {
   //     over. Without this, refreshing the browser on /dashboard would 404
   //     instead of reloading the app.
   const webAppDir = path.join(process.cwd(), 'public', 'app');
-  const webStatic = express.static(webAppDir, { maxAge: '1y', immutable: true, index: false });
+  const webStatic = express.static(webAppDir, {
+    maxAge: '1y',
+    immutable: true,
+    index: false,
+    // Crawlers should receive sitemap and robots changes promptly; Vite's
+    // fingerprinted asset caching is unsuitable for these two public files.
+    setHeaders: (res, filePath) => {
+      if (filePath.endsWith('robots.txt') || filePath.endsWith('sitemap.xml')) {
+        res.setHeader('Cache-Control', 'public, max-age=3600');
+      }
+    },
+  });
   // Older deployments emitted /app/assets/... paths. Keep this alias so a browser
   // holding that HTML cache still receives JavaScript/CSS rather than index.html.
   app.use('/app', webStatic);

@@ -1,0 +1,10 @@
+{
+  "name": "K-TECH SOLUTIONS",
+  "short_name": "K-TECH",
+  "description": "Digital verification, business API and VTU services.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#15100A",
+  "theme_color": "#15100A",
+  "icons": [{ "src": "/branding/favicon.png", "sizes": "any", "type": "image/png" }]
+}
