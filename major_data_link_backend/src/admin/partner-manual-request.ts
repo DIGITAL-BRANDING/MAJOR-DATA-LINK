@@ -23,6 +23,15 @@ declare module 'express-session' {
 // so this file must not add a second body parser of its own.
 type Upload = { filepath?: string; path?: string; originalFilename?: string; name?: string; mimetype?: string; type?: string };
 type PartnerManualTransaction = Awaited<ReturnType<typeof prisma.partnerTransaction.findUniqueOrThrow>>;
+type WebhookDeliverySummary = {
+  id: string;
+  status: 'PENDING' | 'PROCESSING' | 'DELIVERED' | 'FAILED';
+  attemptCount: number;
+  deliveredAt: Date | null;
+  lastAttemptAt: Date | null;
+  lastResponseStatus: number | null;
+  lastError: string | null;
+};
 function uploadedFile(req: Request, name = 'file') {
   const files = (req as unknown as { files?: Record<string, Upload | Upload[]> }).files;
   const value = files?.[name];
@@ -66,14 +75,37 @@ function renderBatchPage(params: { rows: Array<PartnerManualTransaction & { part
         return `<tr><td><strong>${escapeHtml(transaction.partner.businessName)}</strong><br><small>${escapeHtml(transaction.partner.email)}</small></td><td><strong>${escapeHtml(serviceLabel(transaction))}</strong><br><small>${escapeHtml(transaction.reference)}</small></td><td>${escapeHtml(requestIdentifier(transaction))}</td><td>${escapeHtml(transaction.createdAt.toLocaleString())}</td><td><select name="action_${id}"><option value="">No change</option><option value="complete">Complete request</option><option value="decline">Decline &amp; refund</option></select></td><td><textarea name="note_${id}" rows="2" placeholder="Completion note, or decline reason"></textarea></td><td><input type="file" name="file_${id}" accept="application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/png,image/jpeg"><small>Optional; used only when completing.</small></td></tr>`;
       }).join('')
     : '<tr><td colspan="7" class="empty">No pending partner requests in this queue.</td></tr>';
-  return `<!doctype html><html><head><meta charset="utf-8"><title>Partner Request Queue</title><style>body{font:14px Arial,sans-serif;background:#f5f6f8;color:#18212f;margin:0;padding:28px}a{color:#0756b8;font-weight:600;text-decoration:none}.top{display:flex;justify-content:space-between;align-items:center;gap:16px}.flash{background:#e6f4ea;border:1px solid #8fd1a1;color:#155724;padding:12px 15px;border-radius:8px;margin:16px 0}form{overflow-x:auto}table{border-collapse:collapse;width:100%;min-width:1180px;background:#fff;box-shadow:0 1px 4px #0001}th,td{text-align:left;padding:12px;border-bottom:1px solid #e7edf4;vertical-align:top}th{background:#0b2f73;color:#fff}textarea,select,input[type=file]{box-sizing:border-box;width:100%;font:inherit;border:1px solid #bdc9d8;border-radius:6px;padding:8px;background:#fff}input[type=file]{font-size:12px}small{display:block;color:#5b6878;margin-top:4px}.empty{text-align:center;padding:32px}.submit{margin-top:16px;background:#0b2f73;color:#fff;border:0;border-radius:8px;padding:12px 20px;font-size:15px;font-weight:bold;cursor:pointer}.hint{color:#536273}</style></head><body><div class="top"><div><h1>Partner request queue</h1><p class="hint">Complete or decline many pending Partner API requests on one page. Only rows with a selected action will change.</p></div><a href="/admin">← Admin Dashboard</a></div><p><a href="/admin/manual-requests">← All manual requests</a> · <a href="/admin/partner-manual-requests/resend">Resend completed updates</a></p>${params.flash ? `<p class="flash">${escapeHtml(params.flash)}</p>` : ''}<form method="post" action="/admin/partner-manual-requests/batch" enctype="multipart/form-data"><table><thead><tr><th>Partner</th><th>Request</th><th>Submitted ID</th><th>Submitted</th><th>Action</th><th>Message</th><th>Result file</th></tr></thead><tbody>${tableRows}</tbody></table>${params.rows.length ? '<button class="submit" type="submit">Apply selected changes</button>' : ''}</form></body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Partner Request Queue</title><style>body{font:14px Arial,sans-serif;background:#f5f6f8;color:#18212f;margin:0;padding:28px}a{color:#0756b8;font-weight:600;text-decoration:none}.top{display:flex;justify-content:space-between;align-items:center;gap:16px}.flash{background:#e6f4ea;border:1px solid #8fd1a1;color:#155724;padding:12px 15px;border-radius:8px;margin:16px 0}form{overflow-x:auto}table{border-collapse:collapse;width:100%;min-width:1180px;background:#fff;box-shadow:0 1px 4px #0001}th,td{text-align:left;padding:12px;border-bottom:1px solid #e7edf4;vertical-align:top}th{background:#0b2f73;color:#fff}textarea,select,input[type=file]{box-sizing:border-box;width:100%;font:inherit;border:1px solid #bdc9d8;border-radius:6px;padding:8px;background:#fff}input[type=file]{font-size:12px}small{display:block;color:#5b6878;margin-top:4px}.empty{text-align:center;padding:32px}.submit{margin-top:16px;background:#0b2f73;color:#fff;border:0;border-radius:8px;padding:12px 20px;font-size:15px;font-weight:bold;cursor:pointer}.hint{color:#536273}</style></head><body><div class="top"><div><h1>Partner request queue</h1><p class="hint">Complete or decline many pending Partner API requests on one page. Only rows with a selected action will change.</p></div><a href="/admin">← Admin Dashboard</a></div><p><a href="/admin/manual-requests">← All manual requests</a> · <a href="/admin/partner-manual-requests/resend">Partner API activity &amp; webhook recovery</a></p>${params.flash ? `<p class="flash">${escapeHtml(params.flash)}</p>` : ''}<form method="post" action="/admin/partner-manual-requests/batch" enctype="multipart/form-data"><table><thead><tr><th>Partner</th><th>Request</th><th>Submitted ID</th><th>Submitted</th><th>Action</th><th>Message</th><th>Result file</th></tr></thead><tbody>${tableRows}</tbody></table>${params.rows.length ? '<button class="submit" type="submit">Apply selected changes</button>' : ''}</form></body></html>`;
 }
 
-function renderResendPage(params: { rows: Array<PartnerManualTransaction & { partner: { businessName: string; email: string } }>; flash?: string }) {
+function webhookDeliveryLabel(delivery: WebhookDeliverySummary | undefined, webhookUrl: string | null) {
+  if (!webhookUrl) return '<strong>Not configured</strong>';
+  if (!delivery) return '<strong>Not sent</strong><small>No delivery has been recorded yet.</small>';
+  const response = delivery.lastResponseStatus === null ? '' : ` · HTTP ${delivery.lastResponseStatus}`;
+  const attemptedAt = delivery.deliveredAt ?? delivery.lastAttemptAt;
+  const when = attemptedAt ? `<small>${escapeHtml(attemptedAt.toLocaleString())} · ${delivery.attemptCount} attempt${delivery.attemptCount === 1 ? '' : 's'}${response}</small>` : '';
+  if (delivery.status === 'DELIVERED') return `<strong>Delivered</strong>${when}`;
+  const problem = delivery.lastError ? `<small>${escapeHtml(delivery.lastError)}</small>` : '';
+  return `<strong>${escapeHtml(delivery.status === 'FAILED' ? 'Failed' : 'Awaiting delivery')}</strong>${when}${problem}`;
+}
+
+function renderResendPage(params: {
+  rows: Array<PartnerManualTransaction & { partner: { businessName: string; email: string; webhookUrl: string | null } }>;
+  deliveriesByReference: Map<string, WebhookDeliverySummary>;
+  flash?: string;
+}) {
+  const actionFor = (transaction: PartnerManualTransaction & { partner: { webhookUrl: string | null } }) => {
+    const delivery = params.deliveriesByReference.get(transaction.reference);
+    if (!transaction.partner.webhookUrl) return '<button type="submit" disabled title="This partner has no webhook URL">Retry webhook</button>';
+    if (delivery?.status === 'DELIVERED') return '<small>Latest update is already delivered.</small>';
+    if (delivery && delivery.status !== 'FAILED') return '<small>Automatic retry is pending.</small>';
+    const deliveryId = delivery ? `<input type="hidden" name="deliveryId" value="${escapeHtml(delivery.id)}">` : '';
+    return `<form method="post" action="/admin/partner-manual-requests/${encodeURIComponent(transaction.id)}/resend-update">${deliveryId}<button type="submit">${delivery ? 'Retry webhook' : 'Send update'}</button></form>`;
+  };
   const rows = params.rows.length
-    ? params.rows.map((transaction) => `<tr><td><strong>${escapeHtml(transaction.partner.businessName)}</strong><br><small>${escapeHtml(transaction.partner.email)}</small></td><td><strong>${escapeHtml(serviceLabel(transaction))}</strong><br><small>${escapeHtml(transaction.reference)}</small></td><td>${escapeHtml(requestIdentifier(transaction))}</td><td>${escapeHtml(transaction.status)}</td><td>${escapeHtml(transaction.updatedAt.toLocaleString())}</td><td><form method="post" action="/admin/partner-manual-requests/${encodeURIComponent(transaction.id)}/resend-update"><button type="submit">Resend update</button></form></td></tr>`).join('')
-    : '<tr><td colspan="6" class="empty">No resolved partner requests found.</td></tr>';
-  return `<!doctype html><html><head><meta charset="utf-8"><title>Resend Partner Updates</title><style>body{font:14px Arial,sans-serif;background:#f5f6f8;color:#18212f;margin:0;padding:28px}a{color:#0756b8;font-weight:600;text-decoration:none}.top{display:flex;justify-content:space-between;align-items:center;gap:16px}.flash{background:#e6f4ea;border:1px solid #8fd1a1;color:#155724;padding:12px 15px;border-radius:8px;margin:16px 0}table{border-collapse:collapse;width:100%;background:#fff;box-shadow:0 1px 4px #0001}th,td{text-align:left;padding:12px;border-bottom:1px solid #e7edf4;vertical-align:top}th{background:#0b2f73;color:#fff}button{background:#0b2f73;color:#fff;border:0;border-radius:7px;padding:9px 12px;font-weight:bold;cursor:pointer}.empty{text-align:center;padding:32px}.hint{color:#536273}</style></head><body><div class="top"><div><h1>Resend partner updates</h1><p class="hint">Use this for requests already completed or declined when the partner did not receive the first update.</p></div><a href="/admin/partner-manual-requests">← Partner bulk queue</a></div>${params.flash ? `<p class="flash">${escapeHtml(params.flash)}</p>` : ''}<table><thead><tr><th>Partner</th><th>Request</th><th>Submitted ID</th><th>Status</th><th>Resolved</th><th>Webhook</th></tr></thead><tbody>${rows}</tbody></table></body></html>`;
+    ? params.rows.map((transaction) => `<tr><td><strong>${escapeHtml(transaction.partner.businessName)}</strong><br><small>${escapeHtml(transaction.partner.email)}</small></td><td><strong>${escapeHtml(serviceLabel(transaction))}</strong><br><small>${escapeHtml(transaction.reference)}</small></td><td>${escapeHtml(requestIdentifier(transaction))}</td><td>${escapeHtml(transaction.status)}</td><td>${escapeHtml(transaction.updatedAt.toLocaleString())}</td><td>${webhookDeliveryLabel(params.deliveriesByReference.get(transaction.reference), transaction.partner.webhookUrl)}</td><td>${actionFor(transaction)}</td></tr>`).join('')
+    : '<tr><td colspan="7" class="empty">No resolved partner API requests found.</td></tr>';
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Partner API Activity & Webhook Recovery</title><style>body{font:14px Arial,sans-serif;background:#f5f6f8;color:#18212f;margin:0;padding:28px}a{color:#0756b8;font-weight:600;text-decoration:none}.top{display:flex;justify-content:space-between;align-items:center;gap:16px}.flash{background:#e6f4ea;border:1px solid #8fd1a1;color:#155724;padding:12px 15px;border-radius:8px;margin:16px 0}table{border-collapse:collapse;width:100%;background:#fff;box-shadow:0 1px 4px #0001}th,td{text-align:left;padding:12px;border-bottom:1px solid #e7edf4;vertical-align:top}th{background:#0b2f73;color:#fff}button{background:#0b2f73;color:#fff;border:0;border-radius:7px;padding:9px 12px;font-weight:bold;cursor:pointer}button:disabled{cursor:not-allowed;opacity:.5}.empty{text-align:center;padding:32px}.hint{color:#536273}</style></head><body><div class="top"><div><h1>Partner API activity &amp; webhook recovery</h1><p class="hint">Recent completed, declined and refunded Partner API services. The delivery column shows whether the partner endpoint received the latest update. Failed deliveries can be retried with the same event ID, so a partner that already received it can safely deduplicate it.</p></div><a href="/admin/partner-manual-requests">← Partner bulk queue</a></div>${params.flash ? `<p class="flash">${escapeHtml(params.flash)}</p>` : ''}<table><thead><tr><th>Partner</th><th>Request</th><th>Submitted ID</th><th>Status</th><th>Resolved</th><th>Webhook delivery</th><th>Action</th></tr></thead><tbody>${rows}</tbody></table></body></html>`;
 }
 
 function renderPage(params: {
@@ -164,12 +196,31 @@ export function registerPartnerManualRequestRoutes(router: Router) {
     if (!admin) return res.redirect('/admin/login');
     const rows = await prisma.partnerTransaction.findMany({
       where: { status: { not: 'PENDING' } },
-      include: { partner: { select: { businessName: true, email: true } } },
+      include: { partner: { select: { businessName: true, email: true, webhookUrl: true } } },
       orderBy: { updatedAt: 'desc' },
-      take: 100
+      take: 250
     });
+    // A delivery stores a signed immutable payload rather than a foreign key
+    // to the transaction. Its reference is therefore the stable, safe join
+    // key for both old records and newly retried events.
+    const relevantReferences = new Set(rows.map((row) => row.reference));
+    const relevantPartnerIds = [...new Set(rows.map((row) => row.partnerId))];
+    const deliveries = await prisma.partnerWebhookDelivery.findMany({
+      where: { event: 'transaction.updated', partnerId: { in: relevantPartnerIds } },
+      select: { id: true, payload: true, status: true, attemptCount: true, deliveredAt: true, lastAttemptAt: true, lastResponseStatus: true, lastError: true, createdAt: true },
+      orderBy: { createdAt: 'desc' },
+      take: 2_000
+    });
+    const deliveriesByReference = new Map<string, WebhookDeliverySummary>();
+    for (const delivery of deliveries) {
+      const data = (delivery.payload as { data?: { reference?: unknown } } | null)?.data;
+      const reference = typeof data?.reference === 'string' ? data.reference : null;
+      if (!reference || !relevantReferences.has(reference) || deliveriesByReference.has(reference)) continue;
+      deliveriesByReference.set(reference, delivery);
+    }
     res.type('html').send(renderResendPage({
-      rows: rows.filter(isAdminManageablePartnerRequest),
+      rows,
+      deliveriesByReference,
       flash: typeof req.query.flash === 'string' ? req.query.flash : undefined
     }));
   });
@@ -181,8 +232,8 @@ export function registerPartnerManualRequestRoutes(router: Router) {
     const transactionId = routeParam(req, 'transactionId');
     try {
       const transaction = await prisma.partnerTransaction.findUnique({ where: { id: transactionId } });
-      if (!transaction || !isAdminManageablePartnerRequest(transaction)) throw new Error('Partner request not found.');
-      const delivery = await resendPartnerTransactionWebhook(transaction);
+      if (!transaction || transaction.status === 'PENDING') throw new Error('Only a resolved partner request can be resent.');
+      const delivery = await resendPartnerTransactionWebhook(transaction, field(req, 'deliveryId').trim() || undefined);
       if (!delivery) throw new Error('This partner has no configured webhook URL. Configure it before resending an update.');
       await logAdminAction({ adminId: admin.id, action: 'RESEND_PARTNER_TRANSACTION_WEBHOOK', targetType: 'PartnerTransaction', targetId: transaction.id, metadata: { eventId: delivery?.eventId ?? null } });
       const result = delivery?.status === 'DELIVERED' ? 'Update delivered to partner.' : `Update queued for retry${delivery?.lastError ? `: ${delivery.lastError}` : '.'}`;

@@ -97,13 +97,31 @@ export async function enqueuePartnerTransactionWebhook(tx: PartnerTransaction) {
 
 /**
  * Admin recovery path for a completed/reversed request whose partner did not
- * receive the first notification. A fresh event key deliberately bypasses
- * the terminal-event dedupe key, while the event id still lets the partner
- * deduplicate this retry safely.
+ * receive the first notification. Requeue the failed outbox record when it
+ * is supplied: preserving its event ID lets the partner safely deduplicate a
+ * response that was received but whose acknowledgement was lost in transit.
+ * A new event is only created when there is no recorded delivery (for
+ * example, a webhook was configured after the request was completed).
  */
-export async function resendPartnerTransactionWebhook(tx: PartnerTransaction) {
+export async function resendPartnerTransactionWebhook(tx: PartnerTransaction, failedDeliveryId?: string) {
   if (tx.status === TransactionStatus.PENDING) {
     throw new ApiError(422, 'Only a resolved transaction can be resent', 'TRANSACTION_STILL_PENDING');
+  }
+  if (failedDeliveryId) {
+    const delivery = await prisma.partnerWebhookDelivery.findFirst({
+      where: { id: failedDeliveryId, partnerId: tx.partnerId, event: 'transaction.updated', status: PartnerWebhookDeliveryStatus.FAILED },
+      select: { id: true, payload: true }
+    });
+    const reference = (delivery?.payload as { data?: { reference?: unknown } } | null)?.data?.reference;
+    if (!delivery || reference !== tx.reference) {
+      throw new ApiError(422, 'Webhook delivery is not a failed update for this request', 'INVALID_WEBHOOK_DELIVERY');
+    }
+    await prisma.partnerWebhookDelivery.update({
+      where: { id: delivery.id },
+      data: { status: PartnerWebhookDeliveryStatus.PENDING, attemptCount: 0, nextAttemptAt: new Date(), lockedAt: null, lastError: null, lastResponseStatus: null }
+    });
+    await deliverDuePartnerWebhooks(1);
+    return prisma.partnerWebhookDelivery.findUnique({ where: { id: delivery.id } });
   }
   const eventId = randomUUID();
   await enqueuePartnerWebhookEvent(tx.partnerId, 'transaction.updated', `manual-resend:${tx.id}:${eventId}`, payloadFor(tx, eventId), eventId);

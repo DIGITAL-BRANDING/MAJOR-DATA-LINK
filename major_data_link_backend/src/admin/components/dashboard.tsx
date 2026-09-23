@@ -61,6 +61,7 @@ const quickLinks: QuickLink[] = [
   { label: 'Result PIN Stock', description: 'Add prepaid WAEC, NECO and NABTEB PINs', href: `${ADMIN_ROOT_PATH}/result-pin-stock`, icon: 'Package' },
   { label: 'Partner Pricing', description: 'Set API-partner-only prices', href: `${ADMIN_ROOT_PATH}/partner-pricing`, icon: 'DollarSign' },
   { label: 'Partner Lookup', description: 'Check partner wallet, usage and funding', href: `${ADMIN_ROOT_PATH}/partner-lookup`, icon: 'Search' },
+  { label: 'Partner Webhook Recovery', description: 'Recent completions for every Partner API service, delivery status and safe failed-webhook retry', href: `${ADMIN_ROOT_PATH}/partner-manual-requests/resend`, icon: 'Send' },
   { label: 'Coupons', description: 'Discount codes & promotions', resourceId: 'Coupon', icon: 'CreditCard' },
   { label: 'Provider Balance', description: 'Alrahuz, BilalSadaSub & Techhub balances', resourceId: 'ProviderBalanceStatus', icon: 'AlertTriangle' },
   { label: 'Referral Settings', description: 'Referral reward configuration', resourceId: 'ReferralSettings', icon: 'Percent' },
