@@ -117,15 +117,15 @@ const NIN_SLIP_IMAGES: Record<string, string> = {
   personal: '/branding/information slip.jpg',
 };
 
-type SlipResult = { user_data?: Record<string, unknown>; pdf_base64?: string; pdf_url?: string; reference: string };
+type SlipResult = { user_data?: Record<string, unknown>; reference: string; transaction_id: string; document_available: boolean };
 type AsyncResult = { ticket_id: string; reference: string };
 type TicketStatus = { ticket_id: string; status: 'pending' | 'success' | 'failed'; response: Record<string, unknown> | null };
 type VerificationHistory = {
+  transaction_id: string;
   reference: string;
   status: string;
   created_at: string;
-  pdf_base64: string | null;
-  pdf_url: string | null;
+  document_available: boolean;
   ticket_id: string | null;
 };
 
@@ -240,7 +240,7 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
       const result = await api.post<{
         status: boolean;
         message: string;
-      data?: { reference: string; tracking_id?: string; user_data?: Record<string, unknown>; pdf_base64?: string; pdf_url?: string; ticket_id?: string };
+      data?: { reference: string; tracking_id?: string; transaction_id?: string; document_available?: boolean; user_data?: Record<string, unknown>; ticket_id?: string };
       }>(selected.path, data);
       if (!result.status) throw new Error(result.message);
 
@@ -254,9 +254,9 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
       } else {
         setSlipResult({
           user_data: result.data?.user_data,
-          pdf_base64: result.data?.pdf_base64,
-          pdf_url: result.data?.pdf_url,
           reference: result.data?.reference ?? '',
+          transaction_id: result.data?.transaction_id ?? '',
+          document_available: Boolean(result.data?.document_available),
         });
         setMessage(result.message || 'Done - your document is ready below.');
       }
@@ -492,28 +492,20 @@ function VerificationHistoryView({ history, loading }: { history: VerificationHi
       ) : (
         <div className="mt-3 divide-y divide-parchment-line overflow-hidden rounded-xl border border-parchment-line bg-cream">
           {history.map((entry) => {
-            const base64 = entry.pdf_base64?.replace(/^data:application\/pdf;base64,/i, '');
-            const href = base64
-              ? `data:application/pdf;base64,${base64}`
-              : entry.pdf_url?.startsWith('https://')
-                ? entry.pdf_url
-                : null;
             return (
               <div key={entry.reference} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
                 <div>
                   <p className="font-mono text-xs font-semibold text-ink">{entry.reference}</p>
                   <p className="mt-1 font-body text-xs text-ink-600">{new Date(entry.created_at).toLocaleString()}</p>
                 </div>
-                {href ? (
-                  <a
-                    href={href}
-                    download={`${entry.reference}.pdf`}
-                    target={base64 ? undefined : '_blank'}
-                    rel={base64 ? undefined : 'noreferrer'}
+                {entry.document_available ? (
+                  <button
+                    type="button"
+                    onClick={() => void downloadServiceDocument(entry.transaction_id, entry.reference)}
                     className="flex items-center gap-2 rounded-lg bg-gold-500 px-3 py-2 font-body text-xs font-bold text-ink"
                   >
                     <Download size={14} /> Retrieve PDF
-                  </a>
+                  </button>
                 ) : (
                   <span className="font-body text-xs font-semibold capitalize text-ink-600">{entry.status}</span>
                 )}
@@ -527,12 +519,6 @@ function VerificationHistoryView({ history, loading }: { history: VerificationHi
 }
 
 function SlipResultView({ result, message, mode, onDone }: { result: SlipResult; message: string; mode: Mode; onDone: () => void }) {
-  const pdfBase64 = result.pdf_base64?.replace(/^data:application\/pdf;base64,/i, '');
-  const pdfHref = pdfBase64
-    ? `data:application/pdf;base64,${pdfBase64}`
-    : result.pdf_url?.startsWith('https://')
-      ? result.pdf_url
-      : null;
   const fields = extractIdentityFields(result.user_data, mode === 'nin' ? 'NIN' : 'BVN');
   const rows = identityFieldRows(fields);
 
@@ -557,19 +543,17 @@ function SlipResultView({ result, message, mode, onDone }: { result: SlipResult;
         </div>
       )}
 
-      {pdfHref && (
-        <a
-          href={pdfHref}
-          download={`${result.reference || 'slip'}.pdf`}
-          target={pdfBase64 ? undefined : '_blank'}
-          rel={pdfBase64 ? undefined : 'noreferrer'}
+      {result.document_available && result.transaction_id && (
+        <button
+          type="button"
+          onClick={() => void downloadServiceDocument(result.transaction_id, result.reference || 'slip')}
           className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-gold-500 py-3 font-display font-semibold text-ink"
         >
           <Download size={16} /> Download PDF slip
-        </a>
+        </button>
       )}
 
-      {!pdfHref && (
+      {!result.document_available && (
         <p className="mt-4 rounded-xl border border-gold-500/30 bg-gold-500/10 p-3 font-body text-sm text-ink-600">
           The provider confirmed this request, but did not return a downloadable PDF. Keep the reference above and contact support; do not submit or pay for the request again.
         </p>
@@ -580,6 +564,20 @@ function SlipResultView({ result, message, mode, onDone }: { result: SlipResult;
       </button>
     </div>
   );
+}
+
+async function downloadServiceDocument(transactionId: string, reference: string) {
+  try {
+    const pdf = await api.getFile(`/transactions/${encodeURIComponent(transactionId)}/service-document`);
+    const url = URL.createObjectURL(pdf);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${reference}.pdf`;
+    link.click();
+    URL.revokeObjectURL(url);
+  } catch {
+    window.alert('Could not download this slip. Please try again from Service History.');
+  }
 }
 
 function AsyncResultView({

@@ -125,6 +125,37 @@ function renderPage(admin: AdminSessionUser) {
 
   var activeConversationId = null;
   var queue = [];
+  var audioContext = null;
+
+  // Browsers allow notification audio only after a real human interaction.
+  // Prime Web Audio on the first click/tap/key press; the actual chime is
+  // played only for a new incoming customer/partner message.
+  function unlockNotificationAudio() {
+    if (!audioContext) {
+      var AudioCtor = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtor) return;
+      audioContext = new AudioCtor();
+    }
+    if (audioContext.state === 'suspended') audioContext.resume();
+  }
+  document.addEventListener('pointerdown', unlockNotificationAudio, { once: true, passive: true });
+  document.addEventListener('keydown', unlockNotificationAudio, { once: true });
+  function playIncomingChime() {
+    if (!audioContext || audioContext.state !== 'running') return;
+    var now = audioContext.currentTime;
+    [0, 0.15].forEach(function (offset, index) {
+      var oscillator = audioContext.createOscillator();
+      var gain = audioContext.createGain();
+      oscillator.type = 'sine';
+      oscillator.frequency.value = index === 0 ? 740 : 988;
+      gain.gain.setValueAtTime(0.0001, now + offset);
+      gain.gain.exponentialRampToValueAtTime(0.12, now + offset + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + 0.13);
+      oscillator.connect(gain).connect(audioContext.destination);
+      oscillator.start(now + offset);
+      oscillator.stop(now + offset + 0.14);
+    });
+  }
 
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, function (c) {
@@ -196,6 +227,9 @@ function renderPage(admin: AdminSessionUser) {
   });
 
   socket.on('chat:message', function (message) {
+    if (message.sender_type === 'USER') {
+      playIncomingChime();
+    }
     if (message.conversation_id === activeConversationId) {
       appendMessage(message);
     }

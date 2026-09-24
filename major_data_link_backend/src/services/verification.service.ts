@@ -262,6 +262,8 @@ export type SlipPurchaseResult = {
   status: boolean;
   message: string;
   reference: string;
+  /** Owner-scoped transaction ID used by the authenticated PDF endpoint. */
+  transactionId: string;
   userData?: Record<string, unknown>;
   pdfBase64?: string;
   pdfUrl?: string;
@@ -312,7 +314,7 @@ async function purchaseSlip(params: {
       await prisma.transaction.update({ where: { id: debit.transaction.id }, data: { provider: 'manual', providerRef: ticketId,
         metadata: { service: params.service, ...params.operational, unit_price: price.unitPrice, ticket_id: ticketId, manual_processing: true, pii: mergeSealedPII(metadata?.pii, params.pii) } as Prisma.InputJsonValue } });
     }
-    return { status: true, message: 'Request received and queued for manual admin processing.', reference: debit.reference, balanceAfter: debit.balanceAfter };
+    return { status: true, message: 'Request received and queued for manual admin processing.', reference: debit.reference, transactionId: debit.transaction.id, balanceAfter: debit.balanceAfter };
   }
   const call = params.callByProvider[price.provider];
   if (!call) {
@@ -352,6 +354,7 @@ async function purchaseSlip(params: {
       status: debit.transaction.status === TransactionStatus.SUCCESS,
       message: 'Transaction already processed',
       reference: debit.reference,
+      transactionId: debit.transaction.id,
       userData: pii?.user_data,
       pdfBase64: pii?.pdf_base64,
       pdfUrl: pii?.pdf_url,
@@ -398,6 +401,7 @@ async function purchaseSlip(params: {
       status: true,
       message: result.message,
       reference: debit.reference,
+      transactionId: debit.transaction.id,
       userData: result.userData,
       pdfBase64: result.pdfBase64,
       pdfUrl: result.pdfUrl,
@@ -415,6 +419,7 @@ async function purchaseSlip(params: {
     status: false,
     message: result.message,
     reference: debit.reference,
+    transactionId: debit.transaction.id,
     balanceAfter: koboToNaira(refunded.balanceAfterKobo)
   };
 }

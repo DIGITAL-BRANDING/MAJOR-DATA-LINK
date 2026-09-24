@@ -62,15 +62,30 @@ const ninValidationType = z.enum([
   'update_records'
 ]);
 
+function safeSlipPreview(userData: Record<string, unknown> | undefined) {
+  if (!userData) return null;
+  // PDFs and passport photos can be several megabytes. They are already
+  // encrypted in the transaction and must be fetched from the dedicated,
+  // authenticated document endpoint instead of making a purchase response
+  // large enough for a mobile proxy to truncate.
+  const preview: Record<string, string | number | boolean> = {};
+  for (const [key, value] of Object.entries(userData)) {
+    if (/pdf|document|image|photo|picture|passport|base64|raw/i.test(key)) continue;
+    if (typeof value === 'string' && value.length <= 500) preview[key] = value;
+    else if (typeof value === 'number' || typeof value === 'boolean') preview[key] = value;
+  }
+  return preview;
+}
+
 function slipResponse(result: Awaited<ReturnType<typeof purchaseNinByNin>>) {
   return {
     status: result.status,
     message: result.message,
     data: {
       reference: result.reference,
-      user_data: result.userData ?? null,
-      pdf_base64: result.pdfBase64 ?? null,
-      pdf_url: result.pdfUrl ?? null,
+      transaction_id: result.transactionId,
+      user_data: safeSlipPreview(result.userData),
+      document_available: Boolean(result.pdfBase64 || result.pdfUrl),
       balance_after: result.balanceAfter
     }
   };
@@ -156,28 +171,20 @@ verificationRoutes.get('/history', async (req, res) => {
       // `user_data`, including its own `pdf_base64`.  Read that nested shape
       // too, so an already-paid slip can be recovered without another call.
       const userData = pii?.user_data as Record<string, unknown> | undefined;
-      const pdfBase64 =
-        typeof pii?.pdf_base64 === 'string' && pii.pdf_base64.trim().length > 0
-          ? pii.pdf_base64
-          : typeof userData?.pdf_base64 === 'string' && userData.pdf_base64.trim().length > 0
-            ? userData.pdf_base64
-            : null;
-      const pdfUrl =
-        typeof pii?.pdf_url === 'string' && pii.pdf_url.trim().length > 0
-          ? pii.pdf_url
-          : typeof userData?.pdf_url === 'string' && userData.pdf_url.trim().length > 0
-            ? userData.pdf_url
-            : typeof userData?.slip_url === 'string' && userData.slip_url.trim().length > 0
-              ? userData.slip_url
-              : null;
+      const documentAvailable =
+        (typeof pii?.pdf_base64 === 'string' && pii.pdf_base64.trim().length > 0) ||
+        (typeof userData?.pdf_base64 === 'string' && userData.pdf_base64.trim().length > 0) ||
+        (typeof pii?.pdf_url === 'string' && pii.pdf_url.trim().length > 0) ||
+        (typeof userData?.pdf_url === 'string' && userData.pdf_url.trim().length > 0) ||
+        (typeof userData?.slip_url === 'string' && userData.slip_url.trim().length > 0);
       return {
+        transaction_id: transaction.id,
         reference: transaction.reference,
         status: transaction.status.toLowerCase(),
         created_at: transaction.createdAt.toISOString(),
         // Do not return identity details here. The PDF itself is the
         // retrievable document and the rest remains sealed in storage.
-        pdf_base64: pdfBase64,
-        pdf_url: pdfUrl,
+        document_available: documentAvailable,
         ticket_id: typeof metadata?.ticket_id === 'string' ? metadata.ticket_id : null
       };
     });

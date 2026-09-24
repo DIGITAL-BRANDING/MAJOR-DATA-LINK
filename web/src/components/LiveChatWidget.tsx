@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { MessageCircle, X, Send } from 'lucide-react';
 import { io, type Socket } from 'socket.io-client';
 import { API_BASE } from '../lib/api';
+import { enableChatNotificationSound, playChatNotificationSound } from '../lib/chat-notification-sound';
 
 type ChatMessage = {
   id: string;
@@ -43,6 +44,13 @@ export default function LiveChatWidget({ active, token, ownerKey, headerLabel }:
   const [unread, setUnread] = useState(0);
   const socketRef = useRef<Socket | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
+  const openRef = useRef(false);
+
+  useEffect(() => {
+    openRef.current = open;
+  }, [open]);
+
+  useEffect(() => enableChatNotificationSound(), []);
 
   useEffect(() => {
     if (!active || !token) return;
@@ -66,7 +74,11 @@ export default function LiveChatWidget({ active, token, ownerKey, headerLabel }:
     socket.on('chat:message', (message: ChatMessage) => {
       setMessages((prev) => [...prev, message]);
       if (message.sender_type === 'ADMIN') {
-        setUnread((prev) => (open ? prev : prev + 1));
+        // This is an incoming reply, never the user's own echoed message.
+        // The chime is intentionally allowed while the panel is open too so
+        // a customer notices a support reply while reading another tab.
+        playChatNotificationSound();
+        setUnread((prev) => (openRef.current ? prev : prev + 1));
       }
     });
 

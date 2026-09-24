@@ -86,6 +86,13 @@ function conversationRoom(conversationId: string) {
 }
 const ADMIN_ROOM = 'chat-admins';
 
+// Every socket handler touches the database. Never leave a rejected promise
+// detached: server.ts intentionally exits on unhandled rejections, and one
+// temporary database/network fault in chat must not take down the whole API.
+function runChatTask(label: string, task: () => Promise<void>) {
+  void task().catch((error) => console.error(`[chat-socket] ${label} failed`, error));
+}
+
 /**
  * A bare access token's payload (`{ sub, email, ... }`) doesn't say which
  * table it belongs to - User and Partner tokens are signed with the exact
@@ -212,7 +219,7 @@ async function broadcastQueueUpdate(io: SocketIOServer) {
 }
 
 function registerOwnerHandlers(io: SocketIOServer, socket: Socket, actor: Extract<ChatActor, { kind: 'owner' }>) {
-  void (async () => {
+  runChatTask('load owner history', async () => {
     const conversation = await findOrCreateOpenConversation(actor.ownerType, actor.id);
     // Opening the widget IS reading whatever the admin last sent.
     if (conversation.unreadByOwner > 0) {
@@ -228,13 +235,13 @@ function registerOwnerHandlers(io: SocketIOServer, socket: Socket, actor: Extrac
       status: conversation.status,
       messages: history.map(serializeMessage)
     });
-  })();
+  });
 
   socket.on('chat:send', (payload: { body?: unknown }) => {
     const body = typeof payload?.body === 'string' ? payload.body.trim() : '';
     if (!body || body.length > 4000) return;
 
-    void (async () => {
+    runChatTask('send owner message', async () => {
       const conversation = await findOrCreateOpenConversation(actor.ownerType, actor.id);
       if (conversation.status === 'CLOSED') return; // Stale client; widget re-syncs on next reconnect.
 
@@ -258,21 +265,21 @@ function registerOwnerHandlers(io: SocketIOServer, socket: Socket, actor: Extrac
 
       io.to(conversationRoom(conversation.id)).emit('chat:message', serializeMessage(message));
       await broadcastQueueUpdate(io);
-    })();
+    });
   });
 }
 
 function registerAdminHandlers(io: SocketIOServer, socket: Socket, actor: Extract<ChatActor, { kind: 'admin' }>) {
   void socket.join(ADMIN_ROOM);
-  void (async () => {
+  runChatTask('load admin queue', async () => {
     socket.emit('chat:queue', await buildQueueSnapshot());
-  })();
+  });
 
   socket.on('chat:join', (payload: { conversation_id?: unknown }) => {
     const conversationId = typeof payload?.conversation_id === 'string' ? payload.conversation_id : '';
     if (!conversationId) return;
 
-    void (async () => {
+    runChatTask('join admin conversation', async () => {
       const conversation = await prisma.chatConversation.findUnique({ where: { id: conversationId } });
       if (!conversation) return;
 
@@ -291,7 +298,7 @@ function registerAdminHandlers(io: SocketIOServer, socket: Socket, actor: Extrac
         status: conversation.status,
         messages: history.map(serializeMessage)
       });
-    })();
+    });
   });
 
   socket.on('chat:send', (payload: { conversation_id?: unknown; body?: unknown }) => {
@@ -299,7 +306,7 @@ function registerAdminHandlers(io: SocketIOServer, socket: Socket, actor: Extrac
     const body = typeof payload?.body === 'string' ? payload.body.trim() : '';
     if (!conversationId || !body || body.length > 4000) return;
 
-    void (async () => {
+    runChatTask('send admin message', async () => {
       const conversation = await prisma.chatConversation.findUnique({ where: { id: conversationId } });
       if (!conversation || conversation.status === 'CLOSED') return;
 
@@ -325,14 +332,14 @@ function registerAdminHandlers(io: SocketIOServer, socket: Socket, actor: Extrac
 
       io.to(conversationRoom(conversationId)).emit('chat:message', serializeMessage(message));
       await broadcastQueueUpdate(io);
-    })();
+    });
   });
 
   socket.on('chat:close', (payload: { conversation_id?: unknown }) => {
     const conversationId = typeof payload?.conversation_id === 'string' ? payload.conversation_id : '';
     if (!conversationId) return;
 
-    void (async () => {
+    runChatTask('close conversation', async () => {
       const conversation = await prisma.chatConversation.updateMany({
         where: { id: conversationId, status: 'OPEN' },
         data: { status: 'CLOSED', closedAt: new Date(), unreadByAdmin: 0 }
@@ -341,7 +348,7 @@ function registerAdminHandlers(io: SocketIOServer, socket: Socket, actor: Extrac
 
       io.to(conversationRoom(conversationId)).emit('chat:closed', { conversation_id: conversationId });
       await broadcastQueueUpdate(io);
-    })();
+    });
   });
 }
 

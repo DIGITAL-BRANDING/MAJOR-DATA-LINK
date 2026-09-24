@@ -29,6 +29,36 @@
     <meta name="twitter:description" content="Secure, fast digital services for identity verification, business APIs, data, airtime and result checking in Nigeria." />
     <meta name="twitter:image" content="https://k-tech.com.ng/branding/logo.png" />
     <title>K-TECH SOLUTIONS | Digital Verification, APIs &amp; VTU Services</title>
+    <!-- The full Vite/Tailwind sheet remains the normal design. This small
+         fallback protects auth pages when a stale mobile cache or interrupted
+         connection misses the fingerprinted CSS bundle, so users never see a
+         raw browser-default registration form. main.tsx removes it after the
+         normal stylesheet has been applied. -->
+    <script>
+      (function () {
+        if (/^\/(register|login|forgot-password|reset-password)$/.test(location.pathname)) {
+          document.documentElement.setAttribute('data-critical-auth', 'true');
+        }
+      }());
+    </script>
+    <style id="critical-auth-fallback">
+      html[data-critical-auth="true"] body{margin:0;background:#fffaf0;color:#15100a;font-family:Arial,sans-serif}
+      html[data-critical-auth="true"] #root>div{box-sizing:border-box;display:flex;min-height:100vh;align-items:center;justify-content:center;padding:48px 20px}
+      html[data-critical-auth="true"] #root>div>div{width:100%;max-width:420px}
+      html[data-critical-auth="true"] #root .rounded-2xl{box-sizing:border-box;border:1px solid #eaddb8;border-radius:18px;background:#fbf0d9;padding:28px}
+      html[data-critical-auth="true"] #root .font-display{font-family:Arial,sans-serif}
+      html[data-critical-auth="true"] #root h1{margin:0;font-size:25px;line-height:1.25}
+      html[data-critical-auth="true"] #root p{line-height:1.5}
+      html[data-critical-auth="true"] #root input{box-sizing:border-box;width:100%;min-height:44px;border:1px solid #eaddb8;border-radius:8px;background:#fffaf0;padding:10px 14px;font:16px Arial,sans-serif}
+      html[data-critical-auth="true"] #root button{box-sizing:border-box;min-height:44px;border:0;border-radius:8px;padding:10px 14px;font:600 15px Arial,sans-serif}
+      html[data-critical-auth="true"] #root button[type="submit"]{width:100%;background:#d4af37;color:#15100a}
+      html[data-critical-auth="true"] #root label,html[data-critical-auth="true"] #root span{display:block}
+      html[data-critical-auth="true"] #root label{margin-top:14px;font-size:13px;color:#5c4d38}
+      html[data-critical-auth="true"] #root label span{margin-bottom:6px}
+      html[data-critical-auth="true"] #root a{color:#9c7a17}
+      html[data-critical-auth="true"] #root img{max-width:42px;height:auto}
+      @media (max-width:360px){html[data-critical-auth="true"] #root>div{padding:28px 14px}html[data-critical-auth="true"] #root .rounded-2xl{padding:20px}}
+    </style>
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",

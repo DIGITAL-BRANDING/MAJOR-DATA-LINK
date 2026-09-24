@@ -3,19 +3,24 @@ import { prisma } from '../lib/prisma.js';
 import { koboToNaira } from '../lib/money.js';
 import { openPII } from '../lib/pii.js';
 import { requireAuth } from '../middleware/auth.js';
+import { assertSafeWebhookUrl } from '../services/partner-webhook.service.js';
+import { ApiError } from '../middleware/error.js';
 
 export const transactionRoutes = Router();
 
 transactionRoutes.use(requireAuth);
 
-type StoredServiceDocument = { base64: string; label: string };
+type StoredServiceDocument =
+  | { base64: string; label: string }
+  | { url: string; label: string };
+
+const MAX_REMOTE_DOCUMENT_BYTES = 20 * 1024 * 1024;
 
 type IdentitySlipSummary = {
   holder_name?: string;
   identifier?: string;
   slip_type?: string;
   expires_at?: string;
-  photo?: string;
 };
 
 function nonEmptyString(value: unknown) {
@@ -28,17 +33,6 @@ function firstString(record: Record<string, unknown> | null | undefined, keys: s
     if (value) return value;
   }
   return undefined;
-}
-
-function normalisePhotoBase64(value: string | undefined): string | undefined {
-  if (!value) return undefined;
-  const trimmed = value.trim();
-  if (/^data:image\/(png|jpe?g|webp);base64,/i.test(trimmed)) return trimmed;
-  const compact = trimmed.replace(/\s/g, '');
-  // Providers return raw JPEG/PNG base64 with no data-URL prefix.
-  if (!/^[a-z0-9+/]+={0,2}$/i.test(compact) || compact.length < 32) return undefined;
-  const mime = compact.startsWith('iVBOR') ? 'image/png' : 'image/jpeg';
-  return `data:${mime};base64,${compact}`;
 }
 
 /**
@@ -59,14 +53,6 @@ function identitySlipSummary(metadata: unknown, updatedAt: Date): IdentitySlipSu
   const tier = firstString(record, ['tier']);
   const service = firstString(record, ['service']);
   const providerExpiry = firstString(userData, ['expires_at', 'expiry_date', 'expiry', 'expiration_date', 'valid_until']);
-  // A photo is only worth including here (rather than left for the
-  // service-document route) because the reference design shows it right
-  // in the list, same as Techhub's own verification_summary.php does -
-  // still small enough per entry (a few KB) that a normal-sized history
-  // list stays fast, unlike the full PDF this function's sibling
-  // (storedServiceDocument) deliberately keeps out of list responses.
-  const photo = normalisePhotoBase64(firstString(userData, ['image', 'photo', 'picture', 'passport', 'passport_photo']));
-
   return {
     holder_name: fullName ?? ([firstName, lastName].filter(Boolean).join(' ') || undefined),
     identifier: firstString(userData, ['nin', 'nin_number', 'nin_no', 'bvn', 'bvn_number', 'bvn_no', 'tracking_id'])
@@ -74,8 +60,7 @@ function identitySlipSummary(metadata: unknown, updatedAt: Date): IdentitySlipSu
     slip_type: tier ? `${tier.toUpperCase()} SLIP` : service?.replace(/_/g, ' '),
     // Verification slips are reprintable for seven days. A provider-supplied
     // expiry wins if one is present; old records get the same seven-day rule.
-    expires_at: providerExpiry ?? new Date(updatedAt.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-    photo
+    expires_at: providerExpiry ?? new Date(updatedAt.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString()
   };
 }
 
@@ -90,7 +75,7 @@ function storedServiceDocument(metadata: unknown): StoredServiceDocument | null 
   const record = metadata as Record<string, unknown>;
   const pii = openPII<Record<string, unknown>>(record.pii);
   const userData = pii?.user_data as Record<string, unknown> | undefined;
-  const candidates: Array<{ value: unknown; label: string }> = [
+  const base64Candidates: Array<{ value: unknown; label: string }> = [
     // A completed CAC certificate is the customer-facing document. Fall back
     // to its submission form while an admin is still processing it.
     { value: pii?.certificate_pdf_base64, label: 'certificate' },
@@ -101,10 +86,22 @@ function storedServiceDocument(metadata: unknown): StoredServiceDocument | null 
     { value: record.pdf_base64, label: 'service document' }
   ];
 
-  const document = candidates.find(({ value }) => typeof value === 'string' && value.trim().length > 0);
+  const document = base64Candidates.find(({ value }) => typeof value === 'string' && value.trim().length > 0);
   return document && typeof document.value === 'string'
     ? { base64: document.value, label: document.label }
-    : null;
+    : (() => {
+        // Some trusted providers give a short-lived HTTPS PDF URL rather
+        // than the PDF bytes. Keep that compatibility: it is fetched only
+        // after this authenticated owner check and is never placed in a JSON
+        // list/purchase response.
+        const urlCandidates: Array<{ value: unknown; label: string }> = [
+          { value: pii?.pdf_url, label: 'service slip' },
+          { value: userData?.pdf_url, label: 'service slip' },
+          { value: userData?.slip_url, label: 'service slip' }
+        ];
+        const remote = urlCandidates.find(({ value }) => typeof value === 'string' && value.trim().length > 0);
+        return remote && typeof remote.value === 'string' ? { url: remote.value, label: remote.label } : null;
+      })();
 }
 
 function documentBuffer(base64: string): Buffer | null {
@@ -117,6 +114,24 @@ function documentBuffer(base64: string): Buffer | null {
   } catch {
     return null;
   }
+}
+
+async function remoteDocumentBuffer(rawUrl: string): Promise<Buffer> {
+  // Same public-HTTPS and private-address checks used for webhooks. This
+  // prevents a provider-supplied URL from turning the PDF endpoint into an
+  // internal-network fetcher.
+  const endpoint = await assertSafeWebhookUrl(rawUrl);
+  const upstream = await fetch(endpoint, { redirect: 'error', signal: AbortSignal.timeout(20_000) });
+  if (!upstream.ok) throw new ApiError(502, 'The document provider could not supply this PDF. Please try again later.', 'DOCUMENT_PROVIDER_ERROR');
+  const declaredSize = Number(upstream.headers.get('content-length'));
+  if (Number.isFinite(declaredSize) && declaredSize > MAX_REMOTE_DOCUMENT_BYTES) {
+    throw new ApiError(413, 'The provider document is too large to download.', 'DOCUMENT_TOO_LARGE');
+  }
+  const pdf = Buffer.from(await upstream.arrayBuffer());
+  if (pdf.length > MAX_REMOTE_DOCUMENT_BYTES || pdf.length < 5 || pdf.subarray(0, 4).toString() !== '%PDF') {
+    throw new ApiError(502, 'The document provider returned an invalid PDF.', 'INVALID_PROVIDER_DOCUMENT');
+  }
+  return pdf;
 }
 
 transactionRoutes.get('/', async (req, res) => {
@@ -151,7 +166,11 @@ transactionRoutes.get('/:id/service-document', async (req, res) => {
     select: { reference: true, metadata: true }
   });
   const document = storedServiceDocument(tx.metadata);
-  const pdf = document ? documentBuffer(document.base64) : null;
+  const pdf = !document
+    ? null
+    : 'base64' in document
+      ? documentBuffer(document.base64)
+      : await remoteDocumentBuffer(document.url);
   if (!document || !pdf) {
     return res.status(404).json({ status: false, message: 'No downloadable service document is available for this request yet.' });
   }
