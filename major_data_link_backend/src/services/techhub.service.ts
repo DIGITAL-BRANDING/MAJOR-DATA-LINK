@@ -213,16 +213,14 @@ export class TechhubService {
   }
 
   async ninByPhone(phone: string, tier: Exclude<TechhubSlipTier, 'vnin'>) {
-    // Techhub's dashboard documentation calls this value "phone", while
-    // some live installations validate it as "phone_number". Sending the
-    // same already-validated number under both names is backwards-compatible
-    // with the documented route and prevents a misleading missing-parameter
-    // error from the stricter deployment.
-    return this.postSlip(NIN_BY_PHONE_PATH[tier], { phone, phone_number: phone });
+    // Techhub's published request schema is exactly `{ api_key, phone }`.
+    // Do not add aliases here: some upstream endpoint variants use strict
+    // validation and can dispatch unexpectedly when sent extra fields.
+    return this.postSlip(NIN_BY_PHONE_PATH[tier], { phone });
   }
 
   async ninPersonalInfoByPhone(phone: string) {
-    return this.postSlip(NIN_BY_PHONE_PATH.premium, { phone, phone_number: phone }, { personalInfoSlip: true });
+    return this.postSlip(NIN_BY_PHONE_PATH.premium, { phone }, { personalInfoSlip: true });
   }
 
   async ninByDemographic(params: { firstname: string; lastname: string; dob: string; gender?: string }) {

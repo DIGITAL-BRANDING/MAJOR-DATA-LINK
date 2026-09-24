@@ -125,7 +125,7 @@ export const appConfigResource: ResourceWithOptions = {
       },
       apiBaseUrl: {
         description:
-          'Changes the live K-Tech backend API URL for every installed app on its next cold start; it is NOT a Techhub or FranceVerified provider URL. Enter a full HTTPS API root with no trailing slash, e.g. https://k-tech.up.railway.app/api or https://api.yourdomain.com/api. Save checks that /api/public/app-config works before publishing. Leave blank to use the URL compiled into the app.'
+          'Changes the live K-Tech backend API URL for every installed app on its next cold start; it is NOT a Techhub or FranceVerified provider URL. The canonical platform URL is https://k-tech.com.ng/api. Enter a full HTTPS API root with no trailing slash. Save checks that /api/public/app-config works before publishing. Leave blank to use the URL compiled into the app.'
       },
       updatedAt: { isVisible: { list: true, filter: false, show: true, edit: false } }
     },

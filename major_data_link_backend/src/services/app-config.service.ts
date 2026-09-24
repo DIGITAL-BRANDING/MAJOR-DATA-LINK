@@ -1,11 +1,11 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 
-// This is the durable bootstrap origin compiled into the Flutter app. It is
-// also the first value returned from remote config, so existing and newly
-// installed devices converge on the live Railway service before an admin
-// chooses a custom domain.
-export const DEFAULT_APP_API_BASE_URL = 'https://k-tech.up.railway.app/api';
+// This is the canonical public API root for the K-Tech platform. It is also
+// the first value returned from remote config, so new and recovering devices
+// converge on the same customer-facing domain without depending on a hosting
+// provider's internal/public fallback hostname.
+export const DEFAULT_APP_API_BASE_URL = 'https://k-tech.com.ng/api';
 
 /**
  * Admin-editable minimum-app-version gate - see the AppConfig AdminJS

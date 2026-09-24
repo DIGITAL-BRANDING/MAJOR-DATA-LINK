@@ -26,12 +26,12 @@ class AppConfig {
     defaultValue: '',
   );
 
-  /// Stable, provider-managed bootstrap endpoint. Keep this Railway domain
-  /// attached to the production service even after a custom domain is added:
-  /// it lets installed apps recover a newer admin-set URL if their last
-  /// custom domain is ever retired before they have started again.
+  /// Stable, customer-facing bootstrap endpoint for the whole K-Tech
+  /// platform. This stays independent of identity/VTU upstream providers;
+  /// it is the backend origin for auth, wallets, verification and all other
+  /// application APIs.
   static const String productionBootstrapApiBaseUrl =
-      'https://k-tech.up.railway.app/api';
+      'https://k-tech.com.ng/api';
 
   /// Set once, very early in `main()`, from the cached value saved by
   /// splash_screen.dart's `_syncRemoteBaseUrl()` on a previous launch - see
@@ -145,7 +145,7 @@ class AppConfig {
 
   // â”€â”€ Referral â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   static const String referralScheme =
-      'https://k-tech.up.railway.app/register?ref=';
+      'https://k-tech.com.ng/register?ref=';
   static const double referralCommissionRate = 0.02; // 2%
   static const double minCommissionWithdrawal = 500.0;
 
@@ -169,9 +169,9 @@ class AppConfig {
   static const String supportEmailDisplay =
       'kindnesscomp20@gmail.com / sunusiusama94@gmail.com';
   static const String privacyPolicyUrl =
-      'https://k-tech.up.railway.app/privacy-policy';
-  static const String termsUrl = 'https://k-tech.up.railway.app/terms';
-  static const String referralLinkBaseUrl = 'https://k-tech.up.railway.app';
+      'https://k-tech.com.ng/privacy-policy';
+  static const String termsUrl = 'https://k-tech.com.ng/terms';
+  static const String referralLinkBaseUrl = 'https://k-tech.com.ng';
 
   // â”€â”€ Play Integrity â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   static const String playIntegrityCloudProjectNumber = '123456789';
