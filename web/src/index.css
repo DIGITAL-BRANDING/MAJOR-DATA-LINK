@@ -19,7 +19,9 @@
   --color-parchment-line: #eaddb8;
 
   --color-gold-50: #fffbeb;
+  --color-gold-100: #fff3c4;
   --color-gold-200: #fce588;
+  --color-gold-300: #f9d96c;
   --color-gold-400: #f7c948;
   --color-gold-500: #d4af37;
   --color-gold-600: #b8941f;
@@ -45,7 +47,10 @@
   --color-brand-900: #172554;
 
   --color-ink-900: #1c140b;
+  --color-ink-700: #443826;
   --color-ink-600: #5c4d38;
+  --color-ink-500: #74634c;
+  --color-ink-400: #927f67;
 
   --font-display: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, monospace;

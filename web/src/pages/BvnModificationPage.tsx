@@ -235,19 +235,19 @@ export default function BvnModificationPage() {
             <div className="mt-5 grid gap-4 sm:grid-cols-2">
               <button
                 onClick={() => setStage('select')}
-                className="flex flex-col items-center gap-2 rounded-xl bg-ink p-6 text-gold-100"
+                className="flex flex-col items-center gap-2 rounded-xl bg-ink p-6 text-cream transition hover:bg-ink-soft focus-visible:outline-gold-400"
               >
                 <CheckCircle2 size={28} />
                 <span className="font-display text-base font-bold">I know exactly what to fix</span>
-                <span className="text-xs text-gold-100/80">Go straight to picking a modification type</span>
+                <span className="text-xs text-gold-200">Go straight to picking a modification type</span>
               </button>
               <button
                 onClick={() => setStage('verify')}
-                className="flex flex-col items-center gap-2 rounded-xl bg-ink p-6 text-gold-100"
+                className="flex flex-col items-center gap-2 rounded-xl bg-ink p-6 text-cream transition hover:bg-ink-soft focus-visible:outline-gold-400"
               >
                 <HelpCircle size={28} />
                 <span className="font-display text-base font-bold">I'm not sure — check first</span>
-                <span className="text-xs text-gold-100/80">Compare your BVN &amp; NIN date of birth</span>
+                <span className="text-xs text-gold-200">Compare your BVN &amp; NIN date of birth</span>
               </button>
             </div>
           </section>
@@ -354,11 +354,11 @@ export default function BvnModificationPage() {
                   key={type.id}
                   onClick={() => pickType(type.id)}
                   className={`relative flex min-h-28 flex-col items-center justify-center rounded-xl p-4 text-center ${
-                    suggested ? 'bg-gold-500 text-ink' : 'bg-ink text-gold-100'
+                    suggested ? 'bg-gold-500 text-ink' : 'bg-ink text-cream'
                   }`}
                 >
                   {suggested && (
-                    <span className="absolute -top-2 left-1/2 -translate-x-1/2 rounded-full bg-ember px-2 py-0.5 text-[10px] font-bold text-cream">
+                    <span className="absolute -top-2 left-1/2 -translate-x-1/2 rounded-full bg-ember-500 px-2 py-0.5 text-[10px] font-bold text-cream">
                       Suggested
                     </span>
                   )}

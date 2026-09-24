@@ -80,7 +80,18 @@ const labels: Record<string, string> = {
   gender: 'Gender',
   validation_type: 'Validation type',
   tracking_id: 'Tracking ID',
+  agent_location: 'Agent location',
+  agent_bvn: 'Agent BVN',
+  account_number: 'Account number',
+  bank_name: 'Bank name',
+  date_of_birth: 'Date of birth',
+  address: 'Residential address',
+  lga: 'Local Government Area (LGA)',
+  state_of_residence: 'State of residence',
+  geo_political_zone: 'Geo-political zone',
 };
+
+const GEO_POLITICAL_ZONES = ['North Central', 'North East', 'North West', 'South East', 'South South', 'South West'] as const;
 
 function keyFor(item: Item, tier = 'premium') {
   const name = tier.toUpperCase();
@@ -146,6 +157,7 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
   const [polling, setPolling] = useState(false);
   const [history, setHistory] = useState<VerificationHistory[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [licenseConsent, setLicenseConsent] = useState(false);
   const [initialApplied, setInitialApplied] = useState(false);
   const ticketRequestInFlight = useRef(false);
 
@@ -216,6 +228,7 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
     resetResult();
     setSelected(item);
     setTier('premium');
+    setLicenseConsent(false);
     // Pre-select the general (cheapest, no-op) validation type so a real
     // price shows immediately instead of "Price loading…" the moment the
     // form opens - same reasoning as tier defaulting to 'premium' above.
@@ -236,7 +249,12 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
     setBusy(true);
     setMessage('');
     try {
-      const data = { ...values, ...(selected.tiers ? { tier } : {}), pin };
+      const data = {
+        ...values,
+        ...(selected.tiers ? { tier } : {}),
+        ...(selected.id === 'license-onboarding' ? { consent: licenseConsent } : {}),
+        pin,
+      };
       const result = await api.post<{
         status: boolean;
         message: string;
@@ -399,10 +417,23 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
                           </button>
                         ))}
                       </div>
+                    ) : field === 'geo_political_zone' ? (
+                      <select
+                        required
+                        className="mt-1 w-full rounded-xl border border-parchment-line bg-cream p-3 text-ink outline-none focus:border-gold-500"
+                        value={values[field] ?? ''}
+                        onChange={(e) => setValues((v) => ({ ...v, [field]: e.target.value }))}
+                      >
+                        <option value="">Select your zone</option>
+                        {GEO_POLITICAL_ZONES.map((zone) => <option key={zone} value={zone}>{zone}</option>)}
+                      </select>
                     ) : (
                       <input
                         required
-                        type={field === 'dob' ? 'date' : field === 'email' ? 'email' : 'text'}
+                        type={field === 'dob' || field === 'date_of_birth' ? 'date' : field === 'email' ? 'email' : 'text'}
+                        inputMode={field === 'agent_bvn' || field === 'account_number' || field === 'phone_number' ? 'numeric' : undefined}
+                        maxLength={field === 'agent_bvn' || field === 'phone_number' ? 11 : field === 'account_number' ? 12 : undefined}
+                        placeholder={field === 'agent_bvn' ? '11-digit BVN' : field === 'account_number' ? 'Account number' : undefined}
                         className="mt-1 w-full rounded-xl border border-parchment-line bg-cream p-3 text-ink outline-none focus:border-gold-500"
                         value={values[field] ?? ''}
                         onChange={(e) => setValues((v) => ({ ...v, [field]: e.target.value }))}
@@ -417,6 +448,18 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
                       {selected.tiers.map((option) => <button key={option} type="button" onClick={() => setTier(option)} className={`rounded-xl border p-3 text-center transition hover:-translate-y-0.5 ${tier === option ? 'border-[#8b6914] bg-[#6b4f0b] text-white shadow-md' : 'border-parchment-line bg-cream text-ink hover:border-gold-500'}`}><img src={NIN_SLIP_IMAGES[option]} alt={`${option} slip preview`} className="mx-auto h-14 w-full rounded-lg bg-white object-contain p-1"/><span className="mt-2 block font-semibold">{option === 'vnin' ? 'V-NIN Slip' : option === 'personal' ? 'Personal Info Slip' : `${option[0].toUpperCase() + option.slice(1)} Slip`}</span><span className={`mt-1 block text-xs font-bold ${tier === option ? 'text-[#ffe9a3]' : 'text-gold-700'}`}>{money(prices[keyFor(selected, option)])}</span></button>)}
                     </div>
                   </div>
+                )}
+                {selected.id === 'license-onboarding' && (
+                  <label className="sm:col-span-2 flex items-start gap-3 rounded-xl border border-parchment-line bg-cream p-4 font-body text-sm text-ink-600">
+                    <input
+                      required
+                      type="checkbox"
+                      checked={licenseConsent}
+                      onChange={(e) => setLicenseConsent(e.target.checked)}
+                      className="mt-0.5 h-4 w-4 accent-[#b8941f]"
+                    />
+                    <span>I confirm that the information is accurate and I authorize K-Tech Solutions to submit this BVN Licence onboarding request on my behalf.</span>
+                  </label>
                 )}
                 <div className="sm:col-span-2">
                   <button

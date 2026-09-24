@@ -3,6 +3,7 @@ import type { ResourceWithOptions } from 'adminjs';
 import { prisma } from '../../lib/prisma.js';
 import { logAdminAction } from '../audit.js';
 import type { AdminSessionUser } from '../auth.js';
+import { assertSafeWebhookUrl } from '../../services/partner-webhook.service.js';
 
 const canManageAppConfig = ({ currentAdmin }: { currentAdmin?: Record<string, unknown> }) => {
   const admin = currentAdmin as unknown as AdminSessionUser | undefined;
@@ -48,6 +49,30 @@ function validateApiBaseUrl(value: unknown): string | null {
   }
   if (parsed.pathname !== '/api') {
     return 'The URL must end exactly with /api, e.g. https://api.majordatalink.ng/api.';
+  }
+  return null;
+}
+
+/** A provider URL may be valid HTTPS yet still lack the K-Tech API routes
+ * every installed Flutter app needs. Verify the public control endpoint
+ * before publishing a global mobile-client URL change. */
+async function verifyApiBaseUrlHealth(baseUrl: string): Promise<string | null> {
+  let endpoint: string;
+  try {
+    endpoint = await assertSafeWebhookUrl(`${baseUrl}/public/app-config`);
+  } catch {
+    return 'The URL must resolve to a public HTTPS host.';
+  }
+  try {
+    const response = await fetch(endpoint, {
+      redirect: 'error', signal: AbortSignal.timeout(8_000), headers: { Accept: 'application/json' }
+    });
+    const body = await response.json().catch(() => null) as { status?: unknown; data?: unknown } | null;
+    if (!response.ok || body?.status !== true || typeof body.data !== 'object' || body.data === null) {
+      return 'This is not a compatible K-Tech API. It must serve GET /api/public/app-config successfully.';
+    }
+  } catch {
+    return 'Could not reach GET /api/public/app-config at this URL. Save was cancelled so installed apps stay online.';
   }
   return null;
 }
@@ -100,7 +125,7 @@ export const appConfigResource: ResourceWithOptions = {
       },
       apiBaseUrl: {
         description:
-          'Changes the live API URL for every installed app on its next cold start; no APK rebuild is needed. Enter a full HTTPS API root with no trailing slash, e.g. https://k-tech.up.railway.app/api or https://api.yourdomain.com/api. Keep k-tech.up.railway.app attached to this same Railway service as the permanent recovery/bootstrap URL, set the new URL here, verify it on a device, and only then retire an old custom domain. Leave blank to use the URL compiled into the app.'
+          'Changes the live K-Tech backend API URL for every installed app on its next cold start; it is NOT a Techhub or FranceVerified provider URL. Enter a full HTTPS API root with no trailing slash, e.g. https://k-tech.up.railway.app/api or https://api.yourdomain.com/api. Save checks that /api/public/app-config works before publishing. Leave blank to use the URL compiled into the app.'
       },
       updatedAt: { isVisible: { list: true, filter: false, show: true, edit: false } }
     },
@@ -116,6 +141,10 @@ export const appConfigResource: ResourceWithOptions = {
             const error = validateApiBaseUrl(trimmed);
             if (error) {
               throw new Error(`apiBaseUrl: ${error}`);
+            }
+            if (typeof trimmed === 'string' && trimmed !== '') {
+              const healthError = await verifyApiBaseUrlHealth(trimmed);
+              if (healthError) throw new Error(`apiBaseUrl: ${healthError}`);
             }
             // Normalize '' to null so the Flutter client's "unset = use
             // compiled-in default" check (an empty check, not a null check)

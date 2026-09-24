@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Baby,
   CreditCard,
@@ -130,7 +130,8 @@ export default function ServiceHistoryPage() {
   const groupId = params.get('group') ?? '';
   const activeGroup = GROUPS.find((g) => g.id === groupId);
 
-  useEffect(() => {
+  const loadServices = useCallback(() => {
+    setLoading(true);
     api
       .get<{ status: boolean; data: Transaction[] }>('/transactions/services')
       .then((response) => {
@@ -143,6 +144,10 @@ export default function ServiceHistoryPage() {
       })
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    loadServices();
+  }, [loadServices]);
 
   // One folder per GROUPS entry that actually has at least one transaction,
   // in the order the customer is most likely to care about (most recent
@@ -253,9 +258,12 @@ export default function ServiceHistoryPage() {
           </p>
         )}
         {loadError && (
-          <p role="alert" className="mt-4 rounded-xl bg-rose-50 px-4 py-3 text-center font-body text-sm font-semibold text-rose-700">
-            {loadError}
-          </p>
+          <div role="alert" className="mt-4 rounded-xl bg-rose-50 px-4 py-3 text-center font-body text-sm font-semibold text-rose-700">
+            <p>{loadError}</p>
+            <button type="button" onClick={loadServices} className="mt-2 rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-xs font-bold text-rose-700 hover:bg-rose-100">
+              Retry loading history
+            </button>
+          </div>
         )}
         {documentUrl && (
           <section className="mt-5 overflow-hidden rounded-3xl border border-parchment-line bg-white shadow-sm">

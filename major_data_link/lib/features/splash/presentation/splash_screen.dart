@@ -143,16 +143,55 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
         return;
       }
 
-      if (remoteBaseUrl == cached) return; // nothing changed
-
       if (!AppConfig.isValidRemoteBaseUrl(remoteBaseUrl)) {
         // A malformed value should never have passed the backend's own
         // https-with-host validation (app-config.resource.ts) - if it
         // somehow does, ignore it rather than risk caching garbage that
         // could strand the next cold start with no working baseUrl.
-        appLogger.w('Ignoring invalid remote api_base_url: $remoteBaseUrl');
+        // Do not retain a previously-cached bad value: it would make the
+        // device retry the same dead host on every cold start. Clearing it
+        // makes the immutable Railway bootstrap URL take over next launch.
+        if (cached != null) await storage.clearApiBaseUrlOverride();
+        appLogger.w(
+          'Ignoring and clearing invalid remote api_base_url: $remoteBaseUrl',
+        );
         return;
       }
+
+      // A syntactically valid provider URL can still be wrong for this app:
+      // it has no K-Tech `/api/public/app-config`, auth, or wallet routes.
+      // Probe a candidate before persisting it so an accidental admin change
+      // recovers automatically instead of breaking every installed device.
+      final candidateClient = Dio(
+        BaseOptions(
+          baseUrl: remoteBaseUrl,
+          connectTimeout: const Duration(seconds: 4),
+          receiveTimeout: const Duration(seconds: 4),
+          sendTimeout: const Duration(seconds: 4),
+          followRedirects: false,
+          validateStatus: (status) => status == 200,
+        ),
+      );
+      try {
+        final response = await candidateClient
+            .get(
+              '/public/app-config',
+              options: Options(extra: {'skipAuth': true, 'skipRetry': true}),
+            )
+            .timeout(const Duration(seconds: 5));
+        final body = response.data;
+        if (body is! Map || body['status'] != true || body['data'] is! Map) {
+          throw const FormatException('Invalid app-config response');
+        }
+      } catch (_) {
+        if (cached != null) await storage.clearApiBaseUrlOverride();
+        appLogger.w(
+          'Ignoring and clearing unreachable remote api_base_url: $remoteBaseUrl',
+        );
+        return;
+      }
+
+      if (remoteBaseUrl == cached) return; // already validated and stored
 
       await storage.saveApiBaseUrlOverride(remoteBaseUrl);
       appLogger.i('Cached new api_base_url for next launch: $remoteBaseUrl');

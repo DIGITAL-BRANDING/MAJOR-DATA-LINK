@@ -104,6 +104,28 @@ function storedServiceDocument(metadata: unknown): StoredServiceDocument | null 
       })();
 }
 
+/**
+ * A single legacy transaction must never make a customer's whole history
+ * unavailable. `openPII` already returns null for unreadable old blobs, but
+ * this boundary also protects the list endpoint from an unexpected record
+ * shape while preserving the rest of the owner's history.
+ */
+function hasStoredServiceDocument(metadata: unknown): boolean {
+  try {
+    return Boolean(storedServiceDocument(metadata));
+  } catch {
+    return false;
+  }
+}
+
+function safeIdentitySlipSummary(metadata: unknown, updatedAt: Date): IdentitySlipSummary {
+  try {
+    return identitySlipSummary(metadata, updatedAt);
+  } catch {
+    return {};
+  }
+}
+
 function documentBuffer(base64: string): Buffer | null {
   const value = base64.replace(/^data:application\/pdf(?:;[^,]*)?,/i, '').trim();
   if (!value) return null;
@@ -152,7 +174,7 @@ transactionRoutes.get('/', async (req, res) => {
       balance_after: koboToNaira(tx.balanceAfterKobo),
       description: tx.description,
       created_at: tx.createdAt.toISOString(),
-      document_available: Boolean(storedServiceDocument(tx.metadata))
+      document_available: hasStoredServiceDocument(tx.metadata)
     }))
   });
 });
@@ -244,9 +266,9 @@ transactionRoutes.get('/services', async (req, res) => {
         balance_after: koboToNaira(tx.balanceAfterKobo),
         description: tx.description,
         created_at: tx.createdAt.toISOString(),
-        document_available: Boolean(storedServiceDocument(tx.metadata)),
+        document_available: hasStoredServiceDocument(tx.metadata),
         ...(tx.type === 'NIN_VERIFICATION' || tx.type === 'BVN_VERIFICATION'
-          ? identitySlipSummary(tx.metadata, tx.updatedAt)
+          ? safeIdentitySlipSummary(tx.metadata, tx.updatedAt)
           : {})
       };
     })
