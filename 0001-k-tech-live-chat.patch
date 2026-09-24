@@ -1,0 +1,1630 @@
+diff --git a/major_data_link_backend/package-lock.json b/major_data_link_backend/package-lock.json
+index 17dd79d..3ac766d 100644
+--- a/major_data_link_backend/package-lock.json
++++ b/major_data_link_backend/package-lock.json
+@@ -28,6 +28,7 @@
+                 "pdfkit": "^0.19.1",
+                 "pg": "^8.13.1",
+                 "resend": "^6.19.0",
++                "socket.io": "^4.8.3",
+                 "tslib": "^2.8.1",
+                 "typescript": "^5.9.3",
+                 "zod": "^3.24.1"
+@@ -3428,6 +3429,12 @@
+                 "win32"
+             ]
+         },
++        "node_modules/@socket.io/component-emitter": {
++            "version": "3.1.2",
++            "resolved": "https://registry.npmjs.org/@socket.io/component-emitter/-/component-emitter-3.1.2.tgz",
++            "integrity": "sha512-9BCxFwvbGg/RsZK9tjXd8s4UcwR0MWeFQ1XEKIQVVvAGJyINdrqKMcTRyLoK8Rse1GjzLV9cwjWV1olXRWEXVA==",
++            "license": "MIT"
++        },
+         "node_modules/@stablelib/base64": {
+             "version": "1.0.1",
+             "resolved": "https://registry.npmjs.org/@stablelib/base64/-/base64-1.0.1.tgz",
+@@ -4201,7 +4208,6 @@
+             "version": "2.8.19",
+             "resolved": "https://registry.npmjs.org/@types/cors/-/cors-2.8.19.tgz",
+             "integrity": "sha512-mFNylyeyqN93lfe/9CSxOGREz8cpzAhH+E93xJ4xWQf62V8sQ/24reV2nyzUWM6H6Xji+GGHpkbLe7pVoUEskg==",
+-            "dev": true,
+             "license": "MIT",
+             "dependencies": {
+                 "@types/node": "*"
+@@ -4468,6 +4474,15 @@
+             "integrity": "sha512-EwmlvuaxPNej9+T4v5AuBPJa2x2UOJVdjCtDHgcDqitUeOtjnJKJ+apYjVcAoBEMjKW1VVFGZLUb5+qqa09XFA==",
+             "license": "MIT"
+         },
++        "node_modules/@types/ws": {
++            "version": "8.18.1",
++            "resolved": "https://registry.npmjs.org/@types/ws/-/ws-8.18.1.tgz",
++            "integrity": "sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg==",
++            "license": "MIT",
++            "dependencies": {
++                "@types/node": "*"
++            }
++        },
+         "node_modules/@vitest/expect": {
+             "version": "3.2.7",
+             "resolved": "https://registry.npmjs.org/@vitest/expect/-/expect-3.2.7.tgz",
+@@ -4832,6 +4847,15 @@
+             ],
+             "license": "MIT"
+         },
++        "node_modules/base64id": {
++            "version": "2.0.0",
++            "resolved": "https://registry.npmjs.org/base64id/-/base64id-2.0.0.tgz",
++            "integrity": "sha512-lGe34o6EHj9y3Kts9R4ZYs/Gr+6N7MCaMlIFA3F1R2O5/m7K06AxfSeO5530PEERE6/WyEg3lsuyw4GHlPZHog==",
++            "license": "MIT",
++            "engines": {
++                "node": "^4.5.0 || >= 5.9"
++            }
++        },
+         "node_modules/baseline-browser-mapping": {
+             "version": "2.11.1",
+             "resolved": "https://registry.npmjs.org/baseline-browser-mapping/-/baseline-browser-mapping-2.11.1.tgz",
+@@ -5639,6 +5663,35 @@
+                 "once": "^1.4.0"
+             }
+         },
++        "node_modules/engine.io": {
++            "version": "6.6.10",
++            "resolved": "https://registry.npmjs.org/engine.io/-/engine.io-6.6.10.tgz",
++            "integrity": "sha512-9/lX2bdlizlCXMHRMOIm03VBQHQYC7VvydcxtTAUJRxNW1QzM/2PMFSmr6h/lCiMHcyCP6abK+t9Q+j4vekk8Q==",
++            "license": "MIT",
++            "dependencies": {
++                "@types/cors": "^2.8.12",
++                "@types/node": ">=10.0.0",
++                "@types/ws": "^8.5.12",
++                "accepts": "~1.3.4",
++                "cookie": "~0.7.2",
++                "cors": "~2.8.5",
++                "debug": "~4.4.1",
++                "engine.io-parser": "~5.2.1",
++                "ws": "~8.21.0"
++            },
++            "engines": {
++                "node": ">=10.2.0"
++            }
++        },
++        "node_modules/engine.io-parser": {
++            "version": "5.2.3",
++            "resolved": "https://registry.npmjs.org/engine.io-parser/-/engine.io-parser-5.2.3.tgz",
++            "integrity": "sha512-HqD3yTBfnBxIrbnM1DoD6Pcq8NECnh8d4As1Qgh0z5Gg3jRRIqijury0CL3ghu/edArpUYiYqQiDUQBIs4np3Q==",
++            "license": "MIT",
++            "engines": {
++                "node": ">=10.0.0"
++            }
++        },
+         "node_modules/entities": {
+             "version": "4.5.0",
+             "resolved": "https://registry.npmjs.org/entities/-/entities-4.5.0.tgz",
+@@ -9378,6 +9431,47 @@
+                 "url": "https://github.com/sponsors/sindresorhus"
+             }
+         },
++        "node_modules/socket.io": {
++            "version": "4.8.3",
++            "resolved": "https://registry.npmjs.org/socket.io/-/socket.io-4.8.3.tgz",
++            "integrity": "sha512-2Dd78bqzzjE6KPkD5fHZmDAKRNe3J15q+YHDrIsy9WEkqttc7GY+kT9OBLSMaPbQaEd0x1BjcmtMtXkfpc+T5A==",
++            "license": "MIT",
++            "dependencies": {
++                "accepts": "~1.3.4",
++                "base64id": "~2.0.0",
++                "cors": "~2.8.5",
++                "debug": "~4.4.1",
++                "engine.io": "~6.6.0",
++                "socket.io-adapter": "~2.5.2",
++                "socket.io-parser": "~4.2.4"
++            },
++            "engines": {
++                "node": ">=10.2.0"
++            }
++        },
++        "node_modules/socket.io-adapter": {
++            "version": "2.5.8",
++            "resolved": "https://registry.npmjs.org/socket.io-adapter/-/socket.io-adapter-2.5.8.tgz",
++            "integrity": "sha512-6Oy52pbg+kvdCVvjcN+FnY7BvxZ7cIHNScbvztT/It5d0vbwoJoVZmF2gjJmnV0/4WlXRfG15zc45ySk9Ah8bw==",
++            "license": "MIT",
++            "dependencies": {
++                "debug": "~4.4.1",
++                "ws": "~8.21.0"
++            }
++        },
++        "node_modules/socket.io-parser": {
++            "version": "4.2.7",
++            "resolved": "https://registry.npmjs.org/socket.io-parser/-/socket.io-parser-4.2.7.tgz",
++            "integrity": "sha512-IH/iSeO9T6gz1KkFleGDWkG9N3dl4jXVYUtMhIqH10Md0ttMer8nUNWiP1DKuNrybD2xBrixLJdCC9J6ECoYkg==",
++            "license": "MIT",
++            "dependencies": {
++                "@socket.io/component-emitter": "~3.1.0",
++                "debug": "~4.4.1"
++            },
++            "engines": {
++                "node": ">=10.0.0"
++            }
++        },
+         "node_modules/source-map": {
+             "version": "0.5.7",
+             "resolved": "https://registry.npmjs.org/source-map/-/source-map-0.5.7.tgz",
+@@ -11919,6 +12013,27 @@
+             "integrity": "sha512-l4Sp/DRseor9wL6EvV2+TuQn63dMkPjZ/sp9XkghTEbV9KlPS1xUsZ3u7/IQO4wxtcFB4bgpQPRcR3QCvezPcQ==",
+             "license": "ISC"
+         },
++        "node_modules/ws": {
++            "version": "8.21.3",
++            "resolved": "https://registry.npmjs.org/ws/-/ws-8.21.3.tgz",
++            "integrity": "sha512-201TZ/kPWxoPr/OKWjquZR1SWKXcvxdH+e1xrx89b3YbmzLMFCLfnaG1HFIgWzJOEWZ7MvpK++odZufgYR50Rw==",
++            "license": "MIT",
++            "engines": {
++                "node": ">=10.0.0"
++            },
++            "peerDependencies": {
++                "bufferutil": "^4.0.1",
++                "utf-8-validate": ">=5.0.2"
++            },
++            "peerDependenciesMeta": {
++                "bufferutil": {
++                    "optional": true
++                },
++                "utf-8-validate": {
++                    "optional": true
++                }
++            }
++        },
+         "node_modules/xml-naming": {
+             "version": "0.3.0",
+             "resolved": "https://registry.npmjs.org/xml-naming/-/xml-naming-0.3.0.tgz",
+diff --git a/major_data_link_backend/package.json b/major_data_link_backend/package.json
+index d1ee0d6..085baa6 100644
+--- a/major_data_link_backend/package.json
++++ b/major_data_link_backend/package.json
+@@ -43,6 +43,7 @@
+         "pdfkit": "^0.19.1",
+         "pg": "^8.13.1",
+         "resend": "^6.19.0",
++        "socket.io": "^4.8.3",
+         "tslib": "^2.8.1",
+         "typescript": "^5.9.3",
+         "zod": "^3.24.1"
+diff --git a/major_data_link_backend/prisma/migrations/20260923180000_add_live_chat/migration.sql b/major_data_link_backend/prisma/migrations/20260923180000_add_live_chat/migration.sql
+new file mode 100644
+index 0000000..687d609
+--- /dev/null
++++ b/major_data_link_backend/prisma/migrations/20260923180000_add_live_chat/migration.sql
+@@ -0,0 +1,49 @@
++-- CreateEnum
++CREATE TYPE "ChatSender" AS ENUM ('USER', 'ADMIN');
++
++-- CreateEnum
++CREATE TYPE "ChatConversationStatus" AS ENUM ('OPEN', 'CLOSED');
++
++-- CreateEnum
++CREATE TYPE "ChatOwnerType" AS ENUM ('USER', 'PARTNER');
++
++-- CreateTable
++CREATE TABLE "ChatConversation" (
++  "id" TEXT NOT NULL,
++  "ownerType" "ChatOwnerType" NOT NULL DEFAULT 'USER',
++  "ownerId" TEXT NOT NULL,
++  "status" "ChatConversationStatus" NOT NULL DEFAULT 'OPEN',
++  "assignedAdminId" TEXT,
++  "lastMessageAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
++  "lastMessagePreview" TEXT,
++  "unreadByAdmin" INTEGER NOT NULL DEFAULT 0,
++  "unreadByOwner" INTEGER NOT NULL DEFAULT 0,
++  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
++  "updatedAt" TIMESTAMP(3) NOT NULL,
++  "closedAt" TIMESTAMP(3),
++  CONSTRAINT "ChatConversation_pkey" PRIMARY KEY ("id")
++);
++
++-- CreateTable
++CREATE TABLE "ChatMessage" (
++  "id" TEXT NOT NULL,
++  "conversationId" TEXT NOT NULL,
++  "senderType" "ChatSender" NOT NULL,
++  "senderId" TEXT NOT NULL,
++  "senderName" TEXT NOT NULL,
++  "body" TEXT NOT NULL,
++  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
++  CONSTRAINT "ChatMessage_pkey" PRIMARY KEY ("id")
++);
++
++-- CreateIndex
++CREATE INDEX "ChatConversation_status_lastMessageAt_idx" ON "ChatConversation"("status", "lastMessageAt");
++
++-- CreateIndex
++CREATE INDEX "ChatConversation_ownerType_ownerId_idx" ON "ChatConversation"("ownerType", "ownerId");
++
++-- CreateIndex
++CREATE INDEX "ChatMessage_conversationId_createdAt_idx" ON "ChatMessage"("conversationId", "createdAt");
++
++-- AddForeignKey
++ALTER TABLE "ChatMessage" ADD CONSTRAINT "ChatMessage_conversationId_fkey" FOREIGN KEY ("conversationId") REFERENCES "ChatConversation"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+diff --git a/major_data_link_backend/prisma/schema.prisma b/major_data_link_backend/prisma/schema.prisma
+index cd726d8..f4bcd2e 100644
+--- a/major_data_link_backend/prisma/schema.prisma
++++ b/major_data_link_backend/prisma/schema.prisma
+@@ -593,6 +593,76 @@ model SupportTicketMessage {
+ 
+   @@index([ticketId])
+ }
++
++enum ChatSender {
++  USER
++  ADMIN
++}
++
++enum ChatConversationStatus {
++  OPEN
++  CLOSED
++}
++
++/// A ChatConversation belongs to either a customer (User) or a Partner
++/// portal account - never both. ownerType picks which table ownerId
++/// points into (same "not a formal relation, deliberately" reasoning as
++/// SupportTicketMessage.senderId above - one id column pointing at two
++/// different tables depending on a sibling enum).
++enum ChatOwnerType {
++  USER
++  PARTNER
++}
++
++/// Self-hosted real-time support chat (K-Tech Live Chat), replacing the
++/// third-party Tawk.to widget. One open conversation per owner (customer or
++/// partner) - a widget reuses its existing OPEN conversation instead of
++/// starting a fresh thread every visit; it is only ever CLOSED explicitly
++/// by an admin. See src/realtime/chat-socket.ts for the Socket.IO server
++/// that reads and writes these rows, and src/admin/live-chat.ts for the
++/// admin-side queue page.
++model ChatConversation {
++  id             String                 @id @default(uuid())
++  ownerType      ChatOwnerType          @default(USER)
++  ownerId        String
++  status         ChatConversationStatus @default(OPEN)
++  // Which admin last opened this conversation - shown on the queue page as
++  // "being handled by X" so two admins don't reply over each other. Not
++  // exclusive/locking: any admin can still reply.
++  assignedAdminId    String?
++  lastMessageAt      DateTime           @default(now())
++  lastMessagePreview String?
++  // The offline/waiting queue IS "unreadByAdmin > 0" on this row - no
++  // separate queue table. Incremented whenever the owner sends a message,
++  // zeroed the moment an admin opens the conversation.
++  unreadByAdmin  Int      @default(0)
++  unreadByOwner  Int      @default(0)
++  createdAt      DateTime @default(now())
++  updatedAt      DateTime @updatedAt
++  closedAt       DateTime?
++  messages       ChatMessage[]
++
++  @@index([status, lastMessageAt])
++  @@index([ownerType, ownerId])
++}
++
++model ChatMessage {
++  id             String           @id @default(uuid())
++  conversationId String
++  conversation   ChatConversation @relation(fields: [conversationId], references: [id])
++  senderType     ChatSender
++  // User.id, Partner.id, or AdminUser.id depending on the conversation's
++  // ownerType / this message's senderType - same pattern as
++  // SupportTicketMessage.senderId above, not a Prisma relation since it
++  // points at more than one table.
++  senderId       String
++  senderName     String
++  body           String
++  createdAt      DateTime @default(now())
++
++  @@index([conversationId, createdAt])
++}
++
+ // Singleton row (id is always "default") holding admin-editable referral
+ // program settings. Read fresh by referral.service.ts on every relevant
+ // call - traffic here is low enough (one read per purchase/withdrawal/stats
+diff --git a/major_data_link_backend/src/admin/components/dashboard.tsx b/major_data_link_backend/src/admin/components/dashboard.tsx
+index 253c86a..2560729 100644
+--- a/major_data_link_backend/src/admin/components/dashboard.tsx
++++ b/major_data_link_backend/src/admin/components/dashboard.tsx
+@@ -48,6 +48,7 @@ const quickLinks: QuickLink[] = [
+   { label: 'Customer Activity', description: 'Top customers, what they bought, and reward candidates', href: `${ADMIN_ROOT_PATH}/customer-activity`, icon: 'Award' },
+   { label: 'Login Activity', description: 'Latest customer App/Web logins and partner portal access', href: `${ADMIN_ROOT_PATH}/login-activity`, icon: 'LogIn' },
+   { label: 'User Deliveries', description: 'Upload completed CAC, JAMB or other service files to a customer', href: `${ADMIN_ROOT_PATH}/user-deliveries`, icon: 'Upload' },
++  { label: 'Live Chat', description: 'Reply to customers in real time (K-Tech Live Chat)', href: `${ADMIN_ROOT_PATH}/live-chat`, icon: 'MessageSquare' },
+   { label: 'Service Requests', description: 'Open and process customer support requests', resourceId: 'SupportTicket', icon: 'MessageCircle' },
+   { label: 'Request Replies', description: 'Send updates to customers while a request is being processed', resourceId: 'SupportTicketMessage', icon: 'Send' },
+   { label: 'Service Pricing', description: 'Prices and provider routing for all services', resourceId: 'ServicePricing', icon: 'Tag' },
+diff --git a/major_data_link_backend/src/admin/live-chat.ts b/major_data_link_backend/src/admin/live-chat.ts
+new file mode 100644
+index 0000000..387731c
+--- /dev/null
++++ b/major_data_link_backend/src/admin/live-chat.ts
+@@ -0,0 +1,240 @@
++import type { Request, Router } from 'express';
++import type { AdminSessionUser } from './auth.js';
++
++declare module 'express-session' {
++  interface SessionData {
++    adminUser?: AdminSessionUser;
++  }
++}
++
++/**
++ * K-Tech Live Chat - the admin side. Every customer conversation with
++ * unreadByAdmin > 0 (see prisma/schema.prisma's ChatConversation) shows up
++ * here as a waiting queue item; opening one clears it. All of the actual
++ * real-time work (queue updates, message send/receive) happens over the
++ * Socket.IO connection this page opens client-side against
++ * src/realtime/chat-socket.ts - this route only serves the page shell and
++ * checks the admin is signed in. The Socket.IO client library itself is
++ * self-hosted: `/socket.io/socket.io.js` is served automatically by the
++ * Socket.IO server attached in server.ts, no CDN or external service
++ * involved.
++ */
++export function registerLiveChatRoutes(router: Router) {
++  router.get('/live-chat', (req: Request, res) => {
++    const admin = req.session?.adminUser;
++    if (!admin) return res.redirect('/admin/login');
++    res.type('html').send(renderPage(admin));
++  });
++}
++
++function escape(value: string): string {
++  return value.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
++}
++
++function renderPage(admin: AdminSessionUser) {
++  return `<!DOCTYPE html>
++<html lang="en">
++<head>
++<meta charset="utf-8">
++<meta name="viewport" content="width=device-width, initial-scale=1">
++<title>Live Chat — K-Tech Solutions Admin</title>
++<script src="/socket.io/socket.io.js"></script>
++<style>
++  :root { --gold: #D4AF37; --gold-dark: #9C7A17; --bg: #FAF7EF; --card: #FFFFFF; --text: #1A1508; --muted: #6B6248; --border: #E9E1C8; --green: #1E7B34; --red: #B3261E; }
++  * { box-sizing: border-box; }
++  html, body { height: 100%; margin: 0; }
++  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); }
++  .wrap { display: flex; height: 100vh; max-width: 1200px; margin: 0 auto; }
++  .sidebar { width: 320px; flex-shrink: 0; border-right: 1px solid var(--border); display: flex; flex-direction: column; background: var(--card); }
++  .sidebar header { padding: 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
++  .sidebar header h1 { font-size: 16px; margin: 0; }
++  .sidebar header a { color: var(--gold-dark); text-decoration: none; font-size: 12px; }
++  .status-line { padding: 8px 16px; font-size: 11px; color: var(--muted); border-bottom: 1px solid var(--border); }
++  .status-line.connected { color: var(--green); }
++  .status-line.disconnected { color: var(--red); }
++  #queue { flex: 1; overflow-y: auto; }
++  .queue-item { padding: 12px 16px; border-bottom: 1px solid var(--border); cursor: pointer; }
++  .queue-item:hover { background: #FFF9E8; }
++  .queue-item.active { background: #FCE588; }
++  .queue-item .name { font-weight: 700; font-size: 13px; display: flex; justify-content: space-between; gap: 8px; }
++  .queue-item .preview { color: var(--muted); font-size: 12px; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
++  .queue-item .meta { color: var(--muted); font-size: 10px; margin-top: 4px; }
++  .badge { background: var(--red); color: #fff; font-size: 10px; font-weight: 700; border-radius: 999px; padding: 1px 7px; }
++  .tag { background: var(--gold-dark); color: #fff; font-size: 9px; font-weight: 700; border-radius: 5px; padding: 1px 5px; margin-right: 6px; vertical-align: middle; }
++  .empty-queue { padding: 40px 16px; text-align: center; color: var(--muted); font-size: 13px; }
++  .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
++  .main header { padding: 16px; border-bottom: 1px solid var(--border); background: var(--card); display: flex; justify-content: space-between; align-items: center; gap: 12px; }
++  .main header h2 { font-size: 14px; margin: 0; }
++  .main header .sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
++  .btn-close { border: none; background: var(--red); color: #fff; font-size: 11px; font-weight: 700; padding: 7px 12px; border-radius: 8px; cursor: pointer; }
++  .btn-close:disabled { opacity: 0.4; cursor: not-allowed; }
++  #messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
++  .msg { max-width: 70%; padding: 9px 13px; border-radius: 12px; font-size: 13px; line-height: 1.4; }
++  .msg .who { font-size: 10px; color: var(--muted); margin-bottom: 3px; }
++  .msg.admin { align-self: flex-end; background: var(--gold); color: #1A1508; }
++  .msg.user { align-self: flex-start; background: #fff; border: 1px solid var(--border); }
++  .composer { padding: 12px 16px; border-top: 1px solid var(--border); background: var(--card); display: flex; gap: 8px; }
++  .composer input { flex: 1; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; font-size: 13px; font-family: inherit; }
++  .composer button { border: none; background: var(--gold-dark); color: #fff; font-weight: 700; padding: 0 18px; border-radius: 10px; cursor: pointer; font-size: 13px; }
++  .composer button:disabled, .composer input:disabled { opacity: 0.5; cursor: not-allowed; }
++  .placeholder { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 13px; }
++</style>
++</head>
++<body>
++<div class="wrap">
++  <div class="sidebar">
++    <header>
++      <h1>Live Chat</h1>
++      <a href="/admin">&larr; Admin panel</a>
++    </header>
++    <div class="status-line disconnected" id="status">Connecting…</div>
++    <div id="queue"><div class="empty-queue">Loading…</div></div>
++  </div>
++  <div class="main">
++    <div id="placeholder" class="placeholder">Select a conversation from the queue to start replying.</div>
++    <div id="conversation" style="display:none; flex-direction:column; height:100%;">
++      <header>
++        <div>
++          <h2 id="conv-name">—</h2>
++          <div class="sub" id="conv-sub">—</div>
++        </div>
++        <button class="btn-close" id="close-btn">Close conversation</button>
++      </header>
++      <div id="messages"></div>
++      <form class="composer" id="composer">
++        <input id="msg-input" type="text" placeholder="Type a reply…" autocomplete="off" maxlength="4000">
++        <button type="submit">Send</button>
++      </form>
++    </div>
++  </div>
++</div>
++<script>
++(function () {
++  var ADMIN_NAME = ${JSON.stringify(admin.fullName)};
++  var socket = io({ withCredentials: true });
++  var statusEl = document.getElementById('status');
++  var queueEl = document.getElementById('queue');
++  var placeholderEl = document.getElementById('placeholder');
++  var conversationEl = document.getElementById('conversation');
++  var messagesEl = document.getElementById('messages');
++  var composerEl = document.getElementById('composer');
++  var inputEl = document.getElementById('msg-input');
++  var closeBtn = document.getElementById('close-btn');
++  var convNameEl = document.getElementById('conv-name');
++  var convSubEl = document.getElementById('conv-sub');
++
++  var activeConversationId = null;
++  var queue = [];
++
++  function escapeHtml(s) {
++    return String(s).replace(/[&<>"']/g, function (c) {
++      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
++    });
++  }
++  function timeLabel(iso) {
++    var d = new Date(iso);
++    return d.toLocaleString();
++  }
++
++  socket.on('connect', function () {
++    statusEl.textContent = 'Connected';
++    statusEl.className = 'status-line connected';
++  });
++  socket.on('disconnect', function () {
++    statusEl.textContent = 'Disconnected — trying to reconnect…';
++    statusEl.className = 'status-line disconnected';
++  });
++  socket.on('connect_error', function () {
++    statusEl.textContent = 'Could not connect (sign-in may have expired — refresh the page)';
++    statusEl.className = 'status-line disconnected';
++  });
++
++  socket.on('chat:queue', function (rows) {
++    queue = rows;
++    renderQueue();
++  });
++
++  function renderQueue() {
++    if (queue.length === 0) {
++      queueEl.innerHTML = '<div class="empty-queue">No open conversations right now.</div>';
++      return;
++    }
++    queueEl.innerHTML = queue.map(function (row) {
++      var active = row.id === activeConversationId ? ' active' : '';
++      var badge = row.unread_by_admin > 0 ? '<span class="badge">' + row.unread_by_admin + '</span>' : '';
++      var tag = row.owner_type === 'PARTNER' ? '<span class="tag">PARTNER</span>' : '';
++      return '<div class="queue-item' + active + '" data-id="' + row.id + '">' +
++        '<div class="name"><span>' + tag + escapeHtml(row.owner_name) + '</span>' + badge + '</div>' +
++        '<div class="preview">' + escapeHtml(row.last_message_preview || '') + '</div>' +
++        '<div class="meta">' + escapeHtml(row.owner_phone || row.owner_email || '') + ' · ' + timeLabel(row.last_message_at) + '</div>' +
++        '</div>';
++    }).join('');
++    Array.prototype.forEach.call(queueEl.querySelectorAll('.queue-item'), function (el) {
++      el.addEventListener('click', function () { openConversation(el.getAttribute('data-id')); });
++    });
++  }
++
++  function openConversation(id) {
++    activeConversationId = id;
++    placeholderEl.style.display = 'none';
++    conversationEl.style.display = 'flex';
++    messagesEl.innerHTML = '<div class="placeholder">Loading…</div>';
++    var row = queue.find(function (r) { return r.id === id; });
++    if (row) {
++      convNameEl.textContent = row.owner_name;
++      convSubEl.textContent = row.owner_phone || row.owner_email || '';
++    }
++    renderQueue();
++    socket.emit('chat:join', { conversation_id: id });
++  }
++
++  socket.on('chat:history', function (data) {
++    if (data.conversation_id !== activeConversationId) return;
++    renderMessages(data.messages);
++    closeBtn.disabled = data.status === 'CLOSED';
++    inputEl.disabled = data.status === 'CLOSED';
++  });
++
++  socket.on('chat:message', function (message) {
++    if (message.conversation_id === activeConversationId) {
++      appendMessage(message);
++    }
++  });
++
++  socket.on('chat:closed', function (data) {
++    if (data.conversation_id === activeConversationId) {
++      closeBtn.disabled = true;
++      inputEl.disabled = true;
++    }
++  });
++
++  function renderMessages(list) {
++    messagesEl.innerHTML = '';
++    list.forEach(appendMessage);
++  }
++  function appendMessage(m) {
++    var div = document.createElement('div');
++    div.className = 'msg ' + (m.sender_type === 'ADMIN' ? 'admin' : 'user');
++    div.innerHTML = '<div class="who">' + escapeHtml(m.sender_name) + ' · ' + timeLabel(m.created_at) + '</div>' + escapeHtml(m.body);
++    messagesEl.appendChild(div);
++    messagesEl.scrollTop = messagesEl.scrollHeight;
++  }
++
++  composerEl.addEventListener('submit', function (e) {
++    e.preventDefault();
++    var body = inputEl.value.trim();
++    if (!body || !activeConversationId) return;
++    socket.emit('chat:send', { conversation_id: activeConversationId, body: body });
++    inputEl.value = '';
++  });
++
++  closeBtn.addEventListener('click', function () {
++    if (!activeConversationId) return;
++    if (!confirm('Close this conversation? The customer can still start a new one.')) return;
++    socket.emit('chat:close', { conversation_id: activeConversationId });
++  });
++})();
++</script>
++</body>
++</html>`;
++}
+diff --git a/major_data_link_backend/src/admin/setup.ts b/major_data_link_backend/src/admin/setup.ts
+index 688f33a..a0aaad8 100644
+--- a/major_data_link_backend/src/admin/setup.ts
++++ b/major_data_link_backend/src/admin/setup.ts
+@@ -45,10 +45,13 @@ import { registerResultPinStockRoutes } from './result-pin-stock.js';
+ import { registerPartnerManualRequestRoutes } from './partner-manual-request.js';
+ import { registerManualRequestRoutes } from './manual-requests.js';
+ import { registerManualVerificationRoutes } from './manual-verification.js';
++import { registerLiveChatRoutes } from './live-chat.js';
+ 
+ AdminJS.registerAdapter({ Database, Resource });
+ 
+ export const ADMIN_ROOT_PATH = '/admin';
++// Shared with src/realtime/chat-socket.ts (see adminSessionStore above).
++export const ADMIN_SESSION_COOKIE_NAME = 'imam_admin_sid';
+ 
+ // A separate, small pg Pool just for session storage - deliberately not routed
+ // through Prisma, since connect-pg-simple needs a raw pg client to manage its
+@@ -82,7 +85,14 @@ const sessionPool = new pg.Pool({
+   connectionString: withNoVerifySsl(env.DATABASE_URL)
+ });
+ const PgSession = connectPgSimple(session);
+-const adminSessionStore = new PgSession({
++// Exported so src/realtime/chat-socket.ts can build its own express-session
++// reader middleware against this exact same store/cookie - a Socket.IO
++// connection from the admin Live Chat page authenticates by decoding the
++// same `imam_admin_sid` session cookie the browser already sent for the
++// page itself, rather than needing a separate login step. Sharing the
++// store (instead of opening a second pg.Pool) means both middlewares read
++// literally the same session row.
++export const adminSessionStore = new PgSession({
+   pool: sessionPool,
+   tableName: 'admin_session',
+   createTableIfMissing: true,
+@@ -97,12 +107,6 @@ export async function buildAdminRouter() {
+     dashboard: {
+       component: Components.Dashboard
+     },
+-    // The customer/partner app loads this same file from web/public. Adding
+-    // it here gives the internal AdminJS portal access to the Tawk.to support
+-    // conversation too.
+-    assets: {
+-      scripts: ['/tawk-widget.js']
+-    },
+     branding: {
+       companyName: 'K-Tech Solutions',
+       logo: '/branding/logo.png',
+@@ -167,7 +171,7 @@ export async function buildAdminRouter() {
+     {
+       authenticate: async (email: string, password: string) => authenticateAdmin(email, password),
+       cookiePassword: env.ADMIN_SESSION_SECRET,
+-      cookieName: 'imam_admin_sid'
++      cookieName: ADMIN_SESSION_COOKIE_NAME
+     },
+     null,
+     {
+@@ -218,6 +222,7 @@ export async function buildAdminRouter() {
+   registerPartnerManualRequestRoutes(router);
+   registerManualRequestRoutes(router);
+   registerManualVerificationRoutes(router);
++  registerLiveChatRoutes(router);
+ 
+   return { admin, router };
+ }
+diff --git a/major_data_link_backend/src/app.ts b/major_data_link_backend/src/app.ts
+index d7569b3..e98671d 100644
+--- a/major_data_link_backend/src/app.ts
++++ b/major_data_link_backend/src/app.ts
+@@ -84,12 +84,14 @@ export function createApp() {
+         contentSecurityPolicy: {
+           directives: {
+             ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+-            'script-src': ["'self'", "'unsafe-inline'", "'unsafe-eval'", 'https://embed.tawk.to'],
++            // K-Tech Live Chat's Socket.IO client (loaded on /admin/live-chat)
++            // connects back to this same origin only - no third-party chat
++            // service is involved anymore, so 'self' is all connect-src needs.
++            'script-src': ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+             'style-src': ["'self'", "'unsafe-inline'"],
+             'img-src': ["'self'", 'data:', 'https:'],
+             'font-src': ["'self'", 'data:'],
+-            'connect-src': ["'self'", 'https://*.tawk.to', 'wss://*.tawk.to'],
+-            'frame-src': ["'self'", 'https://*.tawk.to']
++            'connect-src': ["'self'"]
+           }
+         }
+       })(req, res, next);
+@@ -118,11 +120,12 @@ export function createApp() {
+             "'sha256-MS6/3FCg4WjP9gwgaBGwLpRCY6fZBgwmhVCdrPrNf3E='",
+             "'sha256-tQjf8gvb2ROOMapIxFvFAYBeUJ0v1HCbOcSmDNXGtDo='",
+             "'sha256-w36slEqa9euNKxfvkw+LLGsDIr++3rsZXpZxtmRh8Aw='",
+-            "'sha256-+5XkZFazzJo8n0iOP4ti/cLCMUudTf//Mzkb7xNPXIc='",
+-            'https://embed.tawk.to'
++            "'sha256-+5XkZFazzJo8n0iOP4ti/cLCMUudTf//Mzkb7xNPXIc='"
+           ],
+-          'connect-src': ["'self'", 'https://*.tawk.to', 'wss://*.tawk.to'],
+-          'frame-src': ["'self'", 'https://*.tawk.to']
++          // K-Tech Live Chat's Socket.IO client connects back to this same
++          // origin only (see the /admin CSP branch above for the full
++          // explanation) - no third-party chat service anymore.
++          'connect-src': ["'self'"]
+         }
+       }
+     })(req, res, next);
+diff --git a/major_data_link_backend/src/realtime/chat-socket.ts b/major_data_link_backend/src/realtime/chat-socket.ts
+new file mode 100644
+index 0000000..00f4ef1
+--- /dev/null
++++ b/major_data_link_backend/src/realtime/chat-socket.ts
+@@ -0,0 +1,420 @@
++import type { Server as HttpServer } from 'node:http';
++import type { IncomingMessage, ServerResponse } from 'node:http';
++import { Server as SocketIOServer, type Socket } from 'socket.io';
++import session from 'express-session';
++import { env } from '../config/env.js';
++import { prisma } from '../lib/prisma.js';
++import { verifyAuthToken } from '../lib/auth-token.js';
++import { adminSessionStore, ADMIN_SESSION_COOKIE_NAME } from '../admin/setup.js';
++import type { AdminSessionUser } from '../admin/auth.js';
++
++/**
++ * K-Tech Live Chat - a self-hosted replacement for the Tawk.to widget
++ * (removed from web/index.html, web/public/tawk-widget.js and the AdminJS
++ * asset list; see admin/setup.ts). No third-party chat service is involved
++ * at any point - this process IS the chat server, and the browser client
++ * talks to it over Socket.IO served from this same origin
++ * (`/socket.io/socket.io.js`, auto-served by the library below).
++ *
++ * Three kinds of client connect to the one Socket.IO server created here:
++ *
++ *  - Customers, from web/src/components/ChatWidget.tsx. Authenticated with
++ *    the same access token every customer REST call uses (web/src/lib/api.ts,
++ *    `mdl_access_token`), passed as `socket.handshake.auth.token`.
++ *
++ *  - Partners, from web/src/components/PartnerChatWidget.tsx (mounted
++ *    inside PartnerDashboardPage). Authenticated with THAT portal's own,
++ *    separate access token (`mdl_partner_portal_access_token`) - a
++ *    completely different account type from a customer, same as
++ *    requirePartnerSession vs requireAuth on the REST side. Also passed as
++ *    `socket.handshake.auth.token`; see resolveOwnerToken() below for how a
++ *    bare token is matched against the User table first, then Partner.
++ *
++ *  - Admins, from the server-rendered /admin/live-chat page (see
++ *    ./live-chat.ts). That page never holds a JWT - AdminJS's own login is
++ *    a plain express-session cookie (`imam_admin_sid`). Rather than invent
++ *    a second admin credential just for chat, we decode that exact same
++ *    cookie here via a second express-session middleware instance pointed
++ *    at the identical Postgres-backed store (see admin/setup.ts's exported
++ *    adminSessionStore) - same session id in, same session data out.
++ *
++ * One open ChatConversation per owner (customer or partner - see
++ * prisma/schema.prisma's ownerType) is the whole "offline queue": whenever
++ * unreadByAdmin > 0 on an OPEN conversation, it's waiting for an admin, and
++ * the Live Chat page's queue list is nothing more than that same query,
++ * live-updated over the 'chat-admins' room broadcast below.
++ */
++
++type OwnerKind = 'USER' | 'PARTNER';
++
++type ChatActor =
++  | { kind: 'owner'; ownerType: OwnerKind; id: string; name: string }
++  | { kind: 'admin'; id: string; name: string; role: AdminSessionUser['role'] };
++
++type ExpressStyleNext = (err?: unknown) => void;
++
++// Wraps a plain Express middleware (which expects (req, res, next)) so it
++// can run against a raw Socket.IO handshake - socket.request IS a real
++// node http.IncomingMessage, so express-session works against it
++// unmodified. `{}` stands in for the `res` parameter: express-session only
++// ever calls a handful of response methods (Set-Cookie, mostly) which we
++// don't need here since we're only ever READING an existing session, never
++// issuing a new admin login cookie over the socket.
++function wrapMiddleware(
++  middleware: (req: IncomingMessage, res: ServerResponse, next: ExpressStyleNext) => void
++) {
++  return (socket: Socket, next: ExpressStyleNext) => {
++    middleware(socket.request as IncomingMessage, {} as ServerResponse, next);
++  };
++}
++
++const readAdminSession = wrapMiddleware(
++  session({
++    store: adminSessionStore,
++    secret: env.ADMIN_SESSION_SECRET,
++    name: ADMIN_SESSION_COOKIE_NAME,
++    resave: false,
++    saveUninitialized: false
++  }) as unknown as (req: IncomingMessage, res: ServerResponse, next: ExpressStyleNext) => void
++);
++
++const MESSAGE_HISTORY_LIMIT = 200;
++const QUEUE_LIMIT = 100;
++
++function conversationRoom(conversationId: string) {
++  return `chat-conv:${conversationId}`;
++}
++const ADMIN_ROOM = 'chat-admins';
++
++/**
++ * A bare access token's payload (`{ sub, email, ... }`) doesn't say which
++ * table it belongs to - User and Partner tokens are signed with the exact
++ * same createAuthToken/verifyAuthToken primitives (see lib/auth-token.ts).
++ * We resolve it the same way the two REST middlewares do it separately
++ * (requireAuth vs requirePartnerSession): try User first, fall back to
++ * Partner. id collisions between the two tables are not a concern - each
++ * mints its own uuid()/nanoid() ids from an effectively disjoint space.
++ */
++async function resolveOwnerToken(token: string): Promise<ChatActor | null> {
++  const payload = verifyAuthToken(token, 'access');
++
++  const user = await prisma.user.findUnique({ where: { id: payload.sub } });
++  if (user) {
++    if (user.accountStatus !== 'ACTIVE') return null;
++    return { kind: 'owner', ownerType: 'USER', id: user.id, name: user.fullName };
++  }
++
++  const partner = await prisma.partner.findUnique({ where: { id: payload.sub } });
++  if (partner) {
++    return { kind: 'owner', ownerType: 'PARTNER', id: partner.id, name: partner.businessName };
++  }
++
++  return null;
++}
++
++async function findOrCreateOpenConversation(ownerType: OwnerKind, ownerId: string) {
++  const existing = await prisma.chatConversation.findFirst({
++    where: { ownerType, ownerId, status: 'OPEN' },
++    orderBy: { createdAt: 'desc' }
++  });
++  if (existing) return existing;
++  return prisma.chatConversation.create({ data: { ownerType, ownerId } });
++}
++
++async function loadHistory(conversationId: string) {
++  return prisma.chatMessage.findMany({
++    where: { conversationId },
++    orderBy: { createdAt: 'asc' },
++    take: MESSAGE_HISTORY_LIMIT
++  });
++}
++
++type OpenConversation = Awaited<ReturnType<typeof prisma.chatConversation.findMany>>[number];
++type MiniUser = { id: string; fullName: string; email: string; phone: string };
++type MiniPartner = { id: string; businessName: string; email: string; phone: string | null };
++type QueueRow = Awaited<ReturnType<typeof buildQueueSnapshot>>[number];
++
++async function buildQueueSnapshot() {
++  const conversations: OpenConversation[] = await prisma.chatConversation.findMany({
++    where: { status: 'OPEN' },
++    orderBy: { lastMessageAt: 'asc' },
++    take: QUEUE_LIMIT
++  });
++  if (conversations.length === 0) return [];
++
++  const userIds = [
++    ...new Set(conversations.filter((c: OpenConversation) => c.ownerType === 'USER').map((c: OpenConversation) => c.ownerId))
++  ];
++  const partnerIds = [
++    ...new Set(conversations.filter((c: OpenConversation) => c.ownerType === 'PARTNER').map((c: OpenConversation) => c.ownerId))
++  ];
++
++  const [users, partners]: [MiniUser[], MiniPartner[]] = await Promise.all([
++    userIds.length
++      ? prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, fullName: true, email: true, phone: true } })
++      : Promise.resolve([]),
++    partnerIds.length
++      ? prisma.partner.findMany({ where: { id: { in: partnerIds } }, select: { id: true, businessName: true, email: true, phone: true } })
++      : Promise.resolve([])
++  ]);
++  const userById = new Map(users.map((u: MiniUser) => [u.id, u] as const));
++  const partnerById = new Map(partners.map((p: MiniPartner) => [p.id, p] as const));
++
++  return conversations.map((conversation: OpenConversation) => {
++    const owner =
++      conversation.ownerType === 'USER' ? userById.get(conversation.ownerId) : partnerById.get(conversation.ownerId);
++    const ownerName = owner
++      ? 'fullName' in owner
++        ? owner.fullName
++        : owner.businessName
++      : conversation.ownerType === 'USER'
++        ? 'Unknown customer'
++        : 'Unknown partner';
++    return {
++      id: conversation.id,
++      owner_type: conversation.ownerType,
++      owner_id: conversation.ownerId,
++      owner_name: ownerName,
++      owner_email: owner?.email ?? null,
++      owner_phone: owner?.phone ?? null,
++      assigned_admin_id: conversation.assignedAdminId,
++      last_message_at: conversation.lastMessageAt.toISOString(),
++      last_message_preview: conversation.lastMessagePreview,
++      unread_by_admin: conversation.unreadByAdmin,
++      waiting: conversation.unreadByAdmin > 0
++    };
++  });
++}
++
++function serializeMessage(message: {
++  id: string;
++  conversationId: string;
++  senderType: 'USER' | 'ADMIN';
++  senderId: string;
++  senderName: string;
++  body: string;
++  createdAt: Date;
++}) {
++  return {
++    id: message.id,
++    conversation_id: message.conversationId,
++    sender_type: message.senderType,
++    sender_id: message.senderId,
++    sender_name: message.senderName,
++    body: message.body,
++    created_at: message.createdAt.toISOString()
++  };
++}
++
++async function broadcastQueueUpdate(io: SocketIOServer) {
++  const queue: QueueRow[] = await buildQueueSnapshot();
++  io.to(ADMIN_ROOM).emit('chat:queue', queue);
++}
++
++function registerOwnerHandlers(io: SocketIOServer, socket: Socket, actor: Extract<ChatActor, { kind: 'owner' }>) {
++  void (async () => {
++    const conversation = await findOrCreateOpenConversation(actor.ownerType, actor.id);
++    // Opening the widget IS reading whatever the admin last sent.
++    if (conversation.unreadByOwner > 0) {
++      await prisma.chatConversation.update({
++        where: { id: conversation.id },
++        data: { unreadByOwner: 0 }
++      });
++    }
++    await socket.join(conversationRoom(conversation.id));
++    const history = await loadHistory(conversation.id);
++    socket.emit('chat:history', {
++      conversation_id: conversation.id,
++      status: conversation.status,
++      messages: history.map(serializeMessage)
++    });
++  })();
++
++  socket.on('chat:send', (payload: { body?: unknown }) => {
++    const body = typeof payload?.body === 'string' ? payload.body.trim() : '';
++    if (!body || body.length > 4000) return;
++
++    void (async () => {
++      const conversation = await findOrCreateOpenConversation(actor.ownerType, actor.id);
++      if (conversation.status === 'CLOSED') return; // Stale client; widget re-syncs on next reconnect.
++
++      const message = await prisma.chatMessage.create({
++        data: {
++          conversationId: conversation.id,
++          senderType: 'USER',
++          senderId: actor.id,
++          senderName: actor.name,
++          body
++        }
++      });
++      await prisma.chatConversation.update({
++        where: { id: conversation.id },
++        data: {
++          lastMessageAt: message.createdAt,
++          lastMessagePreview: body.slice(0, 160),
++          unreadByAdmin: { increment: 1 }
++        }
++      });
++
++      io.to(conversationRoom(conversation.id)).emit('chat:message', serializeMessage(message));
++      await broadcastQueueUpdate(io);
++    })();
++  });
++}
++
++function registerAdminHandlers(io: SocketIOServer, socket: Socket, actor: Extract<ChatActor, { kind: 'admin' }>) {
++  void socket.join(ADMIN_ROOM);
++  void (async () => {
++    socket.emit('chat:queue', await buildQueueSnapshot());
++  })();
++
++  socket.on('chat:join', (payload: { conversation_id?: unknown }) => {
++    const conversationId = typeof payload?.conversation_id === 'string' ? payload.conversation_id : '';
++    if (!conversationId) return;
++
++    void (async () => {
++      const conversation = await prisma.chatConversation.findUnique({ where: { id: conversationId } });
++      if (!conversation) return;
++
++      await socket.join(conversationRoom(conversation.id));
++      if (conversation.unreadByAdmin > 0 || conversation.assignedAdminId !== actor.id) {
++        await prisma.chatConversation.update({
++          where: { id: conversation.id },
++          data: { unreadByAdmin: 0, assignedAdminId: actor.id }
++        });
++        await broadcastQueueUpdate(io);
++      }
++
++      const history = await loadHistory(conversation.id);
++      socket.emit('chat:history', {
++        conversation_id: conversation.id,
++        status: conversation.status,
++        messages: history.map(serializeMessage)
++      });
++    })();
++  });
++
++  socket.on('chat:send', (payload: { conversation_id?: unknown; body?: unknown }) => {
++    const conversationId = typeof payload?.conversation_id === 'string' ? payload.conversation_id : '';
++    const body = typeof payload?.body === 'string' ? payload.body.trim() : '';
++    if (!conversationId || !body || body.length > 4000) return;
++
++    void (async () => {
++      const conversation = await prisma.chatConversation.findUnique({ where: { id: conversationId } });
++      if (!conversation || conversation.status === 'CLOSED') return;
++
++      const message = await prisma.chatMessage.create({
++        data: {
++          conversationId,
++          senderType: 'ADMIN',
++          senderId: actor.id,
++          senderName: actor.name,
++          body
++        }
++      });
++      await prisma.chatConversation.update({
++        where: { id: conversationId },
++        data: {
++          lastMessageAt: message.createdAt,
++          lastMessagePreview: body.slice(0, 160),
++          unreadByOwner: { increment: 1 },
++          unreadByAdmin: 0,
++          assignedAdminId: actor.id
++        }
++      });
++
++      io.to(conversationRoom(conversationId)).emit('chat:message', serializeMessage(message));
++      await broadcastQueueUpdate(io);
++    })();
++  });
++
++  socket.on('chat:close', (payload: { conversation_id?: unknown }) => {
++    const conversationId = typeof payload?.conversation_id === 'string' ? payload.conversation_id : '';
++    if (!conversationId) return;
++
++    void (async () => {
++      const conversation = await prisma.chatConversation.updateMany({
++        where: { id: conversationId, status: 'OPEN' },
++        data: { status: 'CLOSED', closedAt: new Date(), unreadByAdmin: 0 }
++      });
++      if (conversation.count === 0) return;
++
++      io.to(conversationRoom(conversationId)).emit('chat:closed', { conversation_id: conversationId });
++      await broadcastQueueUpdate(io);
++    })();
++  });
++}
++
++export function attachChatSocket(httpServer: HttpServer) {
++  const allowedOrigins = new Set(
++    env.WEB_ALLOWED_ORIGINS.split(',').map((origin) => origin.trim()).filter(Boolean)
++  );
++
++  const io = new SocketIOServer(httpServer, {
++    // Same-origin in production (the web build and this API are served
++    // from one Express app - see app.ts) and admin connections are always
++    // same-origin. `cors` only matters for a customer/partner running the
++    // Vite dev server against a separately-hosted backend in local
++    // development.
++    cors: {
++      origin(origin, callback) {
++        if (!origin || allowedOrigins.size === 0 || allowedOrigins.has(origin)) {
++          return callback(null, true);
++        }
++        return callback(new Error('Origin is not allowed by CORS policy'));
++      },
++      credentials: true
++    }
++  });
++
++  io.use((socket, next) => {
++    const token = typeof socket.handshake.auth?.token === 'string' ? socket.handshake.auth.token : '';
++
++    if (token) {
++      void (async () => {
++        try {
++          const actor = await resolveOwnerToken(token);
++          if (!actor) return next(new Error('unauthorized'));
++          (socket.data as { actor?: ChatActor }).actor = actor;
++          next();
++        } catch {
++          next(new Error('unauthorized'));
++        }
++      })();
++      return;
++    }
++
++    // No token presented - this must be the admin Live Chat page, which
++    // authenticates via the AdminJS session cookie instead (see the
++    // doc-comment at the top of this file).
++    readAdminSession(socket, (err?: unknown) => {
++      if (err) return next(new Error('unauthorized'));
++      const adminUser = (socket.request as IncomingMessage & { session?: { adminUser?: AdminSessionUser } }).session
++        ?.adminUser;
++      if (!adminUser) return next(new Error('unauthorized'));
++      (socket.data as { actor?: ChatActor }).actor = {
++        kind: 'admin',
++        id: adminUser.id,
++        name: adminUser.fullName,
++        role: adminUser.role
++      };
++      next();
++    });
++  });
++
++  io.on('connection', (socket) => {
++    const actor = (socket.data as { actor?: ChatActor }).actor;
++    if (!actor) {
++      socket.disconnect(true);
++      return;
++    }
++    if (actor.kind === 'owner') {
++      registerOwnerHandlers(io, socket, actor);
++    } else {
++      registerAdminHandlers(io, socket, actor);
++    }
++  });
++
++  console.log('[chat-socket] K-Tech Live Chat Socket.IO server attached');
++  return io;
++}
+diff --git a/major_data_link_backend/src/server.ts b/major_data_link_backend/src/server.ts
+index ab88fff..2b14300 100644
+--- a/major_data_link_backend/src/server.ts
++++ b/major_data_link_backend/src/server.ts
+@@ -13,9 +13,11 @@
+   return Number(this);
+ };
+ 
++import http from 'node:http';
+ import { env } from './config/env.js';
+ import { createApp } from './app.js';
+ import { prisma } from './lib/prisma.js';
++import { attachChatSocket } from './realtime/chat-socket.js';
+ 
+ process.on('uncaughtException', (error) => {
+   console.error('[server] uncaught exception', error);
+@@ -87,7 +89,14 @@ async function startServer() {
+       console.error('[server] Failed to seed service pricing rows (non-fatal):', error);
+     }
+ 
+-    const server = app.listen(env.PORT, '0.0.0.0', () => {
++    // Socket.IO (K-Tech Live Chat) needs the raw http.Server instance to
++    // attach its WebSocket upgrade handling to - app.listen() would create
++    // one internally but never hand it back, so we create it explicitly
++    // here instead and listen on that.
++    const httpServer = http.createServer(app);
++    attachChatSocket(httpServer);
++
++    const server = httpServer.listen(env.PORT, '0.0.0.0', () => {
+       console.log(`MAJOR DATA-LINK backend listening on port ${env.PORT}`);
+     });
+ 
+diff --git a/web/index.html b/web/index.html
+index bb92258..dca6c17 100644
+--- a/web/index.html
++++ b/web/index.html
+@@ -51,7 +51,5 @@
+   <body>
+     <div id="root"></div>
+     <script type="module" src="/src/main.tsx"></script>
+-    <!-- Available throughout the customer and partner React portals. -->
+-    <script src="/tawk-widget.js" defer></script>
+   </body>
+ </html>
+diff --git a/web/package-lock.json b/web/package-lock.json
+index c88ee8a..77fa219 100644
+--- a/web/package-lock.json
++++ b/web/package-lock.json
+@@ -13,7 +13,8 @@
+         "react": "^19.2.8",
+         "react-dom": "^19.2.8",
+         "react-i18next": "^15.4.0",
+-        "react-router-dom": "^7.18.2"
++        "react-router-dom": "^7.18.2",
++        "socket.io-client": "^4.8.3"
+       },
+       "devDependencies": {
+         "@tailwindcss/vite": "^4.3.3",
+@@ -2226,6 +2227,12 @@
+       "dev": true,
+       "license": "MIT"
+     },
++    "node_modules/@socket.io/component-emitter": {
++      "version": "3.1.2",
++      "resolved": "https://registry.npmjs.org/@socket.io/component-emitter/-/component-emitter-3.1.2.tgz",
++      "integrity": "sha512-9BCxFwvbGg/RsZK9tjXd8s4UcwR0MWeFQ1XEKIQVVvAGJyINdrqKMcTRyLoK8Rse1GjzLV9cwjWV1olXRWEXVA==",
++      "license": "MIT"
++    },
+     "node_modules/@tailwindcss/node": {
+       "version": "4.3.3",
+       "resolved": "https://registry.npmjs.org/@tailwindcss/node/-/node-4.3.3.tgz",
+@@ -2818,7 +2825,6 @@
+       "version": "4.4.3",
+       "resolved": "https://registry.npmjs.org/debug/-/debug-4.4.3.tgz",
+       "integrity": "sha512-RGwwWnwQvkVfavKVt22FGLw+xYSdzARwm0ru6DhTVA3umU5hZc28V3kO4stgYryrTlLpuvgI9GiijltAjNbcqA==",
+-      "dev": true,
+       "license": "MIT",
+       "dependencies": {
+         "ms": "^2.1.3"
+@@ -2849,6 +2855,28 @@
+       "dev": true,
+       "license": "ISC"
+     },
++    "node_modules/engine.io-client": {
++      "version": "6.6.6",
++      "resolved": "https://registry.npmjs.org/engine.io-client/-/engine.io-client-6.6.6.tgz",
++      "integrity": "sha512-iY6QdftLQ9pyiPoX082bpf/u1UewnOaJrtJIF9T0++QB34lZrj0uP+Q/bj8AlUsAxqhnkTV2BS8SBZSxOmoV5Q==",
++      "license": "MIT",
++      "dependencies": {
++        "@socket.io/component-emitter": "~3.1.0",
++        "debug": "~4.4.1",
++        "engine.io-parser": "~5.2.1",
++        "ws": "~8.21.0",
++        "xmlhttprequest-ssl": "~2.1.1"
++      }
++    },
++    "node_modules/engine.io-parser": {
++      "version": "5.2.3",
++      "resolved": "https://registry.npmjs.org/engine.io-parser/-/engine.io-parser-5.2.3.tgz",
++      "integrity": "sha512-HqD3yTBfnBxIrbnM1DoD6Pcq8NECnh8d4As1Qgh0z5Gg3jRRIqijury0CL3ghu/edArpUYiYqQiDUQBIs4np3Q==",
++      "license": "MIT",
++      "engines": {
++        "node": ">=10.0.0"
++      }
++    },
+     "node_modules/enhanced-resolve": {
+       "version": "5.24.5",
+       "resolved": "https://registry.npmjs.org/enhanced-resolve/-/enhanced-resolve-5.24.5.tgz",
+@@ -3379,7 +3407,6 @@
+       "version": "2.1.3",
+       "resolved": "https://registry.npmjs.org/ms/-/ms-2.1.3.tgz",
+       "integrity": "sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA==",
+-      "dev": true,
+       "license": "MIT"
+     },
+     "node_modules/nanoid": {
+@@ -3744,6 +3771,34 @@
+       "integrity": "sha512-oeM1lpU/UvhTxw+g3cIfxXHyJRc/uidd3yK1P242gzHds0udQBYzs3y8j4gCCW+ZJ7ad0yctld8RYO+bdurlvw==",
+       "license": "MIT"
+     },
++    "node_modules/socket.io-client": {
++      "version": "4.8.3",
++      "resolved": "https://registry.npmjs.org/socket.io-client/-/socket.io-client-4.8.3.tgz",
++      "integrity": "sha512-uP0bpjWrjQmUt5DTHq9RuoCBdFJF10cdX9X+a368j/Ft0wmaVgxlrjvK3kjvgCODOMMOz9lcaRzxmso0bTWZ/g==",
++      "license": "MIT",
++      "dependencies": {
++        "@socket.io/component-emitter": "~3.1.0",
++        "debug": "~4.4.1",
++        "engine.io-client": "~6.6.1",
++        "socket.io-parser": "~4.2.4"
++      },
++      "engines": {
++        "node": ">=10.0.0"
++      }
++    },
++    "node_modules/socket.io-parser": {
++      "version": "4.2.7",
++      "resolved": "https://registry.npmjs.org/socket.io-parser/-/socket.io-parser-4.2.7.tgz",
++      "integrity": "sha512-IH/iSeO9T6gz1KkFleGDWkG9N3dl4jXVYUtMhIqH10Md0ttMer8nUNWiP1DKuNrybD2xBrixLJdCC9J6ECoYkg==",
++      "license": "MIT",
++      "dependencies": {
++        "@socket.io/component-emitter": "~3.1.0",
++        "debug": "~4.4.1"
++      },
++      "engines": {
++        "node": ">=10.0.0"
++      }
++    },
+     "node_modules/source-map": {
+       "version": "0.6.1",
+       "resolved": "https://registry.npmjs.org/source-map/-/source-map-0.6.1.tgz",
+@@ -4296,6 +4351,35 @@
+         "node": ">=0.10.0"
+       }
+     },
++    "node_modules/ws": {
++      "version": "8.21.3",
++      "resolved": "https://registry.npmjs.org/ws/-/ws-8.21.3.tgz",
++      "integrity": "sha512-201TZ/kPWxoPr/OKWjquZR1SWKXcvxdH+e1xrx89b3YbmzLMFCLfnaG1HFIgWzJOEWZ7MvpK++odZufgYR50Rw==",
++      "license": "MIT",
++      "engines": {
++        "node": ">=10.0.0"
++      },
++      "peerDependencies": {
++        "bufferutil": "^4.0.1",
++        "utf-8-validate": ">=5.0.2"
++      },
++      "peerDependenciesMeta": {
++        "bufferutil": {
++          "optional": true
++        },
++        "utf-8-validate": {
++          "optional": true
++        }
++      }
++    },
++    "node_modules/xmlhttprequest-ssl": {
++      "version": "2.1.2",
++      "resolved": "https://registry.npmjs.org/xmlhttprequest-ssl/-/xmlhttprequest-ssl-2.1.2.tgz",
++      "integrity": "sha512-TEU+nJVUUnA4CYJFLvK5X9AOeH4KvDvhIfm0vV1GaQRtchnG0hgK5p8hw/xjv8cunWYCsiPCSDzObPyhEwq3KQ==",
++      "engines": {
++        "node": ">=0.4.0"
++      }
++    },
+     "node_modules/yallist": {
+       "version": "3.1.1",
+       "resolved": "https://registry.npmjs.org/yallist/-/yallist-3.1.1.tgz",
+diff --git a/web/package.json b/web/package.json
+index d06a02c..fa33c35 100644
+--- a/web/package.json
++++ b/web/package.json
+@@ -15,7 +15,8 @@
+     "react": "^19.2.8",
+     "react-dom": "^19.2.8",
+     "react-i18next": "^15.4.0",
+-    "react-router-dom": "^7.18.2"
++    "react-router-dom": "^7.18.2",
++    "socket.io-client": "^4.8.3"
+   },
+   "devDependencies": {
+     "@tailwindcss/vite": "^4.3.3",
+diff --git a/web/public/tawk-widget.js b/web/public/tawk-widget.js
+deleted file mode 100644
+index 7cbbe2e..0000000
+--- a/web/public/tawk-widget.js
++++ /dev/null
+@@ -1,22 +0,0 @@
+-/*
+- * Tawk.to live support widget.
+- *
+- * This is an external file rather than an inline snippet so the production
+- * Content-Security-Policy can stay strict. It is also loaded by AdminJS,
+- * which makes the same support chat available to administrators.
+- */
+-window.Tawk_API = window.Tawk_API || {};
+-window.Tawk_LoadStart = new Date();
+-
+-(function loadTawkWidget() {
+-  if (document.querySelector('script[data-ktech-tawk-widget]')) return;
+-
+-  const script = document.createElement('script');
+-  const firstScript = document.getElementsByTagName('script')[0];
+-  script.async = true;
+-  script.src = 'https://embed.tawk.to/6aae3fec9387e034445258f5/1k2sajdc0';
+-  script.charset = 'UTF-8';
+-  script.setAttribute('crossorigin', '*');
+-  script.setAttribute('data-ktech-tawk-widget', 'true');
+-  firstScript.parentNode.insertBefore(script, firstScript);
+-})();
+diff --git a/web/src/App.tsx b/web/src/App.tsx
+index 21b6302..8d12ad4 100644
+--- a/web/src/App.tsx
++++ b/web/src/App.tsx
+@@ -34,6 +34,7 @@ import SupportPage from './pages/SupportPage';
+ import ManualServiceRequestPage from './pages/ManualServiceRequestPage';
+ import ServiceHistoryPage from './pages/ServiceHistoryPage';
+ import WalletHistoryPage from './pages/WalletHistoryPage';
++import ChatWidget from './components/ChatWidget';
+ 
+ function ProtectedRoute({ children }: { children: ReactNode }) {
+   const { user, isLoading, mustChangePassword, requiresLoginPinSetup, requiresTransactionPinSetup } = useAuth();
+@@ -148,6 +149,7 @@ export default function App() {
+           ))}
+           <Route path="*" element={<Navigate to="/" replace />} />
+         </Routes>
++        <ChatWidget />
+       </AuthProvider>
+     </BrowserRouter>
+   );
+diff --git a/web/src/components/ChatWidget.tsx b/web/src/components/ChatWidget.tsx
+new file mode 100644
+index 0000000..0b94fb7
+--- /dev/null
++++ b/web/src/components/ChatWidget.tsx
+@@ -0,0 +1,9 @@
++import { getAccessToken } from '../lib/api';
++import { useAuth } from '../lib/auth';
++import LiveChatWidget from './LiveChatWidget';
++
++/** Mounted once near the root of the customer app (see App.tsx). Renders nothing until signed in. */
++export default function ChatWidget() {
++  const { user } = useAuth();
++  return <LiveChatWidget active={!!user} token={user ? getAccessToken() : null} ownerKey={user?.id ?? ''} />;
++}
+diff --git a/web/src/components/LiveChatWidget.tsx b/web/src/components/LiveChatWidget.tsx
+new file mode 100644
+index 0000000..9a3ab98
+--- /dev/null
++++ b/web/src/components/LiveChatWidget.tsx
+@@ -0,0 +1,187 @@
++import { useEffect, useRef, useState } from 'react';
++import { MessageCircle, X, Send } from 'lucide-react';
++import { io, type Socket } from 'socket.io-client';
++import { API_BASE } from '../lib/api';
++
++type ChatMessage = {
++  id: string;
++  conversation_id: string;
++  sender_type: 'USER' | 'ADMIN';
++  sender_id: string;
++  sender_name: string;
++  body: string;
++  created_at: string;
++};
++
++type LiveChatWidgetProps = {
++  /** Not rendered at all when false - lets each caller gate on its own auth state. */
++  active: boolean;
++  /** The signed-in owner's access token (customer OR partner - whichever this instance is for). */
++  token: string | null;
++  /** Changing this (e.g. a customer id or partner id) forces a fresh socket connection. */
++  ownerKey: string;
++  headerLabel?: string;
++};
++
++/**
++ * K-Tech Live Chat - self-hosted replacement for the old Tawk.to widget.
++ * Talks directly to the Socket.IO server attached in
++ * major_data_link_backend/src/realtime/chat-socket.ts - no third-party
++ * chat service involved. This component is deliberately auth-agnostic
++ * (just takes a bare token): src/components/ChatWidget.tsx supplies the
++ * customer's `mdl_access_token`, and PartnerDashboardPage supplies the
++ * partner portal's own separate `mdl_partner_portal_access_token`. The
++ * backend resolves which table the token belongs to itself (see
++ * resolveOwnerToken() in chat-socket.ts).
++ */
++export default function LiveChatWidget({ active, token, ownerKey, headerLabel }: LiveChatWidgetProps) {
++  const [open, setOpen] = useState(false);
++  const [connected, setConnected] = useState(false);
++  const [messages, setMessages] = useState<ChatMessage[]>([]);
++  const [conversationStatus, setConversationStatus] = useState<'OPEN' | 'CLOSED'>('OPEN');
++  const [draft, setDraft] = useState('');
++  const [unread, setUnread] = useState(0);
++  const socketRef = useRef<Socket | null>(null);
++  const listRef = useRef<HTMLDivElement | null>(null);
++
++  useEffect(() => {
++    if (!active || !token) return;
++
++    const socket = io(API_BASE || undefined, {
++      path: '/socket.io',
++      auth: { token },
++      withCredentials: true,
++      transports: ['websocket', 'polling']
++    });
++    socketRef.current = socket;
++
++    socket.on('connect', () => setConnected(true));
++    socket.on('disconnect', () => setConnected(false));
++
++    socket.on('chat:history', (data: { conversation_id: string; status: 'OPEN' | 'CLOSED'; messages: ChatMessage[] }) => {
++      setMessages(data.messages);
++      setConversationStatus(data.status);
++    });
++
++    socket.on('chat:message', (message: ChatMessage) => {
++      setMessages((prev) => [...prev, message]);
++      if (message.sender_type === 'ADMIN') {
++        setUnread((prev) => (open ? prev : prev + 1));
++      }
++    });
++
++    socket.on('chat:closed', () => setConversationStatus('CLOSED'));
++
++    return () => {
++      socket.disconnect();
++      socketRef.current = null;
++    };
++    // Re-run only when the signed-in owner or token changes - `open` is
++    // read via a functional update above so it doesn't need to be a
++    // dependency here.
++    // eslint-disable-next-line react-hooks/exhaustive-deps
++  }, [active, token, ownerKey]);
++
++  useEffect(() => {
++    if (open) {
++      setUnread(0);
++      listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
++    }
++  }, [open, messages]);
++
++  if (!active || !token) return null;
++
++  function send() {
++    const body = draft.trim();
++    if (!body || !socketRef.current) return;
++    socketRef.current.emit('chat:send', { body });
++    setDraft('');
++  }
++
++  return (
++    <div className="fixed bottom-4 right-4 z-50 flex flex-col items-end gap-3">
++      {open && (
++        <div className="flex h-[480px] w-[340px] max-w-[92vw] flex-col overflow-hidden rounded-2xl border border-parchment-line bg-cream shadow-2xl">
++          <div className="flex items-center justify-between bg-gold-500 px-4 py-3">
++            <div>
++              <p className="text-sm font-bold text-ink">{headerLabel ?? 'K-Tech Live Chat'}</p>
++              <p className="text-[11px] text-ink-soft">{connected ? 'Support is online' : 'Connecting…'}</p>
++            </div>
++            <button
++              type="button"
++              onClick={() => setOpen(false)}
++              className="rounded-full p-1 text-ink hover:bg-gold-600/30"
++              aria-label="Close chat"
++            >
++              <X size={18} />
++            </button>
++          </div>
++
++          <div ref={listRef} className="flex-1 space-y-2 overflow-y-auto px-3 py-3">
++            {messages.length === 0 && (
++              <p className="mt-8 text-center text-xs text-ink-soft">
++                Send us a message and a K-Tech Solutions support agent will reply here.
++              </p>
++            )}
++            {messages.map((m) => (
++              <div key={m.id} className={`flex ${m.sender_type === 'USER' ? 'justify-end' : 'justify-start'}`}>
++                <div
++                  className={`max-w-[80%] rounded-xl px-3 py-2 text-[13px] leading-snug ${
++                    m.sender_type === 'USER' ? 'bg-gold-500 text-ink' : 'border border-parchment-line bg-white text-ink'
++                  }`}
++                >
++                  {m.body}
++                </div>
++              </div>
++            ))}
++          </div>
++
++          <div className="border-t border-parchment-line bg-white p-2">
++            {conversationStatus === 'CLOSED' ? (
++              <p className="px-2 py-2 text-center text-[12px] text-ink-soft">
++                This conversation was closed. Send a new message to start another.
++              </p>
++            ) : null}
++            <form
++              onSubmit={(e) => {
++                e.preventDefault();
++                send();
++              }}
++              className="flex items-center gap-2"
++            >
++              <input
++                value={draft}
++                onChange={(e) => setDraft(e.target.value)}
++                placeholder="Type a message…"
++                maxLength={4000}
++                className="flex-1 rounded-full border border-parchment-line bg-cream px-3 py-2 text-[13px] outline-none focus:border-gold-500"
++              />
++              <button
++                type="submit"
++                disabled={!draft.trim() || !connected}
++                className="rounded-full bg-gold-600 p-2 text-white disabled:opacity-40"
++                aria-label="Send message"
++              >
++                <Send size={16} />
++              </button>
++            </form>
++          </div>
++        </div>
++      )}
++
++      <button
++        type="button"
++        onClick={() => setOpen((v) => !v)}
++        className="relative flex h-14 w-14 items-center justify-center rounded-full bg-gold-500 text-ink shadow-xl hover:bg-gold-400"
++        aria-label="Open live chat"
++      >
++        <MessageCircle size={24} />
++        {unread > 0 && (
++          <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-ember-500 px-1 text-[11px] font-bold text-white">
++            {unread}
++          </span>
++        )}
++      </button>
++    </div>
++  );
++}
+diff --git a/web/src/lib/api.ts b/web/src/lib/api.ts
+index 60ee8ac..ab16e1e 100644
+--- a/web/src/lib/api.ts
++++ b/web/src/lib/api.ts
+@@ -2,7 +2,10 @@
+ // In dev, requests to /api/* are proxied to VITE_API_PROXY_TARGET (see vite.config.ts).
+ // In production, set VITE_API_BASE_URL to the deployed backend origin
+ // (leave empty if this app is served from the same origin as the API).
+-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
++// Exported so src/components/ChatWidget.tsx can point its Socket.IO
++// connection at the same backend origin as every REST call here, instead
++// of duplicating this env lookup.
++export const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
+ export const PARTNER_API_BASE = `${API_BASE}/api/v1`;
+ 
+ const TOKEN_KEY = 'mdl_access_token';
+diff --git a/web/src/pages/PartnerDashboardPage.tsx b/web/src/pages/PartnerDashboardPage.tsx
+index d2d02fa..e8cbc5f 100644
+--- a/web/src/pages/PartnerDashboardPage.tsx
++++ b/web/src/pages/PartnerDashboardPage.tsx
+@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
+ import { Link } from 'react-router-dom';
+ import { Trans, useTranslation } from 'react-i18next';
+ import LanguageSwitcher from '../components/LanguageSwitcher';
++import LiveChatWidget from '../components/LiveChatWidget';
+ import {
+   Activity,
+   AlertTriangle,
+@@ -433,6 +434,12 @@ export default function PartnerDashboardPage() {
+           )}
+         </section>
+       </div>
++      <LiveChatWidget
++        active
++        token={getTokens().access}
++        ownerKey={partner.id}
++        headerLabel="K-Tech Partner Support"
++      />
+     </main>
+   );
+ }
+diff --git a/web/vite.config.ts b/web/vite.config.ts
+index 7b462f0..662df2f 100644
+--- a/web/vite.config.ts
++++ b/web/vite.config.ts
+@@ -33,6 +33,15 @@ export default defineConfig({
+         target: process.env.VITE_API_PROXY_TARGET || 'http://localhost:8787',
+         changeOrigin: true,
+       },
++      // K-Tech Live Chat's Socket.IO connection (ChatWidget.tsx) - needs
++      // `ws: true` so Vite's dev proxy upgrades the HTTP connection instead
++      // of treating it as a normal request. Only needed in dev; in
++      // production the web build and backend are the same origin.
++      '/socket.io': {
++        target: process.env.VITE_API_PROXY_TARGET || 'http://localhost:8787',
++        changeOrigin: true,
++        ws: true,
++      },
+     },
+   },
+ })

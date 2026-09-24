@@ -34,6 +34,7 @@ import SupportPage from './pages/SupportPage';
 import ManualServiceRequestPage from './pages/ManualServiceRequestPage';
 import ServiceHistoryPage from './pages/ServiceHistoryPage';
 import WalletHistoryPage from './pages/WalletHistoryPage';
+import ChatWidget from './components/ChatWidget';
 
 function ProtectedRoute({ children }: { children: ReactNode }) {
   const { user, isLoading, mustChangePassword, requiresLoginPinSetup, requiresTransactionPinSetup } = useAuth();
@@ -148,6 +149,7 @@ export default function App() {
           ))}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        <ChatWidget />
       </AuthProvider>
     </BrowserRouter>
   );

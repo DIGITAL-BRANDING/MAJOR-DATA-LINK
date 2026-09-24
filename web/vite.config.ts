@@ -33,6 +33,15 @@ export default defineConfig({
         target: process.env.VITE_API_PROXY_TARGET || 'http://localhost:8787',
         changeOrigin: true,
       },
+      // K-Tech Live Chat's Socket.IO connection (ChatWidget.tsx) - needs
+      // `ws: true` so Vite's dev proxy upgrades the HTTP connection instead
+      // of treating it as a normal request. Only needed in dev; in
+      // production the web build and backend are the same origin.
+      '/socket.io': {
+        target: process.env.VITE_API_PROXY_TARGET || 'http://localhost:8787',
+        changeOrigin: true,
+        ws: true,
+      },
     },
   },
 })

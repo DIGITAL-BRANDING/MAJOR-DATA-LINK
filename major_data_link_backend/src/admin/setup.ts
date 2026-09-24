@@ -45,10 +45,13 @@ import { registerResultPinStockRoutes } from './result-pin-stock.js';
 import { registerPartnerManualRequestRoutes } from './partner-manual-request.js';
 import { registerManualRequestRoutes } from './manual-requests.js';
 import { registerManualVerificationRoutes } from './manual-verification.js';
+import { registerLiveChatRoutes } from './live-chat.js';
 
 AdminJS.registerAdapter({ Database, Resource });
 
 export const ADMIN_ROOT_PATH = '/admin';
+// Shared with src/realtime/chat-socket.ts (see adminSessionStore above).
+export const ADMIN_SESSION_COOKIE_NAME = 'imam_admin_sid';
 
 // A separate, small pg Pool just for session storage - deliberately not routed
 // through Prisma, since connect-pg-simple needs a raw pg client to manage its
@@ -82,7 +85,14 @@ const sessionPool = new pg.Pool({
   connectionString: withNoVerifySsl(env.DATABASE_URL)
 });
 const PgSession = connectPgSimple(session);
-const adminSessionStore = new PgSession({
+// Exported so src/realtime/chat-socket.ts can build its own express-session
+// reader middleware against this exact same store/cookie - a Socket.IO
+// connection from the admin Live Chat page authenticates by decoding the
+// same `imam_admin_sid` session cookie the browser already sent for the
+// page itself, rather than needing a separate login step. Sharing the
+// store (instead of opening a second pg.Pool) means both middlewares read
+// literally the same session row.
+export const adminSessionStore = new PgSession({
   pool: sessionPool,
   tableName: 'admin_session',
   createTableIfMissing: true,
@@ -96,12 +106,6 @@ export async function buildAdminRouter() {
     componentLoader,
     dashboard: {
       component: Components.Dashboard
-    },
-    // The customer/partner app loads this same file from web/public. Adding
-    // it here gives the internal AdminJS portal access to the Tawk.to support
-    // conversation too.
-    assets: {
-      scripts: ['/tawk-widget.js']
     },
     branding: {
       companyName: 'K-Tech Solutions',
@@ -167,7 +171,7 @@ export async function buildAdminRouter() {
     {
       authenticate: async (email: string, password: string) => authenticateAdmin(email, password),
       cookiePassword: env.ADMIN_SESSION_SECRET,
-      cookieName: 'imam_admin_sid'
+      cookieName: ADMIN_SESSION_COOKIE_NAME
     },
     null,
     {
@@ -218,6 +222,7 @@ export async function buildAdminRouter() {
   registerPartnerManualRequestRoutes(router);
   registerManualRequestRoutes(router);
   registerManualVerificationRoutes(router);
+  registerLiveChatRoutes(router);
 
   return { admin, router };
 }

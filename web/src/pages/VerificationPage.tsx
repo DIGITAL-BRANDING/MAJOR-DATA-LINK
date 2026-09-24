@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Fingerprint,
@@ -175,10 +175,18 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
   }, [selected, tier, prices, values.validation_type]);
   const selectedServiceKey = selected ? (selected.id === 'validation' ? validationServiceKey(values.validation_type) : keyFor(selected, tier)) : '';
 
-  useEffect(() => {
+  // Stable across renders (selectedServiceKey only changes when the user
+  // picks a different service) so it's safe to call directly from submit()
+  // and the ticket-status poll below, not just the effect that watches for
+  // a service change. Previously this was inline in that one effect only,
+  // which meant a just-submitted request (or one that just finished
+  // processing) never appeared in "Recent requests" until something else
+  // happened to re-trigger it - in practice, only a full page reload
+  // reliably did, which read as "I have to refresh 3+ times."
+  const refreshHistory = useCallback(() => {
     if (!selectedServiceKey) {
       setHistory([]);
-      return;
+      return () => {};
     }
     let active = true;
     setLoadingHistory(true);
@@ -197,6 +205,8 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
       active = false;
     };
   }, [selectedServiceKey]);
+
+  useEffect(() => refreshHistory(), [refreshHistory]);
 
   function choose(item: Item) {
     if (item.id === 'modification') {
@@ -254,6 +264,7 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
       setMessage(error instanceof ApiError ? error.message : error instanceof Error ? error.message : 'Request failed.');
     } finally {
       setBusy(false);
+      refreshHistory();
     }
   }
 
@@ -267,6 +278,7 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
     try {
       const result = await api.get<{ status: boolean; data: TicketStatus }>(`${selected.path}/${asyncResult.ticket_id}`);
       setTicketStatus(result.data);
+      if (result.data.status === 'success' || result.data.status === 'failed') refreshHistory();
     } catch {
       // transient failures just mean "still can't tell yet" - the poll loop will retry
     } finally {
@@ -411,7 +423,7 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
                     disabled={busy}
                     className="flex w-full items-center justify-center gap-2 rounded-xl bg-gold-500 py-3 font-display font-semibold text-ink disabled:opacity-60"
                   >
-                    {busy ? <><Loader2 size={16} className="animate-spin" /> Ana tantance request ɗin ku…</> : 'Continue to PIN confirmation'}
+                    {busy ? <><Loader2 size={16} className="animate-spin" /> Verifying your request…</> : 'Continue to PIN confirmation'}
                   </button>
                   {busy && <p role="status" className="mt-3 text-center font-body text-sm text-ink-600">Wannan na iya ɗaukar ƴan dakiku. Kada ku rufe wannan shafin.</p>}
                   {message && <p className="mt-3 rounded-lg bg-cream p-3 font-body text-sm text-ink-600">{message}</p>}

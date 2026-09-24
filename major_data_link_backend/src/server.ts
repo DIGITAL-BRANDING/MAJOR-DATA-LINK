@@ -13,9 +13,11 @@
   return Number(this);
 };
 
+import http from 'node:http';
 import { env } from './config/env.js';
 import { createApp } from './app.js';
 import { prisma } from './lib/prisma.js';
+import { attachChatSocket } from './realtime/chat-socket.js';
 
 process.on('uncaughtException', (error) => {
   console.error('[server] uncaught exception', error);
@@ -87,7 +89,14 @@ async function startServer() {
       console.error('[server] Failed to seed service pricing rows (non-fatal):', error);
     }
 
-    const server = app.listen(env.PORT, '0.0.0.0', () => {
+    // Socket.IO (K-Tech Live Chat) needs the raw http.Server instance to
+    // attach its WebSocket upgrade handling to - app.listen() would create
+    // one internally but never hand it back, so we create it explicitly
+    // here instead and listen on that.
+    const httpServer = http.createServer(app);
+    attachChatSocket(httpServer);
+
+    const server = httpServer.listen(env.PORT, '0.0.0.0', () => {
       console.log(`MAJOR DATA-LINK backend listening on port ${env.PORT}`);
     });
 

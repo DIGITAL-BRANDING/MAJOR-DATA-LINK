@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { Trans, useTranslation } from 'react-i18next';
 import LanguageSwitcher from '../components/LanguageSwitcher';
+import LiveChatWidget from '../components/LiveChatWidget';
 import {
   Activity,
   AlertTriangle,
@@ -433,6 +434,12 @@ export default function PartnerDashboardPage() {
           )}
         </section>
       </div>
+      <LiveChatWidget
+        active
+        token={getTokens().access}
+        ownerKey={partner.id}
+        headerLabel="K-Tech Partner Support"
+      />
     </main>
   );
 }

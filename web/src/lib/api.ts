@@ -2,7 +2,10 @@
 // In dev, requests to /api/* are proxied to VITE_API_PROXY_TARGET (see vite.config.ts).
 // In production, set VITE_API_BASE_URL to the deployed backend origin
 // (leave empty if this app is served from the same origin as the API).
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
+// Exported so src/components/ChatWidget.tsx can point its Socket.IO
+// connection at the same backend origin as every REST call here, instead
+// of duplicating this env lookup.
+export const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
 export const PARTNER_API_BASE = `${API_BASE}/api/v1`;
 
 const TOKEN_KEY = 'mdl_access_token';
@@ -120,6 +123,27 @@ async function request<T>(
     payload = await res.json();
   } catch {
     // non-JSON response body — leave payload null
+  }
+
+  if (res.ok && canRetry && (payload === null || typeof payload !== 'object')) {
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    try {
+      const retryRes = await doFetch();
+      let retryPayload: unknown = null;
+      try {
+        retryPayload = await retryRes.json();
+      } catch {
+        // still non-JSON — fall through with the original res/payload below
+      }
+      if (retryRes.ok && retryPayload !== null && typeof retryPayload === 'object') {
+        res = retryRes;
+        payload = retryPayload;
+      }
+    } catch {
+      // Retry attempt itself failed to even connect - keep the original
+      // (invalid-body) res/payload so the checks below report that,
+      // rather than masking it with a network error from the retry.
+    }
   }
 
   if (!res.ok) {

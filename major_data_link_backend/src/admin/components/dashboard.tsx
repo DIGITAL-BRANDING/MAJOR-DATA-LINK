@@ -48,6 +48,7 @@ const quickLinks: QuickLink[] = [
   { label: 'Customer Activity', description: 'Top customers, what they bought, and reward candidates', href: `${ADMIN_ROOT_PATH}/customer-activity`, icon: 'Award' },
   { label: 'Login Activity', description: 'Latest customer App/Web logins and partner portal access', href: `${ADMIN_ROOT_PATH}/login-activity`, icon: 'LogIn' },
   { label: 'User Deliveries', description: 'Upload completed CAC, JAMB or other service files to a customer', href: `${ADMIN_ROOT_PATH}/user-deliveries`, icon: 'Upload' },
+  { label: 'Live Chat', description: 'Reply to customers in real time (K-Tech Live Chat)', href: `${ADMIN_ROOT_PATH}/live-chat`, icon: 'MessageSquare' },
   { label: 'Service Requests', description: 'Open and process customer support requests', resourceId: 'SupportTicket', icon: 'MessageCircle' },
   { label: 'Request Replies', description: 'Send updates to customers while a request is being processed', resourceId: 'SupportTicketMessage', icon: 'Send' },
   { label: 'Service Pricing', description: 'Prices and provider routing for all services', resourceId: 'ServicePricing', icon: 'Tag' },
