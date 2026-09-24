@@ -231,6 +231,21 @@ export class TechhubService {
     return this.postSlip(BVN_SLIP_PATH[tier], { bvn });
   }
 
+  private requestSlip(path: string, payload: Record<string, unknown>, formEncoded = false) {
+    const body = formEncoded
+      ? new URLSearchParams(Object.entries(payload).map(([key, value]) => [key, String(value)])).toString()
+      : JSON.stringify(payload);
+    return fetch(`${this.baseUrl()}/${path}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': formEncoded ? 'application/x-www-form-urlencoded' : 'application/json',
+        Accept: 'application/json'
+      },
+      body,
+      signal: AbortSignal.timeout(TECHHUB_REQUEST_TIMEOUT_MS)
+    });
+  }
+
   private async postSlip(path: string, body: Record<string, unknown>, options?: { personalInfoSlip?: boolean }): Promise<TechhubSlipResult> {
     if (env.MOCK_TECHHUB) {
       const userData = { first_name: 'JOHN', last_name: 'DOE', gender: 'MALE', ...body };
@@ -249,20 +264,32 @@ export class TechhubService {
       };
     }
 
+    const payload = { api_key: this.apiKey(), ...body };
     let response: Response;
+    let data: TechhubSlipResponse;
     try {
-      response = await fetch(`${this.baseUrl()}/${path}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ api_key: this.apiKey(), ...body }),
-        signal: AbortSignal.timeout(TECHHUB_REQUEST_TIMEOUT_MS)
-      });
+      response = await this.requestSlip(path, payload);
+      data = (await response.json().catch(() => ({}))) as TechhubSlipResponse;
+
+      // Techhub's documentation shows JSON, but some live PHP endpoints read
+      // only `$_POST` and therefore report missing parameters for an otherwise
+      // valid JSON request. A 400 missing-parameter response cannot represent
+      // a completed lookup, so retrying ONCE as form-urlencoded is safe and
+      // does not create a second wallet debit (the wallet call is outside this
+      // provider transport method).
+      if (
+        response.status === 400 &&
+        typeof data.message === 'string' &&
+        /missing\s+required\s+parameters?/i.test(data.message)
+      ) {
+        console.warn(`[techhub] JSON body was rejected as missing parameters; retrying form body (path=${path}, fields=${Object.keys(body).join(',')})`);
+        response = await this.requestSlip(path, payload, true);
+        data = (await response.json().catch(() => ({}))) as TechhubSlipResponse;
+      }
     } catch (error) {
       console.error(`[techhub] network error calling ${path}:`, error);
       return { ok: false, message: 'Could not reach the verification provider - please try again shortly', raw: null };
     }
-
-    const data = (await response.json().catch(() => ({}))) as TechhubSlipResponse;
 
     // Techhub has returned both "success" and "successful" from its
     // dashboard/API over time.  Treat either spelling (and a boolean
