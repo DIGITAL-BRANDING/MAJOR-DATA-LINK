@@ -1,0 +1,56 @@
+diff --git a/web/src/pages/VerificationPage.tsx b/web/src/pages/VerificationPage.tsx
+index 59bb2a1..b353369 100644
+--- a/web/src/pages/VerificationPage.tsx
++++ b/web/src/pages/VerificationPage.tsx
+@@ -14,6 +14,7 @@ import {
+   CheckCircle2,
+   XCircle,
+   Clock,
++  AlertTriangle,
+ } from 'lucide-react';
+ import AppShell from '../components/AppShell';
+ import { api, ApiError } from '../lib/api';
+@@ -35,6 +36,17 @@ type Item = {
+ };
+ type PriceRow = { service: string; unitPrice: number; isActive: boolean };
+ 
++// Shown on the form for services where an admin (not an automated provider)
++// does the actual work, so there's no instant pass/fail and no refund path
++// once submitted - the person needs to know that *before* they pay, not
++// after a support ticket. Keyed by Item['id']; only services that are
++// genuinely non-refundable and admin-processed are listed here.
++const NON_REFUNDABLE_NOTICE: Record<string, { serviceName: string; etaLabel: string }> = {
++  validation: { serviceName: 'VALIDATION', etaLabel: '24hrs to 5 working days' },
++  personalization: { serviceName: 'PERSONALIZATION', etaLabel: 'within 24hrs' },
++  ipe: { serviceName: 'IPE', etaLabel: 'within 24hrs' },
++};
++
+ const nin: Item[] = [
+   { id: 'by-nin', label: 'NIN Verification', path: '/verification/nin/by-nin', fields: ['nin'], icon: IdCard, tiers: ['premium', 'standard', 'regular', 'vnin', 'personal'] },
+   { id: 'by-phone', label: 'NIN by Phone', path: '/verification/nin/by-phone', fields: ['phone'], icon: Phone, tiers: ['premium', 'standard', 'regular', 'personal'] },
+@@ -439,6 +451,25 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
+               </span>
+             </div>
+ 
++            {NON_REFUNDABLE_NOTICE[selected.id] && !slipResult && !asyncResult && (
++              <div className="mt-4 rounded-xl border border-amber-500/50 bg-amber-500/10 p-4">
++                <div className="flex items-start gap-2.5">
++                  <AlertTriangle size={18} className="mt-0.5 shrink-0 text-amber-600" />
++                  <div className="font-body text-sm text-ink">
++                    <p className="font-bold">
++                      NOTE: {NON_REFUNDABLE_NOTICE[selected.id].serviceName} IS NOT REFUNDABLE. Ensure all details are correct before submission.
++                    </p>
++                    <p className="mt-1.5">
++                      After submitting, proceed to check history below. (Status usually updates within 10-30mins)
++                    </p>
++                    <p className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-ink-600">
++                      <Clock size={13} /> Typical completion time: {NON_REFUNDABLE_NOTICE[selected.id].etaLabel}
++                    </p>
++                  </div>
++                </div>
++              </div>
++            )}
++
+             {!slipResult && !asyncResult && (
+               <form onSubmit={prepare} className="mt-5 grid gap-4 sm:grid-cols-2">
+                 {selected.fields.map((field) => (
