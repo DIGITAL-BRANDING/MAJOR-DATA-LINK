@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { getResultPinPrice, type ExamPinType } from '../services/result-pin.service.js';
 import { listVerificationPrices } from '../services/verification.service.js';
 import { getAppConfig } from '../services/app-config.service.js';
+import { listAllServiceStatuses } from '../lib/service-status.js';
 
 export const publicRoutes = Router();
 
@@ -74,5 +75,22 @@ publicRoutes.get('/app-config', async (_req, res) => {
       // this is just the last of two independent checks, never the only one.
       api_base_url: config.apiBaseUrl
     }
+  });
+});
+
+/**
+ * Read by the web/Flutter service menu on every dashboard load so an
+ * admin-disabled service (see /admin/service-status) shows a "Not
+ * Available" badge on its icon instead of the customer only finding out
+ * after they've entered their PIN and been refunded. Deliberately public
+ * (no requireAuth): the landing page's own service teasers can use this
+ * too, and there's nothing sensitive in { service, label, category,
+ * is_active } - no prices, no provider names beyond "alrahuz"/"internal".
+ */
+publicRoutes.get('/service-status', async (_req, res) => {
+  const rows = await listAllServiceStatuses();
+  res.json({
+    status: true,
+    data: rows.map((row) => ({ service: row.service, label: row.label, category: row.category, is_active: row.is_active }))
   });
 });

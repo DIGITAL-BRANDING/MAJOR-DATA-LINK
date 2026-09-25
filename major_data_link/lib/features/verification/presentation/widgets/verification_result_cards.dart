@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -141,14 +142,25 @@ class SlipResultCard extends StatelessWidget {
   }
 
   List<Widget> _identityRows(Map<String, dynamic> data) {
-    const photoKeys = {'image', 'photo', 'picture', 'passport', 'passportphoto'};
+    const photoKeys = {
+      'image',
+      'photo',
+      'picture',
+      'passport',
+      'passportphoto',
+    };
     return data.entries
         .where((e) => e.value != null && e.value.toString().isNotEmpty)
-        .where((e) => !photoKeys.contains(e.key.replaceAll('_', '').toLowerCase()))
+        .where(
+          (e) => !photoKeys.contains(e.key.replaceAll('_', '').toLowerCase()),
+        )
         .map(
           (e) => Builder(
-            builder: (context) =>
-                _row(context, e.key.replaceAll('_', ' ').titleCase, e.value.toString()),
+            builder: (context) => _row(
+              context,
+              e.key.replaceAll('_', ' ').titleCase,
+              e.value.toString(),
+            ),
           ),
         )
         .toList();
@@ -157,14 +169,28 @@ class SlipResultCard extends StatelessWidget {
   /// FranceVerify returns a raw image base64 string while other providers may
   /// return a data URL. Render it as a photo and never expose that long value
   /// as a result row.
-  List<int>? _providerPhoto(Map<String, dynamic>? data) {
+  Uint8List? _providerPhoto(Map<String, dynamic>? data) {
     if (data == null) return null;
     for (final entry in data.entries) {
       final key = entry.key.replaceAll('_', '').toLowerCase();
-      if (!{'image', 'photo', 'picture', 'passport', 'passportphoto'}.contains(key) || entry.value is! String) continue;
+      if (!{
+            'image',
+            'photo',
+            'picture',
+            'passport',
+            'passportphoto',
+          }.contains(key) ||
+          entry.value is! String)
+        continue;
       final value = (entry.value as String)
           .trim()
-          .replaceFirst(RegExp(r'^data:image/(?:png|jpe?g|webp);base64,', caseSensitive: false), '')
+          .replaceFirst(
+            RegExp(
+              r'^data:image/(?:png|jpe?g|webp);base64,',
+              caseSensitive: false,
+            ),
+            '',
+          )
           .replaceAll(RegExp(r'\s'), '');
       if (value.length < 32) continue;
       try {

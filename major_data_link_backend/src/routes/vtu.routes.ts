@@ -13,6 +13,7 @@ import { debitWallet, refundWallet } from '../services/wallet.service.js';
 import { recordProviderDebit } from '../services/provider-ledger.service.js';
 import { awardReferralCommission } from '../services/referral.service.js';
 import { flagPendingReconciliation } from '../services/provider-reconciliation.service.js';
+import { requireServiceActive } from '../lib/service-status.js';
 
 export const vtuRoutes = Router();
 
@@ -225,6 +226,7 @@ vtuRoutes.post('/data/purchase', async (req, res) => {
     ...pinField
   }).parse(req.body);
   await requirePinConfirmation(req.user!.id, body.pin);
+  await requireServiceActive('DATA_BUNDLE_PURCHASE', 'Data Bundle Purchase');
 
   const provider = await resolveDataProvider(body.provider);
   const plan =
@@ -276,6 +278,7 @@ vtuRoutes.post('/airtime/purchase', async (req, res) => {
     ...pinField
   }).parse(req.body);
   await requirePinConfirmation(req.user!.id, body.pin);
+  await requireServiceActive(`AIRTIME_${body.network.toUpperCase()}`, `Airtime \u2014 ${body.network.toUpperCase()}`);
 
   const { pin: _pin, ...metadataBody } = body;
   const provider = await activeDataAirtimeProvider();

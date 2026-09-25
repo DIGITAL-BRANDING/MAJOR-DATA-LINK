@@ -120,6 +120,12 @@ export async function listCacPrices() {
   }));
 }
 
+/** Shape matching listVerificationPricesForAdmin() - for the shared /admin/service-status page. */
+export async function listCacPricesForAdmin() {
+  const rows = await Promise.all(CAC_TYPES.map((type) => getOrCreatePricingRow(type)));
+  return rows.map((row) => ({ service: row.service, label: row.label, provider: row.provider, is_active: row.isActive }));
+}
+
 function createCacReference() {
   return `CAC-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
 }

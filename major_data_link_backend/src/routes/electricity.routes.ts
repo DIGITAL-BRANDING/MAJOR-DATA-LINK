@@ -11,6 +11,7 @@ import { debitWallet, refundWallet } from '../services/wallet.service.js';
 import { recordProviderDebit } from '../services/provider-ledger.service.js';
 import { awardReferralCommission } from '../services/referral.service.js';
 import { flagPendingReconciliation } from '../services/provider-reconciliation.service.js';
+import { requireServiceActive } from '../lib/service-status.js';
 
 // Electricity has no Alrahuz equivalent anywhere in this codebase - always
 // BilalSadaSub, same as cable.routes.ts. Request/response shapes here are
@@ -72,6 +73,7 @@ electricityRoutes.post('/purchase', async (req, res) => {
     })
     .parse(req.body);
   await requirePinConfirmation(req.user!.id, body.pin);
+  await requireServiceActive('ELECTRICITY_BILL_PAYMENT', 'Electricity Bill Payment');
 
   const settings = await getPricingSettings();
   // NOTE: ElectricityScreen's form only ever shows/asks for `body.amount`

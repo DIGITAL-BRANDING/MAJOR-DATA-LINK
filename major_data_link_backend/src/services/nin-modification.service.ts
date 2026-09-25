@@ -213,6 +213,12 @@ export async function listModificationPrices() {
   }));
 }
 
+/** Shape matching listVerificationPricesForAdmin() - for the shared /admin/service-status page. */
+export async function listModificationPricesForAdmin() {
+  const rows = await Promise.all(MODIFICATION_TYPES.map((type) => getOrCreatePricingRow(type)));
+  return rows.map((row) => ({ service: row.service, label: row.label, provider: row.provider, is_active: row.isActive }));
+}
+
 /**
  * Renders exactly what the customer submitted into a one-page-per-request
  * PDF, in the same field order shown on the form - this is the document an

@@ -11,6 +11,7 @@ import { debitWallet, refundWallet } from '../services/wallet.service.js';
 import { recordProviderDebit } from '../services/provider-ledger.service.js';
 import { awardReferralCommission } from '../services/referral.service.js';
 import { flagPendingReconciliation } from '../services/provider-reconciliation.service.js';
+import { requireServiceActive } from '../lib/service-status.js';
 
 // Cable TV has no Alrahuz equivalent anywhere in this codebase - always
 // BilalSadaSub, unlike data/airtime/result-pins which check PricingSettings.
@@ -69,6 +70,7 @@ cableRoutes.post('/subscribe', async (req, res) => {
     })
     .parse(req.body);
   await requirePinConfirmation(req.user!.id, body.pin);
+  await requireServiceActive('CABLE_TV_SUBSCRIPTION', 'Cable TV Subscription');
 
   const [plans, settings] = await Promise.all([bilalsadasub.getCablePlans(body.provider), getPricingSettings()]);
   const plan = plans.find((p) => p.planId === body.plan_id);

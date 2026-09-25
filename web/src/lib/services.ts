@@ -41,6 +41,17 @@ export type ServiceItem = {
    *  Flutter app's ComingSoonScreen for the same not-yet-built services
    *  (see major_data_link/lib/core/router/app_router.dart). */
   implemented: boolean;
+  /** Maps to the `service` key(s) returned by GET /api/public/service-status
+   *  (see major_data_link_backend/src/lib/service-status.ts). When present,
+   *  DashboardPage checks this against that endpoint and shows an
+   *  "Unavailable" badge if an admin has switched the service off — a
+   *  string requires that one service to be active, an array requires ALL
+   *  of them (used for Buy Airtime, which is really 4 independent
+   *  per-network switches). Left unset for services made up of several
+   *  independently-toggleable sub-types (CAC, NIN/BVN Modification, etc.)
+   *  where a single dashboard badge couldn't represent the true state
+   *  anyway - the backend still enforces those per sub-type either way. */
+  statusKey?: string | string[];
 };
 
 // Mirrors the service list in
@@ -58,13 +69,13 @@ export const SERVICES: ServiceItem[] = [
   { label: 'BVN Retrieval', description: 'Retrieve BVN details using name and registered phone number.', icon: Search, route: '/bvn-ret', tint: 'ember', implemented: true },
   { label: 'Self Service Unlink', description: 'Submit an identity delinking request.', icon: Unlink, route: '/delink', tint: 'gold', implemented: true },
   { label: 'NIN Modifications', description: 'Request corrections to NIN records.', icon: FilePenLine, route: '/nin-modification', tint: 'bronze', implemented: true },
-  { label: 'Birth Attestation', description: 'Submit a birth attestation request for manual processing.', icon: Baby, route: '/attestation', tint: 'success', implemented: true },
+  { label: 'Birth Attestation', description: 'Submit a birth attestation request for manual processing.', icon: Baby, route: '/attestation', tint: 'success', implemented: true, statusKey: 'BIRTH_ATTESTATION' },
   { label: 'TIN Certificate', description: 'Request a TIN certificate and receive it in Deliveries.', icon: Receipt, route: '/tin', tint: 'ember', implemented: true },
-  { label: 'Newspaper Publication', description: 'Submit a newspaper publication request.', icon: Newspaper, route: '/newspaper', tint: 'gold', implemented: true },
+  { label: 'Newspaper Publication', description: 'Submit a newspaper publication request.', icon: Newspaper, route: '/newspaper', tint: 'gold', implemented: true, statusKey: 'NEWSPAPER_PUBLICATION' },
   { label: 'Demographic Search', description: 'Search NIN records using demographic details.', icon: Search, route: '/demo', tint: 'bronze', implemented: true },
   { label: 'BVN Licence Creation', description: 'Create a BVN licence onboarding request.', icon: Fingerprint, route: '/bvn-license', tint: 'gold', implemented: true },
   { label: 'BVN Modification', description: 'Submit a BVN modification request for processing.', icon: FilePenLine, route: '/bvn-modification', tint: 'bronze', implemented: true },
-  { label: 'BVN CRM', description: 'Submit a BVN CRM Ticket ID for follow-up.', icon: Settings2, route: '/bvn-crm', tint: 'gold', implemented: true },
+  { label: 'BVN CRM', description: 'Submit a BVN CRM Ticket ID for follow-up.', icon: Settings2, route: '/bvn-crm', tint: 'gold', implemented: true, statusKey: 'BVN_CRM' },
   {
     label: 'Buy Data',
     description: 'Get data bundles for MTN, Glo, Airtel or 9mobile, delivered instantly.',
@@ -72,6 +83,7 @@ export const SERVICES: ServiceItem[] = [
     route: '/buy-data',
     tint: 'gold',
     implemented: true,
+    statusKey: 'DATA_BUNDLE_PURCHASE',
   },
   {
     label: 'Buy Airtime',
@@ -80,6 +92,7 @@ export const SERVICES: ServiceItem[] = [
     route: '/buy-airtime',
     tint: 'bronze',
     implemented: true,
+    statusKey: ['AIRTIME_MTN', 'AIRTIME_GLO', 'AIRTIME_AIRTEL', 'AIRTIME_9MOBILE'],
   },
   {
     label: 'Airtime to Cash',
@@ -120,6 +133,7 @@ export const SERVICES: ServiceItem[] = [
     route: '/jamb-services',
     tint: 'ember',
     implemented: true,
+    statusKey: 'JAMB_SERVICE_REQUEST',
   },
   {
     label: 'Bulk SMS',

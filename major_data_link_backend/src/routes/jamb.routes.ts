@@ -6,6 +6,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { pinField, requirePinConfirmation } from '../lib/require-pin.js';
 import { notifyUser } from '../services/notification.service.js';
 import { debitWallet } from '../services/wallet.service.js';
+import { requireServiceActive } from '../lib/service-status.js';
 
 export const jambRoutes = Router();
 
@@ -62,6 +63,7 @@ jambRoutes.post('/requests', async (req, res) => {
   }).parse(req.body);
 
   await requirePinConfirmation(req.user!.id, body.pin);
+  await requireServiceActive('JAMB_SERVICE_REQUEST', 'JAMB Services');
   const selected = JAMB_SERVICES[body.service];
   const debit = await debitWallet({
     userId: req.user!.id,

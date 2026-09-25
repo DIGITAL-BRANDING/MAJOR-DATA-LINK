@@ -70,6 +70,10 @@ export default function DashboardPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loadedTransactions, setLoadedTransactions] = useState(false);
   const [copied, setCopied] = useState(false);
+  // null = "haven't heard back yet" - every tile renders as available
+  // until proven otherwise, so a slow/failed request never falsely marks
+  // working services as down.
+  const [inactiveServiceKeys, setInactiveServiceKeys] = useState<Set<string> | null>(null);
 
   useEffect(() => {
     api.get<WalletBalance>('/wallet/balance').then(setWallet).catch(() => {});
@@ -78,6 +82,10 @@ export default function DashboardPage() {
       .then((res) => setTransactions((res.data ?? []).slice(0, 5)))
       .catch(() => {})
       .finally(() => setLoadedTransactions(true));
+    api
+      .get<{ status: boolean; data: Array<{ service: string; is_active: boolean }> }>('/public/service-status', false)
+      .then((res) => setInactiveServiceKeys(new Set((res.data ?? []).filter((row) => !row.is_active).map((row) => row.service))))
+      .catch(() => {});
   }, []);
 
   function copyAccount() {
@@ -215,7 +223,7 @@ export default function DashboardPage() {
         <h2 className="font-display text-base font-semibold text-ink-900">Services</h2>
         <div className="mt-3 grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5">
           {dashboardServices.map((service) => (
-            <ServiceTile key={service.route} {...service} />
+            <ServiceTile key={service.route} {...service} inactive={isServiceInactive(service.statusKey, inactiveServiceKeys)} />
           ))}
         </div>
       </div>
@@ -278,13 +286,28 @@ function HowItWorksStep({
   );
 }
 
+/**
+ * A tile with no statusKey is never marked inactive (multi-sub-type
+ * services like CAC/NIN Modification - the backend still enforces those
+ * per sub-type on submit, this just isn't the right place to show it).
+ * `null` inactiveKeys means the /public/service-status fetch hasn't
+ * resolved (or failed) yet - default to available rather than flashing
+ * an incorrect "Unavailable" badge for a moment.
+ */
+function isServiceInactive(statusKey: string | string[] | undefined, inactiveKeys: Set<string> | null): boolean {
+  if (!statusKey || !inactiveKeys) return false;
+  const keys = Array.isArray(statusKey) ? statusKey : [statusKey];
+  return keys.every((key) => inactiveKeys.has(key));
+}
+
 function ServiceTile({
   label,
   icon: Icon,
   route,
   tint,
   implemented,
-}: (typeof SERVICES)[number]) {
+  inactive,
+}: (typeof SERVICES)[number] & { inactive: boolean }) {
   const colors = TINT_CLASSES[tint];
   return (
     <Link
@@ -296,7 +319,12 @@ function ServiceTile({
           Soon
         </span>
       )}
-      <div className={`relative z-10 h-16 w-16 overflow-hidden rounded-2xl border-2 border-white shadow-sm ${colors.bg}`}>
+      {implemented && inactive && (
+        <span className="absolute right-2 top-2 z-10 rounded-full bg-ember-500 px-2 py-1 font-body text-[9px] font-semibold uppercase tracking-wide text-white">
+          Unavailable
+        </span>
+      )}
+      <div className={`relative z-10 h-16 w-16 overflow-hidden rounded-2xl border-2 border-white shadow-sm ${colors.bg} ${inactive ? 'opacity-50 grayscale' : ''}`}>
         {SERVICE_IMAGES[label] ? <img src={SERVICE_IMAGES[label]} alt="" className="h-full w-full object-contain p-1 transition duration-200 group-hover:scale-110" /> : <span className={`absolute inset-0 flex items-center justify-center ${colors.text}`}><Icon size={24} /></span>}
       </div>
       <span className="tile-premium-label relative z-10 mt-3 font-body text-sm font-bold leading-tight">{label}</span>

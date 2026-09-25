@@ -29,6 +29,12 @@ export async function getBvnCrmPrice() {
   return { unitPrice: koboToNaira(row.sellingPriceKobo ?? row.providerCostKobo), providerCostKobo: row.providerCostKobo };
 }
 
+/** Shape matching listVerificationPricesForAdmin() - for the shared /admin/service-status page. */
+export async function listBvnCrmPriceForAdmin() {
+  const row = await pricingRow();
+  return [{ service: row.service, label: row.label, provider: row.provider, is_active: row.isActive }];
+}
+
 function renderPdf(params: { reference: string; values: Record<string, unknown>; submittedAt: Date }): Promise<string> {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'A4', margin: 50 }); const chunks: Buffer[] = [];

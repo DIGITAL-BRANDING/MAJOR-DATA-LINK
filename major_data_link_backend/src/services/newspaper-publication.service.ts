@@ -75,6 +75,12 @@ export async function getNewspaperPublicationPrice() {
   return { unitPrice: koboToNaira(unitKobo), providerCostKobo: row.providerCostKobo };
 }
 
+/** Shape matching listVerificationPricesForAdmin() - for the shared /admin/service-status page. */
+export async function listNewspaperPublicationPriceForAdmin() {
+  const row = await getOrCreatePricingRow();
+  return [{ service: row.service, label: row.label, provider: row.provider, is_active: row.isActive }];
+}
+
 export function renderNewspaperPublicationPdf(params: { reference: string; values: Record<string, unknown>; submittedAt: Date }): Promise<string> {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'A4', margin: 50 });

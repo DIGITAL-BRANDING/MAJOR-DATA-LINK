@@ -117,6 +117,12 @@ export async function getBirthAttestationPrice() {
   return { unitPrice: koboToNaira(unitKobo), providerCostKobo: row.providerCostKobo };
 }
 
+/** Shape matching listVerificationPricesForAdmin() - for the shared /admin/service-status page. */
+export async function listBirthAttestationPriceForAdmin() {
+  const row = await getOrCreatePricingRow();
+  return [{ service: row.service, label: row.label, provider: row.provider, is_active: row.isActive }];
+}
+
 /** Renders exactly what the customer submitted into a PDF, photo included -
  *  the document an admin opens to manually process the attestation with
  *  NPC, and the copy the customer can re-download from their own history. */

@@ -193,6 +193,12 @@ export async function listBvnModificationPrices() {
   }));
 }
 
+/** Shape matching listVerificationPricesForAdmin() - for the shared /admin/service-status page. */
+export async function listBvnModificationPricesForAdmin() {
+  const rows = await Promise.all(BVN_MODIFICATION_TYPES.map((type) => getOrCreatePricingRow(type)));
+  return rows.map((row) => ({ service: row.service, label: row.label, provider: row.provider, is_active: row.isActive }));
+}
+
 /** Renders exactly what the customer submitted into a one-page PDF - the
  *  document an admin opens to manually process the change, and the copy
  *  the customer can re-download from their own history. */
