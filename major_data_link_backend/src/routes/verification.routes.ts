@@ -185,7 +185,17 @@ verificationRoutes.get('/history', async (req, res) => {
         // Do not return identity details here. The PDF itself is the
         // retrievable document and the rest remains sealed in storage.
         document_available: documentAvailable,
-        ticket_id: typeof metadata?.ticket_id === 'string' ? metadata.ticket_id : null
+        ticket_id: typeof metadata?.ticket_id === 'string' ? metadata.ticket_id : null,
+        // Set when an admin completed a manual request (see
+        // completeRequest() in admin/manual-verification.ts) and attached a
+        // result file through the UserDelivery system - a completely
+        // separate path from the auto-generated provider PDFs above, since
+        // manual services (NIN Modification, and any other request routed
+        // to a human because no provider covers it) have no provider
+        // response to render a slip from in the first place. Exposed here
+        // so "Recent requests" can offer a direct download instead of
+        // sending the user to hunt for it on a separate Deliveries page.
+        delivery_id: typeof pii?.delivery_id === 'string' ? pii.delivery_id : null
       };
     });
 

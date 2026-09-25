@@ -138,6 +138,7 @@ type VerificationHistory = {
   created_at: string;
   document_available: boolean;
   ticket_id: string | null;
+  delivery_id: string | null;
 };
 
 export default function VerificationPage({ mode, initialService }: { mode: Mode; initialService?: string }) {
@@ -219,6 +220,42 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
   }, [selectedServiceKey]);
 
   useEffect(() => refreshHistory(), [refreshHistory]);
+
+  // Set of ticket_ids currently being checked, so only that row's button
+  // shows a spinner (not every row in the list).
+  const [checkingTicket, setCheckingTicket] = useState<Set<string>>(new Set());
+
+  // Async services (NIN Validation, Personalization, Delinking, IPE
+  // Clearance, BVN Retrieval) only ever get their status updated when
+  // something actively polls the provider - the automatic poll in
+  // checkTicket() below only runs while the user is looking at the
+  // just-submitted result. Once they navigate away, or come back later to
+  // "Recent requests", a still-pending entry had no way to move forward
+  // except a background reconciliation job. This calls the same
+  // GET `${path}/:ticketId` status endpoint the fresh-submission view uses,
+  // which (per checkAsyncServiceStatus on the backend) also persists a
+  // success/failed result to the transaction - so refreshHistory() below
+  // picks up the real status immediately instead of waiting on a worker.
+  const checkHistoryStatus = useCallback(
+    async (entry: VerificationHistory) => {
+      if (!selected || !entry.ticket_id) return;
+      setCheckingTicket((prev) => new Set(prev).add(entry.ticket_id!));
+      try {
+        await api.get(`${selected.path}/${entry.ticket_id}`);
+      } catch {
+        // Swallow - a transient failure here just means the row keeps
+        // showing its last known status; the user can press the button again.
+      } finally {
+        setCheckingTicket((prev) => {
+          const next = new Set(prev);
+          next.delete(entry.ticket_id!);
+          return next;
+        });
+        refreshHistory();
+      }
+    },
+    [selected, refreshHistory]
+  );
 
   function choose(item: Item) {
     if (item.id === 'modification') {
@@ -526,7 +563,12 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
               </div>
             )}
 
-            <VerificationHistoryView history={history} loading={loadingHistory} />
+            <VerificationHistoryView
+              history={history}
+              loading={loadingHistory}
+              checkingRef={checkingTicket}
+              onCheckStatus={(entry) => void checkHistoryStatus(entry)}
+            />
           </section>
         )}
       </div>
@@ -536,7 +578,17 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
   );
 }
 
-function VerificationHistoryView({ history, loading }: { history: VerificationHistory[]; loading: boolean }) {
+function VerificationHistoryView({
+  history,
+  loading,
+  checkingRef,
+  onCheckStatus,
+}: {
+  history: VerificationHistory[];
+  loading: boolean;
+  checkingRef: Set<string>;
+  onCheckStatus: (entry: VerificationHistory) => void;
+}) {
   return (
     <section className="mt-8 border-t border-parchment-line pt-5">
       <div className="flex items-baseline justify-between gap-3">
@@ -552,13 +604,29 @@ function VerificationHistoryView({ history, loading }: { history: VerificationHi
       ) : (
         <div className="mt-3 divide-y divide-parchment-line overflow-hidden rounded-xl border border-parchment-line bg-cream">
           {history.map((entry) => {
+            // Only ticket-based async services (NIN Validation, Personalization,
+            // Delinking, IPE Clearance, BVN Retrieval) get a "Check status"
+            // button - synchronous slip purchases (NIN/BVN by NIN/Phone/
+            // Demographic) resolve immediately and have no ticket_id to poll.
+            // A terminal status (success/failed) is also excluded: it's
+            // already final, nothing left to check.
+            const canCheckStatus = Boolean(entry.ticket_id) && entry.status !== 'success' && entry.status !== 'failed';
+            const isChecking = entry.ticket_id ? checkingRef.has(entry.ticket_id) : false;
             return (
               <div key={entry.reference} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
                 <div>
                   <p className="font-mono text-xs font-semibold text-ink">{entry.reference}</p>
                   <p className="mt-1 font-body text-xs text-ink-600">{new Date(entry.created_at).toLocaleString()}</p>
                 </div>
-                {entry.document_available ? (
+                {entry.delivery_id ? (
+                  <button
+                    type="button"
+                    onClick={() => void downloadAdminDelivery(entry.delivery_id!, entry.reference)}
+                    className="flex items-center gap-2 rounded-lg bg-gold-500 px-3 py-2 font-body text-xs font-bold text-ink"
+                  >
+                    <Download size={14} /> Download file
+                  </button>
+                ) : entry.document_available ? (
                   <button
                     type="button"
                     onClick={() => void downloadServiceDocument(entry.transaction_id, entry.reference)}
@@ -566,6 +634,19 @@ function VerificationHistoryView({ history, loading }: { history: VerificationHi
                   >
                     <Download size={14} /> Retrieve PDF
                   </button>
+                ) : canCheckStatus ? (
+                  <div className="flex items-center gap-3">
+                    <span className="font-body text-xs font-semibold capitalize text-ink-600">{entry.status}</span>
+                    <button
+                      type="button"
+                      disabled={isChecking}
+                      onClick={() => onCheckStatus(entry)}
+                      className="flex items-center gap-2 rounded-lg border border-gold-500 px-3 py-2 font-body text-xs font-bold text-ink disabled:opacity-60"
+                    >
+                      <RefreshCw size={14} className={isChecking ? 'animate-spin' : undefined} />
+                      {isChecking ? 'Checking…' : 'Check status'}
+                    </button>
+                  </div>
                 ) : (
                   <span className="font-body text-xs font-semibold capitalize text-ink-600">{entry.status}</span>
                 )}
@@ -637,6 +718,25 @@ async function downloadServiceDocument(transactionId: string, reference: string)
     URL.revokeObjectURL(url);
   } catch {
     window.alert('Could not download this slip. Please try again from Service History.');
+  }
+}
+
+// For requests an admin completed by hand and attached a result file to
+// (see completeRequest() in admin/manual-verification.ts - NIN Modification
+// and any other request that has no provider to auto-generate a PDF from).
+// Same download mechanism as DeliveriesPage.tsx: a short-lived signed URL,
+// not an inline blob, since the file can be up to 10MB and isn't held in
+// this page's own transaction-document endpoint.
+async function downloadAdminDelivery(deliveryId: string, reference: string) {
+  try {
+    const result = await api.get<{ data: { url: string; file_name: string } }>(`/deliveries/${deliveryId}/download`);
+    const link = document.createElement('a');
+    link.href = result.data.url;
+    link.download = result.data.file_name || reference;
+    link.target = '_blank';
+    link.click();
+  } catch {
+    window.alert('Could not download this file. Please try again, or open it from Deliveries in the menu.');
   }
 }
 
