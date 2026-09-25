@@ -28,6 +28,29 @@ function normalizeKatpayStatus(value: unknown): string | undefined {
 
 export const webhookRoutes = Router();
 
+function zenithPayAllowedIps() {
+  return new Set(env.ZENITHPAY_WEBHOOK_ALLOWED_IPS.split(',').map((ip) => ip.trim()).filter(Boolean));
+}
+
+function normalizeRemoteIp(ip: string | undefined) {
+  return (ip ?? '').trim().replace(/^::ffff:/i, '');
+}
+
+function zenithValue(payload: Record<string, any>, keys: string[]) {
+  const sources = [payload, payload.data, payload.transaction, payload.data?.transaction].filter(
+    (value): value is Record<string, any> => Boolean(value) && typeof value === 'object'
+  );
+  for (const source of sources) for (const key of keys) {
+    const value = source[key];
+    if (value !== undefined && value !== null && String(value).trim()) return value;
+  }
+  return undefined;
+}
+
+function zenithSuccessful(value: unknown) {
+  return value === true || ['success', 'successful', 'completed', 'paid', '00'].includes(String(value ?? '').trim().toLowerCase());
+}
+
 // Public, non-sensitive connectivity check for KatPay's dashboard setup.
 // KatPay only POSTs signed events; this GET makes it possible to verify the
 // exact Railway URL in a browser before waiting for a real bank transfer.
@@ -38,6 +61,72 @@ webhookRoutes.get('/katpay', (_req, res) => {
     ready: Boolean(env.KATPAY_WEBHOOK_SECRET ?? env.KATPAY_SECRET_KEY),
     message: 'POST signed KatPay events to this path'
   });
+});
+
+/**
+ * ZenithPay documents a public webhook source IP but no request-signature
+ * scheme. Accept only allowlisted source IPs, and make wallet crediting
+ * idempotent by the provider transaction reference.
+ */
+webhookRoutes.get('/zenithpay', (req, res) => {
+  const remoteIp = normalizeRemoteIp(req.ip);
+  res.json({
+    status: true,
+    webhook: 'zenithpay',
+    source_ip_allowed: zenithPayAllowedIps().has(remoteIp),
+    ready: Boolean(env.ZENITHPAY_API_KEY),
+    message: 'POST successful ZenithPay dedicated-account payment events to this path'
+  });
+});
+
+webhookRoutes.post('/zenithpay', async (req, res) => {
+  const remoteIp = normalizeRemoteIp(req.ip);
+  if (!zenithPayAllowedIps().has(remoteIp)) {
+    console.warn('[zenithpay-webhook] rejected request from unallowlisted source', { remoteIp });
+    return res.status(401).json({ status: false, message: 'Untrusted webhook source' });
+  }
+
+  const rawBody = req.body as Buffer;
+  if (!Buffer.isBuffer(rawBody)) return res.status(400).json({ status: false, message: 'Raw webhook body is required' });
+
+  let event: Record<string, any>;
+  try {
+    event = JSON.parse(rawBody.toString('utf8')) as Record<string, any>;
+  } catch {
+    return res.status(400).json({ status: false, message: 'Malformed JSON webhook' });
+  }
+
+  const status = zenithValue(event, ['status', 'payment_status', 'paymentStatus', 'transaction_status', 'transactionStatus', 'response_code']);
+  const accountNumber = zenithValue(event, ['accountNumber', 'account_number', 'destination_account_number', 'destinationAccountNumber']);
+  const reference = zenithValue(event, ['transactionReference', 'transaction_reference', 'paymentReference', 'payment_reference', 'transactionId', 'transaction_id', 'reference']);
+  const amount = Number(zenithValue(event, ['amount', 'amount_paid', 'amountPaid', 'transaction_amount', 'transactionAmount']));
+
+  if (!zenithSuccessful(status) || !accountNumber || !reference || !Number.isFinite(amount) || amount <= 0) {
+    console.error('[zenithpay-webhook] event missing credit fields', {
+      hasAccountNumber: Boolean(accountNumber),
+      hasReference: Boolean(reference),
+      status: status ?? null,
+      amount: Number.isFinite(amount) ? amount : null
+    });
+    return res.status(422).json({ status: false, message: 'Webhook lacks verifiable payment details' });
+  }
+
+  try {
+    const normalizedAccountNumber = String(accountNumber).trim();
+    const providerReference = String(reference).trim();
+    const amountKobo = BigInt(Math.round(amount * 100));
+    const partner = await prisma.partner.findUnique({ where: { virtualAccountNumber: normalizedAccountNumber } });
+    if (partner) {
+      await creditPartnerDirectDeposit({ reference: providerReference, amountKobo, partnerId: partner.id, provider: 'zenithpay', channel: 'zenithpay_virtual_account' });
+    } else {
+      await creditDirectDepositByAccountNumber({ reference: providerReference, amountKobo, accountNumber: normalizedAccountNumber, provider: 'zenithpay', channel: 'zenithpay_virtual_account' });
+    }
+  } catch (error) {
+    console.error('[zenithpay-webhook] failed to credit wallet', error);
+    return res.status(500).json({ status: false, message: 'Webhook processing failed' });
+  }
+
+  return res.sendStatus(200);
 });
 
 /**

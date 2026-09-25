@@ -3,6 +3,7 @@ import { env } from '../config/env.js';
 import { ApiError } from '../middleware/error.js';
 import { prisma } from '../lib/prisma.js';
 import { paystackService } from './paystack.service.js';
+import { zenithpayService } from './zenithpay.service.js';
 import { notifyUser } from './notification.service.js';
 
 /** Splits "Sunusi Usama" -> { firstName: "Sunusi", lastName: "Usama" }. Paystack requires both separately. */
@@ -56,6 +57,44 @@ export async function verifyBvnAndActivateWallet(params: {
   const { firstName, lastName } = splitFullName(user.fullName);
 
   try {
+    // ZenithPay's published dedicated-account API requires the user's BVN,
+    // unlike the instant Paystack/KatPay paths. Do not create an account until
+    // this KYC flow has collected it; the raw BVN is never persisted.
+    if (env.PAYMENT_PROVIDER === 'zenithpay') {
+      const account = await zenithpayService.assignDedicatedAccount({
+        bvn,
+        accountName: user.fullName,
+        firstName,
+        lastName,
+        email: user.email
+      });
+      const bvnLast4 = bvn.slice(-4);
+      await prisma.user.update({
+        where: { id: userId },
+        data: {
+          kycStatus: KycStatus.VERIFIED,
+          virtualAccountNumber: account.accountNumber,
+          virtualAccountBank: account.bankName,
+          virtualAccountProvider: 'zenithpay',
+          bvnLast4,
+          bvnVerifiedAt: new Date(),
+          kycFailureReason: null
+        }
+      });
+      await notifyUser({
+        userId,
+        type: 'KYC',
+        title: 'Verification successful',
+        body: `Your ZenithPay funding account is ${account.accountNumber} (${account.bankName}).`,
+        data: { virtualAccountNumber: account.accountNumber }
+      });
+      return {
+        kycStatus: KycStatus.VERIFIED,
+        virtualAccountNumber: account.accountNumber,
+        virtualAccountBank: account.bankName
+      };
+    }
+
     // Step 1: confirm the BVN itself resolves to a real identity. Non-fatal on its
     // own beyond this check - we don't block on a name-mismatch here since legal
     // name formatting (middle names, maiden names, etc.) varies too much to hard-fail on.

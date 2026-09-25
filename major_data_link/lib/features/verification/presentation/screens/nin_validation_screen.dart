@@ -27,6 +27,50 @@ class _NinValidationScreenState extends ConsumerState<NinValidationScreen>
   NinValidationType _type = NinValidationType.ninValidation;
 
   @override
+  void initState() {
+    super.initState();
+    // This service has a materially different completion time from instant
+    // verification. Show the information once whenever this screen is opened,
+    // before a customer commits funds or submits a request.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _showServiceNotice();
+    });
+  }
+
+  Future<void> _showServiceNotice() async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        icon: const Icon(
+            Icons.info_outline_rounded,
+            color: AppColors.primary500,
+            size: 48,
+        ),
+        title: const Text(
+            'Important Service Notice',
+            textAlign: TextAlign.center,
+        ),
+        content: const Text(
+            'NIN Validation is a NIMC service for a NIN that is inactive, '
+            'not working, or showing “Record Not Found”.\n\n'
+            'Most requests are completed within 48 working hours.\n\n'
+            'Choose Modification when NIMC has updated a name, date of birth, '
+            'or phone number but the old details are still displayed. '
+            'Modification requests can take up to two weeks, depending on NIMC.',
+            textAlign: TextAlign.center,
+        ),
+        actionsAlignment: MainAxisAlignment.center,
+        actions: [
+            KDButton(
+              label: 'I Understand',
+              onPressed: () => Navigator.of(dialogContext).pop(),
+            ),
+        ],
+      ),
+    );
+  }
+
+  @override
   void dispose() {
     _ninController.dispose();
     super.dispose();

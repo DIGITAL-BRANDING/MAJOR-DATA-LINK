@@ -4,6 +4,7 @@ import { prisma } from '../lib/prisma.js';
 import { katpayService } from './katpay.service.js';
 import { paystackService } from './paystack.service.js';
 import { tryProvisionInstantVirtualAccount as provisionPaystackVirtualAccount } from './kyc.service.js';
+import { ApiError } from '../middleware/error.js';
 
 /**
  * Single switch point for "which payment gateway is live right now". Both
@@ -53,6 +54,9 @@ async function provisionKatpayVirtualAccount(userId: string) {
  * branches no-op instantly once the user already has a virtualAccountNumber.
  */
 export async function provisionInstantVirtualAccount(userId: string) {
+  // ZenithPay requires a BVN in its only documented account-assignment API,
+  // so it is provisioned from the completed KYC flow instead of at signup.
+  if (env.PAYMENT_PROVIDER === 'zenithpay') return;
   if (env.PAYMENT_PROVIDER === 'katpay') {
     return provisionKatpayVirtualAccount(userId);
   }
@@ -81,6 +85,12 @@ export async function createDynamicFundingAccount(params: {
   fullName: string;
   amount: number;
 }): Promise<DynamicFundingAccount> {
+  if (env.PAYMENT_PROVIDER === 'zenithpay') {
+    // ZenithPay has not documented an amount-locked temporary-account or
+    // transaction-verification API. Keep this disabled rather than silently
+    // sending users through Paystack after ZenithPay is selected.
+    throw new ApiError(503, 'ZenithPay supports dedicated-account funding only', 'ZENITHPAY_DYNAMIC_FUNDING_UNAVAILABLE');
+  }
   if (env.PAYMENT_PROVIDER === 'katpay') {
     // Unlike Paystack (which generates its own charge reference for us), KatPay's
     // transfer-payments endpoint takes OUR reference as merchant_reference - so we

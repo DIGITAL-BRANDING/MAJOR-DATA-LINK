@@ -172,6 +172,7 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [licenseConsent, setLicenseConsent] = useState(false);
   const [initialApplied, setInitialApplied] = useState(false);
+  const [showValidationNotice, setShowValidationNotice] = useState(false);
   const ticketRequestInFlight = useRef(false);
 
   useEffect(() => {
@@ -232,6 +233,13 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
   }, [selectedServiceKey]);
 
   useEffect(() => refreshHistory(), [refreshHistory]);
+
+  // NIN Validation is handled by NIMC and is not an instant verification.
+  // Show this before a user enters a NIN or confirms their PIN each time the
+  // service is opened, including a direct /verification/nin-validation link.
+  useEffect(() => {
+    setShowValidationNotice(selected?.id === 'validation');
+  }, [selected?.id]);
 
   // Set of ticket_ids currently being checked, so only that row's button
   // shows a spinner (not every row in the list).
@@ -605,7 +613,33 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
       </div>
 
       <PinConfirmDialog open={showPin} onClose={() => setShowPin(false)} onVerified={submit} />
+      <NinValidationNotice open={showValidationNotice} onClose={() => setShowValidationNotice(false)} />
     </AppShell>
+  );
+}
+
+function NinValidationNotice({ open, onClose }: { open: boolean; onClose: () => void }) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/60 p-4" role="presentation">
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="nin-validation-notice-title"
+        className="w-full max-w-lg rounded-2xl bg-white p-6 text-center shadow-2xl sm:p-8"
+      >
+        <div className="mx-auto grid h-14 w-14 place-items-center rounded-full border-2 border-sky-400 text-3xl font-semibold text-sky-500">i</div>
+        <h2 id="nin-validation-notice-title" className="mt-5 font-display text-2xl font-bold text-ink">Important Service Notice</h2>
+        <div className="mt-5 space-y-4 font-body text-sm leading-6 text-ink-600">
+          <p>NIN Validation is a NIMC service for a NIN that is inactive, not working, or showing “Record Not Found”.</p>
+          <p>Most requests are completed within 48 working hours.</p>
+          <p><strong className="text-ink">Modification Validation</strong> is for a name, date of birth, or phone number that NIMC has updated but is still showing old details. These requests can take up to two weeks, depending on NIMC.</p>
+        </div>
+        <button type="button" onClick={onClose} className="mt-7 rounded-lg bg-gold-500 px-5 py-2.5 font-body text-sm font-bold text-ink shadow-sm hover:bg-gold-600">
+          I Understand
+        </button>
+      </section>
+    </div>
   );
 }
 

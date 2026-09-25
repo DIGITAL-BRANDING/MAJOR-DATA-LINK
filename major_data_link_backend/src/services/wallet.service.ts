@@ -464,9 +464,9 @@ export async function creditDirectDeposit(params: {
 }
 
 /**
- * KatPay equivalent of `creditDirectDeposit` above - credits a bank transfer that
- * arrived with NO pre-created pending transaction, i.e. straight into the user's
- * permanent KatPay virtual account rather than through /wallet/fund/dynamic.
+ * Credits a bank transfer that arrived with NO pre-created pending transaction,
+ * i.e. straight into a user's permanent virtual account. KatPay and ZenithPay
+ * identify direct deposits by account number rather than our transaction ID.
  * Matched by `virtualAccountNumber` instead of a customer code, since KatPay's
  * virtual-account webhook payload identifies the account, not a customer id.
  *
@@ -479,6 +479,7 @@ export async function creditDirectDepositByAccountNumber(params: {
   amountKobo: bigint;
   accountNumber: string;
   channel: string;
+  provider?: 'katpay' | 'zenithpay';
 }) {
   const accountNumber = params.accountNumber.trim();
   const user = await prisma.user.findFirst({ where: { virtualAccountNumber: accountNumber } });
@@ -495,11 +496,12 @@ export async function creditDirectDepositByAccountNumber(params: {
   // an older transaction can legitimately already have the same text (for
   // example a name-and-account narration).  Keep it as the provider reference
   // and give our ledger entry a reference we own instead.
-  const providerRef = `katpay:virtual-account:${params.reference}`;
+  const provider = params.provider ?? 'katpay';
+  const providerRef = `${provider}:virtual-account:${params.reference}`;
   const existing = await prisma.transaction.findFirst({
     where: {
       userId: user.id,
-      provider: 'katpay',
+      provider,
       providerRef,
       type: TransactionType.WALLET_FUNDING
     }
@@ -523,7 +525,7 @@ export async function creditDirectDepositByAccountNumber(params: {
           amountKobo: params.amountKobo,
           balanceBeforeKobo: before.walletBalanceKobo,
           balanceAfterKobo: after.walletBalanceKobo,
-          provider: 'katpay',
+          provider,
           providerRef,
           reference: `KATPAY-VA-${nanoid()}`,
           description: `Wallet funded via direct bank transfer (${params.channel})`,

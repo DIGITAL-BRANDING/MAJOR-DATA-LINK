@@ -140,12 +140,21 @@ const EnvSchema = z.object({
   // dynamic (pay-with-transfer) funding. Both providers' credentials can stay set in
   // .env at the same time - only this flag decides which one actually gets called.
   // Flip it to 'katpay' (or back to 'paystack') and redeploy if one provider starts
-  // giving trouble; no code changes needed. See src/services/payment-provider.service.ts.
+  // giving trouble; no code changes needed. ZenithPay provisions accounts only
+  // after BVN/KYC because its documented endpoint requires a BVN.
+  // See src/services/payment-provider.service.ts.
   PAYMENT_PROVIDER: z
     .string()
     .default('paystack')
     .transform((value) => value.toLowerCase())
-    .pipe(z.enum(['paystack', 'katpay'])),
+    .pipe(z.enum(['paystack', 'katpay', 'zenithpay'])),
+
+  // --- ZenithPay - dedicated virtual accounts. Its API key is a bearer token
+  // and must remain server-side. The current gateway documentation specifies
+  // only this account-assignment API and a public source IP for webhooks.
+  ZENITHPAY_BASE_URL: z.string().url().default('https://zenithpay.ng'),
+  ZENITHPAY_API_KEY: z.string().min(16).optional(),
+  ZENITHPAY_WEBHOOK_ALLOWED_IPS: z.string().default('195.110.59.12'),
 
   // --- KatPay (https://katpay.co/docs) - kept side-by-side with Paystack above as a
   // swappable alternative. Same "must never throw / never block signup" philosophy as

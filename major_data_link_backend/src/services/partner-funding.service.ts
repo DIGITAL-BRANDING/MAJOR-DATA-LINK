@@ -117,7 +117,7 @@ export async function verifyPartnerFunding(reference: string) {
 }
 
 /** Direct deposit into a permanent KatPay or Paystack virtual account. */
-export async function creditPartnerDirectDeposit(params: { reference: string; amountKobo: bigint; partnerId: string; provider: 'paystack' | 'katpay'; channel: string }) {
+export async function creditPartnerDirectDeposit(params: { reference: string; amountKobo: bigint; partnerId: string; provider: 'paystack' | 'katpay' | 'zenithpay'; channel: string }) {
   const providerRef = `${params.provider}:virtual-account:${params.reference}`;
   const existing = await prisma.partnerTransaction.findFirst({ where: { partnerId: params.partnerId, provider: params.provider, providerRef, type: TransactionType.WALLET_FUNDING } });
   if (existing) return existing;
