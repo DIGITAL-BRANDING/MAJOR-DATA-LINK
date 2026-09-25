@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { MessageCircle, X, Send } from 'lucide-react';
+import { BellRing, MessageCircle, X, Send } from 'lucide-react';
 import { io, type Socket } from 'socket.io-client';
 import { API_BASE } from '../lib/api';
 import { enableChatNotificationSound, playChatNotificationSound } from '../lib/chat-notification-sound';
@@ -24,6 +24,29 @@ type LiveChatWidgetProps = {
   headerLabel?: string;
 };
 
+// Browser desktop alert for a support reply, on top of the in-tab sound
+// chime and bubble badge above. Module-level (not per-mount) so the title
+// never fights itself if this component were ever mounted more than once,
+// same reasoning as web/src/lib/support-notify.ts elsewhere in this app.
+const ORIGINAL_TITLE = typeof document !== 'undefined' ? document.title : '';
+let titleFlashTimer: number | undefined;
+let titleFlashOn = false;
+function startTitleFlash() {
+  if (titleFlashTimer !== undefined) return;
+  titleFlashTimer = window.setInterval(() => {
+    titleFlashOn = !titleFlashOn;
+    document.title = titleFlashOn ? `🔴 New message — ${ORIGINAL_TITLE}` : ORIGINAL_TITLE;
+  }, 1200);
+}
+function stopTitleFlash() {
+  if (titleFlashTimer !== undefined) { window.clearInterval(titleFlashTimer); titleFlashTimer = undefined; }
+  document.title = ORIGINAL_TITLE;
+}
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) stopTitleFlash(); });
+  window.addEventListener('focus', stopTitleFlash);
+}
+
 /**
  * K-Tech Live Chat - self-hosted replacement for the old Tawk.to widget.
  * Talks directly to the Socket.IO server attached in
@@ -42,6 +65,9 @@ export default function LiveChatWidget({ active, token, ownerKey, headerLabel }:
   const [conversationStatus, setConversationStatus] = useState<'OPEN' | 'CLOSED'>('OPEN');
   const [draft, setDraft] = useState('');
   const [unread, setUnread] = useState(0);
+  const [notifPermission, setNotifPermission] = useState<NotificationPermission | 'unsupported'>(
+    typeof Notification === 'undefined' ? 'unsupported' : Notification.permission
+  );
   const socketRef = useRef<Socket | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
   const openRef = useRef(false);
@@ -79,6 +105,28 @@ export default function LiveChatWidget({ active, token, ownerKey, headerLabel }:
         // a customer notices a support reply while reading another tab.
         playChatNotificationSound();
         setUnread((prev) => (openRef.current ? prev : prev + 1));
+        // The chime and badge above only help if this tab already has the
+        // person's attention. A desktop Notification (permission allowing)
+        // plus a title flash reach them even when they've switched away
+        // entirely - see the fallback below if permission was never
+        // granted.
+        if (document.hidden) startTitleFlash();
+        if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+          try {
+            const n = new Notification('K-Tech Support', {
+              body: message.body.length > 120 ? `${message.body.slice(0, 117)}...` : message.body,
+              tag: 'support-chat-alert'
+            });
+            n.onclick = () => {
+              window.focus();
+              n.close();
+            };
+          } catch {
+            // Some browsers can still throw even when permission reads
+            // "granted" (focus/user-activation quirks) - the title flash
+            // above already covers the alert either way.
+          }
+        }
       }
     });
 
@@ -97,11 +145,17 @@ export default function LiveChatWidget({ active, token, ownerKey, headerLabel }:
   useEffect(() => {
     if (open) {
       setUnread(0);
+      stopTitleFlash();
       listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
     }
   }, [open, messages]);
 
   if (!active || !token) return null;
+
+  function requestNotificationPermission() {
+    if (typeof Notification === 'undefined') return;
+    void Notification.requestPermission().then((p) => setNotifPermission(p));
+  }
 
   function send() {
     const body = draft.trim();
@@ -119,14 +173,27 @@ export default function LiveChatWidget({ active, token, ownerKey, headerLabel }:
               <p className="text-sm font-bold text-ink">{headerLabel ?? 'K-Tech Live Chat'}</p>
               <p className="text-[11px] text-ink-soft">{connected ? 'Support is online' : 'Connecting…'}</p>
             </div>
-            <button
-              type="button"
-              onClick={() => setOpen(false)}
-              className="rounded-full p-1 text-ink hover:bg-gold-600/30"
-              aria-label="Close chat"
-            >
-              <X size={18} />
-            </button>
+            <div className="flex items-center gap-1.5">
+              {notifPermission === 'default' && (
+                <button
+                  type="button"
+                  onClick={requestNotificationPermission}
+                  className="rounded-full p-1 text-ink hover:bg-gold-600/30"
+                  aria-label="Enable desktop alerts for replies"
+                  title="Enable desktop alerts for replies"
+                >
+                  <BellRing size={16} />
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="rounded-full p-1 text-ink hover:bg-gold-600/30"
+                aria-label="Close chat"
+              >
+                <X size={18} />
+              </button>
+            </div>
           </div>
 
           <div ref={listRef} className="flex-1 space-y-2 overflow-y-auto px-3 py-3">

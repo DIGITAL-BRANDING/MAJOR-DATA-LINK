@@ -62,6 +62,9 @@ function renderPage(admin: AdminSessionUser) {
   .badge { background: var(--red); color: #fff; font-size: 10px; font-weight: 700; border-radius: 999px; padding: 1px 7px; }
   .tag { background: var(--gold-dark); color: #fff; font-size: 9px; font-weight: 700; border-radius: 5px; padding: 1px 5px; margin-right: 6px; vertical-align: middle; }
   .empty-queue { padding: 40px 16px; text-align: center; color: var(--muted); font-size: 13px; }
+  .notif-btn { margin: 0 16px 10px; border: 1px solid var(--border); background: var(--card); border-radius: 8px; padding: 6px 10px; font-size: 11px; cursor: pointer; color: var(--muted); }
+  .notif-btn.on { border-color: var(--green); color: var(--green); }
+  .notif-btn.off { display: none; }
   .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
   .main header { padding: 16px; border-bottom: 1px solid var(--border); background: var(--card); display: flex; justify-content: space-between; align-items: center; gap: 12px; }
   .main header h2 { font-size: 14px; margin: 0; }
@@ -87,6 +90,7 @@ function renderPage(admin: AdminSessionUser) {
       <h1>Live Chat</h1>
       <a href="/admin">&larr; Admin panel</a>
     </header>
+    <button type="button" id="notif-btn" class="notif-btn">Enable desktop alerts</button>
     <div class="status-line disconnected" id="status">Connecting…</div>
     <div id="queue"><div class="empty-queue">Loading…</div></div>
   </div>
@@ -122,10 +126,64 @@ function renderPage(admin: AdminSessionUser) {
   var closeBtn = document.getElementById('close-btn');
   var convNameEl = document.getElementById('conv-name');
   var convSubEl = document.getElementById('conv-sub');
+  var notifBtn = document.getElementById('notif-btn');
 
   var activeConversationId = null;
   var queue = [];
   var audioContext = null;
+  var lastTotalUnread = null;
+  var ORIGINAL_TITLE = document.title;
+  var titleFlashTimer = null;
+  var titleFlashOn = false;
+
+  // Desktop alert for a new (or newly-unassigned) customer/partner message,
+  // on top of the in-tab chime below. The chime only ever plays for whichever
+  // conversation is currently joined (Socket.IO only delivers 'chat:message'
+  // for rooms this socket has joined) - it can't tell an admin about a
+  // DIFFERENT customer messaging in while they're mid-reply elsewhere.
+  // 'chat:queue' is broadcast to every connected admin whenever any
+  // conversation's unread count changes, so the total across it is the right
+  // signal for "does anything, anywhere, need attention right now".
+  function updateNotifBtn() {
+    if (!('Notification' in window)) { notifBtn.classList.add('off'); return; }
+    if (Notification.permission === 'granted') { notifBtn.textContent = 'Desktop alerts on'; notifBtn.classList.add('on'); }
+    else { notifBtn.textContent = 'Enable desktop alerts'; notifBtn.classList.remove('on'); }
+  }
+  notifBtn.addEventListener('click', function () {
+    if (!('Notification' in window)) return;
+    Notification.requestPermission().then(updateNotifBtn);
+  });
+  updateNotifBtn();
+
+  function startTitleFlash() {
+    if (titleFlashTimer) return;
+    titleFlashTimer = setInterval(function () {
+      titleFlashOn = !titleFlashOn;
+      document.title = titleFlashOn ? '🔴 New message — Live Chat' : ORIGINAL_TITLE;
+    }, 1200);
+  }
+  function stopTitleFlash() {
+    if (titleFlashTimer) { clearInterval(titleFlashTimer); titleFlashTimer = null; }
+    document.title = ORIGINAL_TITLE;
+  }
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) stopTitleFlash(); });
+  window.addEventListener('focus', stopTitleFlash);
+
+  function fireDesktopAlert(totalUnread) {
+    if (document.hidden) startTitleFlash();
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+    try {
+      var n = new Notification('New support message', {
+        body: totalUnread === 1 ? 'A customer sent a new message.' : totalUnread + ' conversations are waiting for a reply.',
+        tag: 'live-chat-alert'
+      });
+      n.onclick = function () { window.focus(); n.close(); };
+    } catch (e) {
+      // Some browsers can still throw even when permission reads "granted"
+      // (focus/user-activation quirks) - the title flash above already
+      // covers the alert either way.
+    }
+  }
 
   // Browsers allow notification audio only after a real human interaction.
   // Prime Web Audio on the first click/tap/key press; the actual chime is
@@ -182,6 +240,9 @@ function renderPage(admin: AdminSessionUser) {
 
   socket.on('chat:queue', function (rows) {
     queue = rows;
+    var totalUnread = queue.reduce(function (sum, row) { return sum + (row.unread_by_admin || 0); }, 0);
+    if (lastTotalUnread !== null && totalUnread > lastTotalUnread) fireDesktopAlert(totalUnread);
+    lastTotalUnread = totalUnread;
     renderQueue();
   });
 

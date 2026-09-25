@@ -1,0 +1,232 @@
+diff --git a/major_data_link_backend/src/admin/live-chat.ts b/major_data_link_backend/src/admin/live-chat.ts
+index 8e29333..7fef017 100644
+--- a/major_data_link_backend/src/admin/live-chat.ts
++++ b/major_data_link_backend/src/admin/live-chat.ts
+@@ -62,6 +62,9 @@ function renderPage(admin: AdminSessionUser) {
+   .badge { background: var(--red); color: #fff; font-size: 10px; font-weight: 700; border-radius: 999px; padding: 1px 7px; }
+   .tag { background: var(--gold-dark); color: #fff; font-size: 9px; font-weight: 700; border-radius: 5px; padding: 1px 5px; margin-right: 6px; vertical-align: middle; }
+   .empty-queue { padding: 40px 16px; text-align: center; color: var(--muted); font-size: 13px; }
++  .notif-btn { margin: 0 16px 10px; border: 1px solid var(--border); background: var(--card); border-radius: 8px; padding: 6px 10px; font-size: 11px; cursor: pointer; color: var(--muted); }
++  .notif-btn.on { border-color: var(--green); color: var(--green); }
++  .notif-btn.off { display: none; }
+   .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+   .main header { padding: 16px; border-bottom: 1px solid var(--border); background: var(--card); display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+   .main header h2 { font-size: 14px; margin: 0; }
+@@ -87,6 +90,7 @@ function renderPage(admin: AdminSessionUser) {
+       <h1>Live Chat</h1>
+       <a href="/admin">&larr; Admin panel</a>
+     </header>
++    <button type="button" id="notif-btn" class="notif-btn">Enable desktop alerts</button>
+     <div class="status-line disconnected" id="status">Connecting…</div>
+     <div id="queue"><div class="empty-queue">Loading…</div></div>
+   </div>
+@@ -122,10 +126,64 @@ function renderPage(admin: AdminSessionUser) {
+   var closeBtn = document.getElementById('close-btn');
+   var convNameEl = document.getElementById('conv-name');
+   var convSubEl = document.getElementById('conv-sub');
++  var notifBtn = document.getElementById('notif-btn');
+ 
+   var activeConversationId = null;
+   var queue = [];
+   var audioContext = null;
++  var lastTotalUnread = null;
++  var ORIGINAL_TITLE = document.title;
++  var titleFlashTimer = null;
++  var titleFlashOn = false;
++
++  // Desktop alert for a new (or newly-unassigned) customer/partner message,
++  // on top of the in-tab chime below. The chime only ever plays for whichever
++  // conversation is currently joined (Socket.IO only delivers 'chat:message'
++  // for rooms this socket has joined) - it can't tell an admin about a
++  // DIFFERENT customer messaging in while they're mid-reply elsewhere.
++  // 'chat:queue' is broadcast to every connected admin whenever any
++  // conversation's unread count changes, so the total across it is the right
++  // signal for "does anything, anywhere, need attention right now".
++  function updateNotifBtn() {
++    if (!('Notification' in window)) { notifBtn.classList.add('off'); return; }
++    if (Notification.permission === 'granted') { notifBtn.textContent = 'Desktop alerts on'; notifBtn.classList.add('on'); }
++    else { notifBtn.textContent = 'Enable desktop alerts'; notifBtn.classList.remove('on'); }
++  }
++  notifBtn.addEventListener('click', function () {
++    if (!('Notification' in window)) return;
++    Notification.requestPermission().then(updateNotifBtn);
++  });
++  updateNotifBtn();
++
++  function startTitleFlash() {
++    if (titleFlashTimer) return;
++    titleFlashTimer = setInterval(function () {
++      titleFlashOn = !titleFlashOn;
++      document.title = titleFlashOn ? '🔴 New message — Live Chat' : ORIGINAL_TITLE;
++    }, 1200);
++  }
++  function stopTitleFlash() {
++    if (titleFlashTimer) { clearInterval(titleFlashTimer); titleFlashTimer = null; }
++    document.title = ORIGINAL_TITLE;
++  }
++  document.addEventListener('visibilitychange', function () { if (!document.hidden) stopTitleFlash(); });
++  window.addEventListener('focus', stopTitleFlash);
++
++  function fireDesktopAlert(totalUnread) {
++    if (document.hidden) startTitleFlash();
++    if (!('Notification' in window) || Notification.permission !== 'granted') return;
++    try {
++      var n = new Notification('New support message', {
++        body: totalUnread === 1 ? 'A customer sent a new message.' : totalUnread + ' conversations are waiting for a reply.',
++        tag: 'live-chat-alert'
++      });
++      n.onclick = function () { window.focus(); n.close(); };
++    } catch (e) {
++      // Some browsers can still throw even when permission reads "granted"
++      // (focus/user-activation quirks) - the title flash above already
++      // covers the alert either way.
++    }
++  }
+ 
+   // Browsers allow notification audio only after a real human interaction.
+   // Prime Web Audio on the first click/tap/key press; the actual chime is
+@@ -182,6 +240,9 @@ function renderPage(admin: AdminSessionUser) {
+ 
+   socket.on('chat:queue', function (rows) {
+     queue = rows;
++    var totalUnread = queue.reduce(function (sum, row) { return sum + (row.unread_by_admin || 0); }, 0);
++    if (lastTotalUnread !== null && totalUnread > lastTotalUnread) fireDesktopAlert(totalUnread);
++    lastTotalUnread = totalUnread;
+     renderQueue();
+   });
+ 
+diff --git a/web/src/components/LiveChatWidget.tsx b/web/src/components/LiveChatWidget.tsx
+index bd70df9..dd7cf06 100644
+--- a/web/src/components/LiveChatWidget.tsx
++++ b/web/src/components/LiveChatWidget.tsx
+@@ -1,5 +1,5 @@
+ import { useEffect, useRef, useState } from 'react';
+-import { MessageCircle, X, Send } from 'lucide-react';
++import { BellRing, MessageCircle, X, Send } from 'lucide-react';
+ import { io, type Socket } from 'socket.io-client';
+ import { API_BASE } from '../lib/api';
+ import { enableChatNotificationSound, playChatNotificationSound } from '../lib/chat-notification-sound';
+@@ -24,6 +24,29 @@ type LiveChatWidgetProps = {
+   headerLabel?: string;
+ };
+ 
++// Browser desktop alert for a support reply, on top of the in-tab sound
++// chime and bubble badge above. Module-level (not per-mount) so the title
++// never fights itself if this component were ever mounted more than once,
++// same reasoning as web/src/lib/support-notify.ts elsewhere in this app.
++const ORIGINAL_TITLE = typeof document !== 'undefined' ? document.title : '';
++let titleFlashTimer: number | undefined;
++let titleFlashOn = false;
++function startTitleFlash() {
++  if (titleFlashTimer !== undefined) return;
++  titleFlashTimer = window.setInterval(() => {
++    titleFlashOn = !titleFlashOn;
++    document.title = titleFlashOn ? `🔴 New message — ${ORIGINAL_TITLE}` : ORIGINAL_TITLE;
++  }, 1200);
++}
++function stopTitleFlash() {
++  if (titleFlashTimer !== undefined) { window.clearInterval(titleFlashTimer); titleFlashTimer = undefined; }
++  document.title = ORIGINAL_TITLE;
++}
++if (typeof document !== 'undefined') {
++  document.addEventListener('visibilitychange', () => { if (!document.hidden) stopTitleFlash(); });
++  window.addEventListener('focus', stopTitleFlash);
++}
++
+ /**
+  * K-Tech Live Chat - self-hosted replacement for the old Tawk.to widget.
+  * Talks directly to the Socket.IO server attached in
+@@ -42,6 +65,9 @@ export default function LiveChatWidget({ active, token, ownerKey, headerLabel }:
+   const [conversationStatus, setConversationStatus] = useState<'OPEN' | 'CLOSED'>('OPEN');
+   const [draft, setDraft] = useState('');
+   const [unread, setUnread] = useState(0);
++  const [notifPermission, setNotifPermission] = useState<NotificationPermission | 'unsupported'>(
++    typeof Notification === 'undefined' ? 'unsupported' : Notification.permission
++  );
+   const socketRef = useRef<Socket | null>(null);
+   const listRef = useRef<HTMLDivElement | null>(null);
+   const openRef = useRef(false);
+@@ -79,6 +105,28 @@ export default function LiveChatWidget({ active, token, ownerKey, headerLabel }:
+         // a customer notices a support reply while reading another tab.
+         playChatNotificationSound();
+         setUnread((prev) => (openRef.current ? prev : prev + 1));
++        // The chime and badge above only help if this tab already has the
++        // person's attention. A desktop Notification (permission allowing)
++        // plus a title flash reach them even when they've switched away
++        // entirely - see the fallback below if permission was never
++        // granted.
++        if (document.hidden) startTitleFlash();
++        if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
++          try {
++            const n = new Notification('K-Tech Support', {
++              body: message.body.length > 120 ? `${message.body.slice(0, 117)}...` : message.body,
++              tag: 'support-chat-alert'
++            });
++            n.onclick = () => {
++              window.focus();
++              n.close();
++            };
++          } catch {
++            // Some browsers can still throw even when permission reads
++            // "granted" (focus/user-activation quirks) - the title flash
++            // above already covers the alert either way.
++          }
++        }
+       }
+     });
+ 
+@@ -97,12 +145,18 @@ export default function LiveChatWidget({ active, token, ownerKey, headerLabel }:
+   useEffect(() => {
+     if (open) {
+       setUnread(0);
++      stopTitleFlash();
+       listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
+     }
+   }, [open, messages]);
+ 
+   if (!active || !token) return null;
+ 
++  function requestNotificationPermission() {
++    if (typeof Notification === 'undefined') return;
++    void Notification.requestPermission().then((p) => setNotifPermission(p));
++  }
++
+   function send() {
+     const body = draft.trim();
+     if (!body || !socketRef.current) return;
+@@ -119,14 +173,27 @@ export default function LiveChatWidget({ active, token, ownerKey, headerLabel }:
+               <p className="text-sm font-bold text-ink">{headerLabel ?? 'K-Tech Live Chat'}</p>
+               <p className="text-[11px] text-ink-soft">{connected ? 'Support is online' : 'Connecting…'}</p>
+             </div>
+-            <button
+-              type="button"
+-              onClick={() => setOpen(false)}
+-              className="rounded-full p-1 text-ink hover:bg-gold-600/30"
+-              aria-label="Close chat"
+-            >
+-              <X size={18} />
+-            </button>
++            <div className="flex items-center gap-1.5">
++              {notifPermission === 'default' && (
++                <button
++                  type="button"
++                  onClick={requestNotificationPermission}
++                  className="rounded-full p-1 text-ink hover:bg-gold-600/30"
++                  aria-label="Enable desktop alerts for replies"
++                  title="Enable desktop alerts for replies"
++                >
++                  <BellRing size={16} />
++                </button>
++              )}
++              <button
++                type="button"
++                onClick={() => setOpen(false)}
++                className="rounded-full p-1 text-ink hover:bg-gold-600/30"
++                aria-label="Close chat"
++              >
++                <X size={18} />
++              </button>
++            </div>
+           </div>
+ 
+           <div ref={listRef} className="flex-1 space-y-2 overflow-y-auto px-3 py-3">
