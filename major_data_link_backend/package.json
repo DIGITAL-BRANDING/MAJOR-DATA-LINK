@@ -19,6 +19,7 @@
         "purge:pii": "tsx src/scripts/purge-expired-pii.ts",
         "sync:techhub-prices": "tsx src/scripts/sync-techhub-prices.ts",
         "partner:create": "tsx src/scripts/create-partner.ts",
+    "reset:stale-virtual-accounts": "tsx src/scripts/reset-stale-virtual-accounts.ts",
         "test": "vitest run",
         "test:watch": "vitest",
         "lint": "eslint src --ext .ts"
