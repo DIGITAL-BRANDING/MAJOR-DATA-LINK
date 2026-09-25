@@ -51,7 +51,20 @@ const EnvSchema = z.object({
   // of Alrahuz above: Alrahuz handles VTU (data/airtime/result pins), Techhub
   // handles identity verification (NIN/BVN slips + the five async services).
   // See src/services/techhub.service.ts.
-  TECHHUB_BASE_URL: z.string().url().default('https://techhubltd.co/api/verification'),
+  // Techhub's own documentation (techhubltd.co/documentation.php) shows every
+  // endpoint under the "www" host, e.g.
+  // https://www.techhubltd.co/api/verification/nin_by_phone_premium.php.
+  // The previous default omitted "www.". If the bare domain 301/302-redirects
+  // to the www host (common shared-hosting setup), Node's fetch follows that
+  // redirect per the WHATWG spec by turning the POST into a GET and DROPPING
+  // the request body - the upstream PHP script then sees no api_key/phone at
+  // all and returns its generic "Missing required parameters" error. This
+  // was the root cause of NIN-by-Phone failing while looking like a payload
+  // problem. See also the defensive redirect handling in
+  // techhub.service.ts#requestSlip, which now re-POSTs to the redirect target
+  // instead of trusting fetch's default GET-downgrade behavior, so this stays
+  // correct even if an env override on Railway still points at the bare host.
+  TECHHUB_BASE_URL: z.string().url().default('https://www.techhubltd.co/api/verification'),
   TECHHUB_API_KEY: z.string().optional(),
   // FranceVerified is an optional alternate NIN/BVN provider. These values
   // are optional so installations that only use Techhub keep starting normally.

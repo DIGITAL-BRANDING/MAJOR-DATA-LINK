@@ -53,15 +53,36 @@ export class ApiError extends Error {
 
 async function request<T>(
   path: string,
-  options: { method?: string; body?: unknown; auth?: boolean; retryOnNetworkError?: boolean } = {}
+  options: {
+    method?: string;
+    body?: unknown;
+    auth?: boolean;
+    retryOnNetworkError?: boolean;
+    // Slip-purchase calls (Techhub/FranceVerified) route through a slow
+    // third-party lookup - up to 20s of provider time alone (see
+    // TECHHUB_REQUEST_TIMEOUT_MS / PROVIDER_TIMEOUT_MS server-side) - and
+    // the flat 25s default here left almost no margin for the surrounding
+    // wallet debit/PDF/DB work, so a perfectly successful backend response
+    // could still race past this timeout and surface as "taking too long"
+    // even though the money had already moved. Callers on that path pass a
+    // longer value.
+    timeoutMs?: number;
+    // Set on money-moving POSTs so a client-side timeout followed by a
+    // user-initiated retry replays the *same* transaction server-side
+    // (purchaseSlip's debit.reused branch) instead of creating and charging
+    // for a second one. Left undefined elsewhere - unrelated GETs and
+    // idempotent-by-nature calls don't need it.
+    idempotencyKey?: string;
+  } = {}
 ): Promise<T> {
-  const { method = 'GET', body, auth = true, retryOnNetworkError = false } = options;
+  const { method = 'GET', body, auth = true, retryOnNetworkError = false, timeoutMs = REQUEST_TIMEOUT_MS } = options;
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     // Reporting metadata only; the backend never trusts this to authorize a request.
     'X-Client-Channel': 'web',
   };
+  if (options.idempotencyKey) headers['Idempotency-Key'] = options.idempotencyKey;
   if (auth) {
     const token = getAccessToken();
     if (token) headers.Authorization = `Bearer ${token}`;
@@ -72,7 +93,7 @@ async function request<T>(
       method,
       headers,
       body: body !== undefined ? JSON.stringify(body) : undefined,
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      signal: AbortSignal.timeout(timeoutMs),
     });
 
   // Every GET is naturally safe to retry. A mutating (non-GET) request is
@@ -166,10 +187,28 @@ async function request<T>(
   return payload as T;
 }
 
+// One per page load, reused across a purchase and any user-initiated retry
+// after a timeout, so both attempts land on the same backend transaction
+// via purchaseSlip's idempotencyKey replay path instead of double-charging
+// the wallet. crypto.randomUUID() is available in every browser this app
+// targets (all support fetch + AbortSignal.timeout already).
+function newIdempotencyKey() {
+  return typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 export const api = {
   get: <T>(path: string, auth = true) => request<T>(path, { method: 'GET', auth }),
   post: <T>(path: string, body?: unknown, auth = true, retryOnNetworkError = false) =>
     request<T>(path, { method: 'POST', body, auth, retryOnNetworkError }),
+  // For slip-purchase style endpoints (NIN/BVN by Techhub or FranceVerified):
+  // a longer timeout to match how long those upstream lookups can actually
+  // take, plus a stable Idempotency-Key so a retry after a timeout replays
+  // the original transaction instead of creating a second one. Pass the same
+  // `idempotencyKey` back in on a manual retry (e.g. via newIdempotencyKey()
+  // called once per form submission, not per attempt).
+  postSlip: <T>(path: string, body: unknown, idempotencyKey: string, timeoutMs = 45_000) =>
+    request<T>(path, { method: 'POST', body, auth: true, timeoutMs, idempotencyKey }),
+  newIdempotencyKey,
   // PDFs cannot use request() because that helper correctly expects a JSON
   // envelope. Keep the Authorization header here so documents are never put
   // behind a token-bearing URL that could leak through browser history.

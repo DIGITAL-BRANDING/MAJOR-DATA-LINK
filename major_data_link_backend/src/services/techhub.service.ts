@@ -231,19 +231,51 @@ export class TechhubService {
     return this.postSlip(BVN_SLIP_PATH[tier], { bvn });
   }
 
-  private requestSlip(path: string, payload: Record<string, unknown>, formEncoded = false) {
+  // `redirect: 'manual'` so we can see and re-issue a 3xx ourselves. Node's
+  // fetch (undici), by default (`redirect: 'follow'`), would otherwise
+  // convert a POST into a GET and drop the request body on a 301/302 - the
+  // WHATWG fetch spec's legacy-browser-compatible behaviour. Techhub's shared
+  // hosting redirecting the bare host to "www." (see TECHHUB_BASE_URL's
+  // comment in env.ts) turned every such request into a bodyless GET, which
+  // the upstream PHP script reported as "missing required parameters" even
+  // though api_key/phone were sent correctly. Re-POSTing to the redirect
+  // target preserves the method and body so this class of bug can't recur
+  // even if a base-URL env override drifts from the documented host again.
+  private async requestSlip(path: string, payload: Record<string, unknown>, formEncoded = false): Promise<Response> {
     const body = formEncoded
       ? new URLSearchParams(Object.entries(payload).map(([key, value]) => [key, String(value)])).toString()
       : JSON.stringify(payload);
-    return fetch(`${this.baseUrl()}/${path}`, {
+    const headers = {
+      'Content-Type': formEncoded ? 'application/x-www-form-urlencoded' : 'application/json',
+      Accept: 'application/json'
+    };
+    const requestUrl = `${this.baseUrl()}/${path}`;
+    const response = await fetch(requestUrl, {
       method: 'POST',
-      headers: {
-        'Content-Type': formEncoded ? 'application/x-www-form-urlencoded' : 'application/json',
-        Accept: 'application/json'
-      },
+      headers,
       body,
+      redirect: 'manual',
       signal: AbortSignal.timeout(TECHHUB_REQUEST_TIMEOUT_MS)
     });
+
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get('location');
+      if (!location) {
+        console.error(`[techhub] redirect (${response.status}) from ${requestUrl} had no Location header`);
+        return response;
+      }
+      const redirectUrl = new URL(location, requestUrl).toString();
+      console.warn(`[techhub] following redirect ${requestUrl} -> ${redirectUrl} (preserving POST + body)`);
+      return fetch(redirectUrl, {
+        method: 'POST',
+        headers,
+        body,
+        redirect: 'manual',
+        signal: AbortSignal.timeout(TECHHUB_REQUEST_TIMEOUT_MS)
+      });
+    }
+
+    return response;
   }
 
   private async postSlip(path: string, body: Record<string, unknown>, options?: { personalInfoSlip?: boolean }): Promise<TechhubSlipResult> {

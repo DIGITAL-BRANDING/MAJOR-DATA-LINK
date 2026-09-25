@@ -388,7 +388,17 @@ async function purchaseSlip(params: {
     // Both providers quote one flat rate per slip family, already stored as
     // price.providerCostKobo above - no balance-delta correction available
     // or needed (unlike Alrahuz data/airtime).
-    await recordProviderDebit({
+    //
+    // Intentionally NOT awaited: this ledger write is best-effort bookkeeping
+    // (already just logged on failure, never surfaced to the caller) and was
+    // sitting on the response critical path right after a slow upstream
+    // provider call. With FranceVerified/Techhub already able to take up to
+    // TECHHUB_REQUEST_TIMEOUT_MS/PROVIDER_TIMEOUT_MS (20s) and the web
+    // client's own request timeout only 25s, this extra DB round trip was
+    // eating into an already thin margin and contributed to the frontend's
+    // "request is taking too long" timeout even on responses that had, in
+    // fact, succeeded.
+    void recordProviderDebit({
       provider: price.provider,
       amountKobo: price.providerCostKobo,
       relatedTransactionId: debit.transaction.id,

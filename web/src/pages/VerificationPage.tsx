@@ -241,7 +241,17 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
     setAsyncResult(null);
     setTicketStatus(null);
     setMessage('');
+    // A fresh purchase attempt - not a retry of the last one - so it must
+    // get its own Idempotency-Key. See idempotencyKeyRef below.
+    idempotencyKeyRef.current = null;
   }
+
+  // Kept stable across repeated submit() calls for the *same* attempt (e.g.
+  // the user re-entering their PIN after a timeout/error) so a retry lands
+  // on purchaseSlip's debit.reused replay path server-side instead of
+  // debiting the wallet twice for one slip. Cleared in resetResult()/choose()
+  // whenever the user starts an actually new purchase.
+  const idempotencyKeyRef = useRef<string | null>(null);
 
   async function submit(pin: string) {
     if (!selected) return;
@@ -255,9 +265,16 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
         ...(selected.id === 'license-onboarding' ? { consent: licenseConsent } : {}),
         pin,
       };
-      const result = await api.post<{
-        status: boolean;
-        message: string;
+      const isSlipPurchase = !selected.async && selected.id !== 'license-onboarding';
+      const result = isSlipPurchase
+        ? await api.postSlip<{
+            status: boolean;
+            message: string;
+            data?: { reference: string; tracking_id?: string; transaction_id?: string; document_available?: boolean; user_data?: Record<string, unknown>; ticket_id?: string };
+          }>(selected.path, data, (idempotencyKeyRef.current ??= api.newIdempotencyKey()))
+        : await api.post<{
+            status: boolean;
+            message: string;
       data?: { reference: string; tracking_id?: string; transaction_id?: string; document_available?: boolean; user_data?: Record<string, unknown>; ticket_id?: string };
       }>(selected.path, data);
       if (!result.status) throw new Error(result.message);
