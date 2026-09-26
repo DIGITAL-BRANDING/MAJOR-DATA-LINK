@@ -17,6 +17,7 @@ import ResultCheckersPage from './pages/ResultCheckersPage';
 import VerificationPage from './pages/VerificationPage';
 import NinModificationPage from './pages/NinModificationPage';
 import BvnCrmPage from './pages/BvnCrmPage';
+import VerifyAccountPage from './pages/VerifyAccountPage';
 import NewspaperPublicationPage from './pages/NewspaperPublicationPage';
 import BirthAttestationPage from './pages/BirthAttestationPage';
 import BvnModificationPage from './pages/BvnModificationPage';
@@ -87,6 +88,7 @@ export default function App() {
           <Route path="/verifications" element={<ProtectedRoute><ServiceHistoryPage /></ProtectedRoute>} />
           <Route path="/bvn-modification" element={<ProtectedRoute><BvnModificationPage /></ProtectedRoute>} />
           <Route path="/bvn-crm" element={<ProtectedRoute><BvnCrmPage /></ProtectedRoute>} />
+          <Route path="/verify-account" element={<ProtectedRoute><VerifyAccountPage /></ProtectedRoute>} />
           <Route path="/attestation" element={<ProtectedRoute><BirthAttestationPage /></ProtectedRoute>} />
           <Route path="/tin" element={<ProtectedRoute><ManualServiceRequestPage title="TIN Certificate" prompt="Submit the information needed for your TIN certificate request." /></ProtectedRoute>} />
           <Route path="/newspaper" element={<ProtectedRoute><NewspaperPublicationPage /></ProtectedRoute>} />

@@ -8,6 +8,7 @@ import {
   PlusCircle,
   MessageCircle,
   Headset,
+  ShieldCheck,
 } from 'lucide-react';
 import AppShell from '../components/AppShell';
 import { useAuth } from '../lib/auth';
@@ -155,7 +156,7 @@ export default function DashboardPage() {
         {wallet?.virtual_account_number ? (
           <div className="mt-5 flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
             <div>
-              <span className="block font-mono text-[11px] text-slate-500">
+              <span className="block font-body text-base font-extrabold uppercase tracking-wide text-brand-700">
                 {wallet.virtual_account_bank}
               </span>
               <span className="font-mono text-sm font-semibold text-ink-900">
@@ -171,13 +172,23 @@ export default function DashboardPage() {
             </button>
           </div>
         ) : (
-          <div className="mt-5 flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-            <Wallet size={15} className="shrink-0 text-slate-400" />
-            <span className="font-body text-xs text-slate-600">
-              {wallet?.virtual_account_funding_paused
-                ? 'Click the button below to continue funding your wallet using Exact Transfer/Card'
-                : 'Your dedicated account number is being set up — check back shortly, or fund via card from Buy Data / Buy Airtime.'}
-            </span>
+          <div className="mt-5 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+            <div className="flex items-center gap-2">
+              <Wallet size={15} className="shrink-0 text-slate-400" />
+              <span className="font-body text-xs text-slate-600">
+                {wallet?.virtual_account_funding_paused
+                  ? 'Click the button below to continue funding your wallet using Exact Transfer/Card'
+                  : "You don't have a permanent account number yet — verify your BVN once to get one."}
+              </span>
+            </div>
+            {!wallet?.virtual_account_funding_paused && (
+              <Link
+                to="/verify-account"
+                className="mt-3 flex items-center justify-center gap-2 rounded-lg bg-gold-500 py-2 font-display text-xs font-bold text-ink transition hover:bg-gold-600"
+              >
+                <ShieldCheck size={14} /> Generate Permanent Account Number
+              </Link>
+            )}
           </div>
         )}
 

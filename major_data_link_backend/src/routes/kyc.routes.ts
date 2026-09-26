@@ -35,24 +35,35 @@ kycRoutes.get('/banks', async (_req, res) => {
   res.json({ status: true, data: banks });
 });
 
-// NOTE: this endpoint (verifyBvnAndActivateWallet) is Paystack-specific - KatPay's
-// virtual-account creation has no BVN/bank-validation step to mirror it. It only
-// matters if PAYMENT_PROVIDER=paystack AND PAYSTACK_INSTANT_DVA_ENABLED=false, so
-// the app falls back to this BVN-gated path instead of the instant one.
+// ZenithPay's dedicated_account/assign only needs the BVN - bank_code and
+// account_number exist purely for the older Paystack validateCustomer step
+// (see verifyBvnAndActivateWallet), which ZenithPay's branch never reaches.
+// Making them conditionally required, rather than always required, means a
+// ZenithPay-only submission (just BVN) is a valid request instead of
+// forcing the web/Flutter form to collect two fields the API never uses
+// under the provider that's actually live.
 kycRoutes.post('/bvn', async (req, res) => {
   const body = z
     .object({
       bvn: z.string().trim().length(11, 'BVN must be exactly 11 digits'),
-      bank_code: z.string().trim().min(1, 'bank_code is required'),
-      account_number: z.string().trim().length(10, 'Account number must be exactly 10 digits')
+      bank_code: z.string().trim().min(1).optional(),
+      account_number: z.string().trim().length(10, 'Account number must be exactly 10 digits').optional()
     })
     .parse(req.body);
+
+  if (env.PAYMENT_PROVIDER !== 'zenithpay' && (!body.bank_code || !body.account_number)) {
+    return res.status(422).json({
+      status: false,
+      message: 'bank_code and account_number are required',
+      code: 'VALIDATION_ERROR'
+    });
+  }
 
   const result = await verifyBvnAndActivateWallet({
     userId: req.user!.id,
     bvn: body.bvn,
-    bankCode: body.bank_code,
-    accountNumber: body.account_number
+    bankCode: body.bank_code ?? '',
+    accountNumber: body.account_number ?? ''
   });
 
   res.json({

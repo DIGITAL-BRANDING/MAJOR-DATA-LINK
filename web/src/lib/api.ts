@@ -1,11 +1,20 @@
 // Thin fetch wrapper for the MAJOR DATA-LINK backend API.
-// In dev, requests to /api/* are proxied to VITE_API_PROXY_TARGET (see vite.config.ts).
-// In production, set VITE_API_BASE_URL to the deployed backend origin
-// (leave empty if this app is served from the same origin as the API).
+// In dev, requests to /api/* are proxied to VITE_API_PROXY_TARGET (see vite.config.ts) -
+// VITE_API_BASE_URL is also respected in dev, for pointing a local frontend at a
+// non-default backend.
+// In production this is always '' (same-origin relative paths) - this app's build/deploy
+// process (see nixpacks.toml) always copies web/dist straight into the backend's own
+// public/app, so production is never served from a different origin than its own API.
+// A VITE_API_BASE_URL baked into a production build is therefore always a stale value
+// left over from before a domain change, never a legitimate separate deployment - and a
+// stale one silently sends every API call cross-origin, where CORS/CSP reject it and the
+// user just sees "Could not connect to the server" with no clue why. Ignoring it
+// unconditionally in production removes that whole failure mode, rather than trying to
+// detect and correct a stale value at runtime.
 // Exported so src/components/ChatWidget.tsx can point its Socket.IO
 // connection at the same backend origin as every REST call here, instead
 // of duplicating this env lookup.
-export const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
+export const API_BASE = import.meta.env.PROD ? '' : (import.meta.env.VITE_API_BASE_URL ?? '');
 export const PARTNER_API_BASE = `${API_BASE}/api/v1`;
 
 const TOKEN_KEY = 'mdl_access_token';

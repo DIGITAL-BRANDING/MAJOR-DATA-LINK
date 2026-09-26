@@ -1,0 +1,366 @@
+diff --git a/major_data_link_backend/package-lock.json b/major_data_link_backend/package-lock.json
+index 3ac766d..b6e7b43 100644
+--- a/major_data_link_backend/package-lock.json
++++ b/major_data_link_backend/package-lock.json
+@@ -29,6 +29,7 @@
+                 "pg": "^8.13.1",
+                 "resend": "^6.19.0",
+                 "socket.io": "^4.8.3",
++                "socket.io-client": "^4.8.4",
+                 "tslib": "^2.8.1",
+                 "typescript": "^5.9.3",
+                 "zod": "^3.24.1"
+@@ -5683,6 +5684,19 @@
+                 "node": ">=10.2.0"
+             }
+         },
++        "node_modules/engine.io-client": {
++            "version": "6.6.7",
++            "resolved": "https://registry.npmjs.org/engine.io-client/-/engine.io-client-6.6.7.tgz",
++            "integrity": "sha512-GyAvmPA7gnRCpDQbYACAy79Lg4ewevrmaPzySZz0OVvgyZc3gEfLLqPTYk8wVBScjOEpM9ZO4KryyFpVItjGEA==",
++            "license": "MIT",
++            "dependencies": {
++                "@socket.io/component-emitter": "~3.1.0",
++                "debug": "~4.4.1",
++                "engine.io-parser": "~5.2.1",
++                "ws": "~8.21.0",
++                "xmlhttprequest-ssl": "~2.1.1"
++            }
++        },
+         "node_modules/engine.io-parser": {
+             "version": "5.2.3",
+             "resolved": "https://registry.npmjs.org/engine.io-parser/-/engine.io-parser-5.2.3.tgz",
+@@ -9459,6 +9473,21 @@
+                 "ws": "~8.21.0"
+             }
+         },
++        "node_modules/socket.io-client": {
++            "version": "4.8.4",
++            "resolved": "https://registry.npmjs.org/socket.io-client/-/socket.io-client-4.8.4.tgz",
++            "integrity": "sha512-7wjKAvVXYOJsbmUgkWbnhPD4bFpkqrUR0++XOjpGFmqDqsqV1CI93VTraeExLxpjxEqrWgFoSRZu1ihjLWfkAA==",
++            "license": "MIT",
++            "dependencies": {
++                "@socket.io/component-emitter": "~3.1.0",
++                "debug": "~4.4.1",
++                "engine.io-client": "~6.6.1",
++                "socket.io-parser": "~4.2.4"
++            },
++            "engines": {
++                "node": ">=10.0.0"
++            }
++        },
+         "node_modules/socket.io-parser": {
+             "version": "4.2.7",
+             "resolved": "https://registry.npmjs.org/socket.io-parser/-/socket.io-parser-4.2.7.tgz",
+@@ -12050,6 +12079,14 @@
+                 "node": ">=16.0.0"
+             }
+         },
++        "node_modules/xmlhttprequest-ssl": {
++            "version": "2.1.2",
++            "resolved": "https://registry.npmjs.org/xmlhttprequest-ssl/-/xmlhttprequest-ssl-2.1.2.tgz",
++            "integrity": "sha512-TEU+nJVUUnA4CYJFLvK5X9AOeH4KvDvhIfm0vV1GaQRtchnG0hgK5p8hw/xjv8cunWYCsiPCSDzObPyhEwq3KQ==",
++            "engines": {
++                "node": ">=0.4.0"
++            }
++        },
+         "node_modules/xss": {
+             "version": "1.0.15",
+             "resolved": "https://registry.npmjs.org/xss/-/xss-1.0.15.tgz",
+diff --git a/major_data_link_backend/package.json b/major_data_link_backend/package.json
+index 63f4d5c..47a4db1 100644
+--- a/major_data_link_backend/package.json
++++ b/major_data_link_backend/package.json
+@@ -19,7 +19,7 @@
+         "purge:pii": "tsx src/scripts/purge-expired-pii.ts",
+         "sync:techhub-prices": "tsx src/scripts/sync-techhub-prices.ts",
+         "partner:create": "tsx src/scripts/create-partner.ts",
+-    "reset:stale-virtual-accounts": "tsx src/scripts/reset-stale-virtual-accounts.ts",
++        "reset:stale-virtual-accounts": "tsx src/scripts/reset-stale-virtual-accounts.ts",
+         "test": "vitest run",
+         "test:watch": "vitest",
+         "lint": "eslint src --ext .ts"
+@@ -45,6 +45,7 @@
+         "pg": "^8.13.1",
+         "resend": "^6.19.0",
+         "socket.io": "^4.8.3",
++        "socket.io-client": "^4.8.4",
+         "tslib": "^2.8.1",
+         "typescript": "^5.9.3",
+         "zod": "^3.24.1"
+diff --git a/major_data_link_backend/src/admin/component-loader.ts b/major_data_link_backend/src/admin/component-loader.ts
+index 923ad56..7e2f5ff 100644
+--- a/major_data_link_backend/src/admin/component-loader.ts
++++ b/major_data_link_backend/src/admin/component-loader.ts
+@@ -4,4 +4,12 @@ export const componentLoader = new ComponentLoader();
+ 
+ export const Components = {
+   Dashboard: componentLoader.add('Dashboard', './components/dashboard.js')
+-};
+\ No newline at end of file
++};
++
++// 'TopBar' is one of AdminJS's built-in overridable component names (see
++// ComponentLoader.defaultComponents) - it doesn't need wiring into any
++// resource/dashboard config the way 'Dashboard' above does. Overriding it
++// purely to mount GlobalChatAlert (desktop notification + chime + title
++// flash for a new support-chat message) so it runs on every admin page, not
++// only /admin/live-chat - see topbar-with-chat-alert.tsx.
++componentLoader.override('TopBar', './components/topbar-with-chat-alert.js');
+diff --git a/major_data_link_backend/src/admin/components/global-chat-alert.tsx b/major_data_link_backend/src/admin/components/global-chat-alert.tsx
+new file mode 100644
+index 0000000..b65defd
+--- /dev/null
++++ b/major_data_link_backend/src/admin/components/global-chat-alert.tsx
+@@ -0,0 +1,223 @@
++import React, { useEffect, useRef, useState } from 'react';
++import { Box, Text } from '@adminjs/design-system';
++import { io } from 'socket.io-client';
++
++const ADMIN_ROOT_PATH = '/admin';
++
++/**
++ * Same two-tone chime as admin/live-chat.ts's playIncomingChime(), kept as a
++ * separate copy rather than a shared import: that file is a
++ * server-rendered plain HTML page with its own inline <script> (a
++ * completely different runtime from this AdminJS React bundle), so there is
++ * nothing to actually share it with - see the file-level comment below for
++ * the fuller reasoning.
++ */
++function playChime(ctx: AudioContext) {
++  const now = ctx.currentTime;
++  [0, 0.15].forEach((offset, index) => {
++    const oscillator = ctx.createOscillator();
++    const gain = ctx.createGain();
++    oscillator.type = 'sine';
++    oscillator.frequency.value = index === 0 ? 740 : 988;
++    gain.gain.setValueAtTime(0.0001, now + offset);
++    gain.gain.exponentialRampToValueAtTime(0.12, now + offset + 0.015);
++    gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + 0.13);
++    oscillator.connect(gain).connect(ctx.destination);
++    oscillator.start(now + offset);
++    oscillator.stop(now + offset + 0.14);
++  });
++}
++
++// Title flash is module-level (not per-mount state) for the same reason as
++// admin/live-chat.ts's copy and web/src/lib/support-notify.ts on the
++// customer side: a single shared "the tab title is lying to get your
++// attention" flag, not one per component instance.
++const ORIGINAL_TITLE = typeof document !== 'undefined' ? document.title : '';
++let titleFlashTimer: number | undefined;
++let titleFlashOn = false;
++function startTitleFlash() {
++  if (titleFlashTimer !== undefined) return;
++  titleFlashTimer = window.setInterval(() => {
++    titleFlashOn = !titleFlashOn;
++    document.title = titleFlashOn ? `🔴 New message — ${ORIGINAL_TITLE}` : ORIGINAL_TITLE;
++  }, 1200);
++}
++function stopTitleFlash() {
++  if (titleFlashTimer !== undefined) {
++    window.clearInterval(titleFlashTimer);
++    titleFlashTimer = undefined;
++  }
++  document.title = ORIGINAL_TITLE;
++}
++if (typeof document !== 'undefined') {
++  document.addEventListener('visibilitychange', () => {
++    if (!document.hidden) stopTitleFlash();
++  });
++  window.addEventListener('focus', stopTitleFlash);
++}
++
++type QueueRow = { unread_by_admin?: number };
++
++/**
++ * Rings, alerts and shows a dismissible pill for a new (or newly-unread)
++ * customer/partner chat, on every AdminJS page - not only
++ * /admin/live-chat, which an admin might well not have open while working a
++ * different queue. Mounted once via the TopBar override (see
++ * topbar-with-chat-alert.tsx), which AdminJS renders outside the
++ * page-specific routes, so it survives navigation between resources
++ * instead of being torn down and reconnecting a socket on every click.
++ *
++ * Deliberately its own Socket.IO connection rather than something shared
++ * with admin/live-chat.ts: that page is a separate, non-React,
++ * server-rendered document (its own <script> tag, not part of this bundle),
++ * so there is no connection or module to actually share even if we wanted
++ * to - and the two are never open in the same tab at once, so there is no
++ * risk of the same message alerting twice.
++ *
++ * Uses the aggregate 'chat:queue' event (broadcast to every connected admin
++ * whenever ANY conversation's unread count changes - see chat-socket.ts)
++ * rather than 'chat:message': the server only delivers 'chat:message' to
++ * sockets that joined that specific conversation's room, so it can never
++ * tell this component about a customer it hasn't opened yet. 'chat:queue'
++ * is the one signal that actually reaches every admin regardless of what
++ * they're looking at.
++ */
++export default function GlobalChatAlert() {
++  const [pill, setPill] = useState<{ count: number } | null>(null);
++  const [notifPermission, setNotifPermission] = useState<NotificationPermission | 'unsupported'>(
++    typeof Notification === 'undefined' ? 'unsupported' : Notification.permission
++  );
++  const [dismissedPrompt, setDismissedPrompt] = useState(false);
++  const lastTotal = useRef<number | null>(null);
++  const audioCtx = useRef<AudioContext | null>(null);
++  const audioUnlocked = useRef(false);
++
++  // Web Audio requires a user gesture before it can produce sound - unlock
++  // it on the first click/keypress anywhere in the admin panel, same
++  // approach as admin/live-chat.ts, so the very first alert of the session
++  // isn't silently swallowed just because the admin hasn't touched the
++  // chat page specifically.
++  useEffect(() => {
++    function unlock() {
++      if (audioUnlocked.current) return;
++      const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
++      if (!Ctor) return;
++      audioCtx.current = new Ctor();
++      audioUnlocked.current = true;
++    }
++    document.addEventListener('pointerdown', unlock, { once: true, passive: true });
++    document.addEventListener('keydown', unlock, { once: true });
++    return () => {
++      document.removeEventListener('pointerdown', unlock);
++      document.removeEventListener('keydown', unlock);
++    };
++  }, []);
++
++  useEffect(() => {
++    const socket = io({ withCredentials: true });
++
++    socket.on('chat:queue', (rows: QueueRow[]) => {
++      const total = rows.reduce((sum, row) => sum + (row.unread_by_admin ?? 0), 0);
++      if (lastTotal.current !== null && total > lastTotal.current) {
++        setPill({ count: total });
++        if (document.hidden) startTitleFlash();
++        if (audioCtx.current && audioCtx.current.state === 'running') playChime(audioCtx.current);
++        if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
++          try {
++            const n = new Notification('New support message', {
++              body: total === 1 ? 'A customer sent a new message.' : `${total} conversations are waiting for a reply.`,
++              tag: 'live-chat-alert'
++            });
++            n.onclick = () => {
++              window.focus();
++              window.location.href = `${ADMIN_ROOT_PATH}/live-chat`;
++            };
++          } catch {
++            // Some browsers can still throw even when permission reads
++            // "granted" (focus/user-activation quirks) - the title flash
++            // and pill below still carry the alert either way.
++          }
++        }
++      } else if (total === 0) {
++        setPill(null);
++      }
++      lastTotal.current = total;
++    });
++
++    return () => {
++      socket.disconnect();
++    };
++  }, []);
++
++  if (pill) {
++    return (
++      <Box
++        style={{ position: 'fixed', right: 20, bottom: 20, zIndex: 2100, width: 280, cursor: 'pointer' }}
++        variant="white"
++        boxShadow="card"
++        p="lg"
++        onClick={() => {
++          window.location.href = `${ADMIN_ROOT_PATH}/live-chat`;
++        }}
++      >
++        <Box display="flex" alignItems="center" justifyContent="space-between">
++          <Text fontWeight="bold">
++            {pill.count} unread chat{pill.count === 1 ? '' : 's'}
++          </Text>
++          <button
++            type="button"
++            onClick={(e) => {
++              e.stopPropagation();
++              setPill(null);
++            }}
++            style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 16, lineHeight: 1 }}
++            aria-label="Dismiss"
++          >
++            ×
++          </button>
++        </Box>
++        <Text fontSize="sm" mt="default">
++          Click to open Live Chat
++        </Text>
++      </Box>
++    );
++  }
++
++  // No unread message right now, but the admin has never granted (or
++  // denied) desktop-alert permission - offer it here too, not only on
++  // /admin/live-chat, so they can opt in from wherever they land first.
++  // Dismissible per session (not persisted) rather than gone forever: a
++  // "maybe later" click shouldn't quietly disable the offer on every future
++  // login.
++  if (notifPermission === 'default' && !dismissedPrompt) {
++    return (
++      <Box style={{ position: 'fixed', right: 20, bottom: 20, zIndex: 2100, width: 260 }} variant="white" boxShadow="card" p="default">
++        <Box display="flex" alignItems="center" justifyContent="space-between">
++          <Text fontSize="sm" fontWeight="bold">
++            Enable chat alerts?
++          </Text>
++          <button
++            type="button"
++            onClick={() => setDismissedPrompt(true)}
++            style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 14, lineHeight: 1 }}
++            aria-label="Dismiss"
++          >
++            ×
++          </button>
++        </Box>
++        <Text fontSize="sm" mt="default" mb="default">
++          Get a desktop notification when a customer sends a support message, even from other admin pages.
++        </Text>
++        <button
++          type="button"
++          onClick={() => Notification.requestPermission().then((p) => setNotifPermission(p))}
++          style={{ width: '100%', border: 'none', borderRadius: 6, background: '#2563eb', color: '#fff', fontWeight: 700, padding: '8px 0', cursor: 'pointer' }}
++        >
++          Enable alerts
++        </button>
++      </Box>
++    );
++  }
++
++  return null;
++}
+diff --git a/major_data_link_backend/src/admin/components/topbar-with-chat-alert.tsx b/major_data_link_backend/src/admin/components/topbar-with-chat-alert.tsx
+new file mode 100644
+index 0000000..e878ff7
+--- /dev/null
++++ b/major_data_link_backend/src/admin/components/topbar-with-chat-alert.tsx
+@@ -0,0 +1,22 @@
++import React from 'react';
++import GlobalChatAlert from './global-chat-alert.js';
++
++/**
++ * AdminJS renders TopBar unconditionally, outside the page-specific
++ * <Routes> (see adminjs/lib/frontend/components/app/application.js), so
++ * it's the one built-in override point that survives every navigation -
++ * exactly what GlobalChatAlert needs to stay mounted (and its socket
++ * connected) across the whole admin panel, not just one page. `override()`
++ * always passes the untouched original component in as `OriginalComponent`
++ * (see adminjs/lib/frontend/hoc/allow-override.js) - this file renders it
++ * as-is and never reimplements the navbar itself.
++ */
++export default function TopBarWithChatAlert(props: Record<string, unknown> & { OriginalComponent: React.ComponentType<Record<string, unknown>> }) {
++  const { OriginalComponent, ...rest } = props;
++  return (
++    <>
++      <OriginalComponent {...rest} />
++      <GlobalChatAlert />
++    </>
++  );
++}

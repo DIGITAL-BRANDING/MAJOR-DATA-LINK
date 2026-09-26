@@ -1,0 +1,92 @@
+diff --git a/web/src/lib/api.ts b/web/src/lib/api.ts
+index b35ed24..300d2be 100644
+--- a/web/src/lib/api.ts
++++ b/web/src/lib/api.ts
+@@ -1,11 +1,20 @@
+ // Thin fetch wrapper for the MAJOR DATA-LINK backend API.
+-// In dev, requests to /api/* are proxied to VITE_API_PROXY_TARGET (see vite.config.ts).
+-// In production, set VITE_API_BASE_URL to the deployed backend origin
+-// (leave empty if this app is served from the same origin as the API).
++// In dev, requests to /api/* are proxied to VITE_API_PROXY_TARGET (see vite.config.ts) -
++// VITE_API_BASE_URL is also respected in dev, for pointing a local frontend at a
++// non-default backend.
++// In production this is always '' (same-origin relative paths) - this app's build/deploy
++// process (see nixpacks.toml) always copies web/dist straight into the backend's own
++// public/app, so production is never served from a different origin than its own API.
++// A VITE_API_BASE_URL baked into a production build is therefore always a stale value
++// left over from before a domain change, never a legitimate separate deployment - and a
++// stale one silently sends every API call cross-origin, where CORS/CSP reject it and the
++// user just sees "Could not connect to the server" with no clue why. Ignoring it
++// unconditionally in production removes that whole failure mode, rather than trying to
++// detect and correct a stale value at runtime.
+ // Exported so src/components/ChatWidget.tsx can point its Socket.IO
+ // connection at the same backend origin as every REST call here, instead
+ // of duplicating this env lookup.
+-export const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
++export const API_BASE = import.meta.env.PROD ? '' : (import.meta.env.VITE_API_BASE_URL ?? '');
+ export const PARTNER_API_BASE = `${API_BASE}/api/v1`;
+ 
+ const TOKEN_KEY = 'mdl_access_token';
+diff --git a/web/src/pages/PartnerApiDocsPage.tsx b/web/src/pages/PartnerApiDocsPage.tsx
+index 3a4cc9d..373f279 100644
+--- a/web/src/pages/PartnerApiDocsPage.tsx
++++ b/web/src/pages/PartnerApiDocsPage.tsx
+@@ -2,6 +2,7 @@ import { useState } from 'react';
+ import { Link } from 'react-router-dom';
+ import { Trans, useTranslation } from 'react-i18next';
+ import LanguageSwitcher from '../components/LanguageSwitcher';
++import { API_BASE as SHARED_API_BASE } from '../lib/api';
+ import {
+   AlertTriangle,
+   ArrowUpRight,
+@@ -22,7 +23,7 @@ import {
+   Webhook
+ } from 'lucide-react';
+ 
+-const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? '') + '/api/v1';
++const API_BASE = `${SHARED_API_BASE}/api/v1`;
+ 
+ const SECTIONS = [
+   { id: 'auth', key: 'auth' },
+diff --git a/web/src/pages/PartnerDashboardPage.tsx b/web/src/pages/PartnerDashboardPage.tsx
+index e8cbc5f..4dbae20 100644
+--- a/web/src/pages/PartnerDashboardPage.tsx
++++ b/web/src/pages/PartnerDashboardPage.tsx
+@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
+ import { Trans, useTranslation } from 'react-i18next';
+ import LanguageSwitcher from '../components/LanguageSwitcher';
+ import LiveChatWidget from '../components/LiveChatWidget';
++import { API_BASE } from '../lib/api';
+ import {
+   Activity,
+   AlertTriangle,
+@@ -32,11 +33,12 @@ import {
+   XCircle
+ } from 'lucide-react';
+ 
+-// Own base URL + token storage, deliberately separate from lib/api.ts's
+-// customer-app tokens (mdl_access_token/mdl_refresh_token) - a partner
+-// portal session is a different account type entirely, and the two must
+-// never be mixed up in the same browser.
+-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
++// Own token storage, deliberately separate from lib/api.ts's customer-app
++// tokens (mdl_access_token/mdl_refresh_token) - a partner portal session is
++// a different account type entirely, and the two must never be mixed up in
++// the same browser. API_BASE itself is shared (imported above) rather than
++// re-read here, so this page gets the same same-origin-mismatch protection
++// as the rest of the app - see resolveApiBase() in lib/api.ts.
+ const PORTAL_BASE = `${API_BASE}/api/partner-portal`;
+ const ACCESS_KEY = 'mdl_partner_portal_access_token';
+ const REFRESH_KEY = 'mdl_partner_portal_refresh_token';
+diff --git a/web/src/pages/PrivacyRedirect.tsx b/web/src/pages/PrivacyRedirect.tsx
+index 7d973c4..fd5ebb9 100644
+--- a/web/src/pages/PrivacyRedirect.tsx
++++ b/web/src/pages/PrivacyRedirect.tsx
+@@ -1,6 +1,5 @@
+ import { useEffect } from 'react';
+-
+-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
++import { API_BASE } from '../lib/api';
+ 
+ // Privacy Policy and Terms are already rendered server-side by the backend
+ // (see major_data_link_backend/src/routes/legal.routes.ts) so there's a

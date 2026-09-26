@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Trans, useTranslation } from 'react-i18next';
 import LanguageSwitcher from '../components/LanguageSwitcher';
 import LiveChatWidget from '../components/LiveChatWidget';
+import { API_BASE } from '../lib/api';
 import {
   Activity,
   AlertTriangle,
@@ -32,11 +33,12 @@ import {
   XCircle
 } from 'lucide-react';
 
-// Own base URL + token storage, deliberately separate from lib/api.ts's
-// customer-app tokens (mdl_access_token/mdl_refresh_token) - a partner
-// portal session is a different account type entirely, and the two must
-// never be mixed up in the same browser.
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
+// Own token storage, deliberately separate from lib/api.ts's customer-app
+// tokens (mdl_access_token/mdl_refresh_token) - a partner portal session is
+// a different account type entirely, and the two must never be mixed up in
+// the same browser. API_BASE itself is shared (imported above) rather than
+// re-read here, so this page gets the same same-origin-mismatch protection
+// as the rest of the app - see resolveApiBase() in lib/api.ts.
 const PORTAL_BASE = `${API_BASE}/api/partner-portal`;
 const ACCESS_KEY = 'mdl_partner_portal_access_token';
 const REFRESH_KEY = 'mdl_partner_portal_refresh_token';
