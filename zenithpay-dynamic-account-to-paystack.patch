@@ -1,0 +1,72 @@
+diff --git a/major_data_link_backend/src/services/payment-provider.service.ts b/major_data_link_backend/src/services/payment-provider.service.ts
+index a7e835f..604ac1d 100644
+--- a/major_data_link_backend/src/services/payment-provider.service.ts
++++ b/major_data_link_backend/src/services/payment-provider.service.ts
+@@ -4,15 +4,25 @@ import { prisma } from '../lib/prisma.js';
+ import { katpayService } from './katpay.service.js';
+ import { paystackService } from './paystack.service.js';
+ import { tryProvisionInstantVirtualAccount as provisionPaystackVirtualAccount } from './kyc.service.js';
+-import { ApiError } from '../middleware/error.js';
+ 
+ /**
+- * Single switch point for "which payment gateway is live right now". Both
+- * PAYSTACK_* and KATPAY_* credentials can sit in .env at the same time — only
+- * PAYMENT_PROVIDER decides which one actually gets called. Every route/service
+- * outside this file should go through the functions below rather than importing
+- * paystackService or katpayService directly, so flipping the env var is enough to
+- * fail over from one gateway to the other with no code changes.
++ * Single switch point for "which payment gateway is live right now". All of
++ * PAYSTACK_*, KATPAY_*, and ZENITHPAY_* credentials can sit in .env at the
++ * same time - only PAYMENT_PROVIDER decides which one actually gets called
++ * for new/permanent account provisioning. Every route/service outside this
++ * file should go through the functions below rather than importing
++ * paystackService/katpayService/zenithpayService directly, so flipping the
++ * env var is enough to fail over from one gateway to another with no code
++ * changes.
++ *
++ * ZenithPay is the one exception to "PAYMENT_PROVIDER picks one gateway for
++ * everything": its documented API only covers permanent, BVN-gated Dedicated
++ * Accounts (see kyc.service.ts) - it has nothing equivalent to Paystack's
++ * amount-locked one-time "Pay with Transfer" account. So when
++ * PAYMENT_PROVIDER=zenithpay, createDynamicFundingAccount below deliberately
++ * routes that one flow through Paystack instead, while permanent-account
++ * provisioning still goes through ZenithPay. This is intentional, not a
++ * fallback bug - see the comment in that function.
+  */
+ 
+ async function provisionKatpayVirtualAccount(userId: string) {
+@@ -86,10 +96,30 @@ export async function createDynamicFundingAccount(params: {
+   amount: number;
+ }): Promise<DynamicFundingAccount> {
+   if (env.PAYMENT_PROVIDER === 'zenithpay') {
+-    // ZenithPay has not documented an amount-locked temporary-account or
+-    // transaction-verification API. Keep this disabled rather than silently
+-    // sending users through Paystack after ZenithPay is selected.
+-    throw new ApiError(503, 'ZenithPay supports dedicated-account funding only', 'ZENITHPAY_DYNAMIC_FUNDING_UNAVAILABLE');
++    // ZenithPay's only documented API is BVN-gated dedicated-account
++    // assignment (see zenithpay.service.ts) - it has no amount-locked
++    // temporary-account or transaction-verification endpoint, so a one-time
++    // "Dynamic Account" / Pay-with-Transfer request can never be routed
++    // through it. Wire that specific flow through Paystack instead: this
++    // returns `provider: 'paystack'`, so createPendingFunding tags the
++    // Transaction row accordingly and the existing provider-agnostic
++    // /webhooks/paystack handler (charge.success -> creditWalletByReference)
++    // and verifyDynamicFunding's paystack fallback below both already credit
++    // it correctly with zero further changes - ZenithPay stays the provider
++    // for permanent Dedicated Accounts (KYC/BVN flow) only.
++    const charge = await paystackService.createTemporaryTransferAccount({
++      email: params.email,
++      amountKobo: BigInt(Math.round(params.amount * 100))
++    });
++
++    return {
++      provider: 'paystack',
++      reference: charge.reference,
++      accountNumber: charge.account_number,
++      accountName: charge.account_name,
++      bankName: charge.bank?.name,
++      expiresAt: charge.account_expires_at
++    };
+   }
+   if (env.PAYMENT_PROVIDER === 'katpay') {
+     // Unlike Paystack (which generates its own charge reference for us), KatPay's
