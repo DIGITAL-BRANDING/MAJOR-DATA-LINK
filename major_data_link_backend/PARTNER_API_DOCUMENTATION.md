@@ -396,6 +396,29 @@ pending NIN Validation/IPE/Personalization tickets a background kuma zai aika
 webhook da zarar upstream ta ba terminal result. Kada ya sake sayar da order
 ɗin da sabon idempotency key.
 
+### 8.1 Request progress updates (fallback ga webhook)
+
+`GET /transactions/{reference}/updates`
+
+Wannan authenticated endpoint yana dawo da duk saƙonnin progress da admin ya
+aika kan request ɗin. Partner ya kira shi bayan webhook ya gaza, ko lokacin da
+request ke `pending`; kada ya sake submit/biya saboda neman update.
+
+```json
+{
+  "status": true,
+  "data": {
+    "reference": "MDL-20260904-ABC123",
+    "status": "pending",
+    "updates": [{
+      "id": "018f...",
+      "message": "Your request is being processed; expect an update within 48 hours.",
+      "created_at": "2026-09-26T12:00:00.000Z"
+    }]
+  }
+}
+```
+
 ## Webhooks
 
 Webhooks suna aiki ne bayan partner ya saita public HTTPS callback URL. Major
@@ -463,6 +486,10 @@ ya mayar da HTTP 2xx cikin seconds 10. Duk non-2xx ko timeout ana retry sau 8:
 1, 2, 4, 8, 16, 32, sannan 60 minutes. Delivery semantics **at-least-once** ne,
 don haka partner ya zama idempotent. Status API shi ne source of truth idan
 delivery ta gaza.
+
+Idan admin ya aika progress message, ana aika `request.updated` mai `reference`,
+`status`, `update_id`, da `message` da signature iri ɗaya. Idan wannan webhook
+ya gaza, partner ya karanta sakon daga `GET /transactions/{reference}/updates`.
 
 ## Rate limits da operational rules
 

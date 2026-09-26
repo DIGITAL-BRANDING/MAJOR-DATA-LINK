@@ -408,6 +408,30 @@ partnerApiRoutes.get('/transactions/:reference', async (req, res) => {
   res.json({ status: true, data: partnerTransactionResponse(transaction) });
 });
 
+// Durable fallback for `request.updated` webhooks. A partner should poll this
+// endpoint after a missed notification rather than resubmitting a request.
+partnerApiRoutes.get('/transactions/:reference/updates', async (req, res) => {
+  const transaction = await prisma.partnerTransaction.findFirst({
+    where: { partnerId: req.partner!.id, reference: req.params.reference },
+    select: { id: true, reference: true, status: true }
+  });
+  if (!transaction) return res.status(404).json({ status: false, message: 'Transaction not found', code: 'TRANSACTION_NOT_FOUND' });
+  const updates = await prisma.partnerRequestUpdate.findMany({
+    where: { partnerTransactionId: transaction.id, partnerId: req.partner!.id },
+    orderBy: { createdAt: 'asc' },
+    select: { id: true, message: true, createdAt: true }
+  });
+  res.set('Cache-Control', 'no-store');
+  res.json({
+    status: true,
+    data: {
+      reference: transaction.reference,
+      status: transaction.status.toLowerCase(),
+      updates: updates.map((update) => ({ id: update.id, message: update.message, created_at: update.createdAt.toISOString() }))
+    }
+  });
+});
+
 // ── Manual / non-instant services (NIN & BVN Modification, BVN CRM, BVN
 // License Onboarding, Newspaper Publication, Birth Attestation, CAC, JAMB)
 // ──────────────────────────────────────────────────────────────────────
@@ -499,6 +523,11 @@ partnerApiRoutes.get('/identity/requests/:reference', async (req, res) => {
     return res.status(404).json({ status: false, message: 'Request not found', code: 'REQUEST_NOT_FOUND' });
   }
   const pii = decryptPartnerManualPII(transaction) ?? {};
+  const updates = await prisma.partnerRequestUpdate.findMany({
+    where: { partnerTransactionId: transaction.id, partnerId: req.partner!.id },
+    orderBy: { createdAt: 'asc' },
+    select: { id: true, message: true, createdAt: true }
+  });
   const { pdf_base64, submission_pdf_base64, delivered_file_base64, delivered_file_name, delivered_file_mime, admin_note, ...rest } = pii as Record<string, unknown>;
   res.set('Cache-Control', 'no-store');
   res.json({
@@ -513,6 +542,7 @@ partnerApiRoutes.get('/identity/requests/:reference', async (req, res) => {
       delivered_file_name: (delivered_file_name as string | undefined) ?? null,
       delivered_file_mime: (delivered_file_mime as string | undefined) ?? null,
       admin_note: (admin_note as string | undefined) ?? null,
+      updates: updates.map((update) => ({ id: update.id, message: update.message, created_at: update.createdAt.toISOString() })),
       details: rest
     }
   });

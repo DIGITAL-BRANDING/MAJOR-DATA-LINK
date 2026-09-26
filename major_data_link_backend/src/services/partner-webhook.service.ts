@@ -95,6 +95,30 @@ export async function enqueuePartnerTransactionWebhook(tx: PartnerTransaction) {
   await enqueuePartnerWebhookEvent(tx.partnerId, 'transaction.updated', `${tx.id}:${tx.status}`, payloadFor(tx, eventId), eventId);
 }
 
+/** Queues an admin-authored progress message separately from terminal status
+ * events, so an in-progress request can notify its partner without changing
+ * the financial transaction's PENDING/SUCCESS state. */
+export async function enqueuePartnerRequestUpdateWebhook(params: {
+  partnerId: string;
+  reference: string;
+  updateId: string;
+  message: string;
+  status: TransactionStatus;
+}) {
+  const eventId = randomUUID();
+  await enqueuePartnerWebhookEvent(params.partnerId, 'request.updated', `request-update:${params.updateId}`, {
+    id: eventId,
+    event: 'request.updated',
+    created_at: new Date().toISOString(),
+    data: {
+      reference: params.reference,
+      status: params.status.toLowerCase(),
+      update_id: params.updateId,
+      message: params.message
+    }
+  }, eventId);
+}
+
 /**
  * Admin recovery path for a completed/reversed request whose partner did not
  * receive the first notification. Requeue the failed outbox record when it

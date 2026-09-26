@@ -255,6 +255,7 @@ model Partner {
   updatedAt         DateTime      @updatedAt
   apiKeys           PartnerApiKey[]
   transactions      PartnerTransaction[]
+  requestUpdates    PartnerRequestUpdate[]
   webhookDeliveries PartnerWebhookDelivery[]
   refreshTokens     PartnerRefreshToken[]
 
@@ -321,10 +322,27 @@ model PartnerTransaction {
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
   partner           Partner           @relation(fields: [partnerId], references: [id])
+  requestUpdates    PartnerRequestUpdate[]
 
   @@unique([partnerId, idempotencyKey])
   @@index([partnerId, createdAt])
   @@index([partnerId, status, createdAt])
+}
+
+/// Admin-authored progress messages for partner-managed requests. These are
+/// append-only so the partner can poll a complete, auditable timeline even if
+/// a notification webhook is delayed or unavailable.
+model PartnerRequestUpdate {
+  id                   String             @id @default(uuid())
+  partnerId            String
+  partnerTransactionId String
+  message              String
+  createdAt            DateTime           @default(now())
+  partner              Partner            @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  transaction          PartnerTransaction @relation(fields: [partnerTransactionId], references: [id], onDelete: Cascade)
+
+  @@index([partnerTransactionId, createdAt])
+  @@index([partnerId, createdAt])
 }
 
 /// Durable transactional outbox for outbound partner webhooks. An event is
