@@ -154,7 +154,10 @@ const EnvSchema = z.object({
   // only this account-assignment API and a public source IP for webhooks.
   ZENITHPAY_BASE_URL: z.string().url().default('https://zenithpay.ng'),
   ZENITHPAY_API_KEY: z.string().min(16).optional(),
-  ZENITHPAY_WEBHOOK_ALLOWED_IPS: z.string().default('195.110.59.12'),
+  // ZenithPay signs every delivery using sha256(timestamp.rawBody, secret).
+  // IP addresses can rotate between their webhook workers, so authentication
+  // must rely on this merchant-specific secret rather than an IP allowlist.
+  ZENITHPAY_WEBHOOK_SECRET: z.string().min(16).optional(),
 
   // --- KatPay (https://katpay.co/docs) - kept side-by-side with Paystack above as a
   // swappable alternative. Same "must never throw / never block signup" philosophy as

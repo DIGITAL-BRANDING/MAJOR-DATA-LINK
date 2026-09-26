@@ -28,16 +28,24 @@ function normalizeKatpayStatus(value: unknown): string | undefined {
 
 export const webhookRoutes = Router();
 
-function zenithPayAllowedIps() {
-  return new Set(env.ZENITHPAY_WEBHOOK_ALLOWED_IPS.split(',').map((ip) => ip.trim()).filter(Boolean));
-}
-
 function normalizeRemoteIp(ip: string | undefined) {
   return (ip ?? '').trim().replace(/^::ffff:/i, '');
 }
 
 function zenithValue(payload: Record<string, any>, keys: string[]) {
-  const sources = [payload, payload.data, payload.transaction, payload.data?.transaction].filter(
+  // ZenithPay's dedicated-account example places the actual assigned account
+  // number under paymentDetails. Prefer that signed field over a conflicting
+  // convenience field at the top level.
+  const sources = [
+    payload.paymentDetails,
+    payload.data?.paymentDetails,
+    payload.transaction?.paymentDetails,
+    payload.data?.transaction?.paymentDetails,
+    payload,
+    payload.data,
+    payload.transaction,
+    payload.data?.transaction
+  ].filter(
     (value): value is Record<string, any> => Boolean(value) && typeof value === 'object'
   );
   for (const source of sources) for (const key of keys) {
@@ -64,30 +72,57 @@ webhookRoutes.get('/katpay', (_req, res) => {
 });
 
 /**
- * ZenithPay documents a public webhook source IP but no request-signature
- * scheme. Accept only allowlisted source IPs, and make wallet crediting
- * idempotent by the provider transaction reference.
+ * ZenithPay signs the exact `timestamp.raw-body` bytes with the merchant's
+ * webhook secret. Source IPs can rotate, so a valid signature is the stable
+ * authentication boundary; wallet crediting stays idempotent by reference.
  */
 webhookRoutes.get('/zenithpay', (req, res) => {
   const remoteIp = normalizeRemoteIp(req.ip);
   res.json({
     status: true,
     webhook: 'zenithpay',
-    source_ip_allowed: zenithPayAllowedIps().has(remoteIp),
-    ready: Boolean(env.ZENITHPAY_API_KEY),
-    message: 'POST successful ZenithPay dedicated-account payment events to this path'
+    ready: Boolean(env.ZENITHPAY_WEBHOOK_SECRET),
+    signature_required: true,
+    source_ip: remoteIp || null,
+    message: 'POST signed ZenithPay dedicated-account payment events to this path'
   });
 });
 
 webhookRoutes.post('/zenithpay', async (req, res) => {
   const remoteIp = normalizeRemoteIp(req.ip);
-  if (!zenithPayAllowedIps().has(remoteIp)) {
-    console.warn('[zenithpay-webhook] rejected request from unallowlisted source', { remoteIp });
-    return res.status(401).json({ status: false, message: 'Untrusted webhook source' });
-  }
-
   const rawBody = req.body as Buffer;
   if (!Buffer.isBuffer(rawBody)) return res.status(400).json({ status: false, message: 'Raw webhook body is required' });
+
+  const timestamp = req.header('x-zenithpay-timestamp')?.trim() ?? '';
+  const receivedSignature = req.header('x-zenithpay-signature')?.trim() ?? '';
+  const secret = env.ZENITHPAY_WEBHOOK_SECRET;
+  if (!timestamp || !receivedSignature || !secret) {
+    console.warn('[zenithpay-webhook] rejected - missing authentication data', {
+      remoteIp,
+      hasTimestamp: Boolean(timestamp),
+      hasSignature: Boolean(receivedSignature),
+      secretConfigured: Boolean(secret)
+    });
+    return res.status(401).json({ status: false, message: 'Missing webhook authentication information' });
+  }
+
+  const timestampSeconds = /^\d+$/.test(timestamp) ? Number(timestamp) : Number.NaN;
+  if (!Number.isSafeInteger(timestampSeconds) || Math.abs(Math.floor(Date.now() / 1000) - timestampSeconds) > 300) {
+    console.warn('[zenithpay-webhook] rejected - invalid or expired timestamp', { remoteIp });
+    return res.status(401).json({ status: false, message: 'Invalid or expired webhook timestamp' });
+  }
+
+  const expectedSignature = crypto
+    .createHmac('sha256', secret)
+    .update(`${timestamp}.`)
+    .update(rawBody)
+    .digest('hex');
+  const receivedBuffer = Buffer.from(receivedSignature, 'utf8');
+  const expectedBuffer = Buffer.from(expectedSignature, 'utf8');
+  if (receivedBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(receivedBuffer, expectedBuffer)) {
+    console.warn('[zenithpay-webhook] rejected - invalid signature', { remoteIp });
+    return res.status(401).json({ status: false, message: 'Invalid webhook signature' });
+  }
 
   let event: Record<string, any>;
   try {
@@ -97,7 +132,7 @@ webhookRoutes.post('/zenithpay', async (req, res) => {
   }
 
   const status = zenithValue(event, ['status', 'payment_status', 'paymentStatus', 'transaction_status', 'transactionStatus', 'response_code']);
-  const accountNumber = zenithValue(event, ['accountNumber', 'account_number', 'destination_account_number', 'destinationAccountNumber']);
+  const accountNumber = zenithValue(event, ['account_number', 'accountNumber', 'destination_account_number', 'destinationAccountNumber']);
   const reference = zenithValue(event, ['transactionReference', 'transaction_reference', 'paymentReference', 'payment_reference', 'transactionId', 'transaction_id', 'reference']);
   const amount = Number(zenithValue(event, ['amount', 'amount_paid', 'amountPaid', 'transaction_amount', 'transactionAmount']));
 
