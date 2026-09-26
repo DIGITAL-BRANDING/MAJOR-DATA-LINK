@@ -37,9 +37,19 @@ export async function verifyBvnAndActivateWallet(params: {
   if (!/^\d{11}$/.test(bvn)) {
     throw new ApiError(422, 'BVN must be exactly 11 digits', 'INVALID_BVN');
   }
-  if (!/^\d{10}$/.test(accountNumber)) {
-    throw new ApiError(422, 'Account number must be exactly 10 digits', 'INVALID_ACCOUNT_NUMBER');
-  }
+  // bankCode/accountNumber are only ever used a few lines down, in the
+  // Paystack validateCustomer() call - ZenithPay's dedicated_account/assign
+  // API (the `if (env.PAYMENT_PROVIDER === 'zenithpay')` branch below) never
+  // touches them at all. This check used to run unconditionally up here,
+  // before either branch was chosen, so it rejected every ZenithPay
+  // submission with "Account number must be exactly 10 digits" even though
+  // kyc.routes.ts had already (correctly) made those fields optional for
+  // ZenithPay and the web form (VerifyAccountPage.tsx) correctly stopped
+  // collecting them - the route and the UI were both already fixed, but this
+  // stale validation two calls deeper was still enforcing the old
+  // Paystack-only requirement regardless of which provider was actually
+  // live. Moved below the ZenithPay branch's early return so it only ever
+  // runs on the path that actually needs it.
 
   const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
 
@@ -93,6 +103,16 @@ export async function verifyBvnAndActivateWallet(params: {
         virtualAccountNumber: account.accountNumber,
         virtualAccountBank: account.bankName
       };
+    }
+
+    // Only reachable on the Paystack path from here on - bankCode/accountNumber
+    // are required inputs to Step 3's validateCustomer() call below, so this is
+    // the first point they're actually needed.
+    if (!bankCode.trim()) {
+      throw new ApiError(422, 'bank_code is required', 'VALIDATION_ERROR');
+    }
+    if (!/^\d{10}$/.test(accountNumber)) {
+      throw new ApiError(422, 'Account number must be exactly 10 digits', 'INVALID_ACCOUNT_NUMBER');
     }
 
     // Step 1: confirm the BVN itself resolves to a real identity. Non-fatal on its
