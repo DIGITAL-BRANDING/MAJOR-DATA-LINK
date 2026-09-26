@@ -1,0 +1,181 @@
+diff --git a/major_data_link_backend/src/routes/verification.routes.ts b/major_data_link_backend/src/routes/verification.routes.ts
+index 791ae4d..d9d3d50 100644
+--- a/major_data_link_backend/src/routes/verification.routes.ts
++++ b/major_data_link_backend/src/routes/verification.routes.ts
+@@ -17,6 +17,8 @@ import {
+   purchaseNinByDemographic,
+   purchaseNinByNin,
+   purchaseNinByPhone,
++  purchaseNinVerificationV1,
++  purchaseNinVerificationV2,
+   submitBvnRetrieval,
+   submitDelinking,
+   submitIpeClearance,
+@@ -217,6 +219,32 @@ verificationRoutes.post('/nin/by-nin', async (req, res) => {
+   res.json(slipResponse(result));
+ });
+ 
++// "NIN Verification V1"/"V2" - user-picked provider (Techhub vs
++// FranceVerified) instead of an admin-configured one, so a customer can
++// route around a provider outage themselves. See the SERVICE_KEYS comment
++// on NIN_VERIFICATION_V1/V2 in verification.service.ts.
++verificationRoutes.post('/nin/verification-v1', async (req, res) => {
++  const body = z.object({ nin: z.string().trim().length(11), ...pinField }).parse(req.body);
++  await requirePinConfirmation(req.user!.id, body.pin);
++  const result = await purchaseNinVerificationV1({
++    userId: req.user!.id,
++    nin: body.nin,
++    idempotencyKey: idempotencyKeyFrom(req)
++  });
++  res.json(slipResponse(result));
++});
++
++verificationRoutes.post('/nin/verification-v2', async (req, res) => {
++  const body = z.object({ nin: z.string().trim().length(11), ...pinField }).parse(req.body);
++  await requirePinConfirmation(req.user!.id, body.pin);
++  const result = await purchaseNinVerificationV2({
++    userId: req.user!.id,
++    nin: body.nin,
++    idempotencyKey: idempotencyKeyFrom(req)
++  });
++  res.json(slipResponse(result));
++});
++
+ verificationRoutes.post('/nin/by-phone', async (req, res) => {
+   const body = z.object({ phone: z.string().trim().length(11), tier: ninPhoneSlipTier, ...pinField }).parse(req.body);
+   await requirePinConfirmation(req.user!.id, body.pin);
+diff --git a/major_data_link_backend/src/services/verification.service.ts b/major_data_link_backend/src/services/verification.service.ts
+index 0623581..b9521e8 100644
+--- a/major_data_link_backend/src/services/verification.service.ts
++++ b/major_data_link_backend/src/services/verification.service.ts
+@@ -75,7 +75,17 @@ const SERVICE_KEYS = [
+   'NIN_VALIDATION_VNIN',
+   'NIN_PERSONALIZATION',
+   'BVN_RETRIEVAL',
+-  'IPE_CLEARANCE'
++  'IPE_CLEARANCE',
++  // Two user-facing, single-provider-locked tiles (see purchaseNinVerificationV1/V2
++  // below) - NOT admin-switchable like every other service above. The whole
++  // point is that the END USER picks which upstream API to hit (V1=Techhub,
++  // V2=FranceVerified) when one of them is having network trouble, instead of
++  // an admin having to reconfigure ServicePricing.provider under pressure
++  // during an outage and remembering to flip it back after. Each still gets
++  // its own independently admin-editable price via the normal "Verification
++  // Pricing" admin page - only the provider is fixed.
++  'NIN_VERIFICATION_V1',
++  'NIN_VERIFICATION_V2'
+ ] as const;
+ 
+ export type VerificationServiceKey = (typeof SERVICE_KEYS)[number];
+@@ -96,7 +106,7 @@ export type VerificationServiceKey = (typeof SERVICE_KEYS)[number];
+  * or the AdminJS "Verification Pricing" page. Nothing here needs a
+  * redeploy to change afterward - only affects rows not yet created.
+  */
+-const DEFAULTS: Record<VerificationServiceKey, { label: string; price: number }> = {
++const DEFAULTS: Record<VerificationServiceKey, { label: string; price: number; provider?: VerificationProvider }> = {
+   NIN_SLIP_PREMIUM: { label: 'NIN Slip (Premium) — by NIN', price: 120 },
+   NIN_SLIP_STANDARD: { label: 'NIN Slip (Standard) — by NIN', price: 120 },
+   NIN_SLIP_REGULAR: { label: 'NIN Slip (Regular) — by NIN', price: 120 },
+@@ -132,7 +142,15 @@ const DEFAULTS: Record<VerificationServiceKey, { label: string; price: number }>
+   NIN_VALIDATION_VNIN: { label: 'NIN Validation — v.NIN Validation', price: 360 },
+   NIN_PERSONALIZATION: { label: 'NIN Personalization', price: 300 },
+   BVN_RETRIEVAL: { label: 'BVN Retrieval', price: 700 },
+-  IPE_CLEARANCE: { label: 'IPE Clearance', price: 450 }
++  IPE_CLEARANCE: { label: 'IPE Clearance', price: 450 },
++  // provider is explicit (not left to getOrCreateVerificationPricingRow's
++  // 'techhub' default) so these two are correctly wired the moment their
++  // ServicePricing row is first created - no admin has to remember to open
++  // "Verification Pricing" and flip the provider before V2 actually works.
++  // V1 sets 'techhub' explicitly too, purely for symmetry/clarity, since it
++  // happens to match the row-creation default anyway.
++  NIN_VERIFICATION_V1: { label: 'NIN Verification V1', price: 120, provider: 'techhub' },
++  NIN_VERIFICATION_V2: { label: 'NIN Verification V2', price: 120, provider: 'franceverified' }
+ };
+ 
+ // Maps the validation_type string Techhub's API (and our own zod enum in
+@@ -169,7 +187,7 @@ async function getOrCreateVerificationPricingRow(service: VerificationServiceKey
+     return await prisma.servicePricing.create({
+       data: {
+         service,
+-        provider: 'techhub',
++        provider: defaults.provider ?? 'techhub',
+         label: defaults.label,
+         providerCostKobo: priceToKobo(defaults.price)
+       }
+@@ -493,6 +511,48 @@ export function purchaseNinByNin(params: { userId: string; nin: string; tier: Ni
+   });
+ }
+ 
++/**
++ * "NIN Verification V1" - the user-facing tile that is always Techhub, full
++ * stop. See the SERVICE_KEYS comment on NIN_VERIFICATION_V1/V2: this and
++ * purchaseNinVerificationV2 exist specifically so a customer can route
++ * around a provider outage themselves (pick the other tile) instead of
++ * waiting on an admin to notice and flip ServicePricing.provider on the
++ * shared by-NIN service. Only the 'techhub' branch is implemented on
++ * purpose - if this row's provider is ever misconfigured to
++ * 'franceverified', purchaseSlip's existing PROVIDER_NOT_IMPLEMENTED guard
++ * fails loudly rather than silently doing the wrong thing.
++ */
++export function purchaseNinVerificationV1(params: { userId: string; nin: string; idempotencyKey?: string }) {
++  return purchaseSlip({
++    userId: params.userId,
++    service: 'NIN_VERIFICATION_V1',
++    transactionType: TransactionType.NIN_VERIFICATION,
++    description: 'NIN Verification (V1 - Techhub)',
++    operational: { mode: 'by_nin', tier: 'premium' },
++    pii: { nin: params.nin },
++    idempotencyKey: params.idempotencyKey,
++    callByProvider: {
++      techhub: () => techhubService.ninByNin(params.nin, 'premium')
++    }
++  });
++}
++
++/** "NIN Verification V2" - the FranceVerified-only counterpart to V1 above. */
++export function purchaseNinVerificationV2(params: { userId: string; nin: string; idempotencyKey?: string }) {
++  return purchaseSlip({
++    userId: params.userId,
++    service: 'NIN_VERIFICATION_V2',
++    transactionType: TransactionType.NIN_VERIFICATION,
++    description: 'NIN Verification (V2 - FranceVerified)',
++    operational: { mode: 'by_nin', tier: 'premium' },
++    pii: { nin: params.nin },
++    idempotencyKey: params.idempotencyKey,
++    callByProvider: {
++      franceverified: () => franceverifiedSlipAdapter.ninByNin(params.nin, 'premium', false)
++    }
++  });
++}
++
+ export function purchaseNinByPhone(params: {
+   userId: string;
+   phone: string;
+diff --git a/web/src/pages/VerificationPage.tsx b/web/src/pages/VerificationPage.tsx
+index df5111f..b6457b0 100644
+--- a/web/src/pages/VerificationPage.tsx
++++ b/web/src/pages/VerificationPage.tsx
+@@ -49,6 +49,14 @@ const NON_REFUNDABLE_NOTICE: Record<string, { serviceName: string; etaLabel: str
+ 
+ const nin: Item[] = [
+   { id: 'by-nin', label: 'NIN Verification', path: '/verification/nin/by-nin', fields: ['nin'], icon: IdCard, tiers: ['premium', 'standard', 'regular', 'vnin', 'personal'] },
++  // Same underlying NIN-by-NIN lookup as 'by-nin' above, but each tile is
++  // permanently pinned to one provider (see NIN_VERIFICATION_V1/V2 in
++  // verification.service.ts) instead of following whatever ServicePricing.provider
++  // an admin last configured. When Techhub or FranceVerified is having network
++  // trouble, the user can just tap the other tile - no admin has to notice
++  // and flip a setting mid-outage.
++  { id: 'verification-v1', label: 'NIN Verification V1', path: '/verification/nin/verification-v1', fields: ['nin'], icon: IdCard },
++  { id: 'verification-v2', label: 'NIN Verification V2', path: '/verification/nin/verification-v2', fields: ['nin'], icon: SearchCheck },
+   { id: 'by-phone', label: 'NIN by Phone', path: '/verification/nin/by-phone', fields: ['phone'], icon: Phone, tiers: ['premium', 'standard', 'regular', 'personal'] },
+   { id: 'demographic', label: 'NIN Demographic', path: '/verification/nin/by-demographic', fields: ['firstname', 'lastname', 'dob', 'gender'], icon: UserRoundCheck },
+   { id: 'validation', label: 'NIN Validation', path: '/verification/nin-validation', fields: ['nin', 'validation_type'], icon: SearchCheck, async: true },
+@@ -113,6 +121,8 @@ function keyFor(item: Item, tier = 'premium') {
+   return (
+     {
+       demographic: 'NIN_DEMOGRAPHIC',
++      'verification-v1': 'NIN_VERIFICATION_V1',
++      'verification-v2': 'NIN_VERIFICATION_V2',
+       // 'validation' has no single key any more - each of the 8
+       // validation_type choices is its own priced service (see
+       // VALIDATION_TYPES above). Resolved separately in selectedPrice below.

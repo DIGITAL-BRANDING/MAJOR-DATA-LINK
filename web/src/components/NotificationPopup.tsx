@@ -8,6 +8,8 @@ type NotificationItem = {
   body: string;
   type?: string;
   is_read?: boolean;
+  broadcast_id?: string | null;
+  is_persistent_broadcast?: boolean;
   created_at?: string;
 };
 
@@ -21,8 +23,15 @@ export default function NotificationPopup() {
       try {
         const response = await api.get<{ data?: NotificationItem[] }>('/notifications?limit=20');
         if (!active) return;
-        const unread = (response.data ?? []).find((item) => !item.is_read && !dismissed.includes(item.id));
-        if (unread) setNotice(unread);
+        const items = response.data ?? [];
+        // Admin broadcasts are the active notice. Keep the newest one visible
+        // after a browser refresh until an admin sends another broadcast. A
+        // user may still dismiss it for the current browser session.
+        const activeBroadcast = items.find((item) =>
+          Boolean(item.is_persistent_broadcast || item.broadcast_id) && !dismissed.includes(item.id),
+        );
+        const unread = items.find((item) => !item.is_read && !dismissed.includes(item.id));
+        setNotice(activeBroadcast ?? unread ?? null);
       } catch {
         // Notifications are optional; never block access to the services.
       }
@@ -37,7 +46,11 @@ export default function NotificationPopup() {
     const id = notice.id;
     setNotice(null);
     setDismissed((items) => [...items, id]);
-    try { await api.post('/notifications/read', { ids: [id] }); } catch { /* best effort */ }
+    // Closing an admin broadcast must not consume it. Normal automatic
+    // notifications continue to be marked read as before.
+    if (!(notice.is_persistent_broadcast || notice.broadcast_id)) {
+      try { await api.post('/notifications/read', { ids: [id] }); } catch { /* best effort */ }
+    }
   };
 
   if (!notice) return null;

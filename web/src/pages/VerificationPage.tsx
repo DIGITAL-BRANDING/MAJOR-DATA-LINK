@@ -49,6 +49,14 @@ const NON_REFUNDABLE_NOTICE: Record<string, { serviceName: string; etaLabel: str
 
 const nin: Item[] = [
   { id: 'by-nin', label: 'NIN Verification', path: '/verification/nin/by-nin', fields: ['nin'], icon: IdCard, tiers: ['premium', 'standard', 'regular', 'vnin', 'personal'] },
+  // Same underlying NIN-by-NIN lookup as 'by-nin' above, but each tile is
+  // permanently pinned to one provider (see NIN_VERIFICATION_V1/V2 in
+  // verification.service.ts) instead of following whatever ServicePricing.provider
+  // an admin last configured. When Techhub or FranceVerified is having network
+  // trouble, the user can just tap the other tile - no admin has to notice
+  // and flip a setting mid-outage.
+  { id: 'verification-v1', label: 'NIN Verification V1', path: '/verification/nin/verification-v1', fields: ['nin'], icon: IdCard },
+  { id: 'verification-v2', label: 'NIN Verification V2', path: '/verification/nin/verification-v2', fields: ['nin'], icon: SearchCheck },
   { id: 'by-phone', label: 'NIN by Phone', path: '/verification/nin/by-phone', fields: ['phone'], icon: Phone, tiers: ['premium', 'standard', 'regular', 'personal'] },
   { id: 'demographic', label: 'NIN Demographic', path: '/verification/nin/by-demographic', fields: ['firstname', 'lastname', 'dob', 'gender'], icon: UserRoundCheck },
   { id: 'validation', label: 'NIN Validation', path: '/verification/nin-validation', fields: ['nin', 'validation_type'], icon: SearchCheck, async: true },
@@ -113,6 +121,8 @@ function keyFor(item: Item, tier = 'premium') {
   return (
     {
       demographic: 'NIN_DEMOGRAPHIC',
+      'verification-v1': 'NIN_VERIFICATION_V1',
+      'verification-v2': 'NIN_VERIFICATION_V2',
       // 'validation' has no single key any more - each of the 8
       // validation_type choices is its own priced service (see
       // VALIDATION_TYPES above). Resolved separately in selectedPrice below.

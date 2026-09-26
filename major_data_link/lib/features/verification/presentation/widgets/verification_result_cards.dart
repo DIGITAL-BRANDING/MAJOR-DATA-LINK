@@ -109,7 +109,7 @@ class SlipResultCard extends ConsumerWidget {
                     height: 44,
                     onPressed: () => _retrievePdf(
                       context,
-                      ref,
+                      ref: ref,
                       pdfBase64: result.pdfBase64,
                       pdfUrl: result.pdfUrl,
                       transactionId: result.transactionId,
@@ -126,7 +126,7 @@ class SlipResultCard extends ConsumerWidget {
                     height: 44,
                     onPressed: () => _retrievePdf(
                       context,
-                      ref,
+                      ref: ref,
                       pdfBase64: result.pdfBase64,
                       pdfUrl: result.pdfUrl,
                       transactionId: result.transactionId,
@@ -322,7 +322,7 @@ class VerificationHistoryCard extends ConsumerWidget {
                               TextButton.icon(
                                 onPressed: () => _retrievePdf(
                                   context,
-                                  ref,
+                                  ref: ref,
                                   pdfBase64: item.pdfBase64,
                                   pdfUrl: item.pdfUrl,
                                   transactionId: item.transactionId,

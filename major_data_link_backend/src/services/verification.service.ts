@@ -75,7 +75,17 @@ const SERVICE_KEYS = [
   'NIN_VALIDATION_VNIN',
   'NIN_PERSONALIZATION',
   'BVN_RETRIEVAL',
-  'IPE_CLEARANCE'
+  'IPE_CLEARANCE',
+  // Two user-facing, single-provider-locked tiles (see purchaseNinVerificationV1/V2
+  // below) - NOT admin-switchable like every other service above. The whole
+  // point is that the END USER picks which upstream API to hit (V1=Techhub,
+  // V2=FranceVerified) when one of them is having network trouble, instead of
+  // an admin having to reconfigure ServicePricing.provider under pressure
+  // during an outage and remembering to flip it back after. Each still gets
+  // its own independently admin-editable price via the normal "Verification
+  // Pricing" admin page - only the provider is fixed.
+  'NIN_VERIFICATION_V1',
+  'NIN_VERIFICATION_V2'
 ] as const;
 
 export type VerificationServiceKey = (typeof SERVICE_KEYS)[number];
@@ -96,7 +106,7 @@ export type VerificationServiceKey = (typeof SERVICE_KEYS)[number];
  * or the AdminJS "Verification Pricing" page. Nothing here needs a
  * redeploy to change afterward - only affects rows not yet created.
  */
-const DEFAULTS: Record<VerificationServiceKey, { label: string; price: number }> = {
+const DEFAULTS: Record<VerificationServiceKey, { label: string; price: number; provider?: VerificationProvider }> = {
   NIN_SLIP_PREMIUM: { label: 'NIN Slip (Premium) — by NIN', price: 120 },
   NIN_SLIP_STANDARD: { label: 'NIN Slip (Standard) — by NIN', price: 120 },
   NIN_SLIP_REGULAR: { label: 'NIN Slip (Regular) — by NIN', price: 120 },
@@ -132,7 +142,15 @@ const DEFAULTS: Record<VerificationServiceKey, { label: string; price: number }>
   NIN_VALIDATION_VNIN: { label: 'NIN Validation — v.NIN Validation', price: 360 },
   NIN_PERSONALIZATION: { label: 'NIN Personalization', price: 300 },
   BVN_RETRIEVAL: { label: 'BVN Retrieval', price: 700 },
-  IPE_CLEARANCE: { label: 'IPE Clearance', price: 450 }
+  IPE_CLEARANCE: { label: 'IPE Clearance', price: 450 },
+  // provider is explicit (not left to getOrCreateVerificationPricingRow's
+  // 'techhub' default) so these two are correctly wired the moment their
+  // ServicePricing row is first created - no admin has to remember to open
+  // "Verification Pricing" and flip the provider before V2 actually works.
+  // V1 sets 'techhub' explicitly too, purely for symmetry/clarity, since it
+  // happens to match the row-creation default anyway.
+  NIN_VERIFICATION_V1: { label: 'NIN Verification V1', price: 120, provider: 'techhub' },
+  NIN_VERIFICATION_V2: { label: 'NIN Verification V2', price: 120, provider: 'franceverified' }
 };
 
 // Maps the validation_type string Techhub's API (and our own zod enum in
@@ -169,7 +187,7 @@ async function getOrCreateVerificationPricingRow(service: VerificationServiceKey
     return await prisma.servicePricing.create({
       data: {
         service,
-        provider: 'techhub',
+        provider: defaults.provider ?? 'techhub',
         label: defaults.label,
         providerCostKobo: priceToKobo(defaults.price)
       }
@@ -489,6 +507,48 @@ export function purchaseNinByNin(params: { userId: string; nin: string; tier: Ni
       // visual treatment (see IdentitySlipTier); 'standard'/'regular'/'vnin'
       // all render with the same plain look.
       franceverified: () => franceverifiedSlipAdapter.ninByNin(params.nin, params.tier === 'personal' ? undefined : params.tier === 'premium' ? 'premium' : undefined, params.tier === 'personal')
+    }
+  });
+}
+
+/**
+ * "NIN Verification V1" - the user-facing tile that is always Techhub, full
+ * stop. See the SERVICE_KEYS comment on NIN_VERIFICATION_V1/V2: this and
+ * purchaseNinVerificationV2 exist specifically so a customer can route
+ * around a provider outage themselves (pick the other tile) instead of
+ * waiting on an admin to notice and flip ServicePricing.provider on the
+ * shared by-NIN service. Only the 'techhub' branch is implemented on
+ * purpose - if this row's provider is ever misconfigured to
+ * 'franceverified', purchaseSlip's existing PROVIDER_NOT_IMPLEMENTED guard
+ * fails loudly rather than silently doing the wrong thing.
+ */
+export function purchaseNinVerificationV1(params: { userId: string; nin: string; idempotencyKey?: string }) {
+  return purchaseSlip({
+    userId: params.userId,
+    service: 'NIN_VERIFICATION_V1',
+    transactionType: TransactionType.NIN_VERIFICATION,
+    description: 'NIN Verification (V1 - Techhub)',
+    operational: { mode: 'by_nin', tier: 'premium' },
+    pii: { nin: params.nin },
+    idempotencyKey: params.idempotencyKey,
+    callByProvider: {
+      techhub: () => techhubService.ninByNin(params.nin, 'premium')
+    }
+  });
+}
+
+/** "NIN Verification V2" - the FranceVerified-only counterpart to V1 above. */
+export function purchaseNinVerificationV2(params: { userId: string; nin: string; idempotencyKey?: string }) {
+  return purchaseSlip({
+    userId: params.userId,
+    service: 'NIN_VERIFICATION_V2',
+    transactionType: TransactionType.NIN_VERIFICATION,
+    description: 'NIN Verification (V2 - FranceVerified)',
+    operational: { mode: 'by_nin', tier: 'premium' },
+    pii: { nin: params.nin },
+    idempotencyKey: params.idempotencyKey,
+    callByProvider: {
+      franceverified: () => franceverifiedSlipAdapter.ninByNin(params.nin, 'premium', false)
     }
   });
 }

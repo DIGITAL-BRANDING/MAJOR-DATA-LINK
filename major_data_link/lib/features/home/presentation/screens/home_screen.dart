@@ -41,19 +41,28 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
     final notifications =
         notificationsAsync.valueOrNull ?? const <AppNotification>[];
-    // Only notices the admin explicitly flagged "show as popup" when they
-    // composed the broadcast (NotificationBroadcast.showAsPopup on the
-    // backend) auto-show here - everything else (including plain
-    // admin_broadcast/promo/system notifications without that flag) stays
-    // list-only, opened the normal way from the notifications screen.
-    final notice = notifications.cast<AppNotification?>().firstWhere((item) {
-      if (item == null ||
-          item.isRead ||
-          _shownWelcomeNoticeIds.contains(item.id)) {
+    // The latest admin broadcast is the active announcement. Unlike automatic
+    // refund/service notifications, it is shown after every feed refresh and
+    // is replaced only when a newer broadcast arrives. Older popup campaigns
+    // still use the one-time showAsPopup behaviour.
+    final persistentNotice = notifications.cast<AppNotification?>().firstWhere((
+      item,
+    ) {
+      if (item == null || _shownWelcomeNoticeIds.contains(item.id)) {
         return false;
       }
-      return item.showAsPopup;
+      return item.isPersistentBroadcast;
     }, orElse: () => null);
+    final notice =
+        persistentNotice ??
+        notifications.cast<AppNotification?>().firstWhere((item) {
+          if (item == null ||
+              item.isRead ||
+              _shownWelcomeNoticeIds.contains(item.id)) {
+            return false;
+          }
+          return item.showAsPopup;
+        }, orElse: () => null);
 
     final title = notice?.title.isNotEmpty == true
         ? notice!.title
@@ -77,7 +86,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         body: body,
         illustration: PromoIllustration.fromKey(notice?.imageKey),
         onRead: () {
-          if (notice != null) {
+          if (notice != null && !notice.isPersistentBroadcast) {
             ref.read(notificationsProvider.notifier).markRead([notice.id]);
           }
         },
@@ -86,10 +95,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   Future<void> _onRefresh() async {
+    // Allow the active admin announcement to be shown again after a deliberate
+    // user refresh, while a new broadcast naturally has a different ID.
+    _shownWelcomeNoticeIds.clear();
     await Future.wait([
       ref.read(walletNotifierProvider.notifier).refresh(),
       ref.refresh(recentTransactionsProvider.future),
       ref.refresh(bannersProvider.future),
+      ref.read(notificationsProvider.notifier).refresh(),
     ]);
   }
 
@@ -474,19 +487,17 @@ class _MajorAssistantFab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Semantics(
-    label: 'Open MAJOR AI Assistant',
+    label: 'Open live support chat',
     button: true,
     child: Tooltip(
-      message: 'MAJOR AI Assistant',
+      message: 'Live Chat',
       child: FloatingActionButton.extended(
-        heroTag: 'major-ai-fab',
+        heroTag: 'live-chat-fab',
         onPressed: onPressed,
         backgroundColor: AppColors.primary600,
-        icon: const Icon(Icons.waving_hand_rounded, color: Colors.white)
-            .animate(onPlay: (controller) => controller.repeat(reverse: true))
-            .rotate(begin: -0.12, end: 0.12, duration: 700.ms),
+        icon: const Icon(Icons.support_agent_rounded, color: Colors.white),
         label: const Text(
-          'AI Help',
+          'Live Chat',
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
         ),
       ),

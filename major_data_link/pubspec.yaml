@@ -1,7 +1,7 @@
 name: major_data_link
 description: MAJOR DATA-LINK - Premium VTU, Fintech Platform and Identity Services
 publish_to: "none"
-version: 1.0.1+2
+version: 1.0.2+3
 
 environment:
   sdk: ">=3.8.0 <4.0.0"
@@ -131,6 +131,7 @@ dependencies:
   infinite_scroll_pagination: ^4.1.0
   flutter_staggered_animations: ^1.1.1
   speech_to_text: ^7.4.0
+  socket_io_client: ^3.1.2
 
 dev_dependencies:
   flutter_test:

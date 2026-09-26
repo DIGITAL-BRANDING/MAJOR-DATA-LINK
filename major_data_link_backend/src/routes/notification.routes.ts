@@ -30,6 +30,12 @@ notificationRoutes.get('/', async (req, res) => {
       body: n.body,
       type: n.type.toLowerCase(),
       is_read: n.isRead,
+      // A notification with a broadcast ID came from the admin broadcast
+      // system. Clients deliberately keep the newest one visible until an
+      // admin sends a replacement; transaction/refund notifications do not
+      // have this field and retain normal read behaviour.
+      broadcast_id: n.broadcastId,
+      is_persistent_broadcast: n.broadcastId !== null,
       data: n.data,
       image_key: n.imageKey,
       show_as_popup: n.showAsPopup,
@@ -44,6 +50,11 @@ notificationRoutes.post('/read', async (req, res) => {
   await prisma.notification.updateMany({
     where: {
       userId: req.user!.id,
+      // Admin broadcasts are the current announcement, not a one-time
+      // notification. Do not mark them read when a user closes a popup or
+      // opens the notification tray. They remain available until superseded
+      // by a newer broadcast on the client.
+      broadcastId: null,
       ...(body.ids && body.ids.length > 0 ? { id: { in: body.ids } } : {})
     },
     data: { isRead: true, readAt: new Date() }

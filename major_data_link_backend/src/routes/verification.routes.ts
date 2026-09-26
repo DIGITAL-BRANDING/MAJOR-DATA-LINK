@@ -17,6 +17,8 @@ import {
   purchaseNinByDemographic,
   purchaseNinByNin,
   purchaseNinByPhone,
+  purchaseNinVerificationV1,
+  purchaseNinVerificationV2,
   submitBvnRetrieval,
   submitDelinking,
   submitIpeClearance,
@@ -212,6 +214,32 @@ verificationRoutes.post('/nin/by-nin', async (req, res) => {
     userId: req.user!.id,
     nin: body.nin,
     tier: body.tier,
+    idempotencyKey: idempotencyKeyFrom(req)
+  });
+  res.json(slipResponse(result));
+});
+
+// "NIN Verification V1"/"V2" - user-picked provider (Techhub vs
+// FranceVerified) instead of an admin-configured one, so a customer can
+// route around a provider outage themselves. See the SERVICE_KEYS comment
+// on NIN_VERIFICATION_V1/V2 in verification.service.ts.
+verificationRoutes.post('/nin/verification-v1', async (req, res) => {
+  const body = z.object({ nin: z.string().trim().length(11), ...pinField }).parse(req.body);
+  await requirePinConfirmation(req.user!.id, body.pin);
+  const result = await purchaseNinVerificationV1({
+    userId: req.user!.id,
+    nin: body.nin,
+    idempotencyKey: idempotencyKeyFrom(req)
+  });
+  res.json(slipResponse(result));
+});
+
+verificationRoutes.post('/nin/verification-v2', async (req, res) => {
+  const body = z.object({ nin: z.string().trim().length(11), ...pinField }).parse(req.body);
+  await requirePinConfirmation(req.user!.id, body.pin);
+  const result = await purchaseNinVerificationV2({
+    userId: req.user!.id,
+    nin: body.nin,
     idempotencyKey: idempotencyKeyFrom(req)
   });
   res.json(slipResponse(result));

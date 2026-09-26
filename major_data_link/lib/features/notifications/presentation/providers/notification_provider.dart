@@ -29,6 +29,8 @@ class AppNotification {
     this.isRead = false,
     this.imageKey,
     this.showAsPopup = false,
+    this.broadcastId,
+    this.isPersistentBroadcast = false,
   });
 
   final String id;
@@ -39,6 +41,8 @@ class AppNotification {
   final bool isRead;
   final String? imageKey;
   final bool showAsPopup;
+  final String? broadcastId;
+  final bool isPersistentBroadcast;
 
   factory AppNotification.fromJson(Map<String, dynamic> json) {
     return AppNotification(
@@ -57,6 +61,13 @@ class AppNotification {
           json['read'] == true,
       imageKey: json['image_key']?.toString() ?? json['imageKey']?.toString(),
       showAsPopup: json['show_as_popup'] == true || json['showAsPopup'] == true,
+      broadcastId:
+          json['broadcast_id']?.toString() ?? json['broadcastId']?.toString(),
+      isPersistentBroadcast:
+          json['is_persistent_broadcast'] == true ||
+          json['isPersistentBroadcast'] == true ||
+          json['broadcast_id'] != null ||
+          json['broadcastId'] != null,
     );
   }
 
@@ -70,6 +81,8 @@ class AppNotification {
       isRead: isRead ?? this.isRead,
       imageKey: imageKey,
       showAsPopup: showAsPopup,
+      broadcastId: broadcastId,
+      isPersistentBroadcast: isPersistentBroadcast,
     );
   }
 }
@@ -199,7 +212,7 @@ class FcmService {
 
     // Increment unread count from background taps
     FirebaseMessaging.onMessageOpenedApp.listen((_) {
-      _ref.read(unreadNotificationCountProvider.notifier).state++;
+      _refreshNotificationFeed();
     });
   }
 
@@ -231,8 +244,14 @@ class FcmService {
       ),
     );
 
-    // Increment unread count
-    _ref.read(unreadNotificationCountProvider.notifier).state++;
+    // The push contains only a summary. Reload the authenticated feed so an
+    // AdminJS broadcast (including its persistent-popup flag) appears in the
+    // Flutter UI immediately.
+    _refreshNotificationFeed();
+  }
+
+  void _refreshNotificationFeed() {
+    _ref.read(notificationsProvider.notifier).refresh();
   }
 }
 
@@ -252,7 +271,11 @@ class NotificationsNotifier
     final notifications = await remote.getNotifications();
     state = AsyncValue.data(notifications);
     // Sync unread count
-    final unread = notifications.where((n) => !n.isRead).length;
+    // Persistent admin broadcasts are intentionally shown again after a
+    // refresh, so keeping a permanent unread badge for them would be noisy.
+    final unread = notifications
+        .where((n) => !n.isRead && !n.isPersistentBroadcast)
+        .length;
     _ref.read(unreadNotificationCountProvider.notifier).state = unread;
   }
 
@@ -260,7 +283,12 @@ class NotificationsNotifier
     final remote = _ref.read(_notifRemoteProvider);
     await remote.markAllRead();
     state = AsyncValue.data(
-      state.valueOrNull?.map((n) => n.copyWith(isRead: true)).toList() ?? [],
+      state.valueOrNull
+              ?.map(
+                (n) => n.isPersistentBroadcast ? n : n.copyWith(isRead: true),
+              )
+              .toList() ??
+          [],
     );
     _ref.read(unreadNotificationCountProvider.notifier).state = 0;
   }
@@ -271,10 +299,16 @@ class NotificationsNotifier
     final current = state.valueOrNull ?? [];
     final idSet = ids.toSet();
     final updated = current
-        .map((n) => idSet.contains(n.id) ? n.copyWith(isRead: true) : n)
+        .map(
+          (n) => idSet.contains(n.id) && !n.isPersistentBroadcast
+              ? n.copyWith(isRead: true)
+              : n,
+        )
         .toList();
     state = AsyncValue.data(updated);
-    final unread = updated.where((n) => !n.isRead).length;
+    final unread = updated
+        .where((n) => !n.isRead && !n.isPersistentBroadcast)
+        .length;
     _ref.read(unreadNotificationCountProvider.notifier).state = unread;
   }
 

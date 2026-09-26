@@ -38,7 +38,8 @@ class SupportTicket {
       id: json['id']?.toString() ?? '',
       subject: json['subject']?.toString() ?? '',
       status: json['status']?.toString() ?? 'open',
-      createdAt: DateTime.tryParse(json['created_at']?.toString() ?? '') ??
+      createdAt:
+          DateTime.tryParse(json['created_at']?.toString() ?? '') ??
           DateTime.now(),
       lastMessage: json['last_message']?.toString(),
     );
@@ -49,15 +50,15 @@ class SupportTicket {
 }
 
 // ── Ticket providers ───────────────────────────────────────
-final myTicketsProvider =
-    FutureProvider.autoDispose<List<SupportTicket>>((ref) async {
+final myTicketsProvider = FutureProvider.autoDispose<List<SupportTicket>>((
+  ref,
+) async {
   try {
     final dio = ref.read(dioClientProvider);
     final response = await dio.get(AppEndpoints.myTickets);
     final list = (response.data['data'] ?? response.data) as List<dynamic>;
     return list
-        .map((e) =>
-            SupportTicket.fromJson(e as Map<String, dynamic>))
+        .map((e) => SupportTicket.fromJson(e as Map<String, dynamic>))
         .toList();
   } catch (_) {
     return [];
@@ -135,8 +136,10 @@ class _SupportScreenState extends ConsumerState<SupportScreen>
     if (await canLaunchUrl(url)) {
       await launchUrl(url, mode: LaunchMode.externalApplication);
     } else if (mounted) {
-      context.showSnackBar('WhatsApp not available on this device',
-          isError: true);
+      context.showSnackBar(
+        'WhatsApp not available on this device',
+        isError: true,
+      );
     }
   }
 
@@ -162,7 +165,9 @@ class _SupportScreenState extends ConsumerState<SupportScreen>
             Tab(text: 'FAQ'),
           ],
           labelStyle: const TextStyle(
-              fontSize: 13, fontWeight: FontWeight.w700),
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+          ),
         ),
       ),
       body: SafeArea(
@@ -185,7 +190,10 @@ class _SupportScreenState extends ConsumerState<SupportScreen>
 
 // ── Contact tab ────────────────────────────────────────────
 class _ContactTab extends StatelessWidget {
-  const _ContactTab({required this.onWhatsApp, required this.onWhatsAppChannel});
+  const _ContactTab({
+    required this.onWhatsApp,
+    required this.onWhatsAppChannel,
+  });
   final VoidCallback onWhatsApp;
   final VoidCallback onWhatsAppChannel;
 
@@ -197,21 +205,25 @@ class _ContactTab extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const SizedBox(height: 8),
-          Text('How can we help?',
-              style: context.textTheme.headlineSmall
-                  ?.copyWith(fontWeight: FontWeight.w800)),
+          Text(
+            'How can we help?',
+            style: context.textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.w800,
+            ),
+          ),
           const SizedBox(height: 6),
           Text(
             'Our support team is available 24/7. Choose your preferred channel.',
-            style: context.textTheme.bodyMedium
-                ?.copyWith(color: AppColors.neutral500),
+            style: context.textTheme.bodyMedium?.copyWith(
+              color: AppColors.neutral500,
+            ),
           ),
           const SizedBox(height: 24),
 
           _ContactCard(
             icon: Icons.support_agent_rounded,
             title: AppStrings.liveChat,
-            subtitle: 'Chat with MAJOR AI Assistant and our team',
+            subtitle: 'Chat directly with our support team',
             color: AppColors.primary500,
             onTap: () => context.push(RouteNames.liveChat),
           ),
@@ -237,9 +249,8 @@ class _ContactTab extends StatelessWidget {
             title: 'Email support',
             subtitle: AppConfig.supportEmail,
             color: AppColors.secondary500,
-            onTap: () => launchUrl(
-              Uri.parse('mailto:${AppConfig.supportEmail}'),
-            ),
+            onTap: () =>
+                launchUrl(Uri.parse('mailto:${AppConfig.supportEmail}')),
           ),
           const SizedBox(height: 12),
           _ContactCard(
@@ -247,15 +258,13 @@ class _ContactTab extends StatelessWidget {
             title: 'Call support',
             subtitle: AppConfig.supportPhoneAlt,
             color: AppColors.secondary500,
-            onTap: () => launchUrl(
-              Uri.parse('tel:${AppConfig.supportPhoneAlt}'),
-            ),
+            onTap: () =>
+                launchUrl(Uri.parse('tel:${AppConfig.supportPhoneAlt}')),
           ),
           const SizedBox(height: 32),
 
           // ── New ticket ─────────────────────────────────
-          Text('Open a support ticket',
-              style: context.textTheme.titleSmall),
+          Text('Open a support ticket', style: context.textTheme.titleSmall),
           const SizedBox(height: 12),
           _NewTicketForm(),
         ],
@@ -299,17 +308,25 @@ class _ContactCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title,
-                      style: const TextStyle(fontWeight: FontWeight.w700)),
-                  Text(subtitle,
-                      style: const TextStyle(
-                          fontSize: 12,
-                          color: AppColors.neutral500)),
+                  Text(
+                    title,
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: AppColors.neutral500,
+                    ),
+                  ),
                 ],
               ),
             ),
-            Icon(Icons.arrow_forward_ios_rounded,
-                size: 14, color: AppColors.neutral400),
+            Icon(
+              Icons.arrow_forward_ios_rounded,
+              size: 14,
+              color: AppColors.neutral400,
+            ),
           ],
         ),
       ),
@@ -362,8 +379,10 @@ class _NewTicketFormState extends ConsumerState<_NewTicketForm> {
       }
     } catch (e) {
       if (mounted) {
-        context.showSnackBar('Failed to create ticket. Please try again.',
-            isError: true);
+        context.showSnackBar(
+          'Failed to create ticket. Please try again.',
+          isError: true,
+        );
       }
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
@@ -439,9 +458,8 @@ class _TicketsTab extends ConsumerWidget {
             itemBuilder: (context, index) {
               final ticket = tickets[index];
               return KDCard(
-                onTap: () => context.push(
-                  '${RouteNames.support}/tickets/${ticket.id}',
-                ),
+                onTap: () =>
+                    context.push('${RouteNames.support}/tickets/${ticket.id}'),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -450,15 +468,16 @@ class _TicketsTab extends ConsumerWidget {
                         Expanded(
                           child: Text(
                             ticket.subject,
-                            style: const TextStyle(
-                                fontWeight: FontWeight.w700),
+                            style: const TextStyle(fontWeight: FontWeight.w700),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
                         Container(
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 4),
+                            horizontal: 10,
+                            vertical: 4,
+                          ),
                           decoration: BoxDecoration(
                             color: ticket.isOpen
                                 ? AppColors.success50
@@ -483,7 +502,9 @@ class _TicketsTab extends ConsumerWidget {
                       Text(
                         ticket.lastMessage!,
                         style: const TextStyle(
-                            fontSize: 12, color: AppColors.neutral500),
+                          fontSize: 12,
+                          color: AppColors.neutral500,
+                        ),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -492,7 +513,9 @@ class _TicketsTab extends ConsumerWidget {
                     Text(
                       AppFormatters.formatRelativeDate(ticket.createdAt),
                       style: const TextStyle(
-                          fontSize: 11, color: AppColors.neutral400),
+                        fontSize: 11,
+                        color: AppColors.neutral400,
+                      ),
                     ),
                   ],
                 ),
@@ -527,8 +550,7 @@ class _FaqTabState extends State<_FaqTab> {
         final isExpanded = _expanded == index;
 
         return KDCard(
-          onTap: () => setState(
-              () => _expanded = isExpanded ? null : index),
+          onTap: () => setState(() => _expanded = isExpanded ? null : index),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [

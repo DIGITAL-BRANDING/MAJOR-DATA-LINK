@@ -43,7 +43,7 @@ import '../../features/profile/presentation/screens/edit_profile_screen.dart';
 import '../../features/settings/presentation/screens/settings_screen.dart';
 import '../../features/notifications/presentation/screens/notifications_screen.dart';
 import '../../features/support/presentation/screens/support_screen.dart';
-import '../../features/support/presentation/screens/major_ai_assistant_screen.dart';
+import '../../features/support/presentation/screens/live_chat_screen.dart';
 import '../../features/kyc/presentation/screens/kyc_screen.dart';
 import '../../features/airtime_to_cash/presentation/screens/airtime_to_cash_screen.dart';
 import '../../features/admin/presentation/screens/admin_data_pricing_screen.dart';
@@ -423,13 +423,11 @@ final routerProvider = Provider<GoRouter>((ref) {
                     routes: [
                       GoRoute(
                         path: 'chat',
-                        builder: (_, __) => const MajorAiAssistantScreen(),
+                        builder: (_, __) => const LiveChatScreen(),
                       ),
                       GoRoute(
                         path: 'tickets/:id',
-                        builder: (_, state) => MajorAiAssistantScreen(
-                          ticketId: state.pathParameters['id'],
-                        ),
+                        builder: (_, __) => const LiveChatScreen(),
                       ),
                     ],
                   ),

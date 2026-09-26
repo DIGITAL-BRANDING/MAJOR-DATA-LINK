@@ -6,7 +6,7 @@ import { useAuth } from '../lib/auth';
 import { api } from '../lib/api';
 import NotificationPopup from './NotificationPopup';
 
-type Notice = { id: string; title: string; body: string; is_read: boolean; created_at: string };
+type Notice = { id: string; title: string; body: string; is_read: boolean; created_at: string; broadcast_id?: string | null; is_persistent_broadcast?: boolean };
 const serviceLinks = [
   ['NIN Phone Verification', '/nin', IdCard], ['Phone Multiple', '/phone', Phone], ['CAC Services', '/cac', Briefcase], ['BVN Verification', '/bvn', Fingerprint], ['BVN Licence Creation', '/bvn-license', Fingerprint], ['BVN Modification', '/bvn-modification', FilePenLine], ['BVN CRM', '/bvn-crm', Settings2], ['IPE Clearance (Instant)', '/ipe', ShieldCheck], ['Validation', '/validation', CheckCircle2], ['Personalization', '/tracking', MapPin], ['BVN Retrieval', '/bvn-ret', Search], ['Self Service Unlink', '/delink', Unlink], ['NIN Modifications', '/nin-modification', FilePenLine], ['Birth Attestation', '/attestation', Baby], ['TIN Certificate', '/tin', Receipt], ['Newspaper Publication', '/newspaper', Newspaper], ['Demographic Search', '/demo', Search],
 ] as const;
@@ -33,8 +33,9 @@ function NotificationBell() {
   const [items, setItems] = useState<Notice[]>([]); const [open, setOpen] = useState(false);
   const load = () => api.get<{data?: Notice[]}>('/notifications?limit=10').then(r => setItems(r.data ?? [])).catch(() => {});
   useEffect(() => { load(); const timer = window.setInterval(load, 30000); return () => window.clearInterval(timer); }, []);
-  const unread = items.filter(n => !n.is_read).length;
-  async function toggle() { setOpen(v => !v); if (unread) { const ids = items.filter(n => !n.is_read).map(n => n.id); setItems(v => v.map(n => ({...n, is_read: true}))); await api.post('/notifications/read', {ids}).catch(() => {}); } }
+  const isPersistentBroadcast = (notice: Notice) => Boolean(notice.is_persistent_broadcast || notice.broadcast_id);
+  const unread = items.filter(n => !n.is_read && !isPersistentBroadcast(n)).length;
+  async function toggle() { setOpen(v => !v); if (unread) { const ids = items.filter(n => !n.is_read && !isPersistentBroadcast(n)).map(n => n.id); setItems(v => v.map(n => ids.includes(n.id) ? {...n, is_read: true} : n)); await api.post('/notifications/read', {ids}).catch(() => {}); } }
   return <div className="relative"><button onClick={toggle} aria-label="Open notifications" className="relative rounded-xl border border-parchment-line bg-parchment p-2 text-gold-700 hover:bg-gold-50"><Bell size={19}/>{unread > 0 && <span className="absolute -right-1 -top-1 min-w-4 rounded-full bg-ember-500 px-1 text-center text-[10px] font-bold text-white">{unread > 9 ? '9+' : unread}</span>}</button>{open && <section className="absolute right-0 top-12 z-50 w-[min(360px,calc(100vw-32px))] overflow-hidden rounded-2xl border border-parchment-line bg-white shadow-2xl"><header className="flex items-center justify-between border-b border-parchment-line px-4 py-3"><b className="text-sm text-ink">Recent notifications</b><button onClick={() => setOpen(false)} aria-label="Close notifications"><X size={17}/></button></header><div className="max-h-96 overflow-y-auto">{items.length ? items.map(n => <article key={n.id} className="border-b border-slate-100 px-4 py-3 last:border-0"><p className="text-sm font-bold text-ink">{n.title}</p><p className="mt-1 text-xs leading-5 text-ink-600">{n.body}</p><time className="mt-2 block text-[10px] text-slate-400">{new Date(n.created_at).toLocaleString()}</time></article>) : <p className="p-5 text-center text-sm text-ink-600">No notifications yet.</p>}</div></section>}</div>;
 }
 
