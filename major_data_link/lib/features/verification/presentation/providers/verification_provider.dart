@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
@@ -150,6 +152,8 @@ class SlipApiResult {
     this.userData,
     this.pdfBase64,
     this.pdfUrl,
+    this.transactionId,
+    this.documentAvailable = false,
   });
 
   final bool success;
@@ -159,6 +163,11 @@ class SlipApiResult {
   final Map<String, dynamic>? userData;
   final String? pdfBase64;
   final String? pdfUrl;
+
+  /// Owner-scoped server document for the slip. This is preferred to putting
+  /// a potentially large identity PDF in the purchase response.
+  final String? transactionId;
+  final bool documentAvailable;
 
   factory SlipApiResult.fromJson(Map<String, dynamic> json) {
     final data = json['data'] as Map<String, dynamic>? ?? const {};
@@ -172,6 +181,8 @@ class SlipApiResult {
       userData: data['user_data'] as Map<String, dynamic>?,
       pdfBase64: data['pdf_base64']?.toString(),
       pdfUrl: data['pdf_url']?.toString(),
+      transactionId: data['transaction_id']?.toString(),
+      documentAvailable: data['document_available'] == true,
     );
   }
 }
@@ -187,6 +198,8 @@ class VerificationHistoryItem {
     required this.createdAt,
     this.pdfBase64,
     this.pdfUrl,
+    this.transactionId,
+    this.documentAvailable = false,
   });
 
   final String reference;
@@ -194,6 +207,8 @@ class VerificationHistoryItem {
   final DateTime createdAt;
   final String? pdfBase64;
   final String? pdfUrl;
+  final String? transactionId;
+  final bool documentAvailable;
 
   factory VerificationHistoryItem.fromJson(Map<String, dynamic> json) {
     return VerificationHistoryItem(
@@ -204,12 +219,15 @@ class VerificationHistoryItem {
           DateTime.now(),
       pdfBase64: json['pdf_base64']?.toString(),
       pdfUrl: json['pdf_url']?.toString(),
+      transactionId: json['transaction_id']?.toString(),
+      documentAvailable: json['document_available'] == true,
     );
   }
 
   bool get hasPdf =>
       (pdfBase64?.isNotEmpty ?? false) ||
-      (pdfUrl?.startsWith('https://') ?? false);
+      (pdfUrl?.startsWith('https://') ?? false) ||
+      (documentAvailable && (transactionId?.isNotEmpty ?? false));
 }
 
 /// The result of *submitting* one of the five async services — deducts the
@@ -306,6 +324,25 @@ class VerificationRemote {
           .whereType<Map<String, dynamic>>()
           .map(VerificationHistoryItem.fromJson)
           .toList();
+    } on DioException catch (e) {
+      throw ErrorHandler.handleException(e);
+    }
+  }
+
+  /// Fetches the encrypted-at-rest slip through the authenticated, owner-only
+  /// endpoint. The UI can then offer the native save/share sheet without
+  /// ever exposing the PDF in a history response.
+  Future<String> getSlipPdf(String transactionId) async {
+    try {
+      final response = await _dio.get<List<int>>(
+        '/transactions/$transactionId/service-document',
+        options: Options(responseType: ResponseType.bytes),
+      );
+      final bytes = response.data;
+      if (bytes == null || bytes.isEmpty) {
+        throw StateError('The downloaded PDF is empty.');
+      }
+      return base64Encode(bytes);
     } on DioException catch (e) {
       throw ErrorHandler.handleException(e);
     }

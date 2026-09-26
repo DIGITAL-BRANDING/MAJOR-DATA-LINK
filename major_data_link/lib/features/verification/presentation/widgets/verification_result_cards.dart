@@ -14,13 +14,13 @@ import '../providers/verification_provider.dart';
 /// Shown after a slip lookup (NIN by NIN/Phone/Demographic, BVN slip)
 /// completes — success gives the returned identity fields plus PDF
 /// actions, failure shows the provider's message (e.g. "record not found").
-class SlipResultCard extends StatelessWidget {
+class SlipResultCard extends ConsumerWidget {
   const SlipResultCard({super.key, required this.result});
 
   final SlipApiResult result;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     if (!result.success) {
       return KDCard(
         backgroundColor: AppColors.error50,
@@ -94,7 +94,8 @@ class SlipResultCard extends StatelessWidget {
           _row(context, 'Reference', result.reference),
           if (result.balanceAfter != null)
             _row(context, 'Wallet balance', result.balanceAfter!.toNaira),
-          if (result.pdfBase64 != null ||
+          if (result.documentAvailable ||
+              result.pdfBase64 != null ||
               result.pdfUrl?.startsWith('https://') == true) ...[
             const SizedBox(height: 16),
             Row(
@@ -106,21 +107,29 @@ class SlipResultCard extends StatelessWidget {
                     backgroundColor: Colors.white,
                     foregroundColor: AppColors.success700,
                     height: 44,
-                    onPressed: result.pdfBase64 == null
-                        ? null
-                        : () => SlipPdfUtils.print(result.pdfBase64!),
+                    onPressed: () => _retrievePdf(
+                      context,
+                      ref,
+                      pdfBase64: result.pdfBase64,
+                      pdfUrl: result.pdfUrl,
+                      transactionId: result.transactionId,
+                      reference: result.reference,
+                      printPdf: true,
+                    ),
                   ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: KDButton(
-                    label: 'Share',
-                    icon: Icons.share_outlined,
+                    label: 'Download',
+                    icon: Icons.download_rounded,
                     height: 44,
                     onPressed: () => _retrievePdf(
                       context,
+                      ref,
                       pdfBase64: result.pdfBase64,
                       pdfUrl: result.pdfUrl,
+                      transactionId: result.transactionId,
                       reference: result.reference,
                     ),
                   ),
@@ -128,7 +137,8 @@ class SlipResultCard extends StatelessWidget {
               ],
             ),
           ],
-          if (result.pdfBase64 == null &&
+          if (!result.documentAvailable &&
+              result.pdfBase64 == null &&
               result.pdfUrl?.startsWith('https://') != true) ...[
             const SizedBox(height: 12),
             const Text(
@@ -312,15 +322,17 @@ class VerificationHistoryCard extends ConsumerWidget {
                               TextButton.icon(
                                 onPressed: () => _retrievePdf(
                                   context,
+                                  ref,
                                   pdfBase64: item.pdfBase64,
                                   pdfUrl: item.pdfUrl,
+                                  transactionId: item.transactionId,
                                   reference: item.reference,
                                 ),
                                 icon: const Icon(
                                   Icons.download_rounded,
                                   size: 18,
                                 ),
-                                label: const Text('Retrieve PDF'),
+                                label: const Text('Download PDF'),
                               )
                             else
                               Text(
@@ -346,19 +358,29 @@ class VerificationHistoryCard extends ConsumerWidget {
 
 Future<void> _retrievePdf(
   BuildContext context, {
+  required WidgetRef ref,
   required String? pdfBase64,
   required String? pdfUrl,
+  required String? transactionId,
   required String reference,
+  bool printPdf = false,
 }) async {
   try {
-    if (pdfBase64 != null && pdfBase64.isNotEmpty) {
-      await SlipPdfUtils.share(
-        pdfBase64.replaceFirst(
-          RegExp(r'^data:application/pdf;base64,', caseSensitive: false),
-          '',
-        ),
-        reference,
+    final encodedPdf = pdfBase64?.isNotEmpty == true
+        ? pdfBase64!
+        : transactionId?.isNotEmpty == true
+        ? await ref.read(verificationRemoteProvider).getSlipPdf(transactionId!)
+        : null;
+    if (encodedPdf != null) {
+      final cleanedPdf = encodedPdf.replaceFirst(
+        RegExp(r'^data:application/pdf;base64,', caseSensitive: false),
+        '',
       );
+      if (printPdf) {
+        await SlipPdfUtils.print(cleanedPdf);
+        return;
+      }
+      await SlipPdfUtils.share(cleanedPdf, reference);
       return;
     }
     final url = Uri.tryParse(pdfUrl ?? '');
