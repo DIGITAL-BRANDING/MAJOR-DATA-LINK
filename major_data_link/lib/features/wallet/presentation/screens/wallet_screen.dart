@@ -43,6 +43,7 @@ class WalletScreen extends ConsumerWidget {
                     balance: wallet.totalBalance,
                     name: '',
                     accountNumber: wallet.virtualAccountNumber ?? '----------',
+                    bankName: wallet.virtualAccountBank,
                     isBalanceHidden: balanceHidden,
                     onToggleBalance: () =>
                         ref.read(balanceVisibilityProvider.notifier).state =

@@ -223,6 +223,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                             name: user?.fullName ?? '',
                             accountNumber:
                                 user?.virtualAccountNumber ?? '----------',
+                            bankName: user?.virtualAccountBank,
                             isBalanceHidden: balanceHidden,
                             onToggleBalance: () =>
                                 ref
@@ -238,6 +239,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                             name: user?.fullName ?? '',
                             accountNumber:
                                 wallet.virtualAccountNumber ?? '----------',
+                            bankName: wallet.virtualAccountBank,
                             isBalanceHidden: balanceHidden,
                             onToggleBalance: () =>
                                 ref

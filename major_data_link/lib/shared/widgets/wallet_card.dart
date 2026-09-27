@@ -16,6 +16,7 @@ class WalletCard extends StatelessWidget {
     required this.onFund,
     this.onTransfer,
     this.isLoading = false,
+    this.bankName,
   });
 
   final double balance;
@@ -28,6 +29,10 @@ class WalletCard extends StatelessWidget {
   // home dashboard, where transfer-to-another-user was intentionally removed).
   final VoidCallback? onTransfer;
   final bool isLoading;
+  // The dedicated account's bank (e.g. "Wema Bank"). Optional/nullable
+  // because it's only known once KYC/BVN verification has actually issued an
+  // account - null (or the placeholder accountNumber) before that.
+  final String? bankName;
 
   @override
   Widget build(BuildContext context) {
@@ -232,12 +237,25 @@ class WalletCard extends StatelessWidget {
 
                       const SizedBox(height: 4),
                       Text(
-                        'Acct: $accountNumber',
-                        style: TextStyle(
-                          color: AppColors.neutral0.withValues(alpha: 0.6),
-                          fontSize: 12,
+                        accountNumber,
+                        style: const TextStyle(
+                          color: AppColors.neutral0,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 1.2,
                         ),
                       ),
+                      if (bankName != null && bankName!.isNotEmpty) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          bankName!,
+                          style: TextStyle(
+                            color: AppColors.neutral0.withValues(alpha: 0.7),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
 
                       const Spacer(),
 

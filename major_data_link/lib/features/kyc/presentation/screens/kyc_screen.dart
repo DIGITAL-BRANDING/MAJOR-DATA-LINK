@@ -10,16 +10,6 @@ import '../../../../core/utils/extensions.dart';
 import '../../../../shared/widgets/kd_button.dart';
 import '../../../../shared/widgets/kd_text_field.dart';
 
-/// A supported bank returned by GET /kyc/banks, used to populate the picker.
-class _Bank {
-  const _Bank({required this.name, required this.code});
-  final String name;
-  final String code;
-
-  factory _Bank.fromJson(Map<String, dynamic> json) =>
-      _Bank(name: json['name'] as String, code: json['code'] as String);
-}
-
 /// Result of a successful POST /kyc/bvn call - the account details the user
 /// can now fund their wallet with.
 class _ActivatedAccount {
@@ -30,6 +20,19 @@ class _ActivatedAccount {
 
 enum _KycUiState { form, submitting, success }
 
+/// Generates a customer's permanent dedicated account number.
+///
+/// Previously asked for Bank + Bank Account Number (via GET /kyc/banks) in
+/// addition to BVN - that was the older Paystack-specific validation step
+/// (see kyc.service.ts's verifyBvnAndActivateWallet). The currently-live
+/// provider is ZenithPay, whose dedicated-account API only needs the BVN -
+/// this screen had never been updated to match, so it kept collecting and
+/// requiring bank details the backend no longer needs for this flow, and
+/// (since kyc.routes.ts made those fields optional rather than removing them
+/// outright, to stay compatible with a future Paystack switch-back) simply
+/// submitting them here had no effect other than asking the user for more
+/// than necessary. Brought in line with web/src/pages/VerifyAccountPage.tsx,
+/// which only ever asks for BVN.
 class KycScreen extends ConsumerStatefulWidget {
   const KycScreen({super.key});
 
@@ -40,53 +43,19 @@ class KycScreen extends ConsumerStatefulWidget {
 class _KycScreenState extends ConsumerState<KycScreen> {
   final _formKey = GlobalKey<FormState>();
   final _bvnController = TextEditingController();
-  final _accountNumberController = TextEditingController();
 
   _KycUiState _uiState = _KycUiState.form;
-  bool _isLoadingBanks = true;
-  List<_Bank> _banks = [];
-  _Bank? _selectedBank;
   _ActivatedAccount? _activatedAccount;
   String? _errorMessage;
 
   @override
-  void initState() {
-    super.initState();
-    _loadBanks();
-  }
-
-  @override
   void dispose() {
     _bvnController.dispose();
-    _accountNumberController.dispose();
     super.dispose();
-  }
-
-  Future<void> _loadBanks() async {
-    final dio = ref.read(dioClientProvider);
-    try {
-      final response = await dio.get(AppEndpoints.kycBanks);
-      final rawList = (response.data['data'] as List).cast<Map<String, dynamic>>();
-      if (!mounted) return;
-      setState(() {
-        _banks = rawList.map(_Bank.fromJson).toList();
-        _isLoadingBanks = false;
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _isLoadingBanks = false;
-        _errorMessage = 'Could not load bank list. Pull to refresh or try again.';
-      });
-    }
   }
 
   Future<void> _submit() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
-    if (_selectedBank == null) {
-      setState(() => _errorMessage = 'Please select your bank.');
-      return;
-    }
 
     setState(() {
       _uiState = _KycUiState.submitting;
@@ -99,8 +68,6 @@ class _KycScreenState extends ConsumerState<KycScreen> {
         AppEndpoints.verifyBvn,
         data: {
           'bvn': _bvnController.text.trim(),
-          'bank_code': _selectedBank!.code,
-          'account_number': _accountNumberController.text.trim(),
         },
       );
 
@@ -166,12 +133,14 @@ class _KycScreenState extends ConsumerState<KycScreen> {
                   color: context.colors.primary, size: 28),
             ),
             const SizedBox(height: 16),
-            Text('Verify your BVN',
+            Text('Generate Permanent Account Number',
                 style: context.textTheme.headlineSmall
                     ?.copyWith(fontWeight: FontWeight.w800)),
             const SizedBox(height: 8),
             Text(
-              'Verify your Bank Verification Number to activate your dedicated account number. Your BVN is sent securely for verification and is never stored on our servers.',
+              'Verify your BVN once to get a permanent dedicated account number in your name. '
+              'Transfer any amount to it, any time, and your wallet is credited automatically '
+              '\u2014 no need to generate a new account for every funding.',
               style: context.textTheme.bodyMedium
                   ?.copyWith(color: AppColors.neutral500),
             ),
@@ -202,66 +171,13 @@ class _KycScreenState extends ConsumerState<KycScreen> {
               const SizedBox(height: 16),
             ],
 
-            Text('Bank', style: context.textTheme.titleSmall),
-            const SizedBox(height: 8),
-            _isLoadingBanks
-                ? const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 12),
-                    child: LinearProgressIndicator(),
-                  )
-                : DropdownButtonFormField<_Bank>(
-                    initialValue: _selectedBank,
-                    decoration: InputDecoration(
-                      prefixIcon:
-                          const Icon(Icons.account_balance_outlined),
-                      hintText: 'Select your bank',
-                      border: OutlineInputBorder(
-                        borderRadius:
-                            BorderRadius.circular(AppDimensions.radiusMD),
-                      ),
-                    ),
-                    items: _banks
-                        .map((bank) => DropdownMenuItem(
-                              value: bank,
-                              child: Text(bank.name,
-                                  overflow: TextOverflow.ellipsis),
-                            ))
-                        .toList(),
-                    onChanged: isSubmitting
-                        ? null
-                        : (bank) => setState(() => _selectedBank = bank),
-                  ),
-
-            const SizedBox(height: 20),
-            Text('Bank account number', style: context.textTheme.titleSmall),
-            const SizedBox(height: 8),
-            KDTextField(
-              controller: _accountNumberController,
-              label: 'Account number',
-              hint: '10-digit NUBAN linked to your BVN',
-              prefixIcon: Icons.numbers_rounded,
-              keyboardType: TextInputType.number,
-              enabled: !isSubmitting,
-              inputFormatters: [
-                FilteringTextInputFormatter.digitsOnly,
-                LengthLimitingTextInputFormatter(10),
-              ],
-              validator: (v) {
-                if (v == null || v.length != 10) {
-                  return 'Enter a valid 10-digit account number';
-                }
-                return null;
-              },
-              onChanged: (_) => setState(() {}),
-            ),
-
-            const SizedBox(height: 20),
-            Text('BVN', style: context.textTheme.titleSmall),
+            Text('Bank Verification Number (BVN)',
+                style: context.textTheme.titleSmall),
             const SizedBox(height: 8),
             KDTextField(
               controller: _bvnController,
               label: 'BVN',
-              hint: '11-digit Bank Verification Number',
+              hint: 'e.g. 12345678901',
               prefixIcon: Icons.fingerprint_rounded,
               keyboardType: TextInputType.number,
               enabled: !isSubmitting,
@@ -277,10 +193,17 @@ class _KycScreenState extends ConsumerState<KycScreen> {
               },
               onChanged: (_) => setState(() {}),
             ),
+            const SizedBox(height: 8),
+            Text(
+              'Your BVN is used only to verify your identity and issue the account number '
+              '\u2014 it is never stored on our servers.',
+              style: context.textTheme.bodySmall
+                  ?.copyWith(color: AppColors.neutral500),
+            ),
 
             const SizedBox(height: 32),
             KDButton(
-              label: 'Verify and activate wallet',
+              label: 'Generate My Account Number',
               onPressed: isSubmitting ? null : _submit,
               isLoading: isSubmitting,
               gradient: AppColors.primaryGradient,
@@ -330,11 +253,6 @@ class _KycScreenState extends ConsumerState<KycScreen> {
             ),
             child: Column(
               children: [
-                Text(account.bankName,
-                    style: const TextStyle(
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.neutral600)),
-                const SizedBox(height: 8),
                 Text(
                   account.accountNumber,
                   style: const TextStyle(
@@ -342,6 +260,11 @@ class _KycScreenState extends ConsumerState<KycScreen> {
                       fontSize: 24,
                       letterSpacing: 1.5),
                 ),
+                const SizedBox(height: 8),
+                Text(account.bankName,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.neutral600)),
               ],
             ),
           ),
