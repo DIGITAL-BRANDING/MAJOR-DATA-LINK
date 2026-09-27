@@ -1,0 +1,88 @@
+diff --git a/major_data_link_backend/src/routes/notification.routes.ts b/major_data_link_backend/src/routes/notification.routes.ts
+index 4426c8b..926fea3 100644
+--- a/major_data_link_backend/src/routes/notification.routes.ts
++++ b/major_data_link_backend/src/routes/notification.routes.ts
+@@ -50,6 +50,13 @@ notificationRoutes.post('/read', async (req, res) => {
+   await prisma.notification.updateMany({
+     where: {
+       userId: req.user!.id,
++      // Admin broadcasts are never individually marked read - which one is
++      // "current" is decided purely by recency (see NotificationPopup.tsx:
++      // it always shows the newest show_as_popup notification, dismissed
++      // or not, until a newer broadcast supersedes it). Only the ordinary
++      // per-user notifications this route was originally for get marked
++      // read this way.
++      broadcastId: null,
+       ...(body.ids && body.ids.length > 0 ? { id: { in: body.ids } } : {})
+     },
+     data: { isRead: true, readAt: new Date() }
+diff --git a/web/src/components/NotificationPopup.tsx b/web/src/components/NotificationPopup.tsx
+index 3ee6822..1cf84c1 100644
+--- a/web/src/components/NotificationPopup.tsx
++++ b/web/src/components/NotificationPopup.tsx
+@@ -18,22 +18,26 @@ type NotificationItem = {
+  * per dashboard visit (right after login, or whenever the user taps
+  * "Dashboard" in the sidebar), instead of remounting fresh on every single
+  * page navigation the way it did while living in AppShell. That remounting
+- * was the actual cause of a dismissed broadcast reappearing on every page:
+- * each page is its own <AppShell> instance, so this component's local
+- * state reset on every navigation no matter what it tracked client-side.
++ * was the actual cause of a dismissed broadcast reappearing on every OTHER
++ * page too, which is the part that needed fixing - reappearing specifically
++ * on login, on returning to the dashboard, and on refreshing it is the
++ * intended behaviour, by design (see below), not a bug.
+  *
+- * Eligibility for the popup is just `show_as_popup && !is_read` - an admin
+- * opts a broadcast into popup treatment when sending it (see
+- * notification-broadcast.resource.ts's showAsPopup field), and dismissing
+- * marks that one notification read on the server (see the '/read' call in
+- * close() below). Because each recipient gets their own independent
+- * Notification row per broadcast (fanOutBroadcast in
+- * notification.service.ts), that "read" persists across devices, browser
+- * refreshes and future logins - the popup simply never has anything left
+- * to show for it again, and it already sits in the NotificationBell
+- * dropdown ("notification tab") like any other notification. Sending a
+- * newer broadcast creates a fresh, unread row, which naturally becomes the
+- * next thing this picks up.
++ * Eligibility for the popup is just "the single most recent notification
++ * with show_as_popup=true" - an admin opts a broadcast into popup treatment
++ * when sending it (see notification-broadcast.resource.ts's showAsPopup
++ * field). It stays the active popup, reappearing on every fresh mount of
++ * this component (login, dashboard visit, dashboard refresh) REGARDLESS of
++ * is_read or whether it was dismissed on a previous visit - dismissing only
++ * hides it for the rest of THIS mount (so it doesn't immediately pop back
++ * up from the 30s poll below while they're still looking at the page), via
++ * local hiddenIds state that resets on the next mount. It stops being "the
++ * newest" only when an admin sends a further broadcast, at which point that
++ * one takes over here and this one is left sitting in the NotificationBell
++ * dropdown ("notification tab") - which shows every notification
++ * regardless of is_read, so it's still visible there. Nothing is ever
++ * marked read on dismiss; see notification.routes.ts's '/read' route,
++ * which deliberately excludes broadcastId rows for the same reason.
+  */
+ export default function NotificationPopup() {
+   const [notice, setNotice] = useState<NotificationItem | null>(null);
+@@ -47,7 +51,7 @@ export default function NotificationPopup() {
+         .then((response) => {
+           if (!active) return;
+           const items = response.data ?? [];
+-          const next = items.find((item) => item.show_as_popup && !item.is_read && !hiddenIds.includes(item.id));
++          const next = items.find((item) => item.show_as_popup && !hiddenIds.includes(item.id));
+           setNotice(next ?? null);
+         })
+         .catch(() => {
+@@ -59,12 +63,10 @@ export default function NotificationPopup() {
+     return () => { active = false; window.clearInterval(timer); };
+   }, [hiddenIds]);
+ 
+-  const close = async () => {
++  const close = () => {
+     if (!notice) return;
+-    const id = notice.id;
++    setHiddenIds((ids) => [...ids, notice.id]);
+     setNotice(null);
+-    setHiddenIds((ids) => [...ids, id]);
+-    try { await api.post('/notifications/read', { ids: [id] }); } catch { /* best effort - it'll be marked read next time it's fetched and re-dismissed */ }
+   };
+ 
+   if (!notice) return null;

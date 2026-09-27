@@ -50,6 +50,13 @@ notificationRoutes.post('/read', async (req, res) => {
   await prisma.notification.updateMany({
     where: {
       userId: req.user!.id,
+      // Admin broadcasts are never individually marked read - which one is
+      // "current" is decided purely by recency (see NotificationPopup.tsx:
+      // it always shows the newest show_as_popup notification, dismissed
+      // or not, until a newer broadcast supersedes it). Only the ordinary
+      // per-user notifications this route was originally for get marked
+      // read this way.
+      broadcastId: null,
       ...(body.ids && body.ids.length > 0 ? { id: { in: body.ids } } : {})
     },
     data: { isRead: true, readAt: new Date() }
