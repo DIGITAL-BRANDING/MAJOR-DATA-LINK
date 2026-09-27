@@ -11,6 +11,7 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import AppShell from '../components/AppShell';
+import NotificationPopup from '../components/NotificationPopup';
 import { useAuth } from '../lib/auth';
 import { api } from '../lib/api';
 import { SERVICES, TINT_CLASSES } from '../lib/services';
@@ -115,6 +116,7 @@ export default function DashboardPage() {
 
   return (
     <AppShell>
+      <NotificationPopup />
       <h1 className="font-display text-2xl font-bold text-ink-900">
         Hi, {user?.full_name?.split(' ')[0]}
       </h1>

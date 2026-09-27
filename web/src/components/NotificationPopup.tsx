@@ -9,48 +9,62 @@ type NotificationItem = {
   type?: string;
   is_read?: boolean;
   broadcast_id?: string | null;
-  is_persistent_broadcast?: boolean;
+  show_as_popup?: boolean;
   created_at?: string;
 };
 
+/**
+ * Mounted only on DashboardPage - not in AppShell - so it's evaluated once
+ * per dashboard visit (right after login, or whenever the user taps
+ * "Dashboard" in the sidebar), instead of remounting fresh on every single
+ * page navigation the way it did while living in AppShell. That remounting
+ * was the actual cause of a dismissed broadcast reappearing on every page:
+ * each page is its own <AppShell> instance, so this component's local
+ * state reset on every navigation no matter what it tracked client-side.
+ *
+ * Eligibility for the popup is just `show_as_popup && !is_read` - an admin
+ * opts a broadcast into popup treatment when sending it (see
+ * notification-broadcast.resource.ts's showAsPopup field), and dismissing
+ * marks that one notification read on the server (see the '/read' call in
+ * close() below). Because each recipient gets their own independent
+ * Notification row per broadcast (fanOutBroadcast in
+ * notification.service.ts), that "read" persists across devices, browser
+ * refreshes and future logins - the popup simply never has anything left
+ * to show for it again, and it already sits in the NotificationBell
+ * dropdown ("notification tab") like any other notification. Sending a
+ * newer broadcast creates a fresh, unread row, which naturally becomes the
+ * next thing this picks up.
+ */
 export default function NotificationPopup() {
   const [notice, setNotice] = useState<NotificationItem | null>(null);
-  const [dismissed, setDismissed] = useState<string[]>([]);
+  const [hiddenIds, setHiddenIds] = useState<string[]>([]);
 
   useEffect(() => {
     let active = true;
-    const load = async () => {
-      try {
-        const response = await api.get<{ data?: NotificationItem[] }>('/notifications?limit=20');
-        if (!active) return;
-        const items = response.data ?? [];
-        // Admin broadcasts are the active notice. Keep the newest one visible
-        // after a browser refresh until an admin sends another broadcast. A
-        // user may still dismiss it for the current browser session.
-        const activeBroadcast = items.find((item) =>
-          Boolean(item.is_persistent_broadcast || item.broadcast_id) && !dismissed.includes(item.id),
-        );
-        const unread = items.find((item) => !item.is_read && !dismissed.includes(item.id));
-        setNotice(activeBroadcast ?? unread ?? null);
-      } catch {
-        // Notifications are optional; never block access to the services.
-      }
+    const load = () => {
+      api
+        .get<{ data?: NotificationItem[] }>('/notifications?limit=20')
+        .then((response) => {
+          if (!active) return;
+          const items = response.data ?? [];
+          const next = items.find((item) => item.show_as_popup && !item.is_read && !hiddenIds.includes(item.id));
+          setNotice(next ?? null);
+        })
+        .catch(() => {
+          // Notifications are optional; never block access to the services.
+        });
     };
-    void load();
+    load();
     const timer = window.setInterval(load, 30000);
     return () => { active = false; window.clearInterval(timer); };
-  }, [dismissed]);
+  }, [hiddenIds]);
 
   const close = async () => {
     if (!notice) return;
     const id = notice.id;
     setNotice(null);
-    setDismissed((items) => [...items, id]);
-    // Closing an admin broadcast must not consume it. Normal automatic
-    // notifications continue to be marked read as before.
-    if (!(notice.is_persistent_broadcast || notice.broadcast_id)) {
-      try { await api.post('/notifications/read', { ids: [id] }); } catch { /* best effort */ }
-    }
+    setHiddenIds((ids) => [...ids, id]);
+    try { await api.post('/notifications/read', { ids: [id] }); } catch { /* best effort - it'll be marked read next time it's fetched and re-dismissed */ }
   };
 
   if (!notice) return null;

@@ -50,11 +50,6 @@ notificationRoutes.post('/read', async (req, res) => {
   await prisma.notification.updateMany({
     where: {
       userId: req.user!.id,
-      // Admin broadcasts are the current announcement, not a one-time
-      // notification. Do not mark them read when a user closes a popup or
-      // opens the notification tray. They remain available until superseded
-      // by a newer broadcast on the client.
-      broadcastId: null,
       ...(body.ids && body.ids.length > 0 ? { id: { in: body.ids } } : {})
     },
     data: { isRead: true, readAt: new Date() }
