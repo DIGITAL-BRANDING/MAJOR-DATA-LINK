@@ -214,7 +214,19 @@ transactionRoutes.get('/:id/service-document', async (req, res) => {
 // separate, lean endpoint for actual services and never send the encrypted
 // metadata/PDF blob in a list response (one old slip could otherwise make
 // every page load several megabytes slower).
+// Types whose metadata never carries a downloadable slip/certificate or an
+// identity summary (plain VTU purchases). We skip loading and decrypting
+// their metadata entirely - it's never needed to build their history row.
+const TYPES_WITHOUT_DOCUMENTS = new Set(['DATA_PURCHASE', 'AIRTIME_PURCHASE', 'CABLE_PURCHASE', 'ELECTRICITY_PURCHASE', 'SMS']);
+const METADATA_CHUNK_SIZE = 20;
+
 transactionRoutes.get('/services', async (req, res) => {
+  // Lean list query: NO `metadata` column. The old version selected whole
+  // rows, so Postgres shipped (and Node parsed) the sealed PII blob of all
+  // 250 rows - which for identity slips embeds the entire base64 PDF, i.e.
+  // megabytes per row - before anything was decrypted. That is what made
+  // this page take so long that the request timed out ("Unable to load
+  // service history").
   const transactions = await prisma.transaction.findMany({
     where: {
       userId: req.user!.id,
@@ -237,8 +249,55 @@ transactionRoutes.get('/services', async (req, res) => {
       }
     },
     orderBy: { createdAt: 'desc' },
-    take: 250
+    take: 250,
+    select: {
+      id: true,
+      reference: true,
+      type: true,
+      status: true,
+      amountKobo: true,
+      balanceAfterKobo: true,
+      description: true,
+      createdAt: true,
+      updatedAt: true
+    }
   });
+
+  const ids = transactions.map((tx) => tx.id);
+
+  // metadata.service / metadata.tier are the plaintext operational half of
+  // metadata (never the sealed PII half - see sealPII/pii.ts), so Postgres
+  // can extract just those two short strings without sending the blob.
+  type PlainRow = { id: string; service: string | null; tier: string | null };
+  const plainFields: PlainRow[] = ids.length
+    ? await prisma.$queryRaw<PlainRow[]>`
+        SELECT "id", "metadata"->>'service' AS "service", "metadata"->>'tier' AS "tier"
+        FROM "Transaction"
+        WHERE "id" = ANY(${ids})`
+    : [];
+  const plainById = new Map<string, PlainRow>(plainFields.map((row: PlainRow) => [row.id, row]));
+
+  // Document availability + identity-slip summary genuinely need the sealed
+  // PII, so load it - but only for rows that can have one, and a few at a
+  // time, so peak memory is a handful of rows rather than 250 big blobs.
+  const enrichmentById = new Map<string, { document_available: boolean; summary: IdentitySlipSummary }>();
+  const needsMetadata = transactions.filter((tx) => !TYPES_WITHOUT_DOCUMENTS.has(tx.type));
+  for (let i = 0; i < needsMetadata.length; i += METADATA_CHUNK_SIZE) {
+    const chunk = needsMetadata.slice(i, i + METADATA_CHUNK_SIZE);
+    const withMetadata = await prisma.transaction.findMany({
+      where: { id: { in: chunk.map((tx) => tx.id) } },
+      select: { id: true, type: true, metadata: true, updatedAt: true }
+    });
+    for (const tx of withMetadata) {
+      enrichmentById.set(tx.id, {
+        document_available: hasStoredServiceDocument(tx.metadata),
+        summary:
+          tx.type === 'NIN_VERIFICATION' || tx.type === 'BVN_VERIFICATION'
+            ? safeIdentitySlipSummary(tx.metadata, tx.updatedAt)
+            : {}
+      });
+    }
+  }
 
   res.set('Cache-Control', 'no-store');
   res.json({
@@ -251,11 +310,9 @@ transactionRoutes.get('/services', async (req, res) => {
       // TransactionType - tx.type alone can't tell those apart. Every other
       // service type (data, airtime, NIN Modification, CAC, ...) is already
       // 1:1 with its own TransactionType, so this is simply undefined for
-      // them and the frontend groups on tx.type alone in that case. Safe to
-      // expose: this is metadata's plaintext operational half, never the
-      // sealed PII half (see sealPII/pii.ts) - no NIN/BVN/personal data here.
-      const metadata = tx.metadata as { service?: unknown } | null;
-      const service = typeof metadata?.service === 'string' ? metadata.service : undefined;
+      // them and the frontend groups on tx.type alone in that case.
+      const service = plainById.get(tx.id)?.service ?? undefined;
+      const enrichment = enrichmentById.get(tx.id);
       return {
         id: tx.id,
         reference: tx.reference,
@@ -266,10 +323,8 @@ transactionRoutes.get('/services', async (req, res) => {
         balance_after: koboToNaira(tx.balanceAfterKobo),
         description: tx.description,
         created_at: tx.createdAt.toISOString(),
-        document_available: hasStoredServiceDocument(tx.metadata),
-        ...(tx.type === 'NIN_VERIFICATION' || tx.type === 'BVN_VERIFICATION'
-          ? safeIdentitySlipSummary(tx.metadata, tx.updatedAt)
-          : {})
+        document_available: enrichment?.document_available ?? false,
+        ...(enrichment?.summary ?? {})
       };
     })
   });
