@@ -197,6 +197,8 @@ class AppEndpoints {
   static String get adminApplyDataMarkup =>
       '$_base/admin/data-prices/apply-markup';
   static String get adminServicePrices => '$_base/admin/service-prices';
+  static String adminServiceFamilyAvailability(String family) =>
+      '$_base/admin/service-prices/families/$family/availability';
   static String adminServicePrice(String service) =>
       '$_base/admin/service-prices/$service';
   static String get adminBulkServicePrices =>

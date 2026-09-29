@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_dimensions.dart';
 import '../../../../core/router/route_names.dart';
@@ -13,6 +14,7 @@ class VerificationHubItem {
     required this.icon,
     required this.color,
     required this.route,
+    this.availabilityFamily,
   });
 
   final String label;
@@ -20,12 +22,13 @@ class VerificationHubItem {
   final IconData icon;
   final Color color;
   final String route;
+  final String? availabilityFamily;
 }
 
 /// Reusable list hub for a group of verification sub-services — used for
 /// both the NIN group (7 flows) and the BVN group (2 flows) so the two
 /// entry tiles already on the Services grid keep working unchanged.
-class VerificationHubScreen extends StatelessWidget {
+class VerificationHubScreen extends ConsumerWidget {
   const VerificationHubScreen({
     super.key,
     required this.title,
@@ -37,6 +40,7 @@ class VerificationHubScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final availability = ref.watch(verificationAvailabilityProvider).valueOrNull;
     return Scaffold(
       appBar: AppBar(title: Text(title)),
       body: SafeArea(
@@ -47,8 +51,12 @@ class VerificationHubScreen extends StatelessWidget {
           separatorBuilder: (_, __) => const SizedBox(height: 12),
           itemBuilder: (context, index) {
             final item = items[index];
+            final enabled = item.availabilityFamily == null ||
+                availability == null ||
+                availability.entries.any((entry) =>
+                    entry.key.startsWith('${item.availabilityFamily}_') && entry.value);
             return KDCard(
-              onTap: () => context.push(item.route),
+              onTap: enabled ? () => context.push(item.route) : null,
               child: Row(
                 children: [
                   Container(
@@ -79,12 +87,16 @@ class VerificationHubScreen extends StatelessWidget {
                             color: AppColors.neutral500,
                           ),
                         ),
+                        if (!enabled) const Text(
+                          'Not available',
+                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.error600),
+                        ),
                       ],
                     ),
                   ),
-                  const Icon(
+                  Icon(
                     Icons.chevron_right_rounded,
-                    color: AppColors.neutral400,
+                    color: enabled ? AppColors.neutral400 : AppColors.neutral300,
                   ),
                 ],
               ),
@@ -110,6 +122,7 @@ const _ninHubItems = [
     icon: Icons.verified_user_outlined,
     color: AppColors.primary700,
     route: RouteNames.ninVerificationV1,
+    availabilityFamily: 'NIN_VERIFICATION_V1',
   ),
   VerificationHubItem(
     label: 'NIN Verification V2',
@@ -117,6 +130,7 @@ const _ninHubItems = [
     icon: Icons.verified_outlined,
     color: AppColors.secondary600,
     route: RouteNames.ninVerificationV2,
+    availabilityFamily: 'NIN_VERIFICATION_V2',
   ),
   VerificationHubItem(
     label: 'NIN by Phone',

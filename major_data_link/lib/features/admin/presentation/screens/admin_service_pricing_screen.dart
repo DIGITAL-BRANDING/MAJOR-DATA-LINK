@@ -105,9 +105,37 @@ class _AdminServicePricingScreenState
     }
   }
 
+  Future<void> _setVariantAvailability(String family, bool isActive) async {
+    setState(() => _busy = true);
+    try {
+      await ref
+          .read(adminPricingRepositoryProvider)
+          .setNinVerificationVariantAvailability(
+            family: family,
+            isActive: isActive,
+          );
+      ref.invalidate(adminServicePricesProvider);
+      if (mounted) {
+        context.showSnackBar(
+          '${family.replaceAll('_', ' ')} is now ${isActive ? 'available' : 'not available'}',
+        );
+      }
+    } catch (e) {
+      if (mounted) context.showSnackBar(e.toString(), isError: true);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final services = ref.watch(adminServicePricesProvider);
+
+    final allRows = services.valueOrNull ?? const <ServicePriceRow>[];
+    bool variantIsActive(String family) {
+      final rows = allRows.where((row) => row.service.startsWith('${family}_'));
+      return rows.isNotEmpty && rows.every((row) => row.isActive);
+    }
 
     return Scaffold(
       appBar: AppBar(
@@ -312,8 +340,104 @@ class _AdminServicePricingScreenState
           ],
         ),
       ),
+      bottomNavigationBar: allRows.isEmpty
+          ? null
+          : SafeArea(
+              top: false,
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  border: Border(top: BorderSide(color: AppColors.neutral200)),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (_bulkMode && _selectedServices.isNotEmpty) ...[
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          onPressed: _busy ? null : _setBulkPrice,
+                          icon: const Icon(Icons.price_change_outlined),
+                          label: Text(
+                            'Apply one price to ${_selectedServices.length} selected services',
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                    ],
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _VariantAvailabilitySwitch(
+                            label: 'NIN V1',
+                            value: variantIsActive('NIN_VERIFICATION_V1'),
+                            enabled: !_busy,
+                            onChanged: (value) => _setVariantAvailability(
+                              'NIN_VERIFICATION_V1',
+                              value,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _VariantAvailabilitySwitch(
+                            label: 'NIN V2',
+                            value: variantIsActive('NIN_VERIFICATION_V2'),
+                            enabled: !_busy,
+                            onChanged: (value) => _setVariantAvailability(
+                              'NIN_VERIFICATION_V2',
+                              value,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
     );
   }
+}
+
+class _VariantAvailabilitySwitch extends StatelessWidget {
+  const _VariantAvailabilitySwitch({
+    required this.label,
+    required this.value,
+    required this.enabled,
+    required this.onChanged,
+  });
+
+  final String label;
+  final bool value;
+  final bool enabled;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) => DecoratedBox(
+    decoration: BoxDecoration(
+      color: value ? AppColors.success50 : AppColors.neutral100,
+      borderRadius: BorderRadius.circular(10),
+    ),
+    child: Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              '$label ${value ? 'On' : 'Off'}',
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+            ),
+          ),
+          Switch(
+            value: value,
+            onChanged: enabled ? onChanged : null,
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 class _ServicePriceEditResult {

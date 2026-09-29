@@ -143,7 +143,7 @@ verificationRoutes.get('/bvn/license-onboarding/history', async (req, res) => {
 // Personalization, Validation, or IPE request look as though it vanished.
 verificationRoutes.get('/history', async (req, res) => {
   const service = z.string().trim().min(1).max(60).parse(req.query.service);
-  const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const since = new Date(Date.now() - 48 * 60 * 60 * 1000);
   const transactions = await prisma.transaction.findMany({
     where: {
       userId: req.user!.id,
@@ -163,7 +163,25 @@ verificationRoutes.get('/history', async (req, res) => {
   const data = transactions
     .filter((transaction) => {
       const metadata = transaction.metadata as Record<string, unknown> | null;
-      return metadata?.service === service;
+      const storedService = typeof metadata?.service === 'string'
+        ? metadata.service.toUpperCase()
+        : '';
+      if (storedService === service.toUpperCase()) return true;
+
+      // Records created before metadata.service was introduced still belong
+      // in the customer's recent-request panel. They cannot be identified by
+      // tier reliably, but showing the matching broad service is far better
+      // than making an already-paid slip appear to have disappeared.
+      if (storedService) return false;
+      if (service.startsWith('NIN_')) {
+        return transaction.type === TransactionType.NIN_VERIFICATION ||
+          transaction.type === TransactionType.IDENTITY_SERVICE_REQUEST;
+      }
+      if (service.startsWith('BVN_')) {
+        return transaction.type === TransactionType.BVN_VERIFICATION ||
+          transaction.type === TransactionType.IDENTITY_SERVICE_REQUEST;
+      }
+      return false;
     })
     .slice(0, 10)
     .map((transaction) => {
@@ -175,9 +193,13 @@ verificationRoutes.get('/history', async (req, res) => {
       const userData = pii?.user_data as Record<string, unknown> | undefined;
       const documentAvailable =
         (typeof pii?.pdf_base64 === 'string' && pii.pdf_base64.trim().length > 0) ||
+        (typeof pii?.pdfBase64 === 'string' && pii.pdfBase64.trim().length > 0) ||
         (typeof userData?.pdf_base64 === 'string' && userData.pdf_base64.trim().length > 0) ||
+        (typeof userData?.pdfBase64 === 'string' && userData.pdfBase64.trim().length > 0) ||
         (typeof pii?.pdf_url === 'string' && pii.pdf_url.trim().length > 0) ||
+        (typeof pii?.pdfUrl === 'string' && pii.pdfUrl.trim().length > 0) ||
         (typeof userData?.pdf_url === 'string' && userData.pdf_url.trim().length > 0) ||
+        (typeof userData?.pdfUrl === 'string' && userData.pdfUrl.trim().length > 0) ||
         (typeof userData?.slip_url === 'string' && userData.slip_url.trim().length > 0);
       return {
         transaction_id: transaction.id,

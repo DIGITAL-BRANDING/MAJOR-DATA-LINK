@@ -232,6 +232,25 @@ adminApiRoutes.post('/service-prices/bulk', requireFinanceAdmin, async (req, res
   res.json({ status: true, data: { updated: result.count, selling_price: body.selling_price } });
 });
 
+// V1 and V2 are customer-facing provider variants, each made up of five
+// independently-priced tiers. The admin needs one switch per variant rather
+// than having to toggle every tier by hand.
+adminApiRoutes.patch('/service-prices/families/:family/availability', requireFinanceAdmin, async (req, res) => {
+  const family = z.enum(['NIN_VERIFICATION_V1', 'NIN_VERIFICATION_V2']).parse(routeParam(req.params.family).toUpperCase());
+  const body = z.object({ is_active: z.boolean() }).parse(req.body);
+  const result = await prisma.servicePricing.updateMany({
+    where: { service: { startsWith: `${family}_` } },
+    data: { isActive: body.is_active }
+  });
+  await logAdminAction({
+    adminId: req.admin!.id,
+    action: 'SET_NIN_VERIFICATION_VARIANT_AVAILABILITY',
+    targetType: 'ServicePricing',
+    metadata: { family, isActive: body.is_active, updated: result.count }
+  });
+  res.json({ status: true, data: { family, is_active: body.is_active, updated: result.count } });
+});
+
 // Partner lookup for the Flutter admin app - JSON twin of /admin/partner-lookup.
 // Read-only and open to any admin role (support staff field partner questions
 // with this), exactly like the web page's search; wallet credit/debit stays on

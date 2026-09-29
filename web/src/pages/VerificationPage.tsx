@@ -696,13 +696,13 @@ function VerificationHistoryView({
     <section className="mt-8 border-t border-parchment-line pt-5">
       <div className="flex items-baseline justify-between gap-3">
         <h3 className="font-display text-base font-bold text-ink">Recent requests</h3>
-        <span className="font-body text-xs text-ink-600">Available for 24 hours</span>
+        <span className="font-body text-xs text-ink-600">Available for 48 hours</span>
       </div>
       {loading ? (
         <p className="mt-3 font-body text-sm text-ink-600">Loading recent requests…</p>
       ) : history.length === 0 ? (
         <p className="mt-3 rounded-xl border border-dashed border-parchment-line px-4 py-4 font-body text-sm text-ink-600">
-          No request for this service in the last 24 hours.
+          No request for this service in the last 48 hours.
         </p>
       ) : (
         <div className="mt-3 divide-y divide-parchment-line overflow-hidden rounded-xl border border-parchment-line bg-cream">

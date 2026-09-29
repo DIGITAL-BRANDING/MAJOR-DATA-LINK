@@ -81,7 +81,9 @@ function storedServiceDocument(metadata: unknown): StoredServiceDocument | null 
     { value: pii?.certificate_pdf_base64, label: 'certificate' },
     { value: pii?.submission_pdf_base64, label: 'submission form' },
     { value: pii?.pdf_base64, label: 'service slip' },
+    { value: pii?.pdfBase64, label: 'service slip' },
     { value: userData?.pdf_base64, label: 'service slip' },
+    { value: userData?.pdfBase64, label: 'service slip' },
     // A few older locally-generated records used this top-level field.
     { value: record.pdf_base64, label: 'service document' }
   ];
@@ -96,7 +98,9 @@ function storedServiceDocument(metadata: unknown): StoredServiceDocument | null 
         // list/purchase response.
         const urlCandidates: Array<{ value: unknown; label: string }> = [
           { value: pii?.pdf_url, label: 'service slip' },
+          { value: pii?.pdfUrl, label: 'service slip' },
           { value: userData?.pdf_url, label: 'service slip' },
+          { value: userData?.pdfUrl, label: 'service slip' },
           { value: userData?.slip_url, label: 'service slip' }
         ];
         const remote = urlCandidates.find(({ value }) => typeof value === 'string' && value.trim().length > 0);
@@ -269,12 +273,22 @@ transactionRoutes.get('/services', async (req, res) => {
   // metadata (never the sealed PII half - see sealPII/pii.ts), so Postgres
   // can extract just those two short strings without sending the blob.
   type PlainRow = { id: string; service: string | null; tier: string | null };
-  const plainFields: PlainRow[] = ids.length
-    ? await prisma.$queryRaw<PlainRow[]>`
+  // This is deliberately best-effort. A database/proxy incompatibility in
+  // the JSON projection must never make the whole Service History page fail;
+  // the ordinary transaction fields below are enough to render every row.
+  let plainFields: PlainRow[] = [];
+  if (ids.length) {
+    try {
+      plainFields = await prisma.$queryRaw<PlainRow[]>`
         SELECT "id", "metadata"->>'service' AS "service", "metadata"->>'tier' AS "tier"
         FROM "Transaction"
-        WHERE "id" = ANY(${ids})`
-    : [];
+        WHERE "id" = ANY(${ids})`;
+    } catch (error) {
+      console.warn('[transactions] service history metadata projection failed; returning ungrouped records', {
+        error: error instanceof Error ? error.name : 'unknown'
+      });
+    }
+  }
   const plainById = new Map<string, PlainRow>(plainFields.map((row: PlainRow) => [row.id, row]));
 
   // Document availability + identity-slip summary genuinely need the sealed
@@ -284,17 +298,23 @@ transactionRoutes.get('/services', async (req, res) => {
   const needsMetadata = transactions.filter((tx) => !TYPES_WITHOUT_DOCUMENTS.has(tx.type));
   for (let i = 0; i < needsMetadata.length; i += METADATA_CHUNK_SIZE) {
     const chunk = needsMetadata.slice(i, i + METADATA_CHUNK_SIZE);
-    const withMetadata = await prisma.transaction.findMany({
-      where: { id: { in: chunk.map((tx) => tx.id) } },
-      select: { id: true, type: true, metadata: true, updatedAt: true }
-    });
-    for (const tx of withMetadata) {
-      enrichmentById.set(tx.id, {
-        document_available: hasStoredServiceDocument(tx.metadata),
-        summary:
-          tx.type === 'NIN_VERIFICATION' || tx.type === 'BVN_VERIFICATION'
-            ? safeIdentitySlipSummary(tx.metadata, tx.updatedAt)
-            : {}
+    try {
+      const withMetadata = await prisma.transaction.findMany({
+        where: { id: { in: chunk.map((tx) => tx.id) } },
+        select: { id: true, type: true, metadata: true, updatedAt: true }
+      });
+      for (const tx of withMetadata) {
+        enrichmentById.set(tx.id, {
+          document_available: hasStoredServiceDocument(tx.metadata),
+          summary:
+            tx.type === 'NIN_VERIFICATION' || tx.type === 'BVN_VERIFICATION'
+              ? safeIdentitySlipSummary(tx.metadata, tx.updatedAt)
+              : {}
+        });
+      }
+    } catch (error) {
+      console.warn('[transactions] service history enrichment chunk failed; continuing without documents for this chunk', {
+        error: error instanceof Error ? error.name : 'unknown'
       });
     }
   }

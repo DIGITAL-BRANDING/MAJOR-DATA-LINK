@@ -532,6 +532,14 @@ class AdminPricingRepository {
     return int.tryParse(data['updated']?.toString() ?? '0') ?? 0;
   }
 
+  Future<void> setNinVerificationVariantAvailability({
+    required String family,
+    required bool isActive,
+  }) => _dio.patch(
+    AppEndpoints.adminServiceFamilyAvailability(family),
+    data: {'is_active': isActive},
+  );
+
   /// Returns null when no partner matches (backend answers 404).
   Future<PartnerLookupResult?> lookupPartner(String query) async {
     try {

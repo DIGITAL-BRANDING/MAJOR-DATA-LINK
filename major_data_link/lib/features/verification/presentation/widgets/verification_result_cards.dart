@@ -258,7 +258,7 @@ class VerificationHistoryCard extends ConsumerWidget {
               Text('Recent requests', style: context.textTheme.titleSmall),
               const Spacer(),
               const Text(
-                'Last 7 days',
+                'Last 48 hours',
                 style: TextStyle(fontSize: 12, color: AppColors.neutral500),
               ),
               IconButton(
@@ -285,7 +285,7 @@ class VerificationHistoryCard extends ConsumerWidget {
                 return const Padding(
                   padding: EdgeInsets.only(top: 8),
                   child: Text(
-                    'No completed request for this service in the last 7 days.',
+                    'No request for this service in the last 48 hours.',
                   ),
                 );
               }
@@ -332,7 +332,7 @@ class VerificationHistoryCard extends ConsumerWidget {
                                   Icons.download_rounded,
                                   size: 18,
                                 ),
-                                label: const Text('Download PDF'),
+                                label: const Text('Retrieve PDF'),
                               )
                             else
                               Text(

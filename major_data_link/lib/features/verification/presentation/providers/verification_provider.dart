@@ -244,8 +244,8 @@ class SlipApiResult {
   }
 }
 
-/// Completed verification results remain retrievable for seven days. Pending
-/// asynchronous jobs appear only after the backend marks them successful.
+/// Verification results remain visible in each service's recent-request
+/// panel for 48 hours. Pending asynchronous jobs appear immediately.
 /// Identity fields are deliberately not included in this list; only the
 /// generated PDF (when the provider supplied one) can be retrieved.
 class VerificationHistoryItem {
@@ -368,6 +368,19 @@ class VerificationRemote {
     } on DioException catch (e) {
       throw ErrorHandler.handleException(e);
     }
+  }
+
+  /// Availability is kept alongside price rows by the backend. It is read
+  /// separately so existing price consumers stay simple while service hubs
+  /// can prevent navigation into an administrator-disabled service.
+  Future<Map<String, bool>> getAvailability() async {
+    final response = await _dio.get(AppEndpoints.verificationPrices);
+    final list = (response.data['data'] as List?) ?? const [];
+    return {
+      for (final row in list)
+        if (row is Map && row['service'] != null)
+          row['service'].toString(): row['isActive'] == true,
+    };
   }
 
   Future<List<VerificationHistoryItem>> getHistory(String service) async {
@@ -589,6 +602,11 @@ class VerificationRemote {
 final verificationPricesProvider =
     FutureProvider.autoDispose<Map<String, double>>((ref) {
       return ref.read(verificationRemoteProvider).getPrices();
+    });
+
+final verificationAvailabilityProvider =
+    FutureProvider.autoDispose<Map<String, bool>>((ref) {
+      return ref.read(verificationRemoteProvider).getAvailability();
     });
 
 final verificationHistoryProvider = FutureProvider.autoDispose
