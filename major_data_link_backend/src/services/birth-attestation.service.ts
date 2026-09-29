@@ -108,19 +108,23 @@ async function getOrCreatePricingRow() {
   }
 }
 
-export async function getBirthAttestationPrice() {
+export async function getBirthAttestationPrice(opts: { forPartner?: boolean } = {}) {
   const row = await getOrCreatePricingRow();
   if (!row.isActive) {
     throw new ApiError(422, `${row.label} is currently unavailable`, 'SERVICE_INACTIVE');
   }
-  const unitKobo = row.sellingPriceKobo ?? row.providerCostKobo;
+  // API Partners are charged partnerSellingPriceKobo when the admin set one
+  // (Partner Pricing page), otherwise the same retail fallback as before.
+  const unitKobo = opts.forPartner
+    ? (row.partnerSellingPriceKobo ?? row.sellingPriceKobo ?? row.providerCostKobo)
+    : (row.sellingPriceKobo ?? row.providerCostKobo);
   return { unitPrice: koboToNaira(unitKobo), providerCostKobo: row.providerCostKobo };
 }
 
 /** Shape matching listVerificationPricesForAdmin() - for the shared /admin/service-status page. */
 export async function listBirthAttestationPriceForAdmin() {
   const row = await getOrCreatePricingRow();
-  return [{ service: row.service, label: row.label, provider: row.provider, is_active: row.isActive }];
+  return [{ service: row.service, label: row.label, provider: row.provider, provider_cost: koboToNaira(row.providerCostKobo), selling_price: row.sellingPriceKobo ? koboToNaira(row.sellingPriceKobo) : null, partner_selling_price: row.partnerSellingPriceKobo ? koboToNaira(row.partnerSellingPriceKobo) : null, is_active: row.isActive }];
 }
 
 /** Renders exactly what the customer submitted into a PDF, photo included -

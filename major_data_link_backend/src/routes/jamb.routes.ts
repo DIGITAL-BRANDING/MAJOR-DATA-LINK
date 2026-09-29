@@ -7,6 +7,7 @@ import { pinField, requirePinConfirmation } from '../lib/require-pin.js';
 import { notifyUser } from '../services/notification.service.js';
 import { debitWallet } from '../services/wallet.service.js';
 import { requireServiceActive } from '../lib/service-status.js';
+import { JAMB_SERVICE_DEFAULTS, getJambServicePrice, listJambServices, type JambServiceId } from '../services/jamb-pricing.service.js';
 
 export const jambRoutes = Router();
 
@@ -17,13 +18,9 @@ jambRoutes.use(requireAuth);
  * browser. Exported so admin/jamb.ts (the "fulfil this request" admin page)
  * can show the same label without redefining this table a second time.
  */
-export const JAMB_SERVICES = {
-  cbt_practice_software: { label: 'JAMB CBT Practice Software', price: 5000 },
-  original_result: { label: 'JAMB Original Result', price: 2500 },
-  admission_letter: { label: 'JAMB Admission Letter', price: 2000 },
-  exam_slip: { label: 'JAMB Exam Slip', price: 500 },
-  result_slip: { label: 'JAMB Result Slip', price: 800 }
-} as const;
+// Kept as an exported catalogue for request validation and partner routes.
+// Actual customer/partner prices come from ServicePricing, not this default.
+export const JAMB_SERVICES = JAMB_SERVICE_DEFAULTS;
 
 const jambServiceIds = Object.keys(JAMB_SERVICES) as [keyof typeof JAMB_SERVICES, ...(keyof typeof JAMB_SERVICES)[]];
 
@@ -32,10 +29,10 @@ function idempotencyKeyFrom(req: Request) {
   return value && value.trim().length > 0 ? value.trim() : undefined;
 }
 
-jambRoutes.get('/services', (_req, res) => {
+jambRoutes.get('/services', async (_req, res) => {
   res.json({
     status: true,
-    data: Object.entries(JAMB_SERVICES).map(([id, service]) => ({ id, ...service }))
+    data: await listJambServices()
   });
 });
 
@@ -64,16 +61,16 @@ jambRoutes.post('/requests', async (req, res) => {
 
   await requirePinConfirmation(req.user!.id, body.pin);
   await requireServiceActive('JAMB_SERVICE_REQUEST', 'JAMB Services');
-  const selected = JAMB_SERVICES[body.service];
+  const selected = await getJambServicePrice(body.service as JambServiceId);
   const debit = await debitWallet({
     userId: req.user!.id,
-    amount: selected.price,
+    amount: selected.unitPrice,
     type: TransactionType.JAMB_SERVICE_REQUEST,
     description: `${selected.label} request`,
     metadata: {
       service: 'JAMB_SERVICE_REQUEST',
       jamb_service: body.service,
-      unit_price: selected.price,
+      unit_price: selected.unitPrice,
       pii: sealPII({
         registration_number: body.registration_number,
         candidate_full_name: body.candidate_full_name,
@@ -96,7 +93,7 @@ jambRoutes.post('/requests', async (req, res) => {
     userId: req.user!.id,
     type: 'TRANSACTION',
     title: 'JAMB request received',
-    body: `₦${selected.price.toLocaleString()} was deducted for ${selected.label}. Reference: ${debit.reference}. We will notify you when it is ready.`,
+    body: `₦${selected.unitPrice.toLocaleString()} was deducted for ${selected.label}. Reference: ${debit.reference}. We will notify you when it is ready.`,
     data: { transactionId: debit.transaction.id, reference: debit.reference }
   }).catch(() => undefined);
 

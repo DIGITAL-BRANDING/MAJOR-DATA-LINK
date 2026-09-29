@@ -181,12 +181,20 @@ class ServicePriceRow {
     required this.providerCost,
     required this.sellingPrice,
     required this.isActive,
+    this.partnerSellingPrice,
+    this.group = '',
   });
 
   final String service;
   final String label;
   final double providerCost;
   final double? sellingPrice;
+  // What API Partners are charged. Null = the admin never set one, so the
+  // backend falls back to the retail price (then to cost).
+  final double? partnerSellingPrice;
+  // Service family (Result Pin, NIN/BVN, CAC, ...) - only used to label and
+  // search the list; the backend sends it with every row.
+  final String group;
   final bool isActive;
 
   factory ServicePriceRow.fromJson(Map<String, dynamic> json) {
@@ -197,6 +205,10 @@ class ServicePriceRow {
       sellingPrice: json['selling_price'] == null
           ? null
           : _num(json['selling_price']),
+      partnerSellingPrice: json['partner_selling_price'] == null
+          ? null
+          : _num(json['partner_selling_price']),
+      group: json['group']?.toString() ?? '',
       isActive: json['is_active'] == true,
     );
   }
@@ -204,6 +216,104 @@ class ServicePriceRow {
   static double _num(dynamic value) {
     if (value is num) return value.toDouble();
     return double.tryParse(value?.toString() ?? '') ?? 0;
+  }
+}
+
+/// One partner found by the admin "Partner Lookup" search.
+class PartnerLookupResult {
+  const PartnerLookupResult({
+    required this.id,
+    required this.businessName,
+    required this.email,
+    required this.phone,
+    required this.status,
+    required this.walletBalance,
+    required this.virtualAccountNumber,
+    required this.virtualAccountBank,
+    required this.todayCalls,
+    required this.totalCalls,
+    required this.totalSpend,
+    required this.successfulCalls,
+    required this.failedCalls,
+    required this.activeApiKeys,
+    required this.revokedApiKeys,
+    required this.lastPortalLoginAt,
+    required this.recent,
+  });
+
+  final String id, businessName, email, phone, status;
+  final String? virtualAccountNumber, virtualAccountBank;
+  final double walletBalance, totalSpend;
+  final int todayCalls, totalCalls, successfulCalls, failedCalls;
+  final int activeApiKeys, revokedApiKeys;
+  final DateTime? lastPortalLoginAt;
+  final List<PartnerTransactionRow> recent;
+
+  factory PartnerLookupResult.fromJson(Map<String, dynamic> json) {
+    final partner = Map<String, dynamic>.from(json['partner'] as Map? ?? {});
+    final summary = Map<String, dynamic>.from(json['summary'] as Map? ?? {});
+    final keys = Map<String, dynamic>.from(json['api_keys'] as Map? ?? {});
+    int i(dynamic v) => int.tryParse(v?.toString() ?? '') ?? 0;
+    double d(dynamic v) =>
+        v is num ? v.toDouble() : double.tryParse(v?.toString() ?? '') ?? 0;
+    return PartnerLookupResult(
+      id: partner['id']?.toString() ?? '',
+      businessName: partner['business_name']?.toString() ?? '',
+      email: partner['email']?.toString() ?? '',
+      phone: partner['phone']?.toString() ?? '',
+      status: partner['status']?.toString() ?? '',
+      walletBalance: d(partner['wallet_balance']),
+      virtualAccountNumber: partner['virtual_account_number']?.toString(),
+      virtualAccountBank: partner['virtual_account_bank']?.toString(),
+      lastPortalLoginAt: DateTime.tryParse(
+        partner['last_portal_login_at']?.toString() ?? '',
+      ),
+      todayCalls: i(summary['today_calls']),
+      totalCalls: i(summary['total_calls']),
+      totalSpend: d(summary['total_spend']),
+      successfulCalls: i(summary['successful_calls']),
+      failedCalls: i(summary['failed_calls']),
+      activeApiKeys: i(keys['active']),
+      revokedApiKeys: i(keys['revoked']),
+      recent: ((json['recent_transactions'] ?? const []) as List)
+          .map(
+            (e) => PartnerTransactionRow.fromJson(
+              Map<String, dynamic>.from(e as Map),
+            ),
+          )
+          .toList(),
+    );
+  }
+}
+
+class PartnerTransactionRow {
+  const PartnerTransactionRow({
+    required this.reference,
+    required this.type,
+    required this.status,
+    required this.amount,
+    required this.description,
+    required this.createdAt,
+  });
+
+  final String reference, type, status, description;
+  final double amount;
+  final DateTime createdAt;
+
+  factory PartnerTransactionRow.fromJson(Map<String, dynamic> json) {
+    final amount = json['amount'];
+    return PartnerTransactionRow(
+      reference: json['reference']?.toString() ?? '',
+      type: json['type']?.toString() ?? '',
+      status: json['status']?.toString() ?? '',
+      amount: amount is num
+          ? amount.toDouble()
+          : double.tryParse(amount?.toString() ?? '') ?? 0,
+      description: json['description']?.toString() ?? '',
+      createdAt:
+          DateTime.tryParse(json['created_at']?.toString() ?? '') ??
+          DateTime.fromMillisecondsSinceEpoch(0),
+    );
   }
 }
 
@@ -389,8 +499,11 @@ class AdminPricingRepository {
     required String service,
     double? sellingPrice,
     double? providerCost,
+    double? partnerSellingPrice,
     bool? isActive,
     bool resetToDefault = false,
+    // Clears the partner price so partners fall back to the retail price.
+    bool resetPartnerPrice = false,
   }) async {
     await _dio.patch(
       AppEndpoints.adminServicePrice(service),
@@ -398,10 +511,38 @@ class AdminPricingRepository {
         if (resetToDefault) 'selling_price': null,
         if (!resetToDefault && sellingPrice != null)
           'selling_price': sellingPrice,
+        if (resetPartnerPrice) 'partner_selling_price': null,
+        if (!resetPartnerPrice && partnerSellingPrice != null)
+          'partner_selling_price': partnerSellingPrice,
         if (providerCost != null) 'provider_cost': providerCost,
         if (isActive != null) 'is_active': isActive,
       },
     );
+  }
+
+  Future<int> setBulkServicePrice({
+    required Iterable<String> services,
+    required double sellingPrice,
+  }) async {
+    final response = await _dio.post(
+      AppEndpoints.adminBulkServicePrices,
+      data: {'services': services.toList(), 'selling_price': sellingPrice},
+    );
+    final data = response.data['data'] as Map<String, dynamic>? ?? const {};
+    return int.tryParse(data['updated']?.toString() ?? '0') ?? 0;
+  }
+
+  /// Returns null when no partner matches (backend answers 404).
+  Future<PartnerLookupResult?> lookupPartner(String query) async {
+    try {
+      final response = await _dio.get(AppEndpoints.adminPartnerLookup(query));
+      return PartnerLookupResult.fromJson(
+        Map<String, dynamic>.from(response.data['data'] as Map),
+      );
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 404) return null;
+      rethrow;
+    }
   }
 
   ProviderBalanceBundle _providerBalanceBundleFromResponse(Response response) {

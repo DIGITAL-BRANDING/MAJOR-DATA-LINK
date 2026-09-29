@@ -12,7 +12,9 @@ import '../providers/verification_provider.dart';
 import '../widgets/tier_selector.dart';
 import '../widgets/verification_result_cards.dart';
 
-const _priceKeyFor = {
+enum NinVerificationVariant { defaultRoute, v1, v2 }
+
+const _normalPriceKeyFor = {
   SlipTier.premium: VerificationService.ninSlipPremium,
   SlipTier.standard: VerificationService.ninSlipStandard,
   SlipTier.regular: VerificationService.ninSlipRegular,
@@ -20,8 +22,29 @@ const _priceKeyFor = {
   SlipTier.personal: VerificationService.ninPersonalInfoSlip,
 };
 
+const _v1PriceKeyFor = {
+  SlipTier.premium: VerificationService.ninVerificationV1Premium,
+  SlipTier.standard: VerificationService.ninVerificationV1Standard,
+  SlipTier.regular: VerificationService.ninVerificationV1Regular,
+  SlipTier.vnin: VerificationService.ninVerificationV1Vnin,
+  SlipTier.personal: VerificationService.ninVerificationV1Personal,
+};
+
+const _v2PriceKeyFor = {
+  SlipTier.premium: VerificationService.ninVerificationV2Premium,
+  SlipTier.standard: VerificationService.ninVerificationV2Standard,
+  SlipTier.regular: VerificationService.ninVerificationV2Regular,
+  SlipTier.vnin: VerificationService.ninVerificationV2Vnin,
+  SlipTier.personal: VerificationService.ninVerificationV2Personal,
+};
+
 class NinByNinScreen extends ConsumerStatefulWidget {
-  const NinByNinScreen({super.key});
+  const NinByNinScreen({
+    super.key,
+    this.variant = NinVerificationVariant.defaultRoute,
+  });
+
+  final NinVerificationVariant variant;
   @override
   ConsumerState<NinByNinScreen> createState() => _NinByNinScreenState();
 }
@@ -31,6 +54,19 @@ class _NinByNinScreenState extends ConsumerState<NinByNinScreen>
   final _ninController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
   SlipTier _tier = SlipTier.standard;
+
+  Map<SlipTier, VerificationService> get _priceKeyFor =>
+      switch (widget.variant) {
+        NinVerificationVariant.defaultRoute => _normalPriceKeyFor,
+        NinVerificationVariant.v1 => _v1PriceKeyFor,
+        NinVerificationVariant.v2 => _v2PriceKeyFor,
+      };
+
+  String get _title => switch (widget.variant) {
+    NinVerificationVariant.defaultRoute => 'NIN by NIN',
+    NinVerificationVariant.v1 => 'NIN Verification V1',
+    NinVerificationVariant.v2 => 'NIN Verification V2',
+  };
 
   @override
   void dispose() {
@@ -48,13 +84,26 @@ class _NinByNinScreenState extends ConsumerState<NinByNinScreen>
     );
     if (pin == null || !mounted) return;
 
-    await ref
-        .read(slipFlowProvider.notifier)
-        .submit(
-          () => ref
-              .read(verificationRemoteProvider)
-              .ninByNin(nin: _ninController.text.trim(), tier: _tier, pin: pin),
-        );
+    await ref.read(slipFlowProvider.notifier).submit(() {
+      final remote = ref.read(verificationRemoteProvider);
+      return switch (widget.variant) {
+        NinVerificationVariant.defaultRoute => remote.ninByNin(
+          nin: _ninController.text.trim(),
+          tier: _tier,
+          pin: pin,
+        ),
+        NinVerificationVariant.v1 => remote.ninVerificationV1(
+          nin: _ninController.text.trim(),
+          tier: _tier,
+          pin: pin,
+        ),
+        NinVerificationVariant.v2 => remote.ninVerificationV2(
+          nin: _ninController.text.trim(),
+          tier: _tier,
+          pin: pin,
+        ),
+      };
+    });
   }
 
   @override
@@ -64,7 +113,7 @@ class _NinByNinScreenState extends ConsumerState<NinByNinScreen>
     final price = prices.valueOrNull?[_priceKeyFor[_tier]!.key] ?? 0;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('NIN by NIN')),
+      appBar: AppBar(title: Text(_title)),
       body: SafeArea(
         top: false,
         child: SingleChildScrollView(

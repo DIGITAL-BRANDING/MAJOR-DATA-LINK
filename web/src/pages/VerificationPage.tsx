@@ -55,8 +55,8 @@ const nin: Item[] = [
   // an admin last configured. When Techhub or FranceVerified is having network
   // trouble, the user can just tap the other tile - no admin has to notice
   // and flip a setting mid-outage.
-  { id: 'verification-v1', label: 'NIN Verification V1', path: '/verification/nin/verification-v1', fields: ['nin'], icon: IdCard },
-  { id: 'verification-v2', label: 'NIN Verification V2', path: '/verification/nin/verification-v2', fields: ['nin'], icon: SearchCheck },
+  { id: 'verification-v1', label: 'NIN Verification V1', path: '/verification/nin/verification-v1', fields: ['nin'], icon: IdCard, tiers: ['premium', 'standard', 'regular', 'vnin', 'personal'] },
+  { id: 'verification-v2', label: 'NIN Verification V2', path: '/verification/nin/verification-v2', fields: ['nin'], icon: SearchCheck, tiers: ['premium', 'standard', 'regular', 'vnin', 'personal'] },
   { id: 'by-phone', label: 'NIN by Phone', path: '/verification/nin/by-phone', fields: ['phone'], icon: Phone, tiers: ['premium', 'standard', 'regular', 'personal'] },
   { id: 'demographic', label: 'NIN Demographic', path: '/verification/nin/by-demographic', fields: ['firstname', 'lastname', 'dob', 'gender'], icon: UserRoundCheck },
   { id: 'validation', label: 'NIN Validation', path: '/verification/nin-validation', fields: ['nin', 'validation_type'], icon: SearchCheck, async: true },
@@ -117,12 +117,12 @@ function keyFor(item: Item, tier = 'premium') {
   const name = tier.toUpperCase();
   if (item.id === 'by-nin') return tier === 'personal' ? 'NIN_PERSONAL_INFO_SLIP' : `NIN_SLIP_${name}`;
   if (item.id === 'by-phone') return tier === 'personal' ? 'NIN_PHONE_PERSONAL_INFO_SLIP' : `NIN_PHONE_SLIP_${name}`;
+  if (item.id === 'verification-v1') return `NIN_VERIFICATION_V1_${tier === 'personal' ? 'PERSONAL' : name}`;
+  if (item.id === 'verification-v2') return `NIN_VERIFICATION_V2_${tier === 'personal' ? 'PERSONAL' : name}`;
   if (item.id === 'slip') return `BVN_SLIP_${name}`;
   return (
     {
       demographic: 'NIN_DEMOGRAPHIC',
-      'verification-v1': 'NIN_VERIFICATION_V1',
-      'verification-v2': 'NIN_VERIFICATION_V2',
       // 'validation' has no single key any more - each of the 8
       // validation_type choices is its own priced service (see
       // VALIDATION_TYPES above). Resolved separately in selectedPrice below.
@@ -205,7 +205,7 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
 
   const selectedPrice = useMemo(() => {
     if (!selected) return undefined;
-    if (selected.id === 'license-onboarding') return 10000;
+    if (selected.id === 'license-onboarding') return prices.BVN_LICENSE_ONBOARDING;
     if (selected.id === 'validation') return prices[validationServiceKey(values.validation_type)];
     return prices[keyFor(selected, tier)];
   }, [selected, tier, prices, values.validation_type]);
@@ -433,7 +433,7 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
               const Icon = item.icon;
               const from =
                 item.id === 'license-onboarding'
-                  ? 10000
+                  ? prices.BVN_LICENSE_ONBOARDING
                   : item.id === 'validation'
                   ? Math.min(...VALIDATION_TYPES.map((t) => prices[t.serviceKey] ?? Infinity))
                   : prices[keyFor(item, item.tiers?.[0] ?? 'premium')];
@@ -449,7 +449,7 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
                   <span className="mt-3 font-body text-sm font-semibold text-white">{item.label}</span>
                   <span className="mt-1 font-body text-sm font-bold text-[#ffe9a3]">
                     {item.id === 'license-onboarding'
-                      ? money(10000)
+                      ? money(prices.BVN_LICENSE_ONBOARDING)
                       : item.id === 'modification'
                       ? 'From ₦5,000'
                       : item.id === 'validation'

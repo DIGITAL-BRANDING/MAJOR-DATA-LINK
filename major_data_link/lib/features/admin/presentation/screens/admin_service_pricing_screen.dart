@@ -18,6 +18,65 @@ class AdminServicePricingScreen extends ConsumerStatefulWidget {
 class _AdminServicePricingScreenState
     extends ConsumerState<AdminServicePricingScreen> {
   bool _busy = false;
+  String _query = '';
+  bool _bulkMode = false;
+  final Set<String> _selectedServices = <String>{};
+
+  Future<void> _setBulkPrice() async {
+    if (_selectedServices.isEmpty) return;
+    final controller = TextEditingController();
+    final price = await showDialog<double>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Set price for ${_selectedServices.length} services'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: const InputDecoration(
+            labelText: 'One selling price (NGN)',
+            hintText: 'e.g. 1500',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final value = double.tryParse(controller.text.trim());
+              if (value != null && value > 0) Navigator.pop(context, value);
+            },
+            child: const Text('Apply'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (price == null) return;
+    setState(() => _busy = true);
+    try {
+      final updated = await ref
+          .read(adminPricingRepositoryProvider)
+          .setBulkServicePrice(
+            services: _selectedServices,
+            sellingPrice: price,
+          );
+      ref.invalidate(adminServicePricesProvider);
+      if (mounted) {
+        setState(() {
+          _selectedServices.clear();
+          _bulkMode = false;
+        });
+        context.showSnackBar('Updated $updated service prices');
+      }
+    } catch (e) {
+      if (mounted) context.showSnackBar(e.toString(), isError: true);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
 
   Future<void> _editPrice(ServicePriceRow row) async {
     final result = await showDialog<_ServicePriceEditResult>(
@@ -28,7 +87,9 @@ class _AdminServicePricingScreenState
 
     setState(() => _busy = true);
     try {
-      await ref.read(adminPricingRepositoryProvider).updateServicePriceRow(
+      await ref
+          .read(adminPricingRepositoryProvider)
+          .updateServicePriceRow(
             service: row.service,
             sellingPrice: result.sellingPrice,
             providerCost: result.providerCost,
@@ -49,21 +110,75 @@ class _AdminServicePricingScreenState
     final services = ref.watch(adminServicePricesProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Service Pricing')),
+      appBar: AppBar(
+        title: Text(
+          _bulkMode
+              ? '${_selectedServices.length} selected'
+              : 'Service Pricing',
+        ),
+        actions: [
+          if (_bulkMode && _selectedServices.isNotEmpty)
+            IconButton(
+              tooltip: 'Set one price for selected services',
+              onPressed: _busy ? null : _setBulkPrice,
+              icon: const Icon(Icons.price_change_outlined),
+            ),
+          IconButton(
+            tooltip: _bulkMode
+                ? 'Cancel bulk selection'
+                : 'Select multiple services',
+            onPressed: _busy
+                ? null
+                : () => setState(() {
+                    _bulkMode = !_bulkMode;
+                    _selectedServices.clear();
+                  }),
+            icon: Icon(
+              _bulkMode ? Icons.close_rounded : Icons.checklist_rounded,
+            ),
+          ),
+        ],
+      ),
       body: SafeArea(
         top: false,
         child: Column(
           children: [
             if (_busy) const LinearProgressIndicator(minHeight: 2),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppDimensions.screenPaddingH,
+                12,
+                AppDimensions.screenPaddingH,
+                0,
+              ),
+              child: TextField(
+                onChanged: (v) =>
+                    setState(() => _query = v.trim().toLowerCase()),
+                decoration: const InputDecoration(
+                  prefixIcon: Icon(Icons.search_rounded),
+                  hintText: 'Search service (e.g. CAC, BVN, WAEC)',
+                  isDense: true,
+                ),
+              ),
+            ),
             Expanded(
               child: services.when(
-                loading: () =>
-                    const Center(child: CircularProgressIndicator()),
+                loading: () => const Center(child: CircularProgressIndicator()),
                 error: (error, _) => _ErrorState(
                   message: error.toString(),
                   onRetry: () => ref.invalidate(adminServicePricesProvider),
                 ),
-                data: (rows) {
+                data: (allRows) {
+                  final rows = _query.isEmpty
+                      ? allRows
+                      : allRows
+                            .where(
+                              (r) =>
+                                  r.label.toLowerCase().contains(_query) ||
+                                  r.group.toLowerCase().contains(_query) ||
+                                  r.service.toLowerCase().contains(_query),
+                            )
+                            .toList();
                   if (rows.isEmpty) {
                     return const Center(child: Text('No services found'));
                   }
@@ -80,26 +195,65 @@ class _AdminServicePricingScreenState
                         final row = rows[index];
                         final profit =
                             (row.sellingPrice ?? row.providerCost) -
-                                row.providerCost;
+                            row.providerCost;
                         return KDCard(
                           padding: const EdgeInsets.all(14),
-                          onTap: _busy ? null : () => _editPrice(row),
+                          onTap: _busy
+                              ? null
+                              : _bulkMode
+                              ? () => setState(() {
+                                  if (!_selectedServices.add(row.service)) {
+                                    _selectedServices.remove(row.service);
+                                  }
+                                })
+                              : () => _editPrice(row),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
+                              if (row.group.isNotEmpty) ...[
+                                Text(
+                                  row.group.toUpperCase(),
+                                  style: context.textTheme.labelSmall?.copyWith(
+                                    color: AppColors.neutral500,
+                                    fontWeight: FontWeight.w700,
+                                    letterSpacing: 0.6,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                              ],
                               Row(
                                 children: [
+                                  if (_bulkMode)
+                                    Checkbox(
+                                      value: _selectedServices.contains(
+                                        row.service,
+                                      ),
+                                      onChanged: _busy
+                                          ? null
+                                          : (_) => setState(() {
+                                              if (!_selectedServices.add(
+                                                row.service,
+                                              )) {
+                                                _selectedServices.remove(
+                                                  row.service,
+                                                );
+                                              }
+                                            }),
+                                    ),
                                   Expanded(
                                     child: Text(
                                       row.label,
                                       style: context.textTheme.titleSmall
                                           ?.copyWith(
-                                              fontWeight: FontWeight.w800),
+                                            fontWeight: FontWeight.w800,
+                                          ),
                                     ),
                                   ),
                                   Container(
                                     padding: const EdgeInsets.symmetric(
-                                        horizontal: 8, vertical: 4),
+                                      horizontal: 8,
+                                      vertical: 4,
+                                    ),
                                     decoration: BoxDecoration(
                                       color: row.isActive
                                           ? AppColors.success50
@@ -127,8 +281,7 @@ class _AdminServicePricingScreenState
                                   Text(
                                     'Cost: NGN${row.providerCost.toStringAsFixed(0)}',
                                     style: context.textTheme.bodySmall
-                                        ?.copyWith(
-                                            color: AppColors.neutral500),
+                                        ?.copyWith(color: AppColors.neutral500),
                                   ),
                                   Text(
                                     'Sells: NGN${(row.sellingPrice ?? row.providerCost).toStringAsFixed(0)}',
@@ -139,11 +292,11 @@ class _AdminServicePricingScreenState
                                     'Profit: NGN${profit.toStringAsFixed(0)}',
                                     style: context.textTheme.bodySmall
                                         ?.copyWith(
-                                      fontWeight: FontWeight.w700,
-                                      color: profit >= 0
-                                          ? AppColors.success700
-                                          : AppColors.error700,
-                                    ),
+                                          fontWeight: FontWeight.w700,
+                                          color: profit >= 0
+                                              ? AppColors.success700
+                                              : AppColors.error700,
+                                        ),
                                   ),
                                 ],
                               ),
@@ -238,9 +391,9 @@ class _ServicePriceDialogState extends State<_ServicePriceDialog> {
       ),
       actions: [
         TextButton(
-          onPressed: () => Navigator.of(context).pop(
-            const _ServicePriceEditResult(resetToDefault: true),
-          ),
+          onPressed: () => Navigator.of(
+            context,
+          ).pop(const _ServicePriceEditResult(resetToDefault: true)),
           child: const Text('Use default'),
         ),
         TextButton(
@@ -280,8 +433,11 @@ class _ErrorState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.error_outline_rounded,
-                size: 40, color: AppColors.error500),
+            const Icon(
+              Icons.error_outline_rounded,
+              size: 40,
+              color: AppColors.error500,
+            ),
             const SizedBox(height: 12),
             Text(message, textAlign: TextAlign.center),
             const SizedBox(height: 12),

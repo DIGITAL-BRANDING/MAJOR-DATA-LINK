@@ -219,6 +219,55 @@ async function findPartner(q: string) {
   });
 }
 
+/**
+ * JSON twin of the GET /admin/partner-lookup page, for the Flutter admin app
+ * (GET /api/admin/partner-lookup?q=...). Same finder, same activity summary,
+ * same "last 25 transactions" list as the web page - so the app and the web
+ * admin panel can never disagree about a partner.
+ */
+export async function partnerLookupPayload(q: string) {
+  const partner = await findPartner(q);
+  if (!partner) return null;
+  const [summary, apiKeys, transactions] = await Promise.all([
+    getPartnerActivitySummary(partner.id),
+    apiKeyCountsFor(partner.id),
+    recentTransactionsFor(partner.id)
+  ]);
+  return {
+    partner: {
+      id: partner.id,
+      business_name: partner.businessName,
+      email: partner.email,
+      phone: partner.phone,
+      status: partner.status,
+      wallet_balance: koboToNaira(partner.walletBalanceKobo),
+      virtual_account_number: partner.virtualAccountNumber,
+      virtual_account_bank: partner.virtualAccountBank,
+      virtual_account_provider: partner.virtualAccountProvider,
+      webhook_url: partner.webhookUrl,
+      last_portal_login_at: partner.lastPortalLoginAt?.toISOString() ?? null,
+      created_at: partner.createdAt.toISOString()
+    },
+    summary: {
+      today_calls: summary.todayCalls,
+      total_calls: summary.totalCalls,
+      total_spend: summary.totalSpend,
+      successful_calls: summary.successfulCalls,
+      failed_calls: summary.failedCalls
+    },
+    api_keys: apiKeys,
+    recent_transactions: transactions.map((t) => ({
+      id: t.id,
+      reference: t.reference,
+      type: t.type,
+      status: t.status,
+      amount: koboToNaira(t.amountKobo),
+      description: t.description,
+      created_at: t.createdAt.toISOString()
+    }))
+  };
+}
+
 async function apiKeyCountsFor(partnerId: string) {
   const [active, revoked] = await Promise.all([
     prisma.partnerApiKey.count({ where: { partnerId, revokedAt: null } }),

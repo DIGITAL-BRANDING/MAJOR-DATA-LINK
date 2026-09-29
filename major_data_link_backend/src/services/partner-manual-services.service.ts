@@ -19,7 +19,8 @@ import { getCacPrice, renderSubmissionPdf, CAC_CONFIG, type CacType, type CacApp
 import { getNewspaperPublicationPrice, renderNewspaperPublicationPdf } from './newspaper-publication.service.js';
 import { getBirthAttestationPrice, renderBirthAttestationPdf } from './birth-attestation.service.js';
 import { getBvnCrmPrice } from './bvn-crm.service.js';
-import { JAMB_SERVICES } from '../routes/jamb.routes.js';
+import { getBvnLicensePrice } from './bvn-license-onboarding.service.js';
+import { getJambServicePrice, type JambServiceId } from './jamb-pricing.service.js';
 
 export type PartnerManualSubmitResult = { reference: string; balanceAfter: number };
 
@@ -41,7 +42,7 @@ export async function submitPartnerNinModification(params: {
   partnerId: string; type: ModificationType; values: Record<string, unknown>; idempotencyKey: string;
 }): Promise<PartnerManualSubmitResult> {
   const config = MODIFICATION_CONFIG[params.type];
-  const price = await getModificationPrice(params.type);
+  const price = await getModificationPrice(params.type, { forPartner: true });
   const service = ninModServiceKey(params.type);
 
   const debit = await debitPartnerWallet({
@@ -64,7 +65,7 @@ export async function submitPartnerBvnModification(params: {
   partnerId: string; type: BvnModificationType; values: Record<string, unknown>; idempotencyKey: string;
 }): Promise<PartnerManualSubmitResult> {
   const config = BVN_MODIFICATION_CONFIG[params.type];
-  const price = await getBvnModificationPrice(params.type);
+  const price = await getBvnModificationPrice(params.type, { forPartner: true });
   const service = bvnModServiceKey(params.type);
 
   const debit = await debitPartnerWallet({
@@ -87,7 +88,7 @@ export async function submitPartnerCac(params: {
   partnerId: string; type: CacType; proposedName1: string; proposedName2?: string; details: CacApplicantDetails; idempotencyKey: string;
 }): Promise<PartnerManualSubmitResult> {
   const config = CAC_CONFIG[params.type];
-  const price = await getCacPrice(params.type);
+  const price = await getCacPrice(params.type, { forPartner: true });
   const service = cacServiceKey(params.type);
   const trackingRef = createCacReference();
 
@@ -108,7 +109,7 @@ export async function submitPartnerCac(params: {
 export async function submitPartnerNewspaperPublication(params: {
   partnerId: string; values: Record<string, unknown>; idempotencyKey: string;
 }): Promise<PartnerManualSubmitResult> {
-  const price = await getNewspaperPublicationPrice();
+  const price = await getNewspaperPublicationPrice({ forPartner: true });
   const debit = await debitPartnerWallet({
     partnerId: params.partnerId, amount: price.unitPrice, type: TransactionType.NEWSPAPER_PUBLICATION,
     description: 'Newspaper Publication \u2014 Name Change', idempotencyKey: params.idempotencyKey, costKobo: price.providerCostKobo,
@@ -127,7 +128,7 @@ export async function submitPartnerNewspaperPublication(params: {
 export async function submitPartnerBirthAttestation(params: {
   partnerId: string; values: Record<string, unknown>; idempotencyKey: string;
 }): Promise<PartnerManualSubmitResult> {
-  const price = await getBirthAttestationPrice();
+  const price = await getBirthAttestationPrice({ forPartner: true });
   const debit = await debitPartnerWallet({
     partnerId: params.partnerId, amount: price.unitPrice, type: TransactionType.BIRTH_ATTESTATION,
     description: 'Birth Attestation \u2014 NPC Birth Attestation & Instant approval', idempotencyKey: params.idempotencyKey, costKobo: price.providerCostKobo,
@@ -146,7 +147,7 @@ export async function submitPartnerBirthAttestation(params: {
 export async function submitPartnerBvnCrm(params: {
   partnerId: string; values: Record<string, unknown>; idempotencyKey: string;
 }): Promise<PartnerManualSubmitResult> {
-  const price = await getBvnCrmPrice();
+  const price = await getBvnCrmPrice({ forPartner: true });
   const debit = await debitPartnerWallet({
     partnerId: params.partnerId, amount: price.unitPrice, type: TransactionType.BVN_CRM,
     description: 'BVN CRM \u2014 Ticket follow-up', idempotencyKey: params.idempotencyKey, costKobo: price.providerCostKobo,
@@ -158,11 +159,13 @@ export async function submitPartnerBvnCrm(params: {
 export async function submitPartnerBvnLicense(params: {
   partnerId: string; values: Record<string, string | boolean>; idempotencyKey: string;
 }): Promise<PartnerManualSubmitResult> {
+  const price = await getBvnLicensePrice({ forPartner: true });
   const trackingId = `MDL-BVN-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
   const debit = await debitPartnerWallet({
-    partnerId: params.partnerId, amount: 10000, type: TransactionType.BVN_LICENSE_ONBOARDING,
+    partnerId: params.partnerId, amount: price.unitPrice, type: TransactionType.BVN_LICENSE_ONBOARDING,
     description: 'BVN License Onboarding', idempotencyKey: params.idempotencyKey,
-    metadata: { service: 'BVN_LICENSE_ONBOARDING', tracking_id: trackingId, pii: sealPII(params.values) } as Prisma.InputJsonValue
+    metadata: { service: 'BVN_LICENSE_ONBOARDING', tracking_id: trackingId, unit_price: price.unitPrice, pii: sealPII(params.values) } as Prisma.InputJsonValue,
+    costKobo: price.providerCostKobo
   });
   return { reference: debit.transaction.reference, balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo) };
 }
@@ -176,14 +179,14 @@ export async function submitPartnerBvnLicense(params: {
  * document once it exists.
  */
 export async function submitPartnerJamb(params: {
-  partnerId: string; service: keyof typeof JAMB_SERVICES; registrationNumber: string; candidateFullName: string; examYear: number; idempotencyKey: string;
+  partnerId: string; service: JambServiceId; registrationNumber: string; candidateFullName: string; examYear: number; idempotencyKey: string;
 }): Promise<PartnerManualSubmitResult> {
-  const selected = JAMB_SERVICES[params.service];
+  const selected = await getJambServicePrice(params.service, { forPartner: true });
   const debit = await debitPartnerWallet({
-    partnerId: params.partnerId, amount: selected.price, type: TransactionType.JAMB_SERVICE_REQUEST,
+    partnerId: params.partnerId, amount: selected.unitPrice, type: TransactionType.JAMB_SERVICE_REQUEST,
     description: `${selected.label} request`, idempotencyKey: params.idempotencyKey,
     metadata: {
-      service: 'JAMB_SERVICE_REQUEST', jamb_service: params.service, unit_price: selected.price,
+      service: selected.service, jamb_service: params.service, unit_price: selected.unitPrice,
       pii: sealPII({ registration_number: params.registrationNumber, candidate_full_name: params.candidateFullName, exam_year: params.examYear })
     } as Prisma.InputJsonValue
   });

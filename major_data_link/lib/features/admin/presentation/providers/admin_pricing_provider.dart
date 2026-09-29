@@ -37,3 +37,10 @@ final adminBroadcastHistoryProvider =
     FutureProvider.autoDispose<List<BroadcastEntity>>((ref) {
       return ref.read(adminPricingRepositoryProvider).getBroadcastHistory();
     });
+
+// Keyed by the search text; the screen only watches it after a search is
+// submitted, so nothing is fetched while the field is empty.
+final adminPartnerLookupProvider = FutureProvider.autoDispose
+    .family<PartnerLookupResult?, String>((ref, query) {
+      return ref.read(adminPricingRepositoryProvider).lookupPartner(query);
+    });

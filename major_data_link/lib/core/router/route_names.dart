@@ -46,6 +46,8 @@ abstract class RouteNames {
   static const dataCard = '/home/services/data-card';
   static const ninServices = '/home/services/nin';
   static const ninByNin = '/home/services/nin/by-nin';
+  static const ninVerificationV1 = '/home/services/nin/verification-v1';
+  static const ninVerificationV2 = '/home/services/nin/verification-v2';
   static const ninByPhone = '/home/services/nin/by-phone';
   static const ninByDemographic = '/home/services/nin/by-demographic';
   static const ninDelinking = '/home/services/nin/delinking';
@@ -101,6 +103,8 @@ abstract class RouteNames {
   static const adminProviderBalance = '/home/profile/admin/provider-balance';
   static const adminCustomerActivity = '/home/profile/admin/customer-activity';
   static const adminBroadcast = '/home/profile/admin/broadcast';
+  static const adminPartnerPricing = '/home/profile/admin/partner-pricing';
+  static const adminPartnerLookup = '/home/profile/admin/partner-lookup';
 
   // ── Notifications ─────────────────────────────────────────
   static const notifications = '/home/dashboard/notifications';

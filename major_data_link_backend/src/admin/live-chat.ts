@@ -69,6 +69,12 @@ function renderPage(admin: AdminSessionUser) {
   .main header { padding: 16px; border-bottom: 1px solid var(--border); background: var(--card); display: flex; justify-content: space-between; align-items: center; gap: 12px; }
   .main header h2 { font-size: 14px; margin: 0; }
   .main header .sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .typing-row { display: none; align-items: center; gap: 4px; padding: 2px 0 6px; }
+  .typing-row.show { display: flex; }
+  .typing-row .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); animation: typing-bounce 1.1s infinite ease-in-out; }
+  .typing-row .dot:nth-child(2) { animation-delay: 0.15s; }
+  .typing-row .dot:nth-child(3) { animation-delay: 0.3s; }
+  @keyframes typing-bounce { 0%, 60%, 100% { transform: translateY(0); opacity: 0.5; } 30% { transform: translateY(-3px); opacity: 1; } }
   .btn-close { border: none; background: var(--red); color: #fff; font-size: 11px; font-weight: 700; padding: 7px 12px; border-radius: 8px; cursor: pointer; }
   .btn-close:disabled { opacity: 0.4; cursor: not-allowed; }
   #messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
@@ -105,6 +111,7 @@ function renderPage(admin: AdminSessionUser) {
         <button class="btn-close" id="close-btn">Close conversation</button>
       </header>
       <div id="messages"></div>
+      <div class="typing-row" id="typing-row"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
       <form class="composer" id="composer">
         <input id="msg-input" type="text" placeholder="Type a reply…" autocomplete="off" maxlength="4000">
         <button type="submit">Send</button>
@@ -127,9 +134,13 @@ function renderPage(admin: AdminSessionUser) {
   var convNameEl = document.getElementById('conv-name');
   var convSubEl = document.getElementById('conv-sub');
   var notifBtn = document.getElementById('notif-btn');
+  var typingRowEl = document.getElementById('typing-row');
 
   var activeConversationId = null;
   var queue = [];
+  var isTyping = false;
+  var typingIdleTimer = null;
+  var customerTypingClearTimer = null;
   var audioContext = null;
   var lastTotalUnread = null;
   var ORIGINAL_TITLE = document.title;
@@ -267,7 +278,10 @@ function renderPage(admin: AdminSessionUser) {
   }
 
   function openConversation(id) {
+    stopTyping();
     activeConversationId = id;
+    typingRowEl.classList.remove('show');
+    clearTimeout(customerTypingClearTimer);
     placeholderEl.style.display = 'none';
     conversationEl.style.display = 'flex';
     messagesEl.innerHTML = '<div class="placeholder">Loading…</div>';
@@ -303,6 +317,21 @@ function renderPage(admin: AdminSessionUser) {
     }
   });
 
+  // Admin's chat:typing only ever arrives for a conversation this socket
+  // has joined (see chat:join above), which is always activeConversationId
+  // by the time we're here - no need to carry conversation_id in the
+  // payload the way the owner-side sender does. A lost "stop" (dropped
+  // tab, closed app) can't leave this stuck forever either way, thanks to
+  // the 6s safety-net clear below.
+  socket.on('chat:typing', function (data) {
+    if (data.sender_type !== 'USER') return;
+    clearTimeout(customerTypingClearTimer);
+    typingRowEl.classList.toggle('show', !!data.typing);
+    if (data.typing) {
+      customerTypingClearTimer = setTimeout(function () { typingRowEl.classList.remove('show'); }, 6000);
+    }
+  });
+
   function renderMessages(list) {
     messagesEl.innerHTML = '';
     list.forEach(appendMessage);
@@ -315,10 +344,29 @@ function renderPage(admin: AdminSessionUser) {
     messagesEl.scrollTop = messagesEl.scrollHeight;
   }
 
+  function stopTyping() {
+    clearTimeout(typingIdleTimer);
+    if (isTyping && activeConversationId) {
+      isTyping = false;
+      socket.emit('chat:typing', { conversation_id: activeConversationId, typing: false });
+    }
+  }
+
+  inputEl.addEventListener('input', function () {
+    if (!activeConversationId) return;
+    if (!isTyping) {
+      isTyping = true;
+      socket.emit('chat:typing', { conversation_id: activeConversationId, typing: true });
+    }
+    clearTimeout(typingIdleTimer);
+    typingIdleTimer = setTimeout(stopTyping, 2000);
+  });
+
   composerEl.addEventListener('submit', function (e) {
     e.preventDefault();
     var body = inputEl.value.trim();
     if (!body || !activeConversationId) return;
+    stopTyping();
     socket.emit('chat:send', { conversation_id: activeConversationId, body: body });
     inputEl.value = '';
   });

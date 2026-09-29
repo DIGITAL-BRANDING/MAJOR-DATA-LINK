@@ -23,16 +23,19 @@ async function pricingRow() {
   }
 }
 
-export async function getBvnCrmPrice() {
+export async function getBvnCrmPrice(opts: { forPartner?: boolean } = {}) {
   const row = await pricingRow();
   if (!row.isActive) throw new ApiError(422, `${row.label} is currently unavailable`, 'SERVICE_INACTIVE');
-  return { unitPrice: koboToNaira(row.sellingPriceKobo ?? row.providerCostKobo), providerCostKobo: row.providerCostKobo };
+  const unitKobo = opts.forPartner
+    ? (row.partnerSellingPriceKobo ?? row.sellingPriceKobo ?? row.providerCostKobo)
+    : (row.sellingPriceKobo ?? row.providerCostKobo);
+  return { unitPrice: koboToNaira(unitKobo), providerCostKobo: row.providerCostKobo };
 }
 
 /** Shape matching listVerificationPricesForAdmin() - for the shared /admin/service-status page. */
 export async function listBvnCrmPriceForAdmin() {
   const row = await pricingRow();
-  return [{ service: row.service, label: row.label, provider: row.provider, is_active: row.isActive }];
+  return [{ service: row.service, label: row.label, provider: row.provider, provider_cost: koboToNaira(row.providerCostKobo), selling_price: row.sellingPriceKobo ? koboToNaira(row.sellingPriceKobo) : null, partner_selling_price: row.partnerSellingPriceKobo ? koboToNaira(row.partnerSellingPriceKobo) : null, is_active: row.isActive }];
 }
 
 function renderPdf(params: { reference: string; values: Record<string, unknown>; submittedAt: Date }): Promise<string> {

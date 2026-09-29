@@ -18,6 +18,7 @@ class _LiveChatScreenState extends ConsumerState<LiveChatScreen> {
   io.Socket? _socket;
   bool _connected = false;
   bool _closed = false;
+  bool _agentTyping = false;
   String? _error;
   @override
   void initState() {
@@ -62,7 +63,10 @@ class _LiveChatScreenState extends ConsumerState<LiveChatScreen> {
       setState(() {
         _messages
           ..clear()
-          ..addAll((data['messages'] as List? ?? const []).whereType<Map>());
+          ..addAll(
+            (data['messages'] as List? ?? const [])
+                .whereType<Map<dynamic, dynamic>>(),
+          );
         _closed = data['status'] == 'CLOSED';
       });
       _scrollEnd();
@@ -76,6 +80,11 @@ class _LiveChatScreenState extends ConsumerState<LiveChatScreen> {
     });
     socket.on('chat:closed', (_) {
       if (mounted) setState(() => _closed = true);
+    });
+    socket.on('chat:typing', (data) {
+      if (data is Map && data['sender_type'] == 'ADMIN' && mounted) {
+        setState(() => _agentTyping = data['typing'] == true);
+      }
     });
   }
 
@@ -105,7 +114,33 @@ class _LiveChatScreenState extends ConsumerState<LiveChatScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Live Chat')),
+      appBar: AppBar(
+        titleSpacing: 0,
+        title: Row(
+          children: [
+            const CircleAvatar(
+              radius: 18,
+              backgroundColor: Colors.white24,
+              child: Icon(Icons.support_agent_rounded, color: Colors.white),
+            ),
+            const SizedBox(width: 10),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Support', style: TextStyle(fontSize: 16)),
+                Text(
+                  _agentTyping
+                      ? 'typing…'
+                      : _connected
+                      ? 'Online — usually replies quickly'
+                      : 'Connecting…',
+                  style: const TextStyle(fontSize: 11),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
       body: Column(
         children: [
           Container(
@@ -120,43 +155,71 @@ class _LiveChatScreenState extends ConsumerState<LiveChatScreen> {
           if (_error != null)
             Padding(padding: const EdgeInsets.all(12), child: Text(_error!)),
           Expanded(
-            child: _messages.isEmpty
-                ? const Center(
-                    child: Text(
-                      'Send a message to begin chatting with support.',
-                    ),
-                  )
-                : ListView.builder(
-                    controller: _scroll,
-                    padding: const EdgeInsets.all(16),
-                    itemCount: _messages.length,
-                    itemBuilder: (_, i) {
-                      final m = _messages[i];
-                      final mine = m['sender_type'] == 'USER';
-                      return Align(
-                        alignment: mine
-                            ? Alignment.centerRight
-                            : Alignment.centerLeft,
-                        child: Container(
-                          margin: const EdgeInsets.only(bottom: 10),
-                          padding: const EdgeInsets.all(11),
-                          constraints: const BoxConstraints(maxWidth: 290),
-                          decoration: BoxDecoration(
-                            color: mine
-                                ? Theme.of(context).colorScheme.primary
-                                : Colors.white,
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          child: Text(
-                            m['body']?.toString() ?? '',
-                            style: TextStyle(
-                              color: mine ? Colors.white : Colors.black87,
+            child: Container(
+              color: const Color(0xFFF4EFE3),
+              child: _messages.isEmpty
+                  ? const Center(
+                      child: Text(
+                        'Send a message to begin chatting with support.',
+                      ),
+                    )
+                  : ListView.builder(
+                      controller: _scroll,
+                      padding: const EdgeInsets.all(16),
+                      itemCount: _messages.length + (_agentTyping ? 1 : 0),
+                      itemBuilder: (_, i) {
+                        if (i == _messages.length) {
+                          return const _TypingBubble();
+                        }
+                        final m = _messages[i];
+                        final mine = m['sender_type'] == 'USER';
+                        return Align(
+                          alignment: mine
+                              ? Alignment.centerRight
+                              : Alignment.centerLeft,
+                          child: Container(
+                            margin: const EdgeInsets.only(bottom: 10),
+                            padding: const EdgeInsets.all(11),
+                            constraints: const BoxConstraints(maxWidth: 290),
+                            decoration: BoxDecoration(
+                              color: mine
+                                  ? const Color(0xFFDCF8C6)
+                                  : Colors.white,
+                              borderRadius: BorderRadius.only(
+                                topLeft: const Radius.circular(16),
+                                topRight: const Radius.circular(16),
+                                bottomLeft: Radius.circular(mine ? 16 : 3),
+                                bottomRight: Radius.circular(mine ? 3 : 16),
+                              ),
+                              boxShadow: const [
+                                BoxShadow(
+                                  color: Color(0x14000000),
+                                  blurRadius: 2,
+                                ),
+                              ],
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                Text(
+                                  m['body']?.toString() ?? '',
+                                  style: const TextStyle(color: Colors.black87),
+                                ),
+                                const SizedBox(height: 3),
+                                Text(
+                                  _timeLabel(m['created_at']),
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    color: Colors.grey.shade600,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                        ),
-                      );
-                    },
-                  ),
+                        );
+                      },
+                    ),
+            ),
           ),
           SafeArea(
             top: false,
@@ -169,12 +232,16 @@ class _LiveChatScreenState extends ConsumerState<LiveChatScreen> {
                       controller: _draft,
                       enabled: _connected && !_closed,
                       maxLength: 4000,
-                      onSubmitted: (_) => _send(),
+                      minLines: 1,
+                      maxLines: 4,
+                      textCapitalization: TextCapitalization.sentences,
                       decoration: InputDecoration(
                         counterText: '',
                         hintText: _closed
                             ? 'This conversation was closed.'
                             : 'Write a message…',
+                        filled: true,
+                        fillColor: const Color(0xFFF7F7F7),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(24),
                         ),
@@ -193,4 +260,40 @@ class _LiveChatScreenState extends ConsumerState<LiveChatScreen> {
       ),
     );
   }
+}
+
+String _timeLabel(dynamic value) {
+  final time = DateTime.tryParse(value?.toString() ?? '')?.toLocal();
+  if (time == null) return '';
+  final hour = time.hour % 12 == 0 ? 12 : time.hour % 12;
+  return '$hour:${time.minute.toString().padLeft(2, '0')} ${time.hour >= 12 ? 'PM' : 'AM'}';
+}
+
+class _TypingBubble extends StatelessWidget {
+  const _TypingBubble();
+  @override
+  Widget build(BuildContext context) => Align(
+    alignment: Alignment.centerLeft,
+    child: Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: const Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [_Dot(), _Dot(), _Dot()],
+      ),
+    ),
+  );
+}
+
+class _Dot extends StatelessWidget {
+  const _Dot();
+  @override
+  Widget build(BuildContext context) => const Padding(
+    padding: EdgeInsets.symmetric(horizontal: 2),
+    child: Icon(Icons.circle, size: 6, color: Colors.grey),
+  );
 }

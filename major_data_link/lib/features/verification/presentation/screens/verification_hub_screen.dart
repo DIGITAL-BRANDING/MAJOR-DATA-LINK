@@ -105,6 +105,20 @@ const _ninHubItems = [
     route: RouteNames.ninByNin,
   ),
   VerificationHubItem(
+    label: 'NIN Verification V1',
+    description: 'Verify a NIN through the V1 provider; choose any slip tier',
+    icon: Icons.verified_user_outlined,
+    color: AppColors.primary700,
+    route: RouteNames.ninVerificationV1,
+  ),
+  VerificationHubItem(
+    label: 'NIN Verification V2',
+    description: 'Verify a NIN through the V2 provider; choose any slip tier',
+    icon: Icons.verified_outlined,
+    color: AppColors.secondary600,
+    route: RouteNames.ninVerificationV2,
+  ),
+  VerificationHubItem(
     label: 'NIN by Phone',
     description: 'Generate a slip using the phone number registered to a NIN',
     icon: Icons.phone_iphone_rounded,

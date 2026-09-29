@@ -7,6 +7,7 @@ import { prisma } from '../lib/prisma.js';
 import { verifyAuthToken } from '../lib/auth-token.js';
 import { adminSessionStore, ADMIN_SESSION_COOKIE_NAME } from '../admin/setup.js';
 import type { AdminSessionUser } from '../admin/auth.js';
+import { pushToTokens } from '../services/notification.service.js';
 
 /**
  * K-Tech Live Chat - a self-hosted replacement for the Tawk.to widget
@@ -218,9 +219,57 @@ async function broadcastQueueUpdate(io: SocketIOServer) {
   io.to(ADMIN_ROOM).emit('chat:queue', queue);
 }
 
+/**
+ * True if the conversation's owner (customer/partner) currently has this
+ * exact conversation open in a connected socket - i.e. they'd actually see
+ * a 'chat:message' emit land live. Scans every connected socket rather
+ * than keeping a separate presence map: this app's concurrent connection
+ * count is small enough (one browser tab or app instance per person) that
+ * a scan costs nothing, and it can never drift out of sync with reality
+ * the way a hand-maintained map could (a missed disconnect cleanup, etc).
+ * Used to decide whether an admin's reply also needs a push notification -
+ * no point pushing to someone already looking at the message.
+ */
+function isOwnerConnected(io: SocketIOServer, conversationId: string): boolean {
+  for (const s of io.sockets.sockets.values()) {
+    const data = s.data as { actor?: ChatActor; conversationId?: string };
+    if (data.actor?.kind === 'owner' && data.conversationId === conversationId) return true;
+  }
+  return false;
+}
+
+/**
+ * The WhatsApp-style "message arrives even with the app closed" half of
+ * live chat - the desktop-browser sound/title-flash/Notification-API alerts
+ * in LiveChatWidget.tsx only fire while that tab is open somewhere, same as
+ * GlobalChatAlert.tsx on the admin side. A real push needs a registered
+ * DeviceToken, which only the User table has (see prisma/schema.prisma -
+ * Partner has no equivalent), so this is customer-only for now; a partner
+ * still gets every other alert channel the widget already has, just not an
+ * OS-level push if their tab/app is fully closed.
+ */
+function pushChatReplyToOwner(conversation: { ownerType: OwnerKind; ownerId: string }, senderName: string, body: string) {
+  if (conversation.ownerType !== 'USER') return;
+  runChatTask('push chat reply', async () => {
+    const tokens = await prisma.deviceToken.findMany({ where: { userId: conversation.ownerId }, select: { token: true } });
+    if (tokens.length === 0) return;
+    await pushToTokens(
+      tokens.map((t: { token: string }) => t.token),
+      senderName,
+      body.length > 160 ? `${body.slice(0, 157)}...` : body,
+      { type: 'chat' }
+    );
+  });
+}
+
 function registerOwnerHandlers(io: SocketIOServer, socket: Socket, actor: Extract<ChatActor, { kind: 'owner' }>) {
   runChatTask('load owner history', async () => {
     const conversation = await findOrCreateOpenConversation(actor.ownerType, actor.id);
+    // Typing indicators and isOwnerConnected() (see above) both need to know
+    // which conversation this socket belongs to without a DB round-trip on
+    // every keystroke - stash it once here, and refresh it below whenever
+    // chat:send resolves a (possibly new, post-reopen) conversation too.
+    (socket.data as { conversationId?: string }).conversationId = conversation.id;
     // Opening the widget IS reading whatever the admin last sent.
     if (conversation.unreadByOwner > 0) {
       await prisma.chatConversation.update({
@@ -237,6 +286,16 @@ function registerOwnerHandlers(io: SocketIOServer, socket: Socket, actor: Extrac
     });
   });
 
+  // No payload needed beyond typing itself - the server already knows which
+  // conversation this socket is in (see conversationId above). socket.to()
+  // (not io.to()) excludes the sender, so an owner never sees their own
+  // "typing" echoed back at them.
+  socket.on('chat:typing', (payload: { typing?: unknown }) => {
+    const conversationId = (socket.data as { conversationId?: string }).conversationId;
+    if (!conversationId) return;
+    socket.to(conversationRoom(conversationId)).emit('chat:typing', { sender_type: 'USER', typing: payload?.typing === true });
+  });
+
   socket.on('chat:send', (payload: { body?: unknown }) => {
     const body = typeof payload?.body === 'string' ? payload.body.trim() : '';
     if (!body || body.length > 4000) return;
@@ -244,6 +303,7 @@ function registerOwnerHandlers(io: SocketIOServer, socket: Socket, actor: Extrac
     runChatTask('send owner message', async () => {
       const conversation = await findOrCreateOpenConversation(actor.ownerType, actor.id);
       if (conversation.status === 'CLOSED') return; // Stale client; widget re-syncs on next reconnect.
+      (socket.data as { conversationId?: string }).conversationId = conversation.id;
 
       const message = await prisma.chatMessage.create({
         data: {
@@ -273,6 +333,15 @@ function registerAdminHandlers(io: SocketIOServer, socket: Socket, actor: Extrac
   void socket.join(ADMIN_ROOM);
   runChatTask('load admin queue', async () => {
     socket.emit('chat:queue', await buildQueueSnapshot());
+  });
+
+  // Admin can have any of several conversations open, so (unlike the owner
+  // side) the conversation_id has to come in the payload - same shape as
+  // chat:join/chat:send below. socket.to() excludes the sender.
+  socket.on('chat:typing', (payload: { conversation_id?: unknown; typing?: unknown }) => {
+    const conversationId = typeof payload?.conversation_id === 'string' ? payload.conversation_id : '';
+    if (!conversationId) return;
+    socket.to(conversationRoom(conversationId)).emit('chat:typing', { sender_type: 'ADMIN', typing: payload?.typing === true });
   });
 
   socket.on('chat:join', (payload: { conversation_id?: unknown }) => {
@@ -332,6 +401,13 @@ function registerAdminHandlers(io: SocketIOServer, socket: Socket, actor: Extrac
 
       io.to(conversationRoom(conversationId)).emit('chat:message', serializeMessage(message));
       await broadcastQueueUpdate(io);
+      // Live in-room delivery above covers an owner actively looking at
+      // this conversation; this covers the WhatsApp-style case - app
+      // closed, or just not on this screen right now - where that emit
+      // has nobody to land on.
+      if (!isOwnerConnected(io, conversationId)) {
+        pushChatReplyToOwner(conversation, actor.name, body);
+      }
     });
   });
 

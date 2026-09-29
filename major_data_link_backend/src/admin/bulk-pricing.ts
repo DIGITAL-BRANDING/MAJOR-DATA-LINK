@@ -6,6 +6,14 @@ import { dataPlanPricingService } from '../services/data-plan-pricing.service.js
 import { getPricingSettings, updatePricingSettings } from '../services/pricing-settings.service.js';
 import { listServicePricesForAdmin, updateServicePrice } from '../services/result-pin.service.js';
 import { listVerificationPricesForAdmin } from '../services/verification.service.js';
+import { listCacPricesForAdmin } from '../services/cac.service.js';
+import { listBvnModificationPricesForAdmin } from '../services/bvn-modification.service.js';
+import { listModificationPricesForAdmin } from '../services/nin-modification.service.js';
+import { listNewspaperPublicationPriceForAdmin } from '../services/newspaper-publication.service.js';
+import { listBirthAttestationPriceForAdmin } from '../services/birth-attestation.service.js';
+import { listBvnCrmPriceForAdmin } from '../services/bvn-crm.service.js';
+import { listJambPricesForAdmin } from '../services/jamb-pricing.service.js';
+import { listBvnLicensePriceForAdmin } from '../services/bvn-license-onboarding.service.js';
 
 // @adminjs/express stores the logged-in admin as `req.session.adminUser`
 // (see buildAuthenticatedRouter's sessionOptions in setup.ts) but doesn't
@@ -86,14 +94,33 @@ export function registerBulkPricingRoutes(router: Router) {
       // framework, consistent with the rest of this plain-HTML page.
       const selectedNetworkRaw = typeof req.query.dpNetwork === 'string' ? req.query.dpNetwork : '';
       const selectedNetwork = selectedNetworkRaw || networks[0] || '';
-      const [manualDataPlans, resultPinPrices, verificationPrices] = await Promise.all([
+      const [manualDataPlans, resultPinPrices, verificationPrices, cacPrices, bvnModPrices, ninModPrices, newspaperPrices, birthPrices, bvnCrmPrices, jambPrices, bvnLicensePrices] = await Promise.all([
         selectedNetwork ? dataPlanPricingService.getPricingRows(selectedNetwork) : Promise.resolve([]),
         listServicePricesForAdmin(),
-        listVerificationPricesForAdmin()
+        listVerificationPricesForAdmin(),
+        listCacPricesForAdmin(),
+        listBvnModificationPricesForAdmin(),
+        listModificationPricesForAdmin(),
+        listNewspaperPublicationPriceForAdmin(),
+        listBirthAttestationPriceForAdmin(),
+        listBvnCrmPriceForAdmin(),
+        listJambPricesForAdmin(),
+        listBvnLicensePriceForAdmin()
       ]);
+      // Every ServicePricing-backed service the app sells, so nothing has to be
+      // priced through the raw AdminJS record editor. `group` only drives the
+      // small badge under each name.
       const manualServices = [
-        ...resultPinPrices.map((s) => ({ ...s, provider: 'inventory' as const })),
-        ...verificationPrices.map((s) => ({ ...s, provider: 'techhub' as const }))
+        ...resultPinPrices.map((s) => ({ ...s, group: 'Result Pin' })),
+        ...verificationPrices.map((s) => ({ ...s, group: 'NIN/BVN' })),
+        ...cacPrices.map((s) => ({ ...s, group: 'CAC' })),
+        ...bvnModPrices.map((s) => ({ ...s, group: 'BVN Modification' })),
+        ...ninModPrices.map((s) => ({ ...s, group: 'NIN Modification' })),
+        ...newspaperPrices.map((s) => ({ ...s, group: 'Newspaper' })),
+        ...birthPrices.map((s) => ({ ...s, group: 'Birth Attestation' })),
+        ...bvnCrmPrices.map((s) => ({ ...s, group: 'BVN CRM' })),
+        ...jambPrices.map((s) => ({ ...s, group: 'JAMB' })),
+        ...bvnLicensePrices.map((s) => ({ ...s, group: 'BVN' }))
       ];
 
       res.type('html').send(renderPage({
@@ -219,6 +246,7 @@ export function registerBulkPricingRoutes(router: Router) {
 
     try {
       const selections = extractManualSelections(fields(req));
+      const sharedPrice = parsePositiveNumber(field(req, 'sharedPrice'));
       if (selections.length === 0) {
         return res.redirect(
           `/admin/bulk-pricing?dpNetwork=${encodeURIComponent(network)}&flash=` +
@@ -283,10 +311,12 @@ export function registerBulkPricingRoutes(router: Router) {
 
       let updated = 0;
       const skipped: string[] = [];
-      for (const { id, priceNaira } of selections) {
+      for (const selection of selections) {
         try {
-          if (!Number.isFinite(priceNaira) || priceNaira <= 0) throw new Error('price must be > 0');
-          await updateServicePrice(id, { sellingPrice: priceNaira });
+          const { id, priceNaira } = selection;
+          const effectivePrice = sharedPrice ?? priceNaira;
+          if (!Number.isFinite(effectivePrice) || effectivePrice <= 0) throw new Error('price must be > 0');
+          await updateServicePrice(id, { sellingPrice: effectivePrice });
           updated += 1;
         } catch (rowError) {
           console.warn(`[bulk-pricing] manual service update skipped for ${id}:`, rowError);
@@ -321,6 +351,11 @@ function parseNonNegativeNumber(value: unknown): number | null {
   if (typeof value !== 'string' || value.trim() === '') return null;
   const n = Number(value);
   return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+function parsePositiveNumber(value: unknown): number | null {
+  const number = parseNonNegativeNumber(value);
+  return number !== null && number > 0 ? number : null;
 }
 
 /**
@@ -370,7 +405,7 @@ type ManualDataPlanRow = {
 type ManualServiceRow = {
   service: string;
   label: string;
-  provider: 'inventory' | 'techhub';
+  group: string;
   provider_cost: number;
   selling_price: number | null;
   is_active: boolean;
@@ -417,7 +452,7 @@ function renderPage(params: {
     .map(
       (s) => `<tr>
         <td><input type="checkbox" name="selected_${escape(s.service)}"></td>
-        <td><b>${escape(s.label)}</b><div class="muted">${s.provider === 'techhub' ? 'NIN/BVN' : 'Result Pin'} &middot; cost NGN ${s.provider_cost.toFixed(2)}${s.is_active ? '' : ' &middot; <span style="color:#B3261E">inactive</span>'}</div></td>
+        <td><b>${escape(s.label)}</b><div class="muted">${escape(s.group)} &middot; cost NGN ${s.provider_cost.toFixed(2)}${s.is_active ? '' : ' &middot; <span style="color:#B3261E">inactive</span>'}</div></td>
         <td><input type="number" step="0.01" min="0" name="price_${escape(s.service)}" value="${(s.selling_price ?? s.provider_cost).toFixed(2)}" oninput="this.closest('tr').querySelector('input[type=checkbox]').checked = true"></td>
       </tr>`
     )
@@ -569,8 +604,10 @@ function renderPage(params: {
 
   <div class="card">
     <h2>5. Manual prices — Services</h2>
-    <p class="hint">Same idea for NIN/BVN verification and WAEC/NECO/NABTEB result pins - type a new price and that row is automatically ticked for saving. Untouched rows are left exactly as they are.</p>
+    <p class="hint">Select any mix of NIN/BVN, CAC, JAMB, manual services and result pins. Enter one shared price to apply it to every selected service, or leave it blank to use each row's individual price.</p>
     <form method="POST" action="/admin/bulk-pricing/services-manual" onsubmit="return confirmManualSave(this, 'service')">
+      <label>One price for all selected services (₦, optional)</label>
+      <input type="number" name="sharedPrice" step="0.01" min="0.01" placeholder="e.g. 1500">
       <div class="select-all-row">
         <input type="checkbox" onclick="toggleAll(this, 'svc-manual-table')">
         <span>Select all shown</span>

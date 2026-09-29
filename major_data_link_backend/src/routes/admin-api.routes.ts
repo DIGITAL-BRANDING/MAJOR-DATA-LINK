@@ -8,6 +8,15 @@ import * as bilalsadasub from '../services/bilalsadasub.service.js';
 import { PROMO_ILLUSTRATIONS, sendAdminBroadcast } from '../services/notification.service.js';
 import { listServicePricesForAdmin, updateServicePrice } from '../services/result-pin.service.js';
 import { listVerificationPricesForAdmin } from '../services/verification.service.js';
+import { listCacPricesForAdmin } from '../services/cac.service.js';
+import { listBvnModificationPricesForAdmin } from '../services/bvn-modification.service.js';
+import { listModificationPricesForAdmin } from '../services/nin-modification.service.js';
+import { listNewspaperPublicationPriceForAdmin } from '../services/newspaper-publication.service.js';
+import { listBirthAttestationPriceForAdmin } from '../services/birth-attestation.service.js';
+import { listBvnCrmPriceForAdmin } from '../services/bvn-crm.service.js';
+import { listJambPricesForAdmin } from '../services/jamb-pricing.service.js';
+import { listBvnLicensePriceForAdmin } from '../services/bvn-license-onboarding.service.js';
+import { partnerLookupPayload } from '../admin/partner-lookup.js';
 import { logAdminAction } from '../admin/audit.js';
 import { requireAppAdmin, requireFinanceAdmin } from '../middleware/admin-auth.js';
 import { createUserDelivery } from '../services/user-delivery.service.js';
@@ -163,16 +172,78 @@ adminApiRoutes.patch('/data-prices/:id', requireFinanceAdmin, async (req, res) =
 
 
 adminApiRoutes.get('/service-prices', requireFinanceAdmin, async (_req, res) => {
-  // Merges both providers' pricing rows into one list - Alrahuz's result-pin
-  // services and Techhub's NIN/BVN verification services - since they're
-  // all just rows in the same ServicePricing table, distinguished by the
-  // `provider` column. PATCH below is already generic (keyed by `service`
-  // string) so it works unchanged for either provider's rows.
-  const [resultPinRows, verificationRows] = await Promise.all([
+  // One list with EVERY ServicePricing-backed service the app sells, so the
+  // Flutter admin can retail-price AND partner-price all of them (the same
+  // set the web Bulk Pricing / Partner Pricing pages now show). PATCH below
+  // is generic (keyed by `service`), so it works unchanged for every row.
+  // `group` only exists so the app can section a long list.
+  const [resultPinRows, verificationRows, cac, bvnMod, ninMod, newspaper, birth, bvnCrm, jamb, bvnLicense] = await Promise.all([
     listServicePricesForAdmin(),
-    listVerificationPricesForAdmin()
+    listVerificationPricesForAdmin(),
+    listCacPricesForAdmin(),
+    listBvnModificationPricesForAdmin(),
+    listModificationPricesForAdmin(),
+    listNewspaperPublicationPriceForAdmin(),
+    listBirthAttestationPriceForAdmin(),
+    listBvnCrmPriceForAdmin(),
+    listJambPricesForAdmin(),
+    listBvnLicensePriceForAdmin()
   ]);
-  res.json({ status: true, data: [...resultPinRows, ...verificationRows] });
+  const tag = <T extends object>(rows: T[], group: string) => rows.map((row) => ({ ...row, group }));
+  res.json({
+    status: true,
+    data: [
+      ...tag(resultPinRows, 'Result Pin'),
+      ...tag(verificationRows, 'NIN/BVN'),
+      ...tag(cac, 'CAC'),
+      ...tag(bvnMod, 'BVN Modification'),
+      ...tag(ninMod, 'NIN Modification'),
+      ...tag(newspaper, 'Newspaper'),
+      ...tag(birth, 'Birth Attestation'),
+      ...tag(bvnCrm, 'BVN CRM'),
+      ...tag(jamb, 'JAMB'),
+      ...tag(bvnLicense, 'BVN')
+    ]
+  });
+});
+
+// Set one selling price across any selected ServicePricing rows. The list
+// endpoint above materialises every supported service first, so this cannot
+// accidentally create an arbitrary pricing key supplied by a client.
+adminApiRoutes.post('/service-prices/bulk', requireFinanceAdmin, async (req, res) => {
+  const body = z.object({
+    services: z.array(z.string().trim().min(1)).min(1).max(500),
+    selling_price: z.number().positive(),
+  }).parse(req.body);
+  const uniqueServices = [...new Set(body.services.map((service) => service.toUpperCase()))];
+  const result = await prisma.servicePricing.updateMany({
+    where: { service: { in: uniqueServices } },
+    data: { sellingPriceKobo: BigInt(Math.round(body.selling_price * 100)) },
+  });
+  if (result.count !== uniqueServices.length) {
+    return res.status(422).json({ status: false, message: 'One or more selected services are not price-managed.', code: 'UNKNOWN_SERVICE' });
+  }
+  await logAdminAction({
+    adminId: req.admin!.id,
+    action: 'BULK_SET_SERVICE_PRICE',
+    targetType: 'ServicePricing',
+    metadata: { services: uniqueServices, sellingPrice: body.selling_price },
+  });
+  res.json({ status: true, data: { updated: result.count, selling_price: body.selling_price } });
+});
+
+// Partner lookup for the Flutter admin app - JSON twin of /admin/partner-lookup.
+// Read-only and open to any admin role (support staff field partner questions
+// with this), exactly like the web page's search; wallet credit/debit stays on
+// the web panel behind its finance-only guard.
+adminApiRoutes.get('/partner-lookup', async (req, res) => {
+  const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+  if (q.length < 2) {
+    return res.status(422).json({ status: false, message: 'Enter at least 2 characters to search', code: 'VALIDATION_ERROR' });
+  }
+  const data = await partnerLookupPayload(q);
+  if (!data) return res.status(404).json({ status: false, message: 'No partner matched that search', code: 'NOT_FOUND' });
+  res.json({ status: true, data });
 });
 
 adminApiRoutes.patch('/service-prices/:service', requireFinanceAdmin, async (req, res) => {

@@ -3,6 +3,12 @@ import type { AdminSessionUser } from './auth.js';
 import { logAdminAction } from './audit.js';
 import { listServicePricesForAdmin, updateServicePrice } from '../services/result-pin.service.js';
 import { listVerificationPricesForAdmin } from '../services/verification.service.js';
+import { listCacPricesForAdmin } from '../services/cac.service.js';
+import { listBvnModificationPricesForAdmin } from '../services/bvn-modification.service.js';
+import { listModificationPricesForAdmin } from '../services/nin-modification.service.js';
+import { listNewspaperPublicationPriceForAdmin } from '../services/newspaper-publication.service.js';
+import { listBirthAttestationPriceForAdmin } from '../services/birth-attestation.service.js';
+import { listBvnCrmPriceForAdmin } from '../services/bvn-crm.service.js';
 
 declare module 'express-session' {
   interface SessionData { adminUser?: AdminSessionUser; }
@@ -41,8 +47,14 @@ export function registerPartnerPricingRoutes(router: Router) {
     const admin = requireFinanceOrSuper(req);
     if (!admin) return res.redirect('/admin/login');
     try {
-      const [resultPins, verificationServices] = await Promise.all([listServicePricesForAdmin(), listVerificationPricesForAdmin()]);
-      const services: ServiceRow[] = [...resultPins.map((row) => ({ ...row, provider: 'alrahuz' })), ...verificationServices];
+      const [resultPins, verificationServices, cac, bvnMod, ninMod, newspaper, birth, bvnCrm] = await Promise.all([
+        listServicePricesForAdmin(), listVerificationPricesForAdmin(), listCacPricesForAdmin(), listBvnModificationPricesForAdmin(),
+        listModificationPricesForAdmin(), listNewspaperPublicationPriceForAdmin(), listBirthAttestationPriceForAdmin(), listBvnCrmPriceForAdmin()
+      ]);
+      const services: ServiceRow[] = [
+        ...resultPins.map((row) => ({ ...row, provider: 'alrahuz' })), ...verificationServices,
+        ...cac, ...bvnMod, ...ninMod, ...newspaper, ...birth, ...bvnCrm
+      ];
       res.type('html').send(renderPage(admin, services, readFlash(req.query)));
     } catch (error) {
       console.error('[partner-pricing] failed to load page:', error);

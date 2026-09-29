@@ -52,6 +52,8 @@ import '../../features/admin/presentation/screens/admin_service_pricing_screen.d
 import '../../features/admin/presentation/screens/admin_provider_balance_screen.dart';
 import '../../features/admin/presentation/screens/admin_customer_activity_screen.dart';
 import '../../features/admin/presentation/screens/admin_broadcast_screen.dart';
+import '../../features/admin/presentation/screens/admin_partner_pricing_screen.dart';
+import '../../features/admin/presentation/screens/admin_partner_lookup_screen.dart';
 import '../../features/legal/presentation/screens/legal_document_screen.dart';
 import '../../features/verification/presentation/screens/verification_hub_screen.dart';
 import '../../features/verification/presentation/screens/nin_by_nin_screen.dart';
@@ -240,6 +242,18 @@ final routerProvider = Provider<GoRouter>((ref) {
                       GoRoute(
                         path: 'by-nin',
                         builder: (_, __) => const NinByNinScreen(),
+                      ),
+                      GoRoute(
+                        path: 'verification-v1',
+                        builder: (_, __) => const NinByNinScreen(
+                          variant: NinVerificationVariant.v1,
+                        ),
+                      ),
+                      GoRoute(
+                        path: 'verification-v2',
+                        builder: (_, __) => const NinByNinScreen(
+                          variant: NinVerificationVariant.v2,
+                        ),
                       ),
                       GoRoute(
                         path: 'by-phone',
@@ -454,6 +468,14 @@ final routerProvider = Provider<GoRouter>((ref) {
                   GoRoute(
                     path: 'admin/broadcast',
                     builder: (_, __) => const AdminBroadcastScreen(),
+                  ),
+                  GoRoute(
+                    path: 'admin/partner-pricing',
+                    builder: (_, __) => const AdminPartnerPricingScreen(),
+                  ),
+                  GoRoute(
+                    path: 'admin/partner-lookup',
+                    builder: (_, __) => const AdminPartnerLookupScreen(),
                   ),
                 ],
               ),

@@ -81,11 +81,20 @@ const SERVICE_KEYS = [
   // point is that the END USER picks which upstream API to hit (V1=Techhub,
   // V2=FranceVerified) when one of them is having network trouble, instead of
   // an admin having to reconfigure ServicePricing.provider under pressure
-  // during an outage and remembering to flip it back after. Each still gets
-  // its own independently admin-editable price via the normal "Verification
-  // Pricing" admin page - only the provider is fixed.
-  'NIN_VERIFICATION_V1',
-  'NIN_VERIFICATION_V2'
+  // during an outage and remembering to flip it back after. V1/V2 use the
+  // same five customer-facing tiers as a normal NIN-by-NIN verification.
+  // Keeping a price row per tier is important: an administrator can set the
+  // exact retail/partner price of every selectable option in either app.
+  'NIN_VERIFICATION_V1_PREMIUM',
+  'NIN_VERIFICATION_V1_STANDARD',
+  'NIN_VERIFICATION_V1_REGULAR',
+  'NIN_VERIFICATION_V1_VNIN',
+  'NIN_VERIFICATION_V1_PERSONAL',
+  'NIN_VERIFICATION_V2_PREMIUM',
+  'NIN_VERIFICATION_V2_STANDARD',
+  'NIN_VERIFICATION_V2_REGULAR',
+  'NIN_VERIFICATION_V2_VNIN',
+  'NIN_VERIFICATION_V2_PERSONAL'
 ] as const;
 
 export type VerificationServiceKey = (typeof SERVICE_KEYS)[number];
@@ -149,8 +158,16 @@ const DEFAULTS: Record<VerificationServiceKey, { label: string; price: number; p
   // "Verification Pricing" and flip the provider before V2 actually works.
   // V1 sets 'techhub' explicitly too, purely for symmetry/clarity, since it
   // happens to match the row-creation default anyway.
-  NIN_VERIFICATION_V1: { label: 'NIN Verification V1', price: 120, provider: 'techhub' },
-  NIN_VERIFICATION_V2: { label: 'NIN Verification V2', price: 120, provider: 'franceverified' }
+  NIN_VERIFICATION_V1_PREMIUM: { label: 'NIN Verification V1 (Premium)', price: 120, provider: 'techhub' },
+  NIN_VERIFICATION_V1_STANDARD: { label: 'NIN Verification V1 (Standard)', price: 120, provider: 'techhub' },
+  NIN_VERIFICATION_V1_REGULAR: { label: 'NIN Verification V1 (Regular)', price: 120, provider: 'techhub' },
+  NIN_VERIFICATION_V1_VNIN: { label: 'NIN Verification V1 (VNIN)', price: 120, provider: 'techhub' },
+  NIN_VERIFICATION_V1_PERSONAL: { label: 'NIN Verification V1 (Personal Info)', price: 120, provider: 'techhub' },
+  NIN_VERIFICATION_V2_PREMIUM: { label: 'NIN Verification V2 (Premium)', price: 120, provider: 'franceverified' },
+  NIN_VERIFICATION_V2_STANDARD: { label: 'NIN Verification V2 (Standard)', price: 120, provider: 'franceverified' },
+  NIN_VERIFICATION_V2_REGULAR: { label: 'NIN Verification V2 (Regular)', price: 120, provider: 'franceverified' },
+  NIN_VERIFICATION_V2_VNIN: { label: 'NIN Verification V2 (VNIN)', price: 120, provider: 'franceverified' },
+  NIN_VERIFICATION_V2_PERSONAL: { label: 'NIN Verification V2 (Personal Info)', price: 120, provider: 'franceverified' }
 };
 
 // Maps the validation_type string Techhub's API (and our own zod enum in
@@ -522,33 +539,55 @@ export function purchaseNinByNin(params: { userId: string; nin: string; tier: Ni
  * 'franceverified', purchaseSlip's existing PROVIDER_NOT_IMPLEMENTED guard
  * fails loudly rather than silently doing the wrong thing.
  */
-export function purchaseNinVerificationV1(params: { userId: string; nin: string; idempotencyKey?: string }) {
+const NIN_VERIFICATION_V1_SERVICE_BY_TIER: Record<NinSlipChoice, VerificationServiceKey> = {
+  premium: 'NIN_VERIFICATION_V1_PREMIUM',
+  standard: 'NIN_VERIFICATION_V1_STANDARD',
+  regular: 'NIN_VERIFICATION_V1_REGULAR',
+  vnin: 'NIN_VERIFICATION_V1_VNIN',
+  personal: 'NIN_VERIFICATION_V1_PERSONAL'
+};
+
+const NIN_VERIFICATION_V2_SERVICE_BY_TIER: Record<NinSlipChoice, VerificationServiceKey> = {
+  premium: 'NIN_VERIFICATION_V2_PREMIUM',
+  standard: 'NIN_VERIFICATION_V2_STANDARD',
+  regular: 'NIN_VERIFICATION_V2_REGULAR',
+  vnin: 'NIN_VERIFICATION_V2_VNIN',
+  personal: 'NIN_VERIFICATION_V2_PERSONAL'
+};
+
+export function purchaseNinVerificationV1(params: { userId: string; nin: string; tier: NinSlipChoice; idempotencyKey?: string }) {
   return purchaseSlip({
     userId: params.userId,
-    service: 'NIN_VERIFICATION_V1',
+    service: NIN_VERIFICATION_V1_SERVICE_BY_TIER[params.tier],
     transactionType: TransactionType.NIN_VERIFICATION,
-    description: 'NIN Verification (V1 - Techhub)',
-    operational: { mode: 'by_nin', tier: 'premium' },
+    description: `NIN Verification (V1 - Techhub, ${params.tier})`,
+    operational: { mode: 'by_nin', tier: params.tier },
     pii: { nin: params.nin },
     idempotencyKey: params.idempotencyKey,
     callByProvider: {
-      techhub: () => techhubService.ninByNin(params.nin, 'premium')
+      techhub: () => params.tier === 'personal'
+        ? techhubService.ninPersonalInfoByNin(params.nin)
+        : techhubService.ninByNin(params.nin, params.tier)
     }
   });
 }
 
 /** "NIN Verification V2" - the FranceVerified-only counterpart to V1 above. */
-export function purchaseNinVerificationV2(params: { userId: string; nin: string; idempotencyKey?: string }) {
+export function purchaseNinVerificationV2(params: { userId: string; nin: string; tier: NinSlipChoice; idempotencyKey?: string }) {
   return purchaseSlip({
     userId: params.userId,
-    service: 'NIN_VERIFICATION_V2',
+    service: NIN_VERIFICATION_V2_SERVICE_BY_TIER[params.tier],
     transactionType: TransactionType.NIN_VERIFICATION,
-    description: 'NIN Verification (V2 - FranceVerified)',
-    operational: { mode: 'by_nin', tier: 'premium' },
+    description: `NIN Verification (V2 - FranceVerified, ${params.tier})`,
+    operational: { mode: 'by_nin', tier: params.tier },
     pii: { nin: params.nin },
     idempotencyKey: params.idempotencyKey,
     callByProvider: {
-      franceverified: () => franceverifiedSlipAdapter.ninByNin(params.nin, 'premium', false)
+      franceverified: () => franceverifiedSlipAdapter.ninByNin(
+        params.nin,
+        params.tier === 'personal' ? undefined : params.tier === 'premium' ? 'premium' : undefined,
+        params.tier === 'personal'
+      )
     }
   });
 }

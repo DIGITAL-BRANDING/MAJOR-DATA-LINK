@@ -7,6 +7,7 @@ import '../../../../shared/widgets/kd_card.dart';
 import '../../../../shared/widgets/kd_text_field.dart';
 import '../../../../shared/widgets/kd_button.dart';
 import '../../../../shared/widgets/pin_confirmation_sheet.dart';
+import '../providers/verification_provider.dart';
 
 class BvnLicenseOnboardingScreen extends ConsumerStatefulWidget {
   const BvnLicenseOnboardingScreen({super.key});
@@ -64,13 +65,13 @@ class _BvnLicenseOnboardingState
     return null;
   }
 
-  Future<void> _submit() async {
+  Future<void> _submit(double price) async {
     if (!_form.currentState!.validate() || _zone == null || !_consent) return;
     final pin = await showPinConfirmationSheet(
       context: context,
       ref: ref,
       title: 'Confirm BVN License Request',
-      subtitle: '₦10,000 will be deducted from your wallet',
+      subtitle: '${price.toStringAsFixed(0)} will be deducted from your wallet',
     );
     if (pin == null || !mounted) return;
     setState(() => _busy = true);
@@ -102,6 +103,9 @@ class _BvnLicenseOnboardingState
 
   @override
   Widget build(BuildContext context) {
+    final prices = ref.watch(verificationPricesProvider);
+    final price =
+        prices.valueOrNull?[VerificationService.bvnLicenseOnboarding.key] ?? 0;
     return Scaffold(
       appBar: AppBar(title: const Text('BVN License Onboarding')),
       body: Form(
@@ -109,9 +113,11 @@ class _BvnLicenseOnboardingState
         child: ListView(
           padding: const EdgeInsets.all(20),
           children: [
-            const Text(
-              'Service fee: ₦10,000',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            Text(
+              prices.isLoading
+                  ? 'Service fee: loading…'
+                  : 'Service fee: ₦${price.toStringAsFixed(0)}',
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 16),
             ...names.entries.map(
@@ -152,7 +158,9 @@ class _BvnLicenseOnboardingState
               ),
             KDButton(
               label: _busy ? 'Submitting...' : 'Submit Request',
-              onPressed: _busy ? null : _submit,
+              onPressed: _busy || prices.isLoading || price <= 0
+                  ? null
+                  : () => _submit(price),
             ),
           ],
         ),

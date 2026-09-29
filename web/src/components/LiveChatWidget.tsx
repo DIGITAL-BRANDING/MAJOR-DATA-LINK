@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { BellRing, MessageCircle, X, Send } from 'lucide-react';
+import { BellRing, MessageCircle, X, Send, CheckCheck } from 'lucide-react';
 import { io, type Socket } from 'socket.io-client';
 import { API_BASE } from '../lib/api';
 import { enableChatNotificationSound, playChatNotificationSound } from '../lib/chat-notification-sound';
@@ -65,12 +65,16 @@ export default function LiveChatWidget({ active, token, ownerKey, headerLabel }:
   const [conversationStatus, setConversationStatus] = useState<'OPEN' | 'CLOSED'>('OPEN');
   const [draft, setDraft] = useState('');
   const [unread, setUnread] = useState(0);
+  const [adminTyping, setAdminTyping] = useState(false);
   const [notifPermission, setNotifPermission] = useState<NotificationPermission | 'unsupported'>(
     typeof Notification === 'undefined' ? 'unsupported' : Notification.permission
   );
   const socketRef = useRef<Socket | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
   const openRef = useRef(false);
+  const isTypingRef = useRef(false);
+  const typingIdleTimer = useRef<number | undefined>(undefined);
+  const adminTypingClearTimer = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     openRef.current = open;
@@ -132,6 +136,19 @@ export default function LiveChatWidget({ active, token, ownerKey, headerLabel }:
 
     socket.on('chat:closed', () => setConversationStatus('CLOSED'));
 
+    // A stop signal can be lost (dropped connection, closed tab without a
+    // clean disconnect) - clearing any stale "typing" after a few seconds
+    // of silence means the bubble can never get stuck on forever, same
+    // safety net WhatsApp Web itself relies on.
+    socket.on('chat:typing', (data: { sender_type: 'USER' | 'ADMIN'; typing: boolean }) => {
+      if (data.sender_type !== 'ADMIN') return;
+      window.clearTimeout(adminTypingClearTimer.current);
+      setAdminTyping(data.typing);
+      if (data.typing) {
+        adminTypingClearTimer.current = window.setTimeout(() => setAdminTyping(false), 6000);
+      }
+    });
+
     return () => {
       socket.disconnect();
       socketRef.current = null;
@@ -148,7 +165,7 @@ export default function LiveChatWidget({ active, token, ownerKey, headerLabel }:
       stopTitleFlash();
       listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
     }
-  }, [open, messages]);
+  }, [open, messages, adminTyping]);
 
   if (!active || !token) return null;
 
@@ -160,9 +177,33 @@ export default function LiveChatWidget({ active, token, ownerKey, headerLabel }:
   function send() {
     const body = draft.trim();
     if (!body || !socketRef.current) return;
+    stopTyping();
     socketRef.current.emit('chat:send', { body });
     setDraft('');
   }
+
+  function stopTyping() {
+    window.clearTimeout(typingIdleTimer.current);
+    if (isTypingRef.current) {
+      isTypingRef.current = false;
+      socketRef.current?.emit('chat:typing', { typing: false });
+    }
+  }
+
+  function handleDraftChange(value: string) {
+    setDraft(value);
+    if (!socketRef.current) return;
+    if (!isTypingRef.current) {
+      isTypingRef.current = true;
+      socketRef.current.emit('chat:typing', { typing: true });
+    }
+    // Resets on every keystroke - "typing" only actually stops going out
+    // once the person pauses for a beat, not on every single character.
+    window.clearTimeout(typingIdleTimer.current);
+    typingIdleTimer.current = window.setTimeout(stopTyping, 2000);
+  }
+
+  const timeLabel = (value: string) => new Date(value).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
   return (
     <div className="fixed bottom-4 right-4 z-50 flex flex-col items-end gap-3">
@@ -196,7 +237,7 @@ export default function LiveChatWidget({ active, token, ownerKey, headerLabel }:
             </div>
           </div>
 
-          <div ref={listRef} className="flex-1 space-y-2 overflow-y-auto px-3 py-3">
+          <div ref={listRef} className="flex-1 space-y-2 overflow-y-auto bg-[#efeae2] px-3 py-3">
             {messages.length === 0 && (
               <p className="mt-8 text-center text-xs text-ink-soft">
                 Send us a message and a K-Tech Solutions support agent will reply here.
@@ -205,14 +246,27 @@ export default function LiveChatWidget({ active, token, ownerKey, headerLabel }:
             {messages.map((m) => (
               <div key={m.id} className={`flex ${m.sender_type === 'USER' ? 'justify-end' : 'justify-start'}`}>
                 <div
-                  className={`max-w-[80%] rounded-xl px-3 py-2 text-[13px] leading-snug ${
-                    m.sender_type === 'USER' ? 'bg-gold-500 text-ink' : 'border border-parchment-line bg-white text-ink'
+                  className={`max-w-[80%] rounded-2xl px-3 py-2 text-[13px] leading-snug shadow-sm ${
+                    m.sender_type === 'USER' ? 'rounded-br-sm bg-[#dcf8c6] text-ink' : 'rounded-bl-sm bg-white text-ink'
                   }`}
                 >
-                  {m.body}
+                  <p className="whitespace-pre-wrap break-words">{m.body}</p>
+                  <div className="mt-1 flex items-center justify-end gap-1 text-[10px] text-ink-500">
+                    <span>{timeLabel(m.created_at)}</span>
+                    {m.sender_type === 'USER' && <CheckCheck size={13} className="text-sky-600" aria-label="Sent" />}
+                  </div>
                 </div>
               </div>
             ))}
+            {adminTyping && (
+              <div className="flex justify-start">
+                <div className="flex items-center gap-1 rounded-xl border border-parchment-line bg-white px-3 py-2.5">
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-ink-soft [animation-delay:-0.3s]" />
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-ink-soft [animation-delay:-0.15s]" />
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-ink-soft" />
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="border-t border-parchment-line bg-white p-2">
@@ -230,7 +284,7 @@ export default function LiveChatWidget({ active, token, ownerKey, headerLabel }:
             >
               <input
                 value={draft}
-                onChange={(e) => setDraft(e.target.value)}
+                onChange={(e) => handleDraftChange(e.target.value)}
                 placeholder="Type a message…"
                 maxLength={4000}
                 className="flex-1 rounded-full border border-parchment-line bg-cream px-3 py-2 text-[13px] outline-none focus:border-gold-500"

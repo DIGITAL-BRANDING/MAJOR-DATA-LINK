@@ -84,6 +84,10 @@ class AppEndpoints {
   // Verification (Techhubltd — NIN / BVN)
   static String get verificationPrices => '$_base/verification/prices';
   static String get ninByNin => '$_base/verification/nin/by-nin';
+  static String get ninVerificationV1 =>
+      '$_base/verification/nin/verification-v1';
+  static String get ninVerificationV2 =>
+      '$_base/verification/nin/verification-v2';
   static String get ninByPhone => '$_base/verification/nin/by-phone';
   static String get ninByDemographic =>
       '$_base/verification/nin/by-demographic';
@@ -195,6 +199,10 @@ class AppEndpoints {
   static String get adminServicePrices => '$_base/admin/service-prices';
   static String adminServicePrice(String service) =>
       '$_base/admin/service-prices/$service';
+  static String get adminBulkServicePrices =>
+      '$_base/admin/service-prices/bulk';
+  static String adminPartnerLookup(String query) =>
+      '$_base/admin/partner-lookup?q=${Uri.encodeQueryComponent(query)}';
   static String get adminProviderBalance => '$_base/admin/provider-balance';
   static String get adminRefreshProviderBalance =>
       '$_base/admin/provider-balance/refresh';

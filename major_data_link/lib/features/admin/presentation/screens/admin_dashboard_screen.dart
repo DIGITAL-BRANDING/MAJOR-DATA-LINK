@@ -47,8 +47,22 @@ class AdminDashboardScreen extends ConsumerWidget {
             _AdminTile(
               icon: Icons.miscellaneous_services_rounded,
               title: 'Service Pricing',
-              subtitle: 'Manage result checker PIN and other service prices',
+              subtitle: 'Set selling prices for every service (NIN/BVN, CAC, modifications, result PINs...)',
               onTap: () => context.push(RouteNames.adminServicePricing),
+            ),
+            const SizedBox(height: 10),
+            _AdminTile(
+              icon: Icons.handshake_outlined,
+              title: 'Partner Pricing',
+              subtitle: 'Set the prices API partners are charged per service',
+              onTap: () => context.push(RouteNames.adminPartnerPricing),
+            ),
+            const SizedBox(height: 10),
+            _AdminTile(
+              icon: Icons.manage_search_rounded,
+              title: 'Partner Lookup',
+              subtitle: 'Find a partner: wallet, API usage and recent calls',
+              onTap: () => context.push(RouteNames.adminPartnerLookup),
             ),
             const SizedBox(height: 10),
             _AdminTile(

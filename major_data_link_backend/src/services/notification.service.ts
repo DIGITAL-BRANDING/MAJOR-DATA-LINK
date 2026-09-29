@@ -29,8 +29,15 @@ export const PROMO_ILLUSTRATIONS = [
  * the specific userId(s) first and only pushes to tokens belonging to those users.
  * Firebase's multicast endpoint accepts at most 500 tokens per call, so large
  * broadcasts are chunked.
+ *
+ * Exported so realtime/chat-socket.ts can push a chat reply straight to a
+ * customer's device the same way, without going through notifyUser()'s
+ * Notification-table row - a chat message is not a standing item that
+ * belongs in the notification bell/history, it's a live message, same
+ * distinction WhatsApp itself makes between a chat push and its (nonexistent)
+ * notification center.
  */
-async function pushToTokens(tokens: string[], title: string, body: string, data?: Record<string, string>) {
+export async function pushToTokens(tokens: string[], title: string, body: string, data?: Record<string, string>) {
   if (tokens.length === 0) return;
   if (!env.FIREBASE_SERVICE_ACCOUNT_BASE64) return; // push not configured — DB row still saved
 
