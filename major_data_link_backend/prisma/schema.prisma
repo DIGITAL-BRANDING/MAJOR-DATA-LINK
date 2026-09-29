@@ -676,6 +676,11 @@ model ChatMessage {
   senderId       String
   senderName     String
   body           String
+  // WhatsApp-style "reply to this message". Nullable; SetNull so a deleted
+  // original never breaks the reply that quoted it.
+  replyToId      String?
+  replyTo        ChatMessage?     @relation("ChatReply", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies        ChatMessage[]    @relation("ChatReply")
   createdAt      DateTime @default(now())
 
   @@index([conversationId, createdAt])

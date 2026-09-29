@@ -133,7 +133,8 @@ async function loadHistory(conversationId: string) {
   return prisma.chatMessage.findMany({
     where: { conversationId },
     orderBy: { createdAt: 'asc' },
-    take: MESSAGE_HISTORY_LIMIT
+    take: MESSAGE_HISTORY_LIMIT,
+    include: { replyTo: true }
   });
 }
 
@@ -202,8 +203,17 @@ function serializeMessage(message: {
   senderName: string;
   body: string;
   createdAt: Date;
+  replyTo?: { id: string; senderType: 'USER' | 'ADMIN'; senderName: string; body: string } | null;
 }) {
   return {
+    reply_to: message.replyTo
+      ? {
+          id: message.replyTo.id,
+          sender_type: message.replyTo.senderType,
+          sender_name: message.replyTo.senderName,
+          body: message.replyTo.body.length > 200 ? `${message.replyTo.body.slice(0, 197)}...` : message.replyTo.body
+        }
+      : null,
     id: message.id,
     conversation_id: message.conversationId,
     sender_type: message.senderType,
@@ -296,23 +306,30 @@ function registerOwnerHandlers(io: SocketIOServer, socket: Socket, actor: Extrac
     socket.to(conversationRoom(conversationId)).emit('chat:typing', { sender_type: 'USER', typing: payload?.typing === true });
   });
 
-  socket.on('chat:send', (payload: { body?: unknown }) => {
+  socket.on('chat:send', (payload: { body?: unknown; reply_to_id?: unknown }) => {
     const body = typeof payload?.body === 'string' ? payload.body.trim() : '';
     if (!body || body.length > 4000) return;
+    const replyToRaw = typeof payload?.reply_to_id === 'string' ? payload.reply_to_id : '';
 
     runChatTask('send owner message', async () => {
       const conversation = await findOrCreateOpenConversation(actor.ownerType, actor.id);
       if (conversation.status === 'CLOSED') return; // Stale client; widget re-syncs on next reconnect.
       (socket.data as { conversationId?: string }).conversationId = conversation.id;
 
+      // Only accept a reply target that lives in this same conversation.
+      const replyTarget = replyToRaw
+        ? await prisma.chatMessage.findFirst({ where: { id: replyToRaw, conversationId: conversation.id }, select: { id: true } })
+        : null;
       const message = await prisma.chatMessage.create({
         data: {
           conversationId: conversation.id,
           senderType: 'USER',
           senderId: actor.id,
           senderName: actor.name,
-          body
-        }
+          body,
+          replyToId: replyTarget?.id ?? null
+        },
+        include: { replyTo: true }
       });
       await prisma.chatConversation.update({
         where: { id: conversation.id },
@@ -370,23 +387,30 @@ function registerAdminHandlers(io: SocketIOServer, socket: Socket, actor: Extrac
     });
   });
 
-  socket.on('chat:send', (payload: { conversation_id?: unknown; body?: unknown }) => {
+  socket.on('chat:send', (payload: { conversation_id?: unknown; body?: unknown; reply_to_id?: unknown }) => {
     const conversationId = typeof payload?.conversation_id === 'string' ? payload.conversation_id : '';
     const body = typeof payload?.body === 'string' ? payload.body.trim() : '';
     if (!conversationId || !body || body.length > 4000) return;
+    const replyToRaw = typeof payload?.reply_to_id === 'string' ? payload.reply_to_id : '';
 
     runChatTask('send admin message', async () => {
       const conversation = await prisma.chatConversation.findUnique({ where: { id: conversationId } });
       if (!conversation || conversation.status === 'CLOSED') return;
 
+      // Only accept a reply target that lives in this same conversation.
+      const replyTarget = replyToRaw
+        ? await prisma.chatMessage.findFirst({ where: { id: replyToRaw, conversationId }, select: { id: true } })
+        : null;
       const message = await prisma.chatMessage.create({
         data: {
           conversationId,
           senderType: 'ADMIN',
           senderId: actor.id,
           senderName: actor.name,
-          body
-        }
+          body,
+          replyToId: replyTarget?.id ?? null
+        },
+        include: { replyTo: true }
       });
       await prisma.chatConversation.update({
         where: { id: conversationId },
