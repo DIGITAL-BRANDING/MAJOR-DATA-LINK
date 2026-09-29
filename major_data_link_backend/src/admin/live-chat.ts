@@ -92,6 +92,55 @@ function renderPage(admin: AdminSessionUser) {
   .main header h2, .main header .sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #conversation { min-height: 0; }
   #messages { min-height: 0; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+  /* ---- WhatsApp look ---- */
+  :root { --wa-green: #00A884; --wa-header: #F0F2F5; --wa-out: #D9FDD3; --wa-bg: #EFEAE2; --wa-text2: #667781; --wa-line: #E9EDEF; }
+  .sidebar { background: #fff; border-right-color: var(--wa-line); }
+  .sidebar header, .main header { background: var(--wa-header); border-bottom: none; }
+  .sidebar header h1 { font-size: 19px; }
+  .sidebar header a { color: var(--wa-green); font-weight: 600; }
+  .status-line { border-bottom-color: var(--wa-line); }
+  .status-line.connected { color: var(--wa-green); }
+  .queue-item { display: flex; gap: 12px; align-items: center; padding: 10px 16px; border-bottom: none; position: relative; }
+  .queue-item::after { content: ''; position: absolute; left: 72px; right: 0; bottom: 0; border-bottom: 1px solid var(--wa-line); }
+  .queue-item:hover { background: #F5F6F6; }
+  .queue-item.active { background: #F0F2F5; }
+  .avatar { width: 46px; height: 46px; border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 700; font-size: 16px; background: #6B7C85; text-transform: uppercase; }
+  .avatar.partner { background: var(--gold-dark); }
+  .avatar.sm { width: 40px; height: 40px; font-size: 14px; }
+  .qbody { flex: 1; min-width: 0; padding: 4px 0; }
+  .qtop, .qbottom { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .qname { font-size: 16px; color: #111B21; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+  .qtime { font-size: 12px; color: var(--wa-text2); flex-shrink: 0; }
+  .qtime.unread { color: var(--wa-green); font-weight: 600; }
+  .queue-item .preview { font-size: 14px; color: var(--wa-text2); margin-top: 2px; flex: 1; min-width: 0; }
+  .badge { background: var(--wa-green); min-width: 20px; height: 20px; padding: 0 6px; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; margin-top: 2px; }
+  .tag { background: var(--gold-dark); margin: 0 6px 0 0; }
+  .main { background-color: var(--wa-bg); background-image: radial-gradient(rgba(11,20,26,0.06) 1.2px, transparent 1.2px); background-size: 20px 20px; }
+  .main header h2 { font-size: 16px; font-weight: 500; color: #111B21; }
+  .main header .sub { font-size: 13px; color: var(--wa-text2); }
+  .btn-close { background: transparent; color: #B3261E; border: 1px solid #E5B4B0; font-weight: 600; }
+  #messages { gap: 2px; padding: 16px 7%; }
+  .msg { position: relative; max-width: 65%; padding: 6px 8px 6px 9px; border-radius: 8px; font-size: 14.2px; line-height: 1.35; border: none !important; box-shadow: 0 1px 0.5px rgba(11,20,26,0.13); white-space: pre-wrap; margin-top: 6px; }
+  .msg.user { background: #fff; border-top-left-radius: 0; }
+  .msg.admin { background: var(--wa-out); color: #111B21; border-top-right-radius: 0; }
+  .msg.user::before, .msg.admin::before { content: ''; position: absolute; top: 0; width: 8px; height: 13px; }
+  .msg.user::before { left: -8px; background: #fff; clip-path: polygon(100% 0, 0 0, 100% 100%); }
+  .msg.admin::before { right: -8px; background: var(--wa-out); clip-path: polygon(0 0, 100% 0, 0 100%); }
+  .msg.cont { margin-top: 0; }
+  .msg.cont::before { display: none; }
+  .msg.user.cont { border-top-left-radius: 8px; }
+  .msg.admin.cont { border-top-right-radius: 8px; }
+  .msg .who { font-size: 12.5px; font-weight: 600; color: var(--wa-green); margin-bottom: 2px; }
+  .msg.admin .who { display: none; }
+  .msg .time { float: right; font-size: 11px; color: var(--wa-text2); margin: 6px 0 -4px 12px; line-height: 1; white-space: nowrap; }
+  .msg .body { display: inline; }
+  .day-chip { align-self: center; background: #fff; color: var(--wa-text2); font-size: 12px; padding: 5px 12px; border-radius: 8px; margin: 10px 0 6px; box-shadow: 0 1px 0.5px rgba(11,20,26,0.13); }
+  .typing-row { background: #fff; align-self: flex-start; margin: 0 7% 8px; padding: 9px 12px; border-radius: 8px; box-shadow: 0 1px 0.5px rgba(11,20,26,0.13); width: fit-content; }
+  .composer { background: var(--wa-header); border-top: none; }
+  .composer input { border: none; background: #fff; }
+  .composer button { background: var(--wa-green); width: 44px; padding: 0; display: flex; align-items: center; justify-content: center; }
+  .composer button svg { width: 22px; height: 22px; fill: #fff; }
+  .notif-btn.on { border-color: var(--wa-green); color: var(--wa-green); }
   @media (max-width: 768px) {
     .sidebar { width: 100%; border-right: none; padding-top: env(safe-area-inset-top, 0px); }
     .main { position: absolute; top: 0; right: 0; bottom: 0; left: 0; z-index: 5; transform: translateX(100%); transition: transform 0.25s ease; visibility: hidden; }
@@ -99,8 +148,10 @@ function renderPage(admin: AdminSessionUser) {
     .back-btn { display: block; }
     .main header { padding-top: calc(10px + env(safe-area-inset-top, 0px)); }
     .placeholder { display: none !important; }
-    #messages { padding: 12px; gap: 6px; }
+    #messages { padding: 10px 12px; }
     .msg { max-width: 85%; }
+    .typing-row { margin: 0 12px 8px; }
+    .queue-item::after { left: 70px; }
     .queue-item { padding: 14px 16px; }
     .btn-close { padding: 8px 10px; }
   }
@@ -122,6 +173,7 @@ function renderPage(admin: AdminSessionUser) {
     <div id="conversation" style="display:none; flex-direction:column; height:100%;">
       <header>
         <button type="button" class="back-btn" id="back-btn" aria-label="Back to conversations">&larr;</button>
+        <div class="avatar sm" id="conv-avatar">?</div>
         <div class="head-text">
           <h2 id="conv-name">—</h2>
           <div class="sub" id="conv-sub">—</div>
@@ -132,7 +184,7 @@ function renderPage(admin: AdminSessionUser) {
       <div class="typing-row" id="typing-row"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
       <form class="composer" id="composer">
         <input id="msg-input" type="text" placeholder="Type a reply…" autocomplete="off" maxlength="4000">
-        <button type="submit">Send</button>
+        <button type="submit" aria-label="Send"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.4 20.4l17.45-7.48a1 1 0 000-1.84L3.4 3.6a.993.993 0 00-1.39.91L2 9.12c0 .5.37.93.87.99L17 12 2.87 13.88c-.5.07-.87.5-.87 1l.01 4.61c0 .71.73 1.2 1.39.91z"/></svg></button>
       </form>
     </div>
   </div>
@@ -255,6 +307,27 @@ function renderPage(admin: AdminSessionUser) {
     var d = new Date(iso);
     return d.toLocaleString();
   }
+  function initials(name) {
+    var parts = String(name || '?').trim().split(/\\s+/);
+    return (parts[0].charAt(0) + (parts.length > 1 ? parts[parts.length - 1].charAt(0) : '')) || '?';
+  }
+  function hm(d) { return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); }
+  function sameDay(a, b) { return a.toDateString() === b.toDateString(); }
+  function shortTime(iso) {
+    if (!iso) return '';
+    var d = new Date(iso), now = new Date();
+    if (sameDay(d, now)) return hm(d);
+    var y = new Date(now.getTime() - 86400000);
+    if (sameDay(d, y)) return 'Yesterday';
+    return d.toLocaleDateString([], { day: '2-digit', month: '2-digit', year: '2-digit' });
+  }
+  function dayLabel(d) {
+    var now = new Date();
+    if (sameDay(d, now)) return 'Today';
+    if (sameDay(d, new Date(now.getTime() - 86400000))) return 'Yesterday';
+    return d.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  }
+  var lastMsgDate = null, lastMsgSender = null;
 
   socket.on('connect', function () {
     statusEl.textContent = 'Connected';
@@ -284,13 +357,15 @@ function renderPage(admin: AdminSessionUser) {
     }
     queueEl.innerHTML = queue.map(function (row) {
       var active = row.id === activeConversationId ? ' active' : '';
-      var badge = row.unread_by_admin > 0 ? '<span class="badge">' + row.unread_by_admin + '</span>' : '';
+      var unread = row.unread_by_admin > 0;
+      var badge = unread ? '<span class="badge">' + row.unread_by_admin + '</span>' : '';
       var tag = row.owner_type === 'PARTNER' ? '<span class="tag">PARTNER</span>' : '';
-      return '<div class="queue-item' + active + '" data-id="' + row.id + '">' +
-        '<div class="name"><span>' + tag + escapeHtml(row.owner_name) + '</span>' + badge + '</div>' +
-        '<div class="preview">' + escapeHtml(row.last_message_preview || '') + '</div>' +
-        '<div class="meta">' + escapeHtml(row.owner_phone || row.owner_email || '') + ' · ' + timeLabel(row.last_message_at) + '</div>' +
-        '</div>';
+      var av = '<div class="avatar' + (row.owner_type === 'PARTNER' ? ' partner' : '') + '">' + escapeHtml(initials(row.owner_name)) + '</div>';
+      return '<div class="queue-item' + active + '" data-id="' + row.id + '">' + av +
+        '<div class="qbody">' +
+          '<div class="qtop"><span class="qname">' + tag + escapeHtml(row.owner_name) + '</span><span class="qtime' + (unread ? ' unread' : '') + '">' + shortTime(row.last_message_at) + '</span></div>' +
+          '<div class="qbottom"><span class="preview">' + escapeHtml(row.last_message_preview || '') + '</span>' + badge + '</div>' +
+        '</div></div>';
     }).join('');
     Array.prototype.forEach.call(queueEl.querySelectorAll('.queue-item'), function (el) {
       el.addEventListener('click', function () { openConversation(el.getAttribute('data-id')); });
@@ -309,6 +384,7 @@ function renderPage(admin: AdminSessionUser) {
     if (row) {
       convNameEl.textContent = row.owner_name;
       convSubEl.textContent = row.owner_phone || row.owner_email || '';
+      document.getElementById('conv-avatar').textContent = initials(row.owner_name);
     }
     renderQueue();
     wrapEl.classList.add('chat-open');
@@ -360,13 +436,25 @@ function renderPage(admin: AdminSessionUser) {
 
   function renderMessages(list) {
     messagesEl.innerHTML = '';
+    lastMsgDate = null; lastMsgSender = null;
     list.forEach(appendMessage);
   }
   function appendMessage(m) {
+    var d = new Date(m.created_at);
+    if (!lastMsgDate || !sameDay(lastMsgDate, d)) {
+      var chip = document.createElement('div');
+      chip.className = 'day-chip';
+      chip.textContent = dayLabel(d);
+      messagesEl.appendChild(chip);
+      lastMsgSender = null;
+    }
+    var side = m.sender_type === 'ADMIN' ? 'admin' : 'user';
     var div = document.createElement('div');
-    div.className = 'msg ' + (m.sender_type === 'ADMIN' ? 'admin' : 'user');
-    div.innerHTML = '<div class="who">' + escapeHtml(m.sender_name) + ' · ' + timeLabel(m.created_at) + '</div>' + escapeHtml(m.body);
+    div.className = 'msg ' + side + (lastMsgSender === side ? ' cont' : '');
+    var who = side === 'user' && lastMsgSender !== side ? '<div class="who">' + escapeHtml(m.sender_name) + '</div>' : '';
+    div.innerHTML = who + '<span class="body">' + escapeHtml(m.body) + '</span><span class="time">' + hm(d) + '</span>';
     messagesEl.appendChild(div);
+    lastMsgDate = d; lastMsgSender = side;
     messagesEl.scrollTop = messagesEl.scrollHeight;
   }
 

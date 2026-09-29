@@ -46,6 +46,7 @@ import { registerPartnerManualRequestRoutes } from './partner-manual-request.js'
 import { registerManualRequestRoutes } from './manual-requests.js';
 import { registerManualVerificationRoutes } from './manual-verification.js';
 import { registerLiveChatRoutes } from './live-chat.js';
+import { mobileShell } from './mobile-shell.js';
 
 AdminJS.registerAdapter({ Database, Resource });
 
@@ -197,6 +198,10 @@ export async function buildAdminRouter() {
       }
     }
   );
+
+  // Must come before the custom page routes below: adds the viewport tag +
+  // mobile-only CSS to every server-rendered admin page (see mobile-shell.ts).
+  router.use(mobileShell);
 
   registerBulkPricingRoutes(router);
   registerPartnerPricingRoutes(router);

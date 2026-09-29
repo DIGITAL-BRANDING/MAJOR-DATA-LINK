@@ -79,20 +79,20 @@ const Dashboard: React.FC = () => (
     <Box
       position="relative"
       overflow="hidden"
-      py="xxl"
+      py={['lg', 'xl', 'xxl']}
       px={['default', 'lg', 'xxl']}
       style={{ background: 'linear-gradient(135deg, #0b2f73 0%, #1452a0 100%)' }}
     >
-      <Box display="flex" alignItems="center" flexDirection={['column', 'row']}>
-        <Box mr={['0', 'xl']} mb={['lg', '0']}>
+      <Box display="flex" alignItems="center" flexDirection={['column', 'row']} style={{ textAlign: 'inherit', gap: 16 }}>
+        <Box>
           <img
             src="/branding/logo.png"
             alt="K-Tech Solutions"
-            style={{ width: 96, height: 96, borderRadius: 20, display: 'block' }}
+            style={{ width: 'clamp(56px, 16vw, 96px)', height: 'clamp(56px, 16vw, 96px)', borderRadius: 20, display: 'block' }}
           />
         </Box>
-        <Box>
-          <H2 color="white" fontWeight="bold" style={{ color: '#ffffff' }}>
+        <Box style={{ minWidth: 0 }}>
+          <H2 color="white" fontWeight="bold" style={{ color: '#ffffff', fontSize: 'clamp(18px, 5vw, 28px)', lineHeight: 1.25 }}>
             Welcome to K-Tech Solutions Admin
           </H2>
           <Text color="white" style={{ opacity: 0.9, color: '#ffffff' }}>
@@ -104,14 +104,14 @@ const Dashboard: React.FC = () => (
 
     <Box px={['default', 'lg', 'xxl']} py="xl">
       <H4 mb="lg">Quick links</H4>
-      <Box display="flex" flexWrap="wrap" style={{ gap: 20 }}>
+      <Box style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 260px), 1fr))', gap: 'clamp(10px, 2.5vw, 20px)' }}>
         {quickLinks.map((link) => (
           <a
             key={link.resourceId ?? link.href}
             href={link.href ?? `${ADMIN_ROOT_PATH}/resources/${link.resourceId}`}
-            style={{ textDecoration: 'none', display: 'block', width: 280, flexGrow: 1, maxWidth: 340 }}
+            style={{ textDecoration: 'none', display: 'block', minWidth: 0 }}
           >
-            <Box variant="white" boxShadow="card" p="lg" style={{ cursor: 'pointer', height: '100%', background: '#0b2f73', borderRadius: 12 }}>
+            <Box variant="white" boxShadow="card" p="lg" style={{ cursor: 'pointer', height: '100%', background: '#0b2f73', borderRadius: 12, overflowWrap: 'anywhere' }}>
               <Box display="flex" alignItems="center" mb="default">
                 <Icon
                   icon={link.icon}
