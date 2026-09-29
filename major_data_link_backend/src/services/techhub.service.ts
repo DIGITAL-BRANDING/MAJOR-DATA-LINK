@@ -408,8 +408,16 @@ export class TechhubService {
     return this.getAsync('bvn_retrieval.php', ticketId);
   }
 
-  async submitIpeClearance(trackingId: string) {
-    return this.postAsync('ipe_clearance.php', { tracking_id: trackingId });
+  async submitIpeClearance(
+    trackingId: string,
+    // Partner API clients predating the category selector still use the
+    // provider's standard in-processing clearance path.
+    ipeType = 'inprocessing_error'
+  ) {
+    return this.postAsync('ipe_clearance.php', {
+      tracking_id: trackingId,
+      verification_type: ipeType
+    });
   }
   async checkIpeClearance(ticketId: string) {
     return this.getAsync('ipe_clearance.php', ticketId);

@@ -21,6 +21,7 @@ class _IpeClearanceScreenState extends ConsumerState<IpeClearanceScreen>
     with AsyncTicketPoller<IpeClearanceScreen>, SecureScreenMixin {
   final _trackingIdController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
+  IpeType _ipeType = IpeType.inprocessingError;
 
   @override
   void dispose() {
@@ -52,6 +53,7 @@ class _IpeClearanceScreenState extends ConsumerState<IpeClearanceScreen>
               .read(verificationRemoteProvider)
               .submitIpeClearance(
                 trackingId: _trackingIdController.text.trim(),
+                ipeType: _ipeType,
                 pin: pin,
               ),
         );
@@ -82,7 +84,31 @@ class _IpeClearanceScreenState extends ConsumerState<IpeClearanceScreen>
                   style: const TextStyle(fontSize: 12),
                 ),
                 const SizedBox(height: 8),
-                const Text('Service completion: 6–72 hours.', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                const Text(
+                  'Service completion: 6–72 hours.',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 16),
+                DropdownButtonFormField<IpeType>(
+                  value: _ipeType,
+                  decoration: const InputDecoration(
+                    labelText: 'IPE Type',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: IpeType.values
+                      .map(
+                        (type) => DropdownMenuItem<IpeType>(
+                          value: type,
+                          child: Text(type.label),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: locked
+                      ? null
+                      : (type) {
+                          if (type != null) setState(() => _ipeType = type);
+                        },
+                ),
                 const SizedBox(height: 16),
                 KDTextField(
                   controller: _trackingIdController,

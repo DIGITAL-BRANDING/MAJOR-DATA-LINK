@@ -984,15 +984,20 @@ export function checkBvnRetrievalStatus(params: { userId: string; ticketId: stri
   });
 }
 
-export function submitIpeClearance(params: { userId: string; trackingId: string; idempotencyKey?: string }) {
+export function submitIpeClearance(params: {
+  userId: string;
+  trackingId: string;
+  ipeType: 'get_old_tracking_id' | 'inprocessing_error' | 'tracking_is_being_processed' | 'modification_ipe' | 'hit_blocked';
+  idempotencyKey?: string;
+}) {
   return submitAsyncService({
     userId: params.userId,
     service: 'IPE_CLEARANCE',
-    description: 'IPE clearance request',
+    description: `IPE clearance request (${params.ipeType.replace(/_/g, ' ')})`,
     operational: {},
-    pii: { tracking_id: params.trackingId },
+    pii: { tracking_id: params.trackingId, ipe_type: params.ipeType },
     idempotencyKey: params.idempotencyKey,
-    callByProvider: { techhub: () => techhubService.submitIpeClearance(params.trackingId) }
+    callByProvider: { techhub: () => techhubService.submitIpeClearance(params.trackingId, params.ipeType) }
   });
 }
 export function checkIpeClearanceStatus(params: { userId: string; ticketId: string }) {

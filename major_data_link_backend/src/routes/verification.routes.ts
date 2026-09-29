@@ -373,11 +373,22 @@ verificationRoutes.get('/bvn-retrieval/:ticketId', async (req, res) => {
 });
 
 verificationRoutes.post('/ipe-clearance', async (req, res) => {
-  const body = z.object({ tracking_id: z.string().trim().min(1).max(20), ...pinField }).parse(req.body);
+  const body = z.object({
+    tracking_id: z.string().trim().min(1).max(20),
+    ipe_type: z.enum([
+      'get_old_tracking_id',
+      'inprocessing_error',
+      'tracking_is_being_processed',
+      'modification_ipe',
+      'hit_blocked'
+    ]),
+    ...pinField
+  }).parse(req.body);
   await requirePinConfirmation(req.user!.id, body.pin);
   const result = await submitIpeClearance({
     userId: req.user!.id,
     trackingId: body.tracking_id,
+    ipeType: body.ipe_type,
     idempotencyKey: idempotencyKeyFrom(req)
   });
   res.json({ status: true, data: { reference: result.reference, ticket_id: result.ticketId, balance_after: result.balanceAfter } });

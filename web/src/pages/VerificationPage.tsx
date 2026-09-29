@@ -63,7 +63,7 @@ const nin: Item[] = [
   { id: 'modification', label: 'NIN Modification', path: '/verification/nin-validation', fields: ['nin'], icon: PenLine, async: true },
   { id: 'personalization', label: 'NIN Personalization', path: '/verification/personalization', fields: ['tracking_id'], icon: UserRoundCheck, async: true },
   { id: 'delinking', label: 'Self Service Delinking', path: '/verification/delinking', fields: ['nin', 'email'], icon: ShieldCheck, async: true },
-  { id: 'ipe', label: 'IPE Clearance', path: '/verification/ipe-clearance', fields: ['tracking_id'], icon: ShieldCheck, async: true },
+  { id: 'ipe', label: 'IPE Clearance', path: '/verification/ipe-clearance', fields: ['ipe_type', 'tracking_id'], icon: ShieldCheck, async: true },
 ];
 const bvn: Item[] = [
   { id: 'slip', label: 'BVN Verification', path: '/verification/bvn/slip', fields: ['bvn'], icon: Fingerprint, tiers: ['premium', 'standard'] },
@@ -86,6 +86,17 @@ const VALIDATION_TYPES: { value: string; label: string; serviceKey: string }[] =
   { value: 'v.nin_validation', label: 'v.NIN validation', serviceKey: 'NIN_VALIDATION_VNIN' },
 ];
 
+// These match the IPE request categories shown in the provider portal. The
+// type travels with the request so support/admin can see exactly why the
+// customer submitted the tracking ID.
+const IPE_TYPES = [
+  { value: 'get_old_tracking_id', label: 'Get Old Tracking ID' },
+  { value: 'inprocessing_error', label: 'Inprocessing Error' },
+  { value: 'tracking_is_being_processed', label: 'Tracking Is Being Processed' },
+  { value: 'modification_ipe', label: 'Modification IPE' },
+  { value: 'hit_blocked', label: 'HIT/Blocked' },
+] as const;
+
 const labels: Record<string, string> = {
   nin: 'NIN number',
   bvn: 'BVN number',
@@ -99,6 +110,7 @@ const labels: Record<string, string> = {
   dob: 'Date of birth',
   gender: 'Gender',
   validation_type: 'Validation type',
+  ipe_type: 'IPE type',
   tracking_id: 'Tracking ID',
   agent_location: 'Agent location',
   agent_bvn: 'Agent BVN',
@@ -299,7 +311,13 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
     // Pre-select the general (cheapest, no-op) validation type so a real
     // price shows immediately instead of "Price loading…" the moment the
     // form opens - same reasoning as tier defaulting to 'premium' above.
-    setValues(item.id === 'validation' ? { validation_type: 'nin_validation' } : {});
+    setValues(
+      item.id === 'validation'
+        ? { validation_type: 'nin_validation' }
+        : item.id === 'ipe'
+          ? { ipe_type: 'inprocessing_error' }
+          : {}
+    );
     setMessage('');
   }
 
@@ -520,6 +538,16 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
                           </button>
                         ))}
                       </div>
+                    ) : field === 'ipe_type' ? (
+                      <select
+                        required
+                        className="mt-1 w-full rounded-xl border border-parchment-line bg-cream p-3 text-ink outline-none focus:border-gold-500"
+                        value={values[field] ?? ''}
+                        onChange={(e) => setValues((v) => ({ ...v, [field]: e.target.value }))}
+                      >
+                        <option value="">Select IPE type</option>
+                        {IPE_TYPES.map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}
+                      </select>
                     ) : field === 'geo_political_zone' ? (
                       <select
                         required

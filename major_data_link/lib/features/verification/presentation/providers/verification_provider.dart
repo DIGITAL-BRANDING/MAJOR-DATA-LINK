@@ -32,6 +32,33 @@ extension BvnTierX on BvnTier {
   String get apiValue => name;
 }
 
+/// IPE categories available when submitting a tracking-ID clearance request.
+enum IpeType {
+  getOldTrackingId,
+  inprocessingError,
+  trackingIsBeingProcessed,
+  modificationIpe,
+  hitBlocked,
+}
+
+extension IpeTypeX on IpeType {
+  String get apiValue => switch (this) {
+    IpeType.getOldTrackingId => 'get_old_tracking_id',
+    IpeType.inprocessingError => 'inprocessing_error',
+    IpeType.trackingIsBeingProcessed => 'tracking_is_being_processed',
+    IpeType.modificationIpe => 'modification_ipe',
+    IpeType.hitBlocked => 'hit_blocked',
+  };
+
+  String get label => switch (this) {
+    IpeType.getOldTrackingId => 'Get Old Tracking ID',
+    IpeType.inprocessingError => 'Inprocessing Error',
+    IpeType.trackingIsBeingProcessed => 'Tracking Is Being Processed',
+    IpeType.modificationIpe => 'Modification IPE',
+    IpeType.hitBlocked => 'HIT/Blocked',
+  };
+}
+
 /// One of the 8 validation issue types Techhubltd's NIN Validation service
 /// accepts (`nin_validation` is the default when omitted).
 enum NinValidationType {
@@ -516,9 +543,11 @@ class VerificationRemote {
 
   Future<AsyncSubmitApiResult> submitIpeClearance({
     required String trackingId,
+    required IpeType ipeType,
     required String pin,
   }) => _postAsync(AppEndpoints.ipeClearance, {
     'tracking_id': trackingId,
+    'ipe_type': ipeType.apiValue,
     'pin': pin,
   });
 
