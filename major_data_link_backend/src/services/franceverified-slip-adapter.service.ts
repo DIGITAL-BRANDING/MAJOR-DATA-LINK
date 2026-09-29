@@ -30,7 +30,33 @@ function titleCaseGender(value: unknown): string | undefined {
 }
 
 function str(value: unknown): string | undefined {
-  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  // FranceVerified masks unavailable private fields with ****. Treat those
+  // as absent so neither the customer preview nor generated slip presents a
+  // misleading row.
+  return trimmed.length > 0 && trimmed !== '****' ? trimmed : undefined;
+}
+
+/** FranceVerified uses different casing across its NIN endpoints. */
+function firstString(source: Record<string, unknown>, ...keys: string[]): string | undefined {
+  for (const key of keys) {
+    const direct = str(source[key]);
+    if (direct) return direct;
+    const match = Object.keys(source).find((candidate) => candidate.toLowerCase() === key.toLowerCase());
+    if (match) {
+      const value = str(source[match]);
+      if (value) return value;
+    }
+  }
+  return undefined;
+}
+
+function embeddedPhoto(source: Record<string, unknown>): string | undefined {
+  const value = firstString(source, 'image', 'photo', 'passport', 'imageBase64');
+  // PDFKit accepts bytes/base64, not a remote URL. Keep a URL out of the
+  // renderer so a provider-hosted photo can never break PDF generation.
+  return value?.startsWith('http://') || value?.startsWith('https://') ? undefined : value;
 }
 
 /**
@@ -93,14 +119,14 @@ export const franceverifiedSlipAdapter = {
       title: 'NIN Slip',
       subtitle: 'Verified by NIN',
       reference,
-      photoBase64: str(d.image),
+      photoBase64: embeddedPhoto(d),
       tier,
       personalInfo,
       fields: fieldsFromRaw(d, [
-        { label: 'First Name', value: str(d.firstname) },
-        { label: 'Middle Name', value: str(d.middlename) },
-        { label: 'Surname', value: str(d.surname) },
-        { label: 'NIN', value: str(d.nin) ?? nin },
+        { label: 'First Name', value: firstString(d, 'firstname', 'firstName') },
+        { label: 'Middle Name', value: firstString(d, 'middlename', 'middleName') },
+        { label: 'Surname', value: firstString(d, 'surname', 'lastName') },
+        { label: 'NIN', value: firstString(d, 'nin', 'idNumber', 'id_number') ?? nin },
         { label: 'Gender', value: titleCaseGender(d.gender) },
         { label: 'Date of Birth', value: str(d.birthdate) },
         { label: 'Phone', value: str(d.telephoneno) },
@@ -124,20 +150,30 @@ export const franceverifiedSlipAdapter = {
       title: 'NIN Slip',
       subtitle: 'Verified by Phone',
       reference,
-      photoBase64: str(d.photo),
+      photoBase64: embeddedPhoto(d),
       tier,
       personalInfo,
       fields: fieldsFromRaw(d, [
-        { label: 'First Name', value: str(d.firstName) },
-        { label: 'Middle Name', value: str(d.middleName) },
-        { label: 'Surname', value: str(d.lastName) },
-        { label: 'NIN', value: str(d.idNumber) },
+        { label: 'First Name', value: firstString(d, 'firstName', 'firstname') },
+        { label: 'Middle Name', value: firstString(d, 'middleName', 'middlename') },
+        { label: 'Surname', value: firstString(d, 'lastName', 'surname') },
+        // The public FranceVerified phone sample does not promise a NIN.
+        // Show it whenever the account returns one, but never invent it.
+        { label: 'NIN', value: firstString(d, 'idNumber', 'nin', 'id_number') },
         { label: 'Gender', value: titleCaseGender(d.gender) },
-        { label: 'Date of Birth', value: str(d.dateOfBirth) },
-        { label: 'Phone', value: str(d.mobile) ?? phone },
-        { label: 'State', value: str(address.state) },
-        { label: 'LGA', value: str(address.lga) },
-        { label: 'Address', value: str(address.addressLine) }
+        { label: 'Date of Birth', value: firstString(d, 'dateOfBirth', 'birthdate') },
+        { label: 'Phone', value: firstString(d, 'mobile', 'phone', 'phoneNumber') ?? phone },
+        { label: 'State', value: firstString(address, 'state') },
+        { label: 'Town / LGA', value: firstString(address, 'town', 'lga', 'localGovernment') },
+        { label: 'Address', value: firstString(address, 'addressLine', 'address_line', 'line1') },
+        { label: 'Birth Country', value: firstString(d, 'birthCountry') },
+        { label: 'Birth State', value: firstString(d, 'birthState') },
+        { label: 'Birth LGA', value: firstString(d, 'birthLGA') },
+        { label: 'Title', value: firstString(d, 'title') },
+        { label: 'Education', value: firstString(d, 'educationallevel', 'educationalLevel') },
+        { label: 'Employment Status', value: firstString(d, 'employmentstatus', 'employmentStatus') },
+        { label: 'Height', value: firstString(d, 'height') },
+        { label: 'Marital Status', value: firstString(d, 'maritalstatus', 'maritalStatus') }
       ])
     });
     return { ok: true, message: result.message, userData: slip.userData, pdfBase64: slip.pdfBase64, raw: result.raw };
