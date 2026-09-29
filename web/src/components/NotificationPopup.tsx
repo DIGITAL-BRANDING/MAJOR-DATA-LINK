@@ -9,6 +9,7 @@ type NotificationItem = {
   type?: string;
   is_read?: boolean;
   broadcast_id?: string | null;
+  is_persistent_broadcast?: boolean;
   show_as_popup?: boolean;
   created_at?: string;
 };
@@ -23,16 +24,15 @@ type NotificationItem = {
  * on login, on returning to the dashboard, and on refreshing it is the
  * intended behaviour, by design (see below), not a bug.
  *
- * Eligibility for the popup is just "the single most recent notification
- * with show_as_popup=true" - an admin opts a broadcast into popup treatment
- * when sending it (see notification-broadcast.resource.ts's showAsPopup
- * field). It stays the active popup, reappearing on every fresh mount of
+ * Eligibility is the single newest admin broadcast. It stays the active
+ * popup, reappearing on every fresh mount of
  * this component (login, dashboard visit, dashboard refresh) REGARDLESS of
  * is_read or whether it was dismissed on a previous visit - dismissing only
  * hides it for the rest of THIS mount (so it doesn't immediately pop back
  * up from the 30s poll below while they're still looking at the page), via
- * local hiddenIds state that resets on the next mount. It stops being "the
- * newest" only when an admin sends a further broadcast, at which point that
+ * local hiddenIds state that resets on the next mount. It stops being the
+ * active announcement only when an admin sends a further broadcast, at which
+ * point that
  * one takes over here and this one is left sitting in the NotificationBell
  * dropdown ("notification tab") - which shows every notification
  * regardless of is_read, so it's still visible there. Nothing is ever
@@ -51,7 +51,17 @@ export default function NotificationPopup() {
         .then((response) => {
           if (!active) return;
           const items = response.data ?? [];
-          const next = items.find((item) => item.show_as_popup && !hiddenIds.includes(item.id));
+          const broadcasts = items
+            .filter((item) => Boolean(item.broadcast_id || item.is_persistent_broadcast))
+            .sort((a, b) => Date.parse(b.created_at ?? '') - Date.parse(a.created_at ?? ''));
+          const newestBroadcast = broadcasts[0];
+
+          // Never fall through from a dismissed/latest broadcast to an older
+          // one. Older broadcasts stay in the notification list, but are not
+          // allowed to create a sequence of stale popups.
+          const next = newestBroadcast
+            ? (hiddenIds.includes(newestBroadcast.id) ? undefined : newestBroadcast)
+            : items.find((item) => item.show_as_popup && !hiddenIds.includes(item.id));
           setNotice(next ?? null);
         })
         .catch(() => {

@@ -18,7 +18,9 @@ notificationRoutes.get('/', async (req, res) => {
 
   const notifications = await prisma.notification.findMany({
     where: { userId: req.user!.id },
-    orderBy: { createdAt: 'desc' },
+    // Keep the newest announcement deterministic even if two broadcasts were
+    // created in the same timestamp tick.
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     take: limit
   });
 

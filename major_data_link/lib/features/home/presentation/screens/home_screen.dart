@@ -41,23 +41,28 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
     final notifications =
         notificationsAsync.valueOrNull ?? const <AppNotification>[];
-    // The latest admin broadcast is the active announcement. Unlike automatic
-    // refund/service notifications, it is shown after every feed refresh and
-    // is replaced only when a newer broadcast arrives. Older popup campaigns
-    // still use the one-time showAsPopup behaviour.
-    final persistentNotice = notifications.cast<AppNotification?>().firstWhere((
-      item,
-    ) {
-      if (item == null || _shownWelcomeNoticeIds.contains(item.id)) {
-        return false;
-      }
-      return item.isPersistentBroadcast;
-    }, orElse: () => null);
+    // A broadcast is an announcement, not a queue of popups. Keep only the
+    // newest broadcast active; otherwise, closing it would immediately show
+    // the next older broadcast from the user's notification history.
+    final broadcasts =
+        notifications.where((item) => item.isPersistentBroadcast).toList()
+          ..sort((a, b) => b.date.compareTo(a.date));
+    final newestBroadcast = broadcasts.isEmpty ? null : broadcasts.first;
+
+    // Once the active broadcast has been dismissed for this screen session,
+    // do not fall through to an older broadcast or another popup. It will be
+    // shown again on a dashboard refresh/login, or replaced by a new one.
+    if (newestBroadcast != null &&
+        _shownWelcomeNoticeIds.contains(newestBroadcast.id)) {
+      return;
+    }
+
     final notice =
-        persistentNotice ??
+        newestBroadcast ??
         notifications.cast<AppNotification?>().firstWhere((item) {
           if (item == null ||
               item.isRead ||
+              item.isPersistentBroadcast ||
               _shownWelcomeNoticeIds.contains(item.id)) {
             return false;
           }
