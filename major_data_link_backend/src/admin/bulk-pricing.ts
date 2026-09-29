@@ -246,7 +246,6 @@ export function registerBulkPricingRoutes(router: Router) {
 
     try {
       const selections = extractManualSelections(fields(req));
-      const sharedPrice = parsePositiveNumber(field(req, 'sharedPrice'));
       if (selections.length === 0) {
         return res.redirect(
           `/admin/bulk-pricing?dpNetwork=${encodeURIComponent(network)}&flash=` +
@@ -302,6 +301,7 @@ export function registerBulkPricingRoutes(router: Router) {
 
     try {
       const selections = extractManualSelections(fields(req));
+      const sharedPrice = parsePositiveNumber(field(req, 'sharedPrice'));
       if (selections.length === 0) {
         return res.redirect(
           '/admin/bulk-pricing?flash=' +
@@ -311,9 +311,8 @@ export function registerBulkPricingRoutes(router: Router) {
 
       let updated = 0;
       const skipped: string[] = [];
-      for (const selection of selections) {
+      for (const { id, priceNaira } of selections) {
         try {
-          const { id, priceNaira } = selection;
           const effectivePrice = sharedPrice ?? priceNaira;
           if (!Number.isFinite(effectivePrice) || effectivePrice <= 0) throw new Error('price must be > 0');
           await updateServicePrice(id, { sellingPrice: effectivePrice });
