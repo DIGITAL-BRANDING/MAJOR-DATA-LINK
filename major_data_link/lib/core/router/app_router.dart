@@ -66,6 +66,7 @@ import '../../features/verification/presentation/screens/ipe_clearance_screen.da
 import '../../features/verification/presentation/screens/bvn_slip_screen.dart';
 import '../../features/verification/presentation/screens/bvn_retrieval_screen.dart';
 import '../../features/verification/presentation/screens/bvn_license_onboarding_screen.dart';
+import '../../features/verification/presentation/screens/bvn_modification_screen.dart';
 import '../../features/verification/presentation/screens/nin_modification_screen.dart';
 import '../../features/deliveries/presentation/screens/deliveries_screen.dart';
 import '../../features/manual_services/presentation/screens/manual_service_request_screen.dart';
@@ -322,11 +323,7 @@ final routerProvider = Provider<GoRouter>((ref) {
                   ),
                   GoRoute(
                     path: 'bvn-modification',
-                    builder: (_, __) => const ManualServiceRequestScreen(
-                      title: 'BVN Modification',
-                      prompt:
-                          'Submit the BVN modification details for an agent to process.',
-                    ),
+                    builder: (_, __) => const BvnModificationScreen(),
                   ),
                   GoRoute(
                     path: 'birth-attestation',

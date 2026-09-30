@@ -46,7 +46,7 @@ const TYPE_ORDER = [
   'update_dob_phone'
 ];
 
-type Stage = 'decide' | 'verify' | 'select' | 'form';
+type Stage = 'decide' | 'verify' | 'enrollment' | 'select' | 'form';
 
 /**
  * Ported from infoverify (DIGITAL-BRANDING/maria-digital-services)'s
@@ -63,6 +63,7 @@ export default function BvnModificationPage() {
   const [types, setTypes] = useState<TypeConfig[]>([]);
   const [prices, setPrices] = useState<Record<string, number>>({});
   const [selectedType, setSelectedType] = useState<string | null>(null);
+  const [enrollmentType, setEnrollmentType] = useState('');
   const [values, setValues] = useState<Record<string, string>>({});
   const [imageErrors, setImageErrors] = useState<Record<string, string>>({});
   const [showPin, setShowPin] = useState(false);
@@ -96,9 +97,14 @@ export default function BvnModificationPage() {
   const selected = useMemo(() => types.find((t) => t.id === selectedType) ?? null, [types, selectedType]);
   const selectedPrice = selectedType ? prices[selectedType] : undefined;
 
+  function continueToEnrollment() {
+    setMessage('');
+    setStage('enrollment');
+  }
+
   function pickType(id: string) {
     setSelectedType(id);
-    setValues({});
+    setValues({ enrollment_type: enrollmentType });
     setImageErrors({});
     setMessage('');
     setReference('');
@@ -192,7 +198,7 @@ export default function BvnModificationPage() {
       );
       setReference(result.data.reference);
       setMessage(result.message);
-      setValues({});
+      setValues({ enrollment_type: enrollmentType });
       void loadHistory(selected.id);
     } catch (error) {
       setMessage(error instanceof ApiError ? error.message : 'Request failed. Please try again.');
@@ -234,7 +240,7 @@ export default function BvnModificationPage() {
 
             <div className="mt-5 grid gap-4 sm:grid-cols-2">
               <button
-                onClick={() => setStage('select')}
+                onClick={continueToEnrollment}
                 className="flex flex-col items-center gap-2 rounded-xl bg-ink p-6 text-cream transition hover:bg-ink-soft focus-visible:outline-gold-400"
               >
                 <CheckCircle2 size={28} />
@@ -335,7 +341,7 @@ export default function BvnModificationPage() {
                 )}
 
                 <button
-                  onClick={() => setStage('select')}
+                  onClick={continueToEnrollment}
                   className="mt-5 w-full rounded-xl bg-gold-500 py-3 font-display font-semibold text-ink sm:w-auto sm:px-8"
                 >
                   Continue to pick a modification type
@@ -345,6 +351,35 @@ export default function BvnModificationPage() {
           </section>
         )}
 
+        {stage === 'enrollment' && (
+          <section className="mt-6 rounded-2xl border border-parchment-line bg-parchment p-6">
+            <h2 className="font-display text-lg font-bold text-ink">Where was this BVN enrolled?</h2>
+            <p className="mt-2 font-body text-sm text-ink-600">
+              Select the agency, bank, or NIBSS channel used for the BVN enrolment before choosing what to modify.
+            </p>
+            <label className="mt-5 block max-w-xl font-body text-sm font-medium text-ink-600">
+              BVN Enrolment Type
+              <select
+                required
+                className="mt-1 w-full rounded-xl border border-parchment-line bg-cream p-3 text-ink outline-none focus:border-gold-500"
+                value={enrollmentType}
+                onChange={(event) => setEnrollmentType(event.target.value)}
+              >
+                <option value="">-- Select enrolment type --</option>
+                {(types[0]?.fields.find((field) => field.key === 'enrollment_type')?.options ?? []).map((option) => (
+                  <option key={option} value={option}>{option}</option>
+                ))}
+              </select>
+            </label>
+            <button
+              disabled={!enrollmentType}
+              onClick={() => setStage('select')}
+              className="mt-5 rounded-xl bg-gold-500 px-6 py-3 font-display font-semibold text-ink disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Continue to modification type
+            </button>
+          </section>
+        )}
         {stage === 'select' && (
           <section className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3">
             {types.map((type) => {

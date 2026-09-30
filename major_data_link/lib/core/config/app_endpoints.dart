@@ -120,6 +120,10 @@ class AppEndpoints {
   static String get ninModificationHistory => '$_base/nin-modification/history';
   static String ninModificationSubmit(String type) =>
       '$_base/nin-modification/$type/submit';
+  static String get bvnModificationTypes => '$_base/bvn-modification/types';
+  static String get bvnModificationPrices => '$_base/bvn-modification/prices';
+  static String bvnModificationSubmit(String type) =>
+      '$_base/bvn-modification/$type/submit';
   static String get bvnCrmPrice => '$_base/bvn-crm/price';
   static String get bvnCrmSubmit => '$_base/bvn-crm/submit';
   static String get bvnCrmHistory => '$_base/bvn-crm/history';

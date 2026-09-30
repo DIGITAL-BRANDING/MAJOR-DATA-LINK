@@ -186,6 +186,7 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [prices, setPrices] = useState<Record<string, number>>({});
+  const [activeServices, setActiveServices] = useState<Record<string, boolean> | null>(null);
   const [slipResult, setSlipResult] = useState<SlipResult | null>(null);
   const [asyncResult, setAsyncResult] = useState<AsyncResult | null>(null);
   const [ticketStatus, setTicketStatus] = useState<TicketStatus | null>(null);
@@ -211,6 +212,7 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
       .then((result) => {
         const rows = Array.isArray(result) ? result : (result.data ?? []);
         setPrices(Object.fromEntries(rows.map((row) => [row.service, Number(row.unitPrice)])));
+        setActiveServices(Object.fromEntries(rows.map((row) => [row.service, row.isActive])));
       })
       .catch(() => setMessage('Unable to load current prices. Please refresh and try again.'));
   }, []);

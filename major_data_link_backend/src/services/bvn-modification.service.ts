@@ -59,36 +59,35 @@ type BvnModificationTypeConfig = {
   fields: BvnModificationField[];
 };
 
-export const BVN_MODIFICATION_BANKS = [
-  'Micro Finance Bank',
-  'First Bank',
-  'Access Bank',
-  'Heritage Bank',
-  'Enterprise Bank',
-  'BOA Bank',
-  'LAPO Bank',
+/** The institution where the BVN was enrolled. This is selected before the
+ * correction type, and travels with every request so the processing agent
+ * knows the correct agency/bank/NIBSS channel. */
+export const BVN_MODIFICATION_ENROLLMENT_TYPES = [
+  'Agency Banking',
+  'MICRO FINANCE BANK',
+  'FIRST BANK',
+  'ACCESS BANK',
+  'HERITAGE BANK',
+  'ENTERPRISE BANK',
+  'BOA BANK',
+  'LAPO BANK',
   'NIBSS'
 ] as const;
 
 // Every type starts with these - the minimum an agent portal needs to
 // locate and verify the record before changing anything on it, plus proof
 // of identity (the NIN and a photo of the National ID card) so an admin can
-// actually confirm the requester is who they say they are before re-keying
-// anything. "Bank Name" only appears once "Bank" is chosen as the
-// enrollment type (an agency enrollment has no associated bank) - see
-// `dependsOn` above.
+// actually confirm the requester is who they say they are before re-keying.
 const identifyingFields: BvnModificationField[] = [
   { key: 'bvn', label: 'BVN Number', required: true, input: 'bvn' },
   { key: 'nin', label: 'NIN Number', required: true, input: 'nin' },
   { key: 'id_card_image', label: 'National ID Card (photo)', required: true, input: 'image' },
-  { key: 'enrollment_type', label: 'Enrollment Type', required: true, input: 'select', options: ['Agency', 'Bank'] },
   {
-    key: 'bank_name',
-    label: 'Bank Name',
+    key: 'enrollment_type',
+    label: 'BVN Enrolment Type',
     required: true,
     input: 'select',
-    options: [...BVN_MODIFICATION_BANKS],
-    dependsOn: { key: 'enrollment_type', value: 'Bank' }
+    options: [...BVN_MODIFICATION_ENROLLMENT_TYPES]
   }
 ];
 
