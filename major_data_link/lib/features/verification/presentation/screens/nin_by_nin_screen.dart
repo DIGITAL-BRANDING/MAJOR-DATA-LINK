@@ -111,6 +111,35 @@ class _NinByNinScreenState extends ConsumerState<NinByNinScreen>
     final state = ref.watch(slipFlowProvider);
     final prices = ref.watch(verificationPricesProvider);
     final price = prices.valueOrNull?[_priceKeyFor[_tier]!.key] ?? 0;
+    final availability = ref
+        .watch(verificationAvailabilityProvider)
+        .valueOrNull;
+    final family = switch (widget.variant) {
+      NinVerificationVariant.v1 => 'NIN_VERIFICATION_V1',
+      NinVerificationVariant.v2 => 'NIN_VERIFICATION_V2',
+      NinVerificationVariant.defaultRoute => null,
+    };
+    final variantAvailable =
+        family == null ||
+        availability == null ||
+        availability.entries.any(
+          (entry) => entry.key.startsWith('${family}_') && entry.value,
+        );
+
+    if (!variantAvailable) {
+      return Scaffold(
+        appBar: AppBar(title: Text(_title)),
+        body: const Center(
+          child: Padding(
+            padding: EdgeInsets.all(AppDimensions.screenPaddingH),
+            child: Text(
+              'This service is currently not available. Please choose another NIN verification option.',
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ),
+      );
+    }
 
     return Scaffold(
       appBar: AppBar(title: Text(_title)),

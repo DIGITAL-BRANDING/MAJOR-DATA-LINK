@@ -39,8 +39,10 @@ class VerificationHubScreen extends ConsumerWidget {
   final List<VerificationHubItem> items;
 
   @override
-  Widget build(BuildContext context) {
-    final availability = ref.watch(verificationAvailabilityProvider).valueOrNull;
+  Widget build(BuildContext context, WidgetRef ref) {
+    final availability = ref
+        .watch(verificationAvailabilityProvider)
+        .valueOrNull;
     return Scaffold(
       appBar: AppBar(title: Text(title)),
       body: SafeArea(
@@ -51,10 +53,14 @@ class VerificationHubScreen extends ConsumerWidget {
           separatorBuilder: (_, __) => const SizedBox(height: 12),
           itemBuilder: (context, index) {
             final item = items[index];
-            final enabled = item.availabilityFamily == null ||
+            final enabled =
+                item.availabilityFamily == null ||
                 availability == null ||
-                availability.entries.any((entry) =>
-                    entry.key.startsWith('${item.availabilityFamily}_') && entry.value);
+                availability.entries.any(
+                  (entry) =>
+                      entry.key.startsWith('${item.availabilityFamily}_') &&
+                      entry.value,
+                );
             return KDCard(
               onTap: enabled ? () => context.push(item.route) : null,
               child: Row(
@@ -87,16 +93,23 @@ class VerificationHubScreen extends ConsumerWidget {
                             color: AppColors.neutral500,
                           ),
                         ),
-                        if (!enabled) const Text(
-                          'Not available',
-                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.error600),
-                        ),
+                        if (!enabled)
+                          const Text(
+                            'Not available',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.error600,
+                            ),
+                          ),
                       ],
                     ),
                   ),
                   Icon(
                     Icons.chevron_right_rounded,
-                    color: enabled ? AppColors.neutral400 : AppColors.neutral300,
+                    color: enabled
+                        ? AppColors.neutral400
+                        : AppColors.neutral300,
                   ),
                 ],
               ),

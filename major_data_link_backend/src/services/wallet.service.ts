@@ -711,6 +711,56 @@ export async function manualWalletAdjustment(params: {
 }
 
 /**
+ * Calculates the wallet amount implied by its complete financial ledger.
+ * Pending requests count as debits because they have already reserved money.
+ */
+export async function getWalletLedgerReconciliation(userId: string) {
+  const [user, rows] = await Promise.all([
+    prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { walletBalanceKobo: true } }),
+    prisma.transaction.findMany({
+      where: { userId }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      select: { type: true, status: true, amountKobo: true, balanceBeforeKobo: true, metadata: true }
+    })
+  ]);
+  let expected = rows[0]?.balanceBeforeKobo ?? 0n;
+  for (const row of rows) {
+    if (row.type === TransactionType.WALLET_FUNDING || row.type === TransactionType.REFUND || row.type === TransactionType.COUPON_REDEMPTION) {
+      if (row.status === TransactionStatus.SUCCESS) expected += row.amountKobo;
+    } else if (row.type === TransactionType.WALLET_FUNDING_FEE) {
+      if (row.status === TransactionStatus.SUCCESS) expected -= row.amountKobo;
+    } else if (row.type === TransactionType.MANUAL_ADJUSTMENT) {
+      if (row.status === TransactionStatus.SUCCESS) {
+        const metadata = row.metadata as Record<string, unknown> | null;
+        expected += metadata?.direction === 'debit' ? -row.amountKobo : row.amountKobo;
+      }
+    } else if (row.type !== TransactionType.REFERRAL_COMMISSION) {
+      // debitWallet deducts at creation time, even while the request remains pending.
+      expected -= row.amountKobo;
+    }
+  }
+  return { currentKobo: user.walletBalanceKobo, expectedKobo: expected, differenceKobo: expected - user.walletBalanceKobo, matches: expected === user.walletBalanceKobo };
+}
+
+/**
+ * Finance-only repair for a stale stored balance. It creates a normal audited
+ * MANUAL_ADJUSTMENT entry instead of silently overwriting the user balance,
+ * so a later reconciliation remains consistent with the ledger.
+ */
+export async function reconcileWalletBalanceFromLedger(params: { userId: string; adminId: string }) {
+  const snapshot = await getWalletLedgerReconciliation(params.userId);
+  if (snapshot.matches) return { changed: false, balanceAfterKobo: snapshot.currentKobo, differenceKobo: 0n };
+  const direction = snapshot.differenceKobo > 0n ? 'credit' as const : 'debit' as const;
+  const amountKobo = snapshot.differenceKobo > 0n ? snapshot.differenceKobo : -snapshot.differenceKobo;
+  const adjustment = await manualWalletAdjustment({
+    userId: params.userId,
+    direction,
+    amount: koboToNaira(amountKobo),
+    adminId: params.adminId,
+    reason: `Ledger reconciliation: stored balance differed from the transaction ledger by ${formatNaira(amountKobo)}.`
+  });
+  return { changed: true, balanceAfterKobo: adjustment.balanceAfter, differenceKobo: snapshot.differenceKobo };
+}
+/**
  * Reverses a debit: credits the amount back to the user's wallet as a NEW,
  * separate REFUND transaction linked to the original via
  * relatedTransactionId - never by rewriting the original row's own

@@ -430,10 +430,7 @@ class _VariantAvailabilitySwitch extends StatelessWidget {
               style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
             ),
           ),
-          Switch(
-            value: value,
-            onChanged: enabled ? onChanged : null,
-          ),
+          Switch(value: value, onChanged: enabled ? onChanged : null),
         ],
       ),
     ),

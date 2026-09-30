@@ -215,6 +215,14 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
       .catch(() => setMessage('Unable to load current prices. Please refresh and try again.'));
   }, []);
 
+  function isItemAvailable(item: Item) {
+    const family = item.id === 'verification-v1'
+      ? 'NIN_VERIFICATION_V1'
+      : item.id === 'verification-v2'
+        ? 'NIN_VERIFICATION_V2'
+        : null;
+    return !family || activeServices === null || Object.entries(activeServices).some(([service, enabled]) => service.startsWith(`${family}_`) && enabled);
+  }
   const selectedPrice = useMemo(() => {
     if (!selected) return undefined;
     if (selected.id === 'license-onboarding') return prices.BVN_LICENSE_ONBOARDING;
@@ -222,6 +230,7 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
     return prices[keyFor(selected, tier)];
   }, [selected, tier, prices, values.validation_type]);
   const selectedServiceKey = selected ? (selected.id === 'validation' ? validationServiceKey(values.validation_type) : keyFor(selected, tier)) : '';
+  const selectedAvailable = selected ? isItemAvailable(selected) : true;
 
   // Stable across renders (selectedServiceKey only changes when the user
   // picks a different service) so it's safe to call directly from submit()
@@ -449,6 +458,7 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
           <section className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
             {items.map((item) => {
               const Icon = item.icon;
+              const available = isItemAvailable(item);
               const from =
                 item.id === 'license-onboarding'
                   ? prices.BVN_LICENSE_ONBOARDING
@@ -458,15 +468,16 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
               return (
                 <button
                   key={item.id}
-                  onClick={() => choose(item)}
-                  className="group flex min-h-40 flex-col items-center justify-center rounded-2xl border border-[#8b6914] bg-[#6b4f0b] p-4 text-center shadow-md shadow-[#6b4f0b]/20 transition hover:-translate-y-1 hover:bg-[#8a6712] hover:shadow-lg"
+                  disabled={!available}
+                  onClick={() => available && choose(item)}
+                  className="group flex min-h-40 flex-col items-center justify-center rounded-2xl border border-[#8b6914] bg-[#6b4f0b] p-4 text-center shadow-md shadow-[#6b4f0b]/20 transition hover:-translate-y-1 hover:bg-[#8a6712] hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
                 >
                   <span className="rounded-xl bg-[#f7d774] p-3 text-[#4a3505] shadow-sm">
                     <Icon size={26} />
                   </span>
                   <span className="mt-3 font-body text-sm font-semibold text-white">{item.label}</span>
                   <span className="mt-1 font-body text-sm font-bold text-[#ffe9a3]">
-                    {item.id === 'license-onboarding'
+                    {!available ? 'Not available' : item.id === 'license-onboarding'
                       ? money(prices.BVN_LICENSE_ONBOARDING)
                       : item.id === 'modification'
                       ? 'From ₦5,000'
@@ -506,7 +517,13 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
               </div>
             )}
 
-            {!slipResult && !asyncResult && (
+            {!selectedAvailable && (
+              <p role="alert" className="mt-5 rounded-xl border border-rose-200 bg-rose-50 p-4 font-body text-sm font-semibold text-rose-700">
+                This service is currently not available. Please choose another NIN verification option.
+              </p>
+            )}
+
+            {selectedAvailable && !slipResult && !asyncResult && (
               <form onSubmit={prepare} className="mt-5 grid gap-4 sm:grid-cols-2">
                 {selected.fields.map((field) => (
                   <label key={field} className="font-body text-sm font-medium text-ink-600">

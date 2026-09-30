@@ -5,7 +5,7 @@ import { prisma } from '../lib/prisma.js';
 import { koboToNaira } from '../lib/money.js';
 import { ApiError } from '../middleware/error.js';
 import { getUserWalletSummary } from '../services/company-wallet.service.js';
-import { manualWalletAdjustment, reconcilePendingFundingByAdmin } from '../services/wallet.service.js';
+import { getWalletLedgerReconciliation, manualWalletAdjustment, reconcilePendingFundingByAdmin, reconcileWalletBalanceFromLedger } from '../services/wallet.service.js';
 
 declare module 'express-session' {
   interface SessionData {
@@ -66,20 +66,36 @@ export function registerUserWalletRoutes(router: Router) {
     let user: Awaited<ReturnType<typeof findUser>> = null;
     let summary: Awaited<ReturnType<typeof getUserWalletSummary>> | null = null;
     let recentTransactions: Awaited<ReturnType<typeof recentTransactionsFor>> = [];
+    let reconciliation: Awaited<ReturnType<typeof getWalletLedgerReconciliation>> | null = null;
     let notFound = false;
 
     if (q) {
       user = await findUser(q);
       if (user) {
-        [summary, recentTransactions] = await Promise.all([getUserWalletSummary(user.id), recentTransactionsFor(user.id)]);
+        [summary, recentTransactions, reconciliation] = await Promise.all([getUserWalletSummary(user.id), recentTransactionsFor(user.id), getWalletLedgerReconciliation(user.id)]);
       } else {
         notFound = true;
       }
     }
 
     res.type('html').send(
-      renderPage({ admin, q, user, summary, recentTransactions, notFound, flash: flashFromQuery(req.query) })
+      renderPage({ admin, q, user, summary, recentTransactions, reconciliation, notFound, flash: flashFromQuery(req.query) })
     );
+  });
+
+  router.post('/user-wallet/:userId/reconcile-ledger', async (req, res) => {
+    const admin = requireFinanceOrSuper(req);
+    const q = field(req, 'q');
+    const backTo = (flash: string) => `/admin/user-wallet?q=${encodeURIComponent(q)}&flash=${flash}`;
+    if (!admin) return res.redirect('/admin/login');
+    try {
+      const result = await reconcileWalletBalanceFromLedger({ userId: req.params.userId, adminId: admin.id });
+      await logAdminAction({ adminId: admin.id, action: 'RECONCILE_USER_WALLET_FROM_LEDGER', targetType: 'User', targetId: req.params.userId, metadata: { changed: result.changed, balanceAfterKobo: result.balanceAfterKobo.toString(), differenceKobo: result.differenceKobo.toString() } });
+      return res.redirect(backTo(encodeFlash('success', result.changed ? `Wallet reconciled to NGN${koboToNaira(result.balanceAfterKobo).toLocaleString('en-NG', { minimumFractionDigits: 2 })}.` : 'Wallet balance already matches the ledger.')));
+    } catch (error) {
+      console.error('[user-wallet] ledger reconciliation failed:', error);
+      return res.redirect(backTo(encodeFlash('error', 'Could not reconcile this wallet. Check the server logs.')));
+    }
   });
 
   router.post('/user-wallet/:userId/adjust', async (req, res) => {
@@ -251,10 +267,11 @@ function renderPage(params: {
   user: Awaited<ReturnType<typeof findUser>>;
   summary: Awaited<ReturnType<typeof getUserWalletSummary>> | null;
   recentTransactions: Awaited<ReturnType<typeof recentTransactionsFor>>;
+  reconciliation: Awaited<ReturnType<typeof getWalletLedgerReconciliation>> | null;
   notFound: boolean;
   flash: { type: 'success' | 'error'; message: string } | null;
 }) {
-  const { admin, q, user, summary, recentTransactions, notFound, flash } = params;
+  const { admin, q, user, summary, recentTransactions, reconciliation, notFound, flash } = params;
 
   const flashHtml = flash
     ? `<div class="banner ${flash.type === 'success' ? 'banner-success' : ''}">${escape(flash.message)}</div>`
@@ -304,6 +321,13 @@ function renderPage(params: {
       <div class="stat"><div class="label">Purchases made</div><div class="value">${summary.purchaseCount}</div></div>
       <div class="stat"><div class="label">Total transactions</div><div class="value">${summary.transactionCount}</div></div>
     </div>
+
+    ${reconciliation && !reconciliation.matches ? `
+    <div class="card" style="border-color:#B3261E">
+      <h2>Ledger balance mismatch</h2>
+      <p class="hint">Stored balance: ${naira(koboToNaira(reconciliation.currentKobo))}. Ledger balance: ${naira(koboToNaira(reconciliation.expectedKobo))}. Difference: ${naira(koboToNaira(reconciliation.differenceKobo < 0n ? -reconciliation.differenceKobo : reconciliation.differenceKobo))}.</p>
+      ${canFinance(admin) ? `<form method="POST" action="/admin/user-wallet/${encodeURIComponent(user.id)}/reconcile-ledger"><input type="hidden" name="q" value="${escape(q)}"><button type="submit">Reconcile wallet from ledger</button></form>` : '<p class="hint">A Finance or Super Admin must reconcile this wallet.</p>'}
+    </div>` : ''}
 
     ${adjustFormHtml}
 
