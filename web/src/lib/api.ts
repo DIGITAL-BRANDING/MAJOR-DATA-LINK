@@ -24,6 +24,35 @@ const REQUEST_TIMEOUT_MS = 25_000;
 let accessToken: string | null = null;
 let refreshInFlight: Promise<boolean> | null = null;
 
+// AbortSignal.timeout() is missing in older Android browsers/WebViews. Calling
+// it directly throws before fetch even starts, which the UI then misreports
+// as a network outage. AbortController is supported by substantially older
+// browsers, so use a timer-backed signal instead.
+async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = globalThis.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (controller.signal.aborted) {
+      const timeoutError = new Error('The request timed out.');
+      timeoutError.name = 'TimeoutError';
+      throw timeoutError;
+    }
+    throw error;
+  } finally {
+    globalThis.clearTimeout(timer);
+  }
+}
+
+function isTimeoutError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'TimeoutError';
+}
+
 export function getAccessToken() {
   return accessToken;
 }
@@ -64,7 +93,7 @@ async function refreshWebAccessToken(): Promise<boolean> {
   if (refreshInFlight) return refreshInFlight;
   refreshInFlight = (async () => {
     try {
-      const response = await fetch(`${API_BASE}/api/auth/token/refresh`, {
+      const response = await fetchWithTimeout(`${API_BASE}/api/auth/token/refresh`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -73,8 +102,7 @@ async function refreshWebAccessToken(): Promise<boolean> {
         },
         credentials: 'include',
         body: '{}',
-        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-      });
+      }, REQUEST_TIMEOUT_MS);
       const payload = await response.json() as { data?: { access_token?: string } };
       if (!response.ok || !payload.data?.access_token) return false;
       accessToken = payload.data.access_token;
@@ -144,7 +172,7 @@ async function request<T>(
   }
 
   const doFetch = () =>
-    fetch(`${API_BASE}/api${path}`, {
+    fetchWithTimeout(`${API_BASE}/api${path}`, {
       method,
       headers: {
         ...headers,
@@ -152,8 +180,7 @@ async function request<T>(
       },
       credentials: 'include',
       body: body !== undefined ? JSON.stringify(body) : undefined,
-      signal: AbortSignal.timeout(timeoutMs),
-    });
+    }, timeoutMs);
 
   // Every GET is naturally safe to retry. A mutating (non-GET) request is
   // only retried when the caller explicitly says so via
@@ -171,7 +198,7 @@ async function request<T>(
     try {
       res = await doFetch();
     } catch (firstError) {
-      const isTimeout = firstError instanceof DOMException && firstError.name === 'TimeoutError';
+      const isTimeout = isTimeoutError(firstError);
       if (isTimeout || !canRetry) throw firstError;
       // Patchy Nigerian mobile data very often fails once and succeeds a
       // moment later when the signal comes back - one retry after a short
@@ -181,7 +208,7 @@ async function request<T>(
       res = await doFetch();
     }
   } catch (error) {
-    if (error instanceof DOMException && error.name === 'TimeoutError') {
+    if (isTimeoutError(error)) {
       throw new ApiError('The request is taking too long. Please try again.', 408, 'REQUEST_TIMEOUT');
     }
     // navigator.onLine is only reliable for "definitely offline" (false),
@@ -257,7 +284,7 @@ async function request<T>(
 // after a timeout, so both attempts land on the same backend transaction
 // via purchaseSlip's idempotencyKey replay path instead of double-charging
 // the wallet. crypto.randomUUID() is available in every browser this app
-// targets (all support fetch + AbortSignal.timeout already).
+// targets (all support fetch + crypto.randomUUID).
 function newIdempotencyKey() {
   return typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
@@ -280,14 +307,13 @@ export const api = {
   // behind a token-bearing URL that could leak through browser history.
   getFile: async (path: string) => {
     const token = getAccessToken();
-    const res = await fetch(`${API_BASE}/api${path}`, {
+    const res = await fetchWithTimeout(`${API_BASE}/api${path}`, {
       headers: {
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
         'X-Client-Channel': 'web',
       },
       credentials: 'include',
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    });
+    }, REQUEST_TIMEOUT_MS);
     if (!res.ok) {
       let message = `Could not open the document (${res.status}).`;
       try { message = (await res.json() as { message?: string }).message ?? message; } catch { /* PDF/proxy error body */ }
