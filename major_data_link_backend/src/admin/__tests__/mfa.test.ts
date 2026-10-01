@@ -110,7 +110,7 @@ class Client {
       method: init.method ?? 'GET',
       redirect: 'manual',
       body: init.body,
-      headers: { ...(init.cookie === undefined ? {} : {}), cookie: this.cookie, ...(init.body ? { 'content-type': 'application/x-www-form-urlencoded' } : {}), ...init.headers }
+      headers: { cookie: this.cookie, ...(init.body ? { 'content-type': 'application/x-www-form-urlencoded' } : {}), ...init.headers }
     } as any);
     const set = res.headers.get('set-cookie');
     if (set) this.cookie = set.split(';')[0];
