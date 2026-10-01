@@ -3,7 +3,8 @@ import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import express, { type RequestHandler } from 'express';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { generateTotp } from '../../lib/totp.js';
+import QRCode from 'qrcode';
+import { generateTotp, otpauthUri } from '../../lib/totp.js';
 
 /**
  * End-to-end test of the 2FA gate over real HTTP: a real Express app with the
@@ -134,7 +135,7 @@ function seed() {
 async function enroll(c: Client, id = 'boss') {
   await c.login(id);
   const page = await c.req('/admin/mfa');
-  const secret = /class="key">([^<]+)</.exec(page.text)![1].replace(/\s/g, '');
+  const secret = /class="key"[^>]*>([^<]+)</.exec(page.text)![1].replace(/\s/g, '');
   const done = await c.post('/admin/mfa/enroll', { code: generateTotp(secret) });
   const codes = [...done.text.matchAll(/<span>([A-Z0-9]{5}-[A-Z0-9]{5})<\/span>/g)].map((m) => m[1]);
   return { secret, codes, done };
@@ -159,6 +160,17 @@ describe('admin 2FA gate', () => {
     expect(page.text).toContain('otpauth://totp/');
   });
 
+  it('shows a QR code that encodes exactly this admin\'s otpauth link, plus the manual key', async () => {
+    const c = new Client();
+    await c.login('boss');
+    const page = await c.req('/admin/mfa');
+    const secret = /class="key"[^>]*>([^<]+)</.exec(page.text)![1].replace(/\s/g, '');
+    const uri = otpauthUri({ issuer: 'K-Tech Admin', account: 'boss@ktech.test', secret });
+    const expectedSvg = await QRCode.toString(uri, { type: 'svg', errorCorrectionLevel: 'M', margin: 2, color: { dark: '#000000', light: '#ffffff' } });
+    expect(page.text).toContain(expectedSvg);
+    expect(page.text).toContain('Cannot scan?');
+  });
+
   it('answers API/XHR calls with 401 JSON instead of a redirect', async () => {
     const c = new Client();
     await c.login('boss');
@@ -171,7 +183,7 @@ describe('admin 2FA gate', () => {
     const c = new Client();
     await c.login('boss');
     const page = await c.req('/admin/mfa');
-    const secret = /class="key">([^<]+)</.exec(page.text)![1].replace(/\s/g, '');
+    const secret = /class="key"[^>]*>([^<]+)</.exec(page.text)![1].replace(/\s/g, '');
 
     const bad = await c.post('/admin/mfa/enroll', { code: '000000' });
     expect(bad.status).toBe(400);

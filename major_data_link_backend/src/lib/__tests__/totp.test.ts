@@ -52,6 +52,6 @@ describe('totp', () => {
     const uri = otpauthUri({ issuer: 'K-Tech Admin', account: 'boss@ktech.ng', secret: 'ABCDEFGH' });
     expect(uri.startsWith('otpauth://totp/K-Tech%20Admin:boss%40ktech.ng?')).toBe(true);
     expect(uri).toContain('secret=ABCDEFGH');
-    expect(uri).toContain('period=30');
+    expect(uri).toContain('issuer=K-Tech+Admin');
   });
 });

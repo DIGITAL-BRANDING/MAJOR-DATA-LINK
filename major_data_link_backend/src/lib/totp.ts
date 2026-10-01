@@ -96,12 +96,9 @@ export function verifyTotp(
 
 export function otpauthUri(params: { issuer: string; account: string; secret: string }): string {
   const label = `${encodeURIComponent(params.issuer)}:${encodeURIComponent(params.account)}`;
-  const q = new URLSearchParams({
-    secret: params.secret,
-    issuer: params.issuer,
-    algorithm: 'SHA1',
-    digits: '6',
-    period: String(TOTP_STEP_SECONDS)
-  });
+  // algorithm (SHA1), digits (6) and period (30) are left out on purpose: they
+  // are the defaults every authenticator app assumes, and a shorter link makes
+  // a smaller, easier-to-scan QR code.
+  const q = new URLSearchParams({ secret: params.secret, issuer: params.issuer });
   return `otpauth://totp/${label}?${q.toString()}`;
 }

@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
+import QRCode from 'qrcode';
 import express, { type NextFunction, type Request, type RequestHandler, type Response, Router } from 'express';
 import { prisma } from '../lib/prisma.js';
 import { decryptPII, encryptPII } from '../lib/pii-encryption.js';
@@ -59,7 +60,24 @@ button,.btn{display:block;width:100%;text-align:center;text-decoration:none;font
 .codes{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0;font:600 15px ui-monospace,Menlo,Consolas,monospace}
 .codes span{background:#faf6e8;border-radius:8px;padding:8px;text-align:center}
 .small{font-size:13px;color:#7b7457}
+.qr{width:260px;max-width:100%;margin:12px auto;background:#fff;border:1px solid #e7dfc4;border-radius:12px;padding:6px}.qr svg{display:block;width:100%;height:auto}
 </style></head><body><main class="card">${body}</main></body></html>`;
+}
+
+/** Inline SVG QR for the otpauth link (no image request, so nothing for the CSP to block). */
+async function qrSvg(uri: string): Promise<string> {
+  try {
+    return await QRCode.toString(uri, {
+      type: 'svg',
+      errorCorrectionLevel: 'M',
+      margin: 2,
+      color: { dark: '#000000', light: '#ffffff' }
+    });
+  } catch (err) {
+    // The manual key and the tap-to-open link still work, so never block enrolment on this.
+    console.error('[admin-mfa] could not render QR code', err);
+    return '';
+  }
 }
 
 const errBox = (m?: string) => (m ? `<div class="err" role="alert">${esc(m)}</div>` : '');
@@ -80,19 +98,22 @@ function challengePage(root: string, error?: string) {
   );
 }
 
-function enrollPage(root: string, account: string, secret: string, error?: string) {
+async function enrollPage(root: string, account: string, secret: string, error?: string) {
   const uri = otpauthUri({ issuer: ISSUER, account, secret });
   const grouped = secret.replace(/(.{4})/g, '$1 ').trim();
+  const qr = await qrSvg(uri);
   return page(
     'Set up two-factor authentication',
     `<h1>Set up two-factor authentication</h1>
-<p>Your role requires a second step at sign-in. Takes a minute:</p>
-<ol style="padding-left:18px;margin:8px 0;color:#5b5438">
-<li>Install Google Authenticator, Microsoft Authenticator or Authy.</li>
-<li>Add an account: tap <b>Open in authenticator app</b> (on your phone) or type this key:</li></ol>
-<div class="key">${esc(grouped)}</div>
-<p style="margin-top:10px"><a class="btn" href="${esc(uri)}">Open in authenticator app</a></p>
-<p>3. Enter the 6-digit code it shows to finish.</p>${errBox(error)}
+<p>Your role requires a second step at sign-in. Takes a minute.</p>
+<p><b>1.</b> Install Google Authenticator, Microsoft Authenticator or Authy on your phone.</p>
+<p><b>2.</b> Add this account:</p>
+${qr ? `<div class="qr" role="img" aria-label="QR code for your authenticator app">${qr}</div>
+<p class="small" style="text-align:center">On a computer: scan this with the app (Add account, then Scan a QR code).</p>` : ''}
+<p style="margin-top:10px"><a class="btn" href="${esc(uri)}">${qr ? 'On this phone: open in authenticator app' : 'Open in authenticator app'}</a></p>
+<details style="margin:10px 0"><summary class="small">Cannot scan? Enter the key by hand</summary>
+<div class="key" style="margin-top:8px">${esc(grouped)}</div></details>
+<p><b>3.</b> Enter the 6-digit code the app shows to finish.</p>${errBox(error)}
 <form method="post" action="${root}/mfa/enroll" autocomplete="off">
 <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000" required>
 <button type="submit">Turn on and continue</button></form>${logoutLink(root)}`
@@ -172,7 +193,7 @@ export function createMfaRouter(opts: { rootPath: string; sessionMiddleware: Req
         req.session.mfaEnrollSecret = encryptPII(generateTotpSecret());
         await new Promise<void>((resolve) => req.session.save(() => resolve()));
       }
-      return res.type('html').send(enrollPage(root, row.email, decryptPII(req.session.mfaEnrollSecret)));
+      return res.type('html').send(await enrollPage(root, row.email, decryptPII(req.session.mfaEnrollSecret)));
     } catch (err) {
       return next(err);
     }
@@ -249,7 +270,8 @@ export function createMfaRouter(opts: { rootPath: string; sessionMiddleware: Req
       const attempt = await reserveAdminAttempt(row.id, ipOf(req));
       if (attempt.locked) {
         const message = lockedError(attempt.until).message;
-        return req.session.destroy(() => res.status(429).type('html').send(enrollPage(root, row.email, secret, message)));
+        const lockedPage = await enrollPage(root, row.email, secret, message);
+        return req.session.destroy(() => res.status(429).type('html').send(lockedPage));
       }
 
       const step = verifyTotp(secret, String(req.body?.code ?? ''));
@@ -258,7 +280,7 @@ export function createMfaRouter(opts: { rootPath: string; sessionMiddleware: Req
         return res
           .status(400)
           .type('html')
-          .send(enrollPage(root, row.email, secret, 'That code did not match. Check the key and your phone clock, then try again.'));
+          .send(await enrollPage(root, row.email, secret, 'That code did not match. Scan the QR code again (or re-enter the key) and check your phone clock.'));
       }
 
       // Only the first successful enrolment wins (guards a double submit).
