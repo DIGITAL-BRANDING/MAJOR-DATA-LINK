@@ -18,6 +18,7 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { env } from './config/env.js';
 import { errorHandler } from './middleware/error.js';
+import { createAdminCsrfGuard } from './middleware/admin-csrf.js';
 import { adminApiRoutes } from './routes/admin-api.routes.js';
 import { authRoutes } from './routes/auth.routes.js';
 import { assistantRoutes } from './routes/assistant.routes.js';
@@ -295,6 +296,31 @@ export function createApp() {
   // still awaits the same promise below, so correctness doesn't depend on
   // this head start - it's purely to reduce how often anyone notices the wait.
   void getAdminRouter();
+
+  // Sign-in attempts per IP, on top of the per-account lockout in
+  // admin/auth.ts: slows one address spraying many different admin emails.
+  // Only failed attempts count (a successful sign-in redirects with 302).
+  const adminLoginLimiter = rateLimit({
+    windowMs: 15 * 60_000,
+    limit: 20,
+    standardHeaders: 'draft-7',
+    legacyHeaders: false,
+    skipSuccessfulRequests: true,
+    skip: (req) => req.method !== 'POST'
+  });
+  app.use(`${ADMIN_ROOT_PATH}/login`, adminLoginLimiter);
+
+  // CSRF: every state-changing /admin request must originate from this site.
+  const allowedAdminHosts = env.WEB_ALLOWED_ORIGINS.split(',')
+    .map((origin) => {
+      try {
+        return new URL(origin.trim()).host;
+      } catch {
+        return '';
+      }
+    })
+    .filter(Boolean);
+  app.use(ADMIN_ROOT_PATH, createAdminCsrfGuard(allowedAdminHosts));
 
   app.use(ADMIN_ROOT_PATH, async (req, res, next) => {
     try {

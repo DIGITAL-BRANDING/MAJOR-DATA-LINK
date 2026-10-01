@@ -1,0 +1,523 @@
+diff --git a/major_data_link_backend/prisma/migrations/20260930120000_add_admin_login_lockout/migration.sql b/major_data_link_backend/prisma/migrations/20260930120000_add_admin_login_lockout/migration.sql
+new file mode 100644
+index 0000000..295dfca
+--- /dev/null
++++ b/major_data_link_backend/prisma/migrations/20260930120000_add_admin_login_lockout/migration.sql
+@@ -0,0 +1,4 @@
++-- AlterTable
++ALTER TABLE "AdminUser" ADD COLUMN "failedLoginCount" INTEGER NOT NULL DEFAULT 0,
++ADD COLUMN "failedLoginAt" TIMESTAMP(3),
++ADD COLUMN "lockedUntil" TIMESTAMP(3);
+diff --git a/major_data_link_backend/prisma/schema.prisma b/major_data_link_backend/prisma/schema.prisma
+index 1a7fc6f..2c9a96b 100644
+--- a/major_data_link_backend/prisma/schema.prisma
++++ b/major_data_link_backend/prisma/schema.prisma
+@@ -948,6 +948,11 @@ model AdminUser {
+   role         AdminRole       @default(SUPPORT)
+   isActive     Boolean         @default(true)
+   lastLoginAt  DateTime?
++  // Brute-force lockout (see admin/auth.ts). A SUPER_ADMIN can unlock an
++  // account early by clearing lockedUntil in Access Control.
++  failedLoginCount Int         @default(0)
++  failedLoginAt    DateTime?
++  lockedUntil      DateTime?
+   createdAt    DateTime        @default(now())
+   updatedAt    DateTime        @updatedAt
+   auditLogs    AdminAuditLog[]
+diff --git a/major_data_link_backend/src/admin/__tests__/auth.test.ts b/major_data_link_backend/src/admin/__tests__/auth.test.ts
+new file mode 100644
+index 0000000..47f9af4
+--- /dev/null
++++ b/major_data_link_backend/src/admin/__tests__/auth.test.ts
+@@ -0,0 +1,124 @@
++import bcrypt from 'bcryptjs';
++import { beforeEach, describe, expect, it, vi } from 'vitest';
++
++/**
++ * Admin sign-in lockout. Uses a tiny in-memory stand-in for prisma.adminUser
++ * (just the operators auth.ts uses) and the real bcrypt, so the counting
++ * logic - including the parallel-guess case - is what is actually tested.
++ */
++type Row = {
++  id: string; email: string; passwordHash: string; fullName: string; role: string; isActive: boolean;
++  lastLoginAt: Date | null; failedLoginCount: number; failedLoginAt: Date | null; lockedUntil: Date | null;
++};
++const rows = new Map<string, Row>();
++
++function matches(row: Row, where: Record<string, any>): boolean {
++  return Object.entries(where).every(([k, v]) => {
++    if (k === 'OR') return (v as Record<string, any>[]).some((w) => matches(row, w));
++    const val = (row as any)[k];
++    if (v === null) return val === null;
++    if (v && typeof v === 'object' && !(v instanceof Date)) {
++      if ('lt' in v) return val !== null && val < v.lt;
++      if ('lte' in v) return val !== null && val <= v.lte;
++    }
++    return val === v;
++  });
++}
++function apply(row: Row, data: Record<string, any>) {
++  for (const [k, v] of Object.entries(data)) {
++    if (v && typeof v === 'object' && 'increment' in v) (row as any)[k] += v.increment;
++    else (row as any)[k] = v;
++  }
++}
++
++vi.mock('../../lib/prisma.js', () => ({
++  prisma: {
++    adminUser: {
++      findUnique: async ({ where }: any) => {
++        const r = [...rows.values()].find((x) => x.email === where.email || x.id === where.id);
++        return r ? { ...r } : null;
++      },
++      update: async ({ where, data }: any) => {
++        const r = rows.get(where.id)!;
++        apply(r, data);
++        return { ...r };
++      },
++      updateMany: async ({ where, data }: any) => {
++        let count = 0;
++        for (const r of rows.values()) if (matches(r, where)) { apply(r, data); count++; }
++        return { count };
++      }
++    },
++    adminAuditLog: { create: vi.fn().mockResolvedValue({}) }
++  }
++}));
++vi.mock('../audit.js', () => ({ logAdminAction: vi.fn().mockResolvedValue(undefined) }));
++
++const { authenticateAdmin, ADMIN_MAX_FAILURES } = await import('../auth.js');
++const hash = bcrypt.hashSync('correct-horse', 4);
++
++function seed() {
++  rows.clear();
++  rows.set('a1', { id: 'a1', email: 'boss@ktech.test', passwordHash: hash, fullName: 'Boss', role: 'SUPER_ADMIN',
++    isActive: true, lastLoginAt: null, failedLoginCount: 0, failedLoginAt: null, lockedUntil: null });
++}
++
++describe('authenticateAdmin lockout', () => {
++  beforeEach(seed);
++
++  it('signs in with the right password and clears the failure streak', async () => {
++    await authenticateAdmin('boss@ktech.test', 'wrong');
++    await authenticateAdmin('boss@ktech.test', 'wrong');
++    const ok = await authenticateAdmin('boss@ktech.test', 'correct-horse');
++    expect(ok?.id).toBe('a1');
++    expect(rows.get('a1')!.failedLoginCount).toBe(0);
++  });
++
++  it('locks after the maximum wrong passwords, even for the correct password afterwards', async () => {
++    for (let i = 0; i < ADMIN_MAX_FAILURES; i++) {
++      expect(await authenticateAdmin('boss@ktech.test', 'guess' + i)).toBeNull();
++    }
++    expect(rows.get('a1')!.lockedUntil).not.toBeNull();
++    await expect(authenticateAdmin('boss@ktech.test', 'correct-horse')).rejects.toThrow(/Too many failed/);
++  });
++
++  it('parallel guesses cannot bypass the limit: at most MAX passwords are ever checked', async () => {
++    const spy = vi.spyOn(bcrypt, 'compare');
++    const results = await Promise.allSettled(
++      Array.from({ length: 40 }, (_, i) => authenticateAdmin('boss@ktech.test', 'guess' + i))
++    );
++    const checked = spy.mock.calls.length;
++    expect(checked).toBeLessThanOrEqual(ADMIN_MAX_FAILURES);
++    expect(rows.get('a1')!.lockedUntil).not.toBeNull();
++    expect(results.some((r) => r.status === 'fulfilled' && r.value !== null)).toBe(false);
++    spy.mockRestore();
++  });
++
++  it('unlocks on its own once the lock has expired', async () => {
++    for (let i = 0; i < ADMIN_MAX_FAILURES; i++) await authenticateAdmin('boss@ktech.test', 'x');
++    rows.get('a1')!.lockedUntil = new Date(Date.now() - 1000);
++    const ok = await authenticateAdmin('boss@ktech.test', 'correct-horse');
++    expect(ok?.id).toBe('a1');
++  });
++
++  it('a streak older than the reset window does not count towards the lock', async () => {
++    const r = rows.get('a1')!;
++    r.failedLoginCount = ADMIN_MAX_FAILURES - 1;
++    r.failedLoginAt = new Date(Date.now() - 60 * 60_000);
++    expect(await authenticateAdmin('boss@ktech.test', 'wrong')).toBeNull();
++    expect(rows.get('a1')!.lockedUntil).toBeNull();
++    expect(rows.get('a1')!.failedLoginCount).toBe(1);
++  });
++
++  it('treats unknown emails like wrong passwords (and still does a password check)', async () => {
++    const spy = vi.spyOn(bcrypt, 'compare');
++    expect(await authenticateAdmin('nobody@ktech.test', 'whatever')).toBeNull();
++    expect(spy).toHaveBeenCalledTimes(1);
++    spy.mockRestore();
++  });
++
++  it('rejects deactivated admins', async () => {
++    rows.get('a1')!.isActive = false;
++    expect(await authenticateAdmin('boss@ktech.test', 'correct-horse')).toBeNull();
++  });
++});
+diff --git a/major_data_link_backend/src/admin/auth.ts b/major_data_link_backend/src/admin/auth.ts
+index 1499c84..9278cfa 100644
+--- a/major_data_link_backend/src/admin/auth.ts
++++ b/major_data_link_backend/src/admin/auth.ts
+@@ -1,5 +1,7 @@
+ import bcrypt from 'bcryptjs';
+ import { prisma } from '../lib/prisma.js';
++import { FAILURE_RESET_MINUTES, isLocked } from '../lib/lockout.js';
++import { logAdminAction } from './audit.js';
+ 
+ export type AdminSessionUser = {
+   id: string;
+@@ -8,21 +10,97 @@ export type AdminSessionUser = {
+   role: 'SUPER_ADMIN' | 'FINANCE' | 'SUPPORT';
+ };
+ 
++/** Wrong passwords allowed inside one streak before the account locks. */
++export const ADMIN_MAX_FAILURES = 5;
++export const ADMIN_LOCKOUT_MINUTES = 15;
++
++// Compared against when the email does not exist, so "unknown account" and
++// "wrong password" take the same time and cannot be told apart by timing.
++const DUMMY_HASH = bcrypt.hashSync('not-a-real-password', 12);
++
++function lockedError(until: Date) {
++  const minutes = Math.max(1, Math.ceil((until.getTime() - Date.now()) / 60_000));
++  return new Error(`Too many failed sign-in attempts. Try again in ${minutes} minute${minutes === 1 ? '' : 's'}.`);
++}
++
++/**
++ * Admin sign-in with per-account brute-force lockout.
++ *
++ * The attempt is RESERVED (counter incremented atomically in the database)
++ * BEFORE the password is checked, and cleared again on success. A
++ * read-then-write counter would let an attacker fire many guesses in
++ * parallel: each request reads "0 failures", all of them get a free
++ * password check, and the lock never trips. Reserving first means at most
++ * ADMIN_MAX_FAILURES guesses per streak ever reach bcrypt, however many
++ * requests arrive at once.
++ */
+ export async function authenticateAdmin(
+   email: string,
+-  password: string
++  password: string,
++  meta: { ip?: string } = {}
+ ): Promise<AdminSessionUser | null> {
+   const admin = await prisma.adminUser.findUnique({
+-    where: { email: email.toLowerCase().trim() }
++    where: { email: String(email ?? '').toLowerCase().trim() }
++  });
++  if (!admin || !admin.isActive) {
++    await bcrypt.compare(String(password ?? ''), DUMMY_HASH);
++    return null;
++  }
++
++  if (isLocked(admin.lockedUntil)) throw lockedError(admin.lockedUntil as Date);
++
++  // A lock that has expired starts the account over with a clean slate.
++  if (admin.lockedUntil) {
++    await prisma.adminUser.updateMany({
++      where: { id: admin.id, lockedUntil: { lte: new Date() } },
++      data: { failedLoginCount: 0, failedLoginAt: null, lockedUntil: null }
++    });
++  }
++  // An old streak (no failure for FAILURE_RESET_MINUTES) stops counting.
++  await prisma.adminUser.updateMany({
++    where: {
++      id: admin.id,
++      failedLoginAt: { lt: new Date(Date.now() - FAILURE_RESET_MINUTES * 60_000) }
++    },
++    data: { failedLoginCount: 0 }
+   });
+-  if (!admin || !admin.isActive) return null;
+ 
+-  const valid = await bcrypt.compare(password, admin.passwordHash);
+-  if (!valid) return null;
++  const reserved = await prisma.adminUser.update({
++    where: { id: admin.id },
++    data: { failedLoginCount: { increment: 1 }, failedLoginAt: new Date() }
++  });
++
++  const lock = async () => {
++    const until = new Date(Date.now() + ADMIN_LOCKOUT_MINUTES * 60_000);
++    const res = await prisma.adminUser.updateMany({
++      where: { id: admin.id, OR: [{ lockedUntil: null }, { lockedUntil: { lte: new Date() } }] },
++      data: { lockedUntil: until }
++    });
++    if (res.count > 0) {
++      console.warn('[admin-auth] account locked after repeated failures', { adminId: admin.id, ip: meta.ip });
++      await logAdminAction({
++        adminId: admin.id,
++        action: 'ADMIN_LOGIN_LOCKED',
++        targetType: 'AdminUser',
++        targetId: admin.id,
++        metadata: { ip: meta.ip ?? null, minutes: ADMIN_LOCKOUT_MINUTES }
++      }).catch(() => undefined);
++    }
++    return until;
++  };
++
++  if (reserved.failedLoginCount > ADMIN_MAX_FAILURES) throw lockedError(await lock());
++
++  const valid = await bcrypt.compare(String(password ?? ''), admin.passwordHash);
++  if (!valid) {
++    if (reserved.failedLoginCount >= ADMIN_MAX_FAILURES) await lock();
++    console.warn('[admin-auth] failed sign-in', { adminId: admin.id, ip: meta.ip, attempt: reserved.failedLoginCount });
++    return null;
++  }
+ 
+   await prisma.adminUser.update({
+     where: { id: admin.id },
+-    data: { lastLoginAt: new Date() }
++    data: { lastLoginAt: new Date(), failedLoginCount: 0, failedLoginAt: null, lockedUntil: null }
+   });
+ 
+   return {
+diff --git a/major_data_link_backend/src/admin/resources/admin-user.resource.ts b/major_data_link_backend/src/admin/resources/admin-user.resource.ts
+index 34eac9a..3123081 100644
+--- a/major_data_link_backend/src/admin/resources/admin-user.resource.ts
++++ b/major_data_link_backend/src/admin/resources/admin-user.resource.ts
+@@ -15,8 +15,8 @@ export const adminUserResource: ResourceWithOptions = {
+     id: 'AdminUser',
+     navigation: { name: 'Access Control', icon: 'Shield' },
+     listProperties: ['email', 'fullName', 'role', 'isActive', 'lastLoginAt'],
+-    showProperties: ['id', 'email', 'fullName', 'role', 'isActive', 'lastLoginAt', 'createdAt'],
+-    editProperties: ['email', 'fullName', 'role', 'isActive', 'password'],
++    showProperties: ['id', 'email', 'fullName', 'role', 'isActive', 'lastLoginAt', 'failedLoginCount', 'lockedUntil', 'createdAt'],
++    editProperties: ['email', 'fullName', 'role', 'isActive', 'lockedUntil', 'password'],
+     properties: {
+       passwordHash: { isVisible: false },
+       // Virtual field: never stored directly, converted to passwordHash in the
+@@ -47,6 +47,12 @@ export const adminUserResource: ResourceWithOptions = {
+             request.payload.passwordHash = await bcrypt.hash(request.payload.password as string, 12);
+           }
+           delete request.payload?.password;
++          // Clearing "lockedUntil" is how a SUPER_ADMIN unlocks an account
++          // before the automatic 15 minutes are up: reset the streak too.
++          if (request.payload && 'lockedUntil' in request.payload && !request.payload.lockedUntil) {
++            request.payload.failedLoginCount = 0;
++            request.payload.failedLoginAt = null;
++          }
+           return request;
+         }
+       },
+diff --git a/major_data_link_backend/src/admin/setup.ts b/major_data_link_backend/src/admin/setup.ts
+index 002c020..7efb296 100644
+--- a/major_data_link_backend/src/admin/setup.ts
++++ b/major_data_link_backend/src/admin/setup.ts
+@@ -170,7 +170,8 @@ export async function buildAdminRouter() {
+   const router = AdminJSExpress.buildAuthenticatedRouter(
+     admin,
+     {
+-      authenticate: async (email: string, password: string) => authenticateAdmin(email, password),
++      authenticate: async (email: string, password: string, context?: { req?: { ip?: string } }) =>
++        authenticateAdmin(email, password, { ip: context?.req?.ip }),
+       cookiePassword: env.ADMIN_SESSION_SECRET,
+       cookieName: ADMIN_SESSION_COOKIE_NAME
+     },
+@@ -194,6 +195,11 @@ export async function buildAdminRouter() {
+         // makes the intent unambiguous instead of depending on that detection.
+         secure: env.NODE_ENV === 'production',
+         httpOnly: true,
++        // Lax: the cookie is not sent on cross-site POSTs, sub-requests or
++        // WebSocket handshakes, which removes the main CSRF / cross-site
++        // WebSocket route into an admin session. Normal links to /admin from
++        // other sites still work (top-level GET).
++        sameSite: 'lax',
+         maxAge: 8 * 60 * 60 * 1000 // 8 hours
+       }
+     }
+diff --git a/major_data_link_backend/src/app.ts b/major_data_link_backend/src/app.ts
+index e98671d..c49aa45 100644
+--- a/major_data_link_backend/src/app.ts
++++ b/major_data_link_backend/src/app.ts
+@@ -18,6 +18,7 @@ import helmet from 'helmet';
+ import rateLimit from 'express-rate-limit';
+ import { env } from './config/env.js';
+ import { errorHandler } from './middleware/error.js';
++import { createAdminCsrfGuard } from './middleware/admin-csrf.js';
+ import { adminApiRoutes } from './routes/admin-api.routes.js';
+ import { authRoutes } from './routes/auth.routes.js';
+ import { assistantRoutes } from './routes/assistant.routes.js';
+@@ -296,6 +297,31 @@ export function createApp() {
+   // this head start - it's purely to reduce how often anyone notices the wait.
+   void getAdminRouter();
+ 
++  // Sign-in attempts per IP, on top of the per-account lockout in
++  // admin/auth.ts: slows one address spraying many different admin emails.
++  // Only failed attempts count (a successful sign-in redirects with 302).
++  const adminLoginLimiter = rateLimit({
++    windowMs: 15 * 60_000,
++    limit: 20,
++    standardHeaders: 'draft-7',
++    legacyHeaders: false,
++    skipSuccessfulRequests: true,
++    skip: (req) => req.method !== 'POST'
++  });
++  app.use(`${ADMIN_ROOT_PATH}/login`, adminLoginLimiter);
++
++  // CSRF: every state-changing /admin request must originate from this site.
++  const allowedAdminHosts = env.WEB_ALLOWED_ORIGINS.split(',')
++    .map((origin) => {
++      try {
++        return new URL(origin.trim()).host;
++      } catch {
++        return '';
++      }
++    })
++    .filter(Boolean);
++  app.use(ADMIN_ROOT_PATH, createAdminCsrfGuard(allowedAdminHosts));
++
+   app.use(ADMIN_ROOT_PATH, async (req, res, next) => {
+     try {
+       const adminRouter = await getAdminRouter();
+diff --git a/major_data_link_backend/src/middleware/__tests__/admin-csrf.test.ts b/major_data_link_backend/src/middleware/__tests__/admin-csrf.test.ts
+new file mode 100644
+index 0000000..bfa5c4e
+--- /dev/null
++++ b/major_data_link_backend/src/middleware/__tests__/admin-csrf.test.ts
+@@ -0,0 +1,46 @@
++import { describe, expect, it, vi } from 'vitest';
++import { createAdminCsrfGuard } from '../admin-csrf.js';
++
++function run(method: string, headers: Record<string, string>, extraHosts: string[] = []) {
++  const lower = Object.fromEntries(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v]));
++  const req: any = { method, path: '/admin/user-wallet/1/adjust', get: (h: string) => lower[h.toLowerCase()] };
++  const res: any = { status: vi.fn().mockReturnThis(), json: vi.fn().mockReturnThis() };
++  const next = vi.fn();
++  createAdminCsrfGuard(extraHosts)(req, res, next);
++  return { allowed: next.mock.calls.length === 1, status: res.status.mock.calls[0]?.[0] as number | undefined };
++}
++const HOST = 'k-tech.com.ng';
++
++describe('admin CSRF guard', () => {
++  it('lets read-only requests through untouched', () => {
++    expect(run('GET', { Host: HOST }).allowed).toBe(true);
++    expect(run('HEAD', {}).allowed).toBe(true);
++  });
++  it('allows same-origin POSTs (Sec-Fetch-Site)', () => {
++    expect(run('POST', { Host: HOST, 'Sec-Fetch-Site': 'same-origin' }).allowed).toBe(true);
++    expect(run('POST', { Host: HOST, 'Sec-Fetch-Site': 'none' }).allowed).toBe(true);
++  });
++  it('blocks cross-site and same-site (sibling subdomain) POSTs', () => {
++    expect(run('POST', { Host: HOST, 'Sec-Fetch-Site': 'cross-site' })).toMatchObject({ allowed: false, status: 403 });
++    expect(run('POST', { Host: HOST, 'Sec-Fetch-Site': 'same-site' }).allowed).toBe(false);
++  });
++  it('falls back to Origin host for browsers without Sec-Fetch-Site', () => {
++    expect(run('POST', { Host: HOST, Origin: 'https://k-tech.com.ng' }).allowed).toBe(true);
++    expect(run('POST', { Host: HOST, Origin: 'http://k-tech.com.ng' }).allowed).toBe(true); // scheme ignored on purpose
++    expect(run('POST', { Host: 'internal:8787', 'X-Forwarded-Host': HOST, Origin: 'https://k-tech.com.ng' }).allowed).toBe(true);
++    expect(run('POST', { Host: HOST, Origin: 'https://evil.example' }).allowed).toBe(false);
++    expect(run('POST', { Host: HOST, Origin: 'https://k-tech.com.ng.evil.example' }).allowed).toBe(false);
++    expect(run('POST', { Host: HOST, Origin: 'null' }).allowed).toBe(false);
++  });
++  it('falls back to Referer when Origin is missing', () => {
++    expect(run('POST', { Host: HOST, Referer: 'https://k-tech.com.ng/admin/user-wallet' }).allowed).toBe(true);
++    expect(run('POST', { Host: HOST, Referer: 'https://evil.example/x' }).allowed).toBe(false);
++  });
++  it('blocks state-changing requests that carry no origin information at all', () => {
++    expect(run('POST', { Host: HOST })).toMatchObject({ allowed: false, status: 403 });
++    expect(run('DELETE', { Host: HOST }).allowed).toBe(false);
++  });
++  it('honours explicitly allowed extra hosts', () => {
++    expect(run('POST', { Host: HOST, Origin: 'https://admin.example.com' }, ['admin.example.com']).allowed).toBe(true);
++  });
++});
+diff --git a/major_data_link_backend/src/middleware/admin-csrf.ts b/major_data_link_backend/src/middleware/admin-csrf.ts
+new file mode 100644
+index 0000000..6fe21bd
+--- /dev/null
++++ b/major_data_link_backend/src/middleware/admin-csrf.ts
+@@ -0,0 +1,62 @@
++import type { NextFunction, Request, Response } from 'express';
++
++/**
++ * CSRF guard for the cookie-authenticated admin panel (/admin/*).
++ *
++ * The admin session is a cookie, so a malicious page open in an admin's
++ * browser could otherwise make that browser POST to /admin (credit a wallet,
++ * change a price) with the cookie attached. Every state-changing request
++ * (anything except GET / HEAD / OPTIONS) must therefore prove it was
++ * started by this site itself:
++ *
++ *  1. `Sec-Fetch-Site` (sent by all current browsers and set by the browser,
++ *     not by page script): `same-origin` or `none` is accepted, anything
++ *     else (`cross-site`, `same-site` = a sibling subdomain) is refused.
++ *  2. Browsers without it: the `Origin` header (or `Referer`) host must equal
++ *     this request's own host (`Host` or `X-Forwarded-Host`), or be listed in
++ *     `extraAllowedHosts`. Only the HOST is compared, not the scheme, because
++ *     behind Railway's proxy the scheme the app sees can differ from the one
++ *     the browser used.
++ *  3. A state-changing request with none of these headers is refused.
++ */
++export function createAdminCsrfGuard(extraAllowedHosts: string[] = []) {
++  const extra = new Set(extraAllowedHosts.map((h) => h.toLowerCase()));
++
++  const hostOf = (value: string | undefined) => {
++    if (!value) return null;
++    try {
++      return new URL(value).host.toLowerCase();
++    } catch {
++      return null;
++    }
++  };
++
++  return function adminCsrfGuard(req: Request, res: Response, next: NextFunction) {
++    if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next();
++
++    const fetchSite = req.get('sec-fetch-site');
++    if (fetchSite) {
++      if (fetchSite === 'same-origin' || fetchSite === 'none') return next();
++      return reject(res, req, `sec-fetch-site=${fetchSite}`);
++    }
++
++    const sourceHost = hostOf(req.get('origin')) ?? hostOf(req.get('referer'));
++    if (!sourceHost) return reject(res, req, 'no origin information');
++
++    const ownHosts = [req.get('host'), req.get('x-forwarded-host')?.split(',')[0]]
++      .filter((h): h is string => !!h)
++      .map((h) => h.trim().toLowerCase());
++    if (ownHosts.includes(sourceHost) || extra.has(sourceHost)) return next();
++
++    return reject(res, req, `origin host ${sourceHost} not allowed`);
++  };
++}
++
++function reject(res: Response, req: Request, reason: string) {
++  console.warn('[admin-csrf] blocked request', { method: req.method, path: req.path, reason });
++  return res.status(403).json({
++    status: false,
++    message: 'Request blocked: it did not come from this site. Reload the admin page and try again.',
++    code: 'CSRF_BLOCKED'
++  });
++}
+diff --git a/major_data_link_backend/src/realtime/chat-socket.ts b/major_data_link_backend/src/realtime/chat-socket.ts
+index ec67530..38251ee 100644
+--- a/major_data_link_backend/src/realtime/chat-socket.ts
++++ b/major_data_link_backend/src/realtime/chat-socket.ts
+@@ -458,6 +458,28 @@ export function attachChatSocket(httpServer: HttpServer) {
+   );
+ 
+   const io = new SocketIOServer(httpServer, {
++    // Cross-site WebSocket hijacking guard. Browsers do not apply CORS to
++    // WebSocket upgrades, so a malicious page could open a socket to this
++    // server from an admin's browser. The admin session cookie is now
++    // SameSite=Lax (not sent on such requests), and this is the second
++    // layer: a handshake that CARRIES the admin cookie must come from this
++    // site's own host. Customer/partner sockets (token auth, no admin
++    // cookie) are untouched.
++    allowRequest: (req, callback) => {
++      const cookie = req.headers.cookie ?? '';
++      if (!cookie.includes(`${ADMIN_SESSION_COOKIE_NAME}=`)) return callback(null, true);
++      const origin = req.headers.origin;
++      if (!origin) return callback(null, true);
++      try {
++        const originHost = new URL(origin).host.toLowerCase();
++        const ownHosts = [req.headers.host, String(req.headers['x-forwarded-host'] ?? '').split(',')[0]]
++          .map((h) => (h ?? '').trim().toLowerCase())
++          .filter(Boolean);
++        return callback(null, ownHosts.includes(originHost));
++      } catch {
++        return callback(null, false);
++      }
++    },
+     // Same-origin in production (the web build and this API are served
+     // from one Express app - see app.ts) and admin connections are always
+     // same-origin. `cors` only matters for a customer/partner running the

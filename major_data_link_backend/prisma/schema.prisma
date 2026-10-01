@@ -948,6 +948,17 @@ model AdminUser {
   role         AdminRole       @default(SUPPORT)
   isActive     Boolean         @default(true)
   lastLoginAt  DateTime?
+  // Brute-force lockout (see admin/auth.ts). A SUPER_ADMIN can unlock an
+  // account early by clearing lockedUntil in Access Control.
+  failedLoginCount Int         @default(0)
+  failedLoginAt    DateTime?
+  lockedUntil      DateTime?
+  // Two-factor authentication (TOTP) - see admin/mfa.ts. The secret is
+  // AES-256-GCM encrypted (lib/pii-encryption); totpLastStep is the last
+  // 30s time step accepted, so a code can never be replayed.
+  totpSecretEnc    String?
+  totpEnabledAt    DateTime?
+  totpLastStep     Int?
   createdAt    DateTime        @default(now())
   updatedAt    DateTime        @updatedAt
   auditLogs    AdminAuditLog[]
@@ -967,4 +978,19 @@ model AdminAuditLog {
 
   @@index([adminId, createdAt])
   @@index([targetType, targetId])
+}
+
+// One-time recovery codes for an admin who has lost their authenticator app.
+// Only SHA-256 hashes are stored; a used code keeps its row with usedAt set.
+// (Deliberately no Prisma relation to AdminUser, so AdminJS does not try to
+// build a reference property to it.)
+model AdminRecoveryCode {
+  id        String    @id @default(uuid())
+  adminId   String
+  codeHash  String
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@unique([adminId, codeHash])
+  @@index([adminId])
 }

@@ -16,6 +16,7 @@
         "prisma:migrate": "prisma migrate dev",
         "prisma:migrate:deploy": "prisma migrate deploy",
         "seed:admin": "tsx src/admin/seed-super-admin.ts",
+        "admin:reset-2fa": "tsx src/admin/reset-admin-2fa.ts",
         "purge:pii": "tsx src/scripts/purge-expired-pii.ts",
         "sync:techhub-prices": "tsx src/scripts/sync-techhub-prices.ts",
         "partner:create": "tsx src/scripts/create-partner.ts",

@@ -458,6 +458,28 @@ export function attachChatSocket(httpServer: HttpServer) {
   );
 
   const io = new SocketIOServer(httpServer, {
+    // Cross-site WebSocket hijacking guard. Browsers do not apply CORS to
+    // WebSocket upgrades, so a malicious page could open a socket to this
+    // server from an admin's browser. The admin session cookie is now
+    // SameSite=Lax (not sent on such requests), and this is the second
+    // layer: a handshake that CARRIES the admin cookie must come from this
+    // site's own host. Customer/partner sockets (token auth, no admin
+    // cookie) are untouched.
+    allowRequest: (req, callback) => {
+      const cookie = req.headers.cookie ?? '';
+      if (!cookie.includes(`${ADMIN_SESSION_COOKIE_NAME}=`)) return callback(null, true);
+      const origin = req.headers.origin;
+      if (!origin) return callback(null, true);
+      try {
+        const originHost = new URL(origin).host.toLowerCase();
+        const ownHosts = [req.headers.host, String(req.headers['x-forwarded-host'] ?? '').split(',')[0]]
+          .map((h) => (h ?? '').trim().toLowerCase())
+          .filter(Boolean);
+        return callback(null, ownHosts.includes(originHost));
+      } catch {
+        return callback(null, false);
+      }
+    },
     // Same-origin in production (the web build and this API are served
     // from one Express app - see app.ts) and admin connections are always
     // same-origin. `cors` only matters for a customer/partner running the
@@ -496,9 +518,16 @@ export function attachChatSocket(httpServer: HttpServer) {
     // doc-comment at the top of this file).
     readAdminSession(socket, (err?: unknown) => {
       if (err) return next(new Error('unauthorized'));
-      const adminUser = (socket.request as IncomingMessage & { session?: { adminUser?: AdminSessionUser } }).session
-        ?.adminUser;
+      const adminSession = (
+        socket.request as IncomingMessage & { session?: { adminUser?: AdminSessionUser; mfaVerifiedFor?: string } }
+      ).session;
+      const adminUser = adminSession?.adminUser;
       if (!adminUser) return next(new Error('unauthorized'));
+      // A password-only session must not reach live chat before the second
+      // factor is done (the gate in admin/mfa.ts marks the session verified).
+      if (process.env.ADMIN_MFA_ENFORCED !== 'false' && adminSession?.mfaVerifiedFor !== adminUser.id) {
+        return next(new Error('unauthorized'));
+      }
       (socket.data as { actor?: ChatActor }).actor = {
         kind: 'admin',
         id: adminUser.id,

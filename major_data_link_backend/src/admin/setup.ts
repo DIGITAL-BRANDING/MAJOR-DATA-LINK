@@ -47,6 +47,7 @@ import { registerManualRequestRoutes } from './manual-requests.js';
 import { registerManualVerificationRoutes } from './manual-verification.js';
 import { registerLiveChatRoutes } from './live-chat.js';
 import { mobileShell } from './mobile-shell.js';
+import { createMfaRouter } from './mfa.js';
 
 AdminJS.registerAdapter({ Database, Resource });
 
@@ -167,36 +168,56 @@ export async function buildAdminRouter() {
     console.log('[admin] AdminJS frontend bundle ready');
   }
 
+  const adminSessionOptions: session.SessionOptions = {
+    resave: false,
+    saveUninitialized: false,
+    secret: env.ADMIN_SESSION_SECRET,
+    // Was express-session's default in-memory store, which loses every active
+    // session on a restart/redeploy and can't be shared across more than one
+    // instance — either of which reproduces exactly "login succeeds, next
+    // request bounces back to /admin/login". Persisting sessions in the same
+    // Postgres database Prisma already talks to fixes that: a redeploy (or a
+    // second instance, if this ever scales beyond one) shares the same
+    // session table instead of each holding its own private, empty one.
+    store: adminSessionStore,
+    cookie: {
+      // Explicit rather than left to express-session's default, since without
+      // `app.set('trust proxy', ...)` upstream (see app.ts), auto-detecting
+      // "is this request secure" behind Railway's proxy is unreliable — this
+      // makes the intent unambiguous instead of depending on that detection.
+      secure: env.NODE_ENV === 'production',
+      httpOnly: true,
+      // Lax: the cookie is not sent on cross-site POSTs, sub-requests or
+      // WebSocket handshakes, which removes the main CSRF / cross-site
+      // WebSocket route into an admin session. Normal links to /admin from
+      // other sites still work (top-level GET).
+      sameSite: 'lax',
+      maxAge: 8 * 60 * 60 * 1000 // 8 hours
+    }
+  };
+
+  // Two-factor authentication. This router is handed to AdminJS as its
+  // "predefined" router, so its session loader and gate run BEFORE every
+  // AdminJS route and every custom admin page (see admin/mfa.ts).
+  const mfaRouter = createMfaRouter({
+    rootPath: ADMIN_ROOT_PATH,
+    sessionMiddleware: session({
+      ...adminSessionOptions,
+      secret: env.ADMIN_SESSION_SECRET,
+      name: ADMIN_SESSION_COOKIE_NAME
+    })
+  });
+
   const router = AdminJSExpress.buildAuthenticatedRouter(
     admin,
     {
-      authenticate: async (email: string, password: string) => authenticateAdmin(email, password),
+      authenticate: async (email: string, password: string, context?: { req?: { ip?: string } }) =>
+        authenticateAdmin(email, password, { ip: context?.req?.ip }),
       cookiePassword: env.ADMIN_SESSION_SECRET,
       cookieName: ADMIN_SESSION_COOKIE_NAME
     },
-    null,
-    {
-      resave: false,
-      saveUninitialized: false,
-      secret: env.ADMIN_SESSION_SECRET,
-      // Was express-session's default in-memory store, which loses every active
-      // session on a restart/redeploy and can't be shared across more than one
-      // instance — either of which reproduces exactly "login succeeds, next
-      // request bounces back to /admin/login". Persisting sessions in the same
-      // Postgres database Prisma already talks to fixes that: a redeploy (or a
-      // second instance, if this ever scales beyond one) shares the same
-      // session table instead of each holding its own private, empty one.
-      store: adminSessionStore,
-      cookie: {
-        // Explicit rather than left to express-session's default, since without
-        // `app.set('trust proxy', ...)` upstream (see app.ts), auto-detecting
-        // "is this request secure" behind Railway's proxy is unreliable — this
-        // makes the intent unambiguous instead of depending on that detection.
-        secure: env.NODE_ENV === 'production',
-        httpOnly: true,
-        maxAge: 8 * 60 * 60 * 1000 // 8 hours
-      }
-    }
+    mfaRouter,
+    adminSessionOptions
   );
 
   // Must come before the custom page routes below: adds the viewport tag +
