@@ -33,6 +33,9 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     if (!user) {
       return res.status(401).json({ status: false, message: 'Account no longer exists' });
     }
+    if ((payload.sessionVersion ?? 0) !== user.authTokenVersion) {
+      return res.status(401).json({ status: false, message: 'This session has expired. Please sign in again.', code: 'SESSION_REVOKED' });
+    }
     if (user.accountStatus === 'DELETED') {
       return res.status(401).json({ status: false, message: 'Account no longer exists', code: 'ACCOUNT_DELETED' });
     }

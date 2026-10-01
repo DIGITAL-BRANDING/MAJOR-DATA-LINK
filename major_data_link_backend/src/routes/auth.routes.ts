@@ -4,6 +4,7 @@ import { nanoid } from 'nanoid';
 import { z } from 'zod';
 import { issueAuthTokens, revokeRefreshToken, rotateRefreshToken } from '../lib/auth-token.js';
 import { publicUser } from '../lib/public-user.js';
+import { clearWebRefreshCookie, refreshTokenFromRequest, sendUserAuthResponse } from '../lib/web-auth-session.js';
 import { prisma } from '../lib/prisma.js';
 import { clearLockout, isLocked, recordFailure } from '../lib/lockout.js';
 import { requireAuth } from '../middleware/auth.js';
@@ -20,24 +21,6 @@ export const authRoutes = Router();
 // See src/lib/lockout.ts for the rolling-window failure-tracking behavior.
 const MAX_PASSWORD_FAILURES = 5;
 const PASSWORD_LOCKOUT_MINUTES = 30;
-
-async function authResponse(
-  user: Awaited<ReturnType<typeof prisma.user.findUniqueOrThrow>>,
-  tokens: { accessToken: string; refreshToken: string; expiresIn: number }
-) {
-  return {
-    status: true,
-    data: {
-      access_token: tokens.accessToken,
-      refresh_token: tokens.refreshToken,
-      expires_in: tokens.expiresIn,
-      requires_pin_setup: !user.pinHash,
-      requires_login_pin_setup: !user.loginPinHash,
-      requires_password_change: user.mustChangePassword,
-      user: await publicUser(user)
-    }
-  };
-}
 
 authRoutes.post('/register', async (req, res) => {
   const body = z
@@ -87,7 +70,7 @@ authRoutes.post('/register', async (req, res) => {
   const provisionedUser = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
 
   const tokens = await issueAuthTokens({ id: provisionedUser.id, email: provisionedUser.email });
-  res.status(201).json(await authResponse(provisionedUser, tokens));
+  await sendUserAuthResponse(req, res, provisionedUser, tokens, 201);
 });
 
 authRoutes.post('/login', async (req, res) => {
@@ -96,7 +79,8 @@ authRoutes.post('/login', async (req, res) => {
       identifier: z.string().trim().min(3),
       password: z.string().min(1),
       // Only required once the account already has a login PIN set - see below.
-      login_pin: z.string().optional()
+      login_pin: z.string().optional(),
+      remember_me: z.boolean().optional()
     })
     .parse(req.body);
 
@@ -205,7 +189,7 @@ authRoutes.post('/login', async (req, res) => {
   });
 
   const tokens = await issueAuthTokens({ id: user.id, email: user.email });
-  res.json(await authResponse(user, tokens));
+  await sendUserAuthResponse(req, res, user, tokens);
 });
 
 // Recovery for someone who forgot their 6-digit login PIN. There's no way
@@ -259,35 +243,43 @@ authRoutes.post('/login-pin/reset', async (req, res) => {
     );
   }
 
-  await prisma.user.update({
-    where: { id: user.id },
-    data: {
-      passwordFailures: 0,
-      passwordLockedUntil: null,
-      passwordFailureAt: null,
-      loginPinHash: null,
-      loginPinFailures: 0,
-      loginPinLockedUntil: null,
-      loginPinFailureAt: null,
-      lastLoginAt: new Date(),
-      lastLoginChannel: customerLoginChannel(req)
-    }
+  await prisma.$transaction(async (tx) => {
+    await tx.user.update({
+      where: { id: user.id },
+      data: {
+        passwordFailures: 0,
+        passwordLockedUntil: null,
+        passwordFailureAt: null,
+        loginPinHash: null,
+        loginPinFailures: 0,
+        loginPinLockedUntil: null,
+        loginPinFailureAt: null,
+        authTokenVersion: { increment: 1 },
+        lastLoginAt: new Date(),
+        lastLoginChannel: customerLoginChannel(req)
+      }
+    });
+    await tx.refreshToken.updateMany({ where: { userId: user.id, revokedAt: null }, data: { revokedAt: new Date() } });
   });
 
   const tokens = await issueAuthTokens({ id: user.id, email: user.email });
   const freshUser = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
-  res.json(await authResponse(freshUser, tokens));
+  await sendUserAuthResponse(req, res, freshUser, tokens);
 });
 
 authRoutes.post('/token/refresh', async (req, res) => {
-  const body = z.object({ refresh_token: z.string().min(1) }).parse(req.body);
-  const { user, tokens } = await rotateRefreshToken(body.refresh_token);
-  res.json(await authResponse(user, tokens));
+  z.object({ refresh_token: z.string().optional() }).parse(req.body);
+  const token = refreshTokenFromRequest(req);
+  if (!token) throw new ApiError(401, 'Refresh token is required', 'MISSING_REFRESH_TOKEN');
+  const { user, tokens } = await rotateRefreshToken(token);
+  await sendUserAuthResponse(req, res, user, tokens);
 });
 
 authRoutes.post('/logout', async (req, res) => {
-  const body = z.object({ refresh_token: z.string().min(1) }).parse(req.body);
-  await revokeRefreshToken(body.refresh_token);
+  z.object({ refresh_token: z.string().optional() }).parse(req.body);
+  const token = refreshTokenFromRequest(req);
+  if (token) await revokeRefreshToken(token);
+  clearWebRefreshCookie(res);
   res.json({ status: true, message: 'Logged out' });
 });
 

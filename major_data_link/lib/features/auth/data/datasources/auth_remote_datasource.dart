@@ -59,7 +59,7 @@ abstract class AuthRemoteDataSource {
 
   Future<void> changeLoginPin({required String oldPin, required String newPin});
 
-  Future<void> changePassword({
+  Future<AuthResponseModel> changePassword({
     required String oldPassword,
     required String newPassword,
   });
@@ -274,15 +274,16 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
   }
 
   @override
-  Future<void> changePassword({
+  Future<AuthResponseModel> changePassword({
     required String oldPassword,
     required String newPassword,
   }) async {
     try {
-      await _dio.post(
+      final response = await _dio.post(
         AppEndpoints.changePassword,
         data: {'old_password': oldPassword, 'new_password': newPassword},
       );
+      return AuthResponseModel.fromJson(response.data as Map<String, dynamic>);
     } on DioException catch (e) {
       throw ErrorHandler.handleException(e);
     }

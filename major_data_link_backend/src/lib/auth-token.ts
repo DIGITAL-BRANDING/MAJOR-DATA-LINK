@@ -12,6 +12,8 @@ type TokenPayload = {
   type: TokenType;
   exp: number;
   iat: number;
+  /** Customer credential epoch; partner tokens intentionally omit it. */
+  sessionVersion?: number;
 };
 
 function base64Url(input: string | Buffer) {
@@ -32,6 +34,7 @@ export function createAuthToken(params: {
   email: string;
   type: TokenType;
   ttlSeconds: number;
+  sessionVersion?: number;
 }) {
   const now = Math.floor(Date.now() / 1000);
   const header = base64Url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
@@ -41,7 +44,8 @@ export function createAuthToken(params: {
       email: params.email,
       type: params.type,
       iat: now,
-      exp: now + params.ttlSeconds
+      exp: now + params.ttlSeconds,
+      ...(params.sessionVersion === undefined ? {} : { sessionVersion: params.sessionVersion })
     } satisfies TokenPayload)
   );
   const unsigned = `${header}.${payload}`;
@@ -83,17 +87,23 @@ export function verifyAuthToken(token: string, expectedType: TokenType) {
  * and stateless by design, verified purely by signature.
  */
 export async function issueAuthTokens(user: { id: string; email: string }) {
+  const current = await prisma.user.findUniqueOrThrow({
+    where: { id: user.id },
+    select: { authTokenVersion: true }
+  });
   const accessToken = createAuthToken({
     userId: user.id,
     email: user.email,
     type: 'access',
-    ttlSeconds: env.ACCESS_TOKEN_TTL_SECONDS
+    ttlSeconds: env.ACCESS_TOKEN_TTL_SECONDS,
+    sessionVersion: current.authTokenVersion
   });
   const refreshToken = createAuthToken({
     userId: user.id,
     email: user.email,
     type: 'refresh',
-    ttlSeconds: env.REFRESH_TOKEN_TTL_SECONDS
+    ttlSeconds: env.REFRESH_TOKEN_TTL_SECONDS,
+    sessionVersion: current.authTokenVersion
   });
 
   await prisma.refreshToken.create({
@@ -122,10 +132,17 @@ export async function rotateRefreshToken(oldToken: string) {
   if (!stored || stored.revokedAt || stored.expiresAt < new Date()) {
     throw new ApiError(401, 'Refresh token is invalid or has been revoked', 'INVALID_REFRESH_TOKEN');
   }
-
-  await prisma.refreshToken.update({ where: { id: stored.id }, data: { revokedAt: new Date() } });
-
   const user = await prisma.user.findUniqueOrThrow({ where: { id: payload.sub } });
+  if ((payload.sessionVersion ?? 0) !== user.authTokenVersion) {
+    throw new ApiError(401, 'This session has been revoked. Please sign in again.', 'SESSION_REVOKED');
+  }
+  const claimed = await prisma.refreshToken.updateMany({
+    where: { id: stored.id, revokedAt: null, expiresAt: { gt: new Date() } },
+    data: { revokedAt: new Date() }
+  });
+  if (claimed.count !== 1) {
+    throw new ApiError(401, 'Refresh token is invalid or has been revoked', 'INVALID_REFRESH_TOKEN');
+  }
   return { user, tokens: await issueAuthTokens(user) };
 }
 

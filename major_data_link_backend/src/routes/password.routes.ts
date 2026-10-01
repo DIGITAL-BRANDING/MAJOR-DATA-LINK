@@ -105,29 +105,29 @@ passwordRoutes.post('/reset', async (req, res) => {
   const passwordHash = await bcrypt.hash(body.new_password, 12);
   const cleared = clearLockout();
 
-  await prisma.$transaction([
-    prisma.user.update({
+  await prisma.$transaction(async (tx) => {
+    await tx.user.update({
       where: { id: user.id },
       data: {
         passwordHash,
-        // A password reset is a strong enough proof of ownership to also
-        // clear the login-lockout counters, same as /auth/login-pin/reset
-        // already does after a verified password check. Uses the same
-        // rolling-window helper the lockout itself is tracked with - see
-        // src/lib/lockout.ts. Also clears any pending admin-issued temp
-        // password flag (see mustChangePassword in schema.prisma) - this
-        // path is proof enough of ownership on its own.
+        // Advance the credential epoch so existing access tokens fail
+        // immediately, and revoke refresh tokens for every device.
+        authTokenVersion: { increment: 1 },
         passwordFailures: cleared.failures,
         passwordLockedUntil: cleared.lockedUntil,
         passwordFailureAt: cleared.failureAt,
         mustChangePassword: false
       }
-    }),
-    prisma.passwordResetCode.update({
+    });
+    await tx.refreshToken.updateMany({
+      where: { userId: user.id, revokedAt: null },
+      data: { revokedAt: new Date() }
+    });
+    await tx.passwordResetCode.update({
       where: { id: resetCode.id },
       data: { consumedAt: new Date() }
-    })
-  ]);
+    });
+  });
 
   res.json({ status: true, message: 'Your password has been reset. You can now log in.' });
 });

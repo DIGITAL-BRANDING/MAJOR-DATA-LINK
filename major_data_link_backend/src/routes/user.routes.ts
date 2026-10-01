@@ -6,9 +6,11 @@ import { koboToNaira } from '../lib/money.js';
 import { publicUser } from '../lib/public-user.js';
 import { requireAuth } from '../middleware/auth.js';
 import { ApiError } from '../middleware/error.js';
-import { setPin, verifyPin } from '../services/wallet.service.js';
-import { setLoginPin, verifyLoginPin } from '../services/login-pin.service.js';
+import { setPin, setPinIfUnset, verifyPin } from '../services/wallet.service.js';
+import { setLoginPin, setLoginPinIfUnset, verifyLoginPin } from '../services/login-pin.service.js';
 import { tryProvisionInstantVirtualAccount } from '../services/kyc.service.js';
+import { issueAuthTokens } from '../lib/auth-token.js';
+import { sendUserAuthResponse } from '../lib/web-auth-session.js';
 
 export const userRoutes = Router();
 
@@ -95,7 +97,7 @@ userRoutes.post('/profile/sync', async (req, res) => {
 
 userRoutes.post('/pin/set', async (req, res) => {
   const body = z.object({ pin: z.string() }).parse(req.body);
-  await setPin(req.user!.id, body.pin);
+  await setPinIfUnset(req.user!.id, body.pin);
   res.json({ status: true, message: 'PIN set successfully' });
 });
 
@@ -124,7 +126,7 @@ userRoutes.post('/pin/change', async (req, res) => {
 // requires it for every future login from a device without a live session.
 userRoutes.post('/login-pin/set', async (req, res) => {
   const body = z.object({ pin: z.string() }).parse(req.body);
-  await setLoginPin(req.user!.id, body.pin);
+  await setLoginPinIfUnset(req.user!.id, body.pin);
   res.json({ status: true, message: 'Login PIN set successfully' });
 });
 
@@ -163,12 +165,20 @@ userRoutes.post('/password/change', async (req, res) => {
   }
 
   const passwordHash = await bcrypt.hash(body.new_password, 12);
-  await prisma.user.update({
-    where: { id: req.user!.id },
-    data: { passwordHash, mustChangePassword: false }
+  await prisma.$transaction(async (tx) => {
+    await tx.user.update({
+      where: { id: req.user!.id },
+      data: { passwordHash, mustChangePassword: false, authTokenVersion: { increment: 1 } }
+    });
+    await tx.refreshToken.updateMany({
+      where: { userId: req.user!.id, revokedAt: null },
+      data: { revokedAt: new Date() }
+    });
   });
 
-  res.json({ status: true, message: 'Password changed successfully' });
+  const updatedUser = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id } });
+  const tokens = await issueAuthTokens({ id: updatedUser.id, email: updatedUser.email });
+  await sendUserAuthResponse(req, res, updatedUser, tokens);
 });
 
 userRoutes.post('/deactivate', async (req, res) => {

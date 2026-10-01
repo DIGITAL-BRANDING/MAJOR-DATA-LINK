@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-import { ApiError, api, clearTokens, getAccessToken, setTokens } from './api';
+import { ApiError, api, clearTokens, restoreWebSession, setTokens } from './api';
 import { removeWebPushSubscription } from './web-push';
 
 export type AppUser = {
@@ -17,7 +17,7 @@ type AuthResponse = {
   status: boolean;
   data: {
     access_token: string;
-    refresh_token: string;
+    refresh_token?: string;
     user: AppUser;
     requires_password_change?: boolean;
     requires_pin_setup?: boolean;
@@ -39,7 +39,7 @@ type AuthContextValue = {
     password: string;
     referral_code?: string;
   }) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
 };
 
@@ -69,7 +69,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     (async () => {
-      if (getAccessToken()) {
+      if (await restoreWebSession()) {
         await refreshUser();
       }
       setIsLoading(false);
@@ -81,7 +81,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const res = await api.post<AuthResponse>(
         '/auth/login',
-        { identifier, password, login_pin: loginPin },
+        { identifier, password, login_pin: loginPin, remember_me: remember },
         false,
         // Safe to retry once on a pure network failure: login has no side
         // effect worth worrying about if the first attempt actually reached
@@ -111,16 +111,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     referral_code?: string;
   }) {
     const res = await api.post<AuthResponse>('/auth/register', input, false);
-    setTokens(res.data.access_token, res.data.refresh_token);
+    setTokens(res.data.access_token, res.data.refresh_token, true);
     setUser(res.data.user);
     setMustChangePassword(!!res.data.requires_password_change);
     setRequiresLoginPinSetup(!!res.data.requires_login_pin_setup);
     setRequiresTransactionPinSetup(!!res.data.requires_pin_setup);
   }
 
-  function logout() {
+  async function logout() {
     // Stop this browser getting the signed-out account's chat alerts.
     void removeWebPushSubscription();
+    try {
+      await api.post('/auth/logout', {}, false);
+    } catch {
+      // Clear local state even when the server cannot be reached.
+    }
     clearTokens();
     setUser(null);
     setMustChangePassword(false);

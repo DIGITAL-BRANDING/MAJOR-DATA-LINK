@@ -19,35 +19,80 @@ export const PARTNER_API_BASE = `${API_BASE}/api/v1`;
 
 const TOKEN_KEY = 'mdl_access_token';
 const REFRESH_KEY = 'mdl_refresh_token';
+const REMEMBER_KEY = 'mdl_remember_me';
 const REQUEST_TIMEOUT_MS = 25_000;
+let accessToken: string | null = null;
+let refreshInFlight: Promise<boolean> | null = null;
 
 export function getAccessToken() {
-  return localStorage.getItem(TOKEN_KEY) ?? sessionStorage.getItem(TOKEN_KEY);
+  return accessToken;
 }
 
-/**
- * `remember` picks where the tokens live: localStorage survives closing the
- * browser (default - matches the app's previous always-persistent
- * behavior), sessionStorage clears when the tab/browser closes ("Remember
- * Me" off, e.g. on a shared/public computer). getAccessToken() above checks
- * both, so every other call site keeps working unmodified either way.
- */
-export function setTokens(accessToken: string, refreshToken: string, remember = true) {
-  const store = remember ? localStorage : sessionStorage;
-  const other = remember ? sessionStorage : localStorage;
-  // Clear the other backend first so switching "Remember Me" between logins
-  // never leaves a stale duplicate token sitting in the other one.
-  other.removeItem(TOKEN_KEY);
-  other.removeItem(REFRESH_KEY);
-  store.setItem(TOKEN_KEY, accessToken);
-  store.setItem(REFRESH_KEY, refreshToken);
-}
-
-export function clearTokens() {
+function clearLegacyStoredTokens() {
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(REFRESH_KEY);
   sessionStorage.removeItem(TOKEN_KEY);
   sessionStorage.removeItem(REFRESH_KEY);
+}
+
+/** Access tokens remain in memory; only the non-secret preference is persisted. */
+export function setTokens(token: string, _refreshToken?: string, remember = true) {
+  accessToken = token;
+  // Clear legacy browser-stored credentials once a fresh server session is
+  // established. Only a non-secret remember preference remains in storage.
+  clearLegacyStoredTokens();
+  localStorage.removeItem(REMEMBER_KEY);
+  sessionStorage.removeItem(REMEMBER_KEY);
+  (remember ? localStorage : sessionStorage).setItem(REMEMBER_KEY, remember ? 'true' : 'false');
+}
+
+export function clearTokens() {
+  accessToken = null;
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(REFRESH_KEY);
+  sessionStorage.removeItem(TOKEN_KEY);
+  sessionStorage.removeItem(REFRESH_KEY);
+  localStorage.removeItem(REMEMBER_KEY);
+  sessionStorage.removeItem(REMEMBER_KEY);
+}
+
+function rememberPreference() {
+  return (localStorage.getItem(REMEMBER_KEY) ?? sessionStorage.getItem(REMEMBER_KEY)) !== 'false';
+}
+
+async function refreshWebAccessToken(): Promise<boolean> {
+  if (refreshInFlight) return refreshInFlight;
+  refreshInFlight = (async () => {
+    try {
+      const response = await fetch(`${API_BASE}/api/auth/token/refresh`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Client-Channel': 'web',
+          'X-Remember-Me': String(rememberPreference()),
+        },
+        credentials: 'include',
+        body: '{}',
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+      const payload = await response.json() as { data?: { access_token?: string } };
+      if (!response.ok || !payload.data?.access_token) return false;
+      accessToken = payload.data.access_token;
+      return true;
+    } catch {
+      return false;
+    }
+  })().finally(() => { refreshInFlight = null; });
+  return refreshInFlight;
+}
+
+export async function restoreWebSession() {
+  if (await refreshWebAccessToken()) {
+    clearLegacyStoredTokens();
+    return true;
+  }
+  clearTokens();
+  return false;
 }
 
 export class ApiError extends Error {
@@ -90,6 +135,7 @@ async function request<T>(
     'Content-Type': 'application/json',
     // Reporting metadata only; the backend never trusts this to authorize a request.
     'X-Client-Channel': 'web',
+    'X-Remember-Me': String(rememberPreference()),
   };
   if (options.idempotencyKey) headers['Idempotency-Key'] = options.idempotencyKey;
   if (auth) {
@@ -100,7 +146,11 @@ async function request<T>(
   const doFetch = () =>
     fetch(`${API_BASE}/api${path}`, {
       method,
-      headers,
+      headers: {
+        ...headers,
+        ...(auth && accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+      },
+      credentials: 'include',
       body: body !== undefined ? JSON.stringify(body) : undefined,
       signal: AbortSignal.timeout(timeoutMs),
     });
@@ -148,6 +198,10 @@ async function request<T>(
     );
   }
 
+  if (auth && res.status === 401 && path !== '/auth/token/refresh' && await refreshWebAccessToken()) {
+    res = await doFetch();
+  }
+
   let payload: unknown = null;
   try {
     payload = await res.json();
@@ -182,6 +236,9 @@ async function request<T>(
     const code = (payload as { code?: string } | null)?.code;
     throw new ApiError(message, res.status, code);
   }
+
+  const issuedAccessToken = (payload as { data?: { access_token?: unknown } } | null)?.data?.access_token;
+  if (typeof issuedAccessToken === 'string' && issuedAccessToken) accessToken = issuedAccessToken;
 
   // A proxy or an interrupted deployment can occasionally answer 200 with an
   // empty/non-JSON body. Returning that `null` to screens used to turn into a
@@ -228,6 +285,7 @@ export const api = {
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
         'X-Client-Channel': 'web',
       },
+      credentials: 'include',
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
     if (!res.ok) {

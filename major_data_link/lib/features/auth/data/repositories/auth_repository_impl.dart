@@ -445,10 +445,12 @@ class AuthRepositoryImpl implements AuthRepository {
       return const Left(NetworkFailure());
     }
     try {
-      await _remote.changePassword(
+      final response = await _remote.changePassword(
         oldPassword: oldPassword,
         newPassword: newPassword,
       );
+      _refreshCoordinator.invalidatePendingRefreshes();
+      await _local.cacheAuthResponse(response);
       return const Right(null);
     } on AppException catch (e) {
       return Left(ErrorHandler.exceptionToFailure(e));

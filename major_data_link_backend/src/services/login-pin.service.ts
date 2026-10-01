@@ -24,6 +24,28 @@ export async function setLoginPin(userId: string, pin: string) {
   });
 }
 
+/** Initial setup only; once present, a login PIN can only be changed after
+ * verifying the current PIN or completing the password recovery flow. */
+export async function setLoginPinIfUnset(userId: string, pin: string) {
+  if (!/^\d{6}$/.test(pin)) {
+    throw new ApiError(422, 'Login PIN must be 6 digits', 'INVALID_LOGIN_PIN');
+  }
+  const loginPinHash = await bcrypt.hash(pin, 12);
+  const cleared = clearLockout();
+  const result = await prisma.user.updateMany({
+    where: { id: userId, loginPinHash: null },
+    data: {
+      loginPinHash,
+      loginPinFailures: cleared.failures,
+      loginPinLockedUntil: cleared.lockedUntil,
+      loginPinFailureAt: cleared.failureAt
+    }
+  });
+  if (result.count !== 1) {
+    throw new ApiError(409, 'A login PIN is already set. Verify the current PIN to change it.', 'LOGIN_PIN_ALREADY_SET');
+  }
+}
+
 /**
  * Verifies a login PIN, tracking failures and locking out after
  * MAX_FAILURES - mirrors the transaction PIN's verifyPin() lockout behavior

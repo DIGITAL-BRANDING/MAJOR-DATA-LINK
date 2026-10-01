@@ -330,6 +330,19 @@ export async function creditWalletByReference(reference: string) {
   return { ...result.transaction, balanceAfterKobo: result.finalBalanceKobo };
 }
 
+/** Initial setup only. The conditional update prevents two concurrent setup
+ * requests from racing and replacing the PIN after the first one succeeds. */
+export async function setPinIfUnset(userId: string, pin: string) {
+  if (!/^\d{4}$/.test(pin)) throw new ApiError(422, 'PIN must be 4 digits', 'INVALID_PIN');
+  const pinHash = await bcrypt.hash(pin, 12);
+  const cleared = clearLockout();
+  const result = await prisma.user.updateMany({
+    where: { id: userId, pinHash: null },
+    data: { pinHash, pinFailures: cleared.failures, pinLockedUntil: cleared.lockedUntil, pinFailureAt: cleared.failureAt }
+  });
+  if (result.count !== 1) throw new ApiError(409, 'A transaction PIN is already set. Verify the current PIN to change it.', 'PIN_ALREADY_SET');
+}
+
 /**
  * Finance fallback for a gateway funding record whose webhook never arrived.
  * `success` uses the normal funding credit path, including the configured

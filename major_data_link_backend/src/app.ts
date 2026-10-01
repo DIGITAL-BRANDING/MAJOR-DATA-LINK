@@ -158,6 +158,7 @@ export function createApp() {
     // scheme specifically. The hostname still has to match exactly.
     const requestHost = req.get('host');
     return cors({
+      credentials: true,
       origin(origin, callback) {
         if (!origin) return callback(null, true);
         if (allowedOrigins.has(origin)) return callback(null, true);

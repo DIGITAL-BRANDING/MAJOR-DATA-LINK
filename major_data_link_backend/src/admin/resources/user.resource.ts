@@ -127,15 +127,22 @@ export const userResource: ResourceWithOptions = {
           const tempPassword = generateTempPassword();
           const passwordHash = await bcrypt.hash(tempPassword, 12);
 
-          await prisma.user.update({
-            where: { id: record.params.id as string },
-            data: {
-              passwordHash,
-              mustChangePassword: true,
-              passwordFailures: 0,
-              passwordLockedUntil: null,
-              passwordFailureAt: null
-            }
+          await prisma.$transaction(async (tx) => {
+            await tx.user.update({
+              where: { id: record.params.id as string },
+              data: {
+                passwordHash,
+                mustChangePassword: true,
+                passwordFailures: 0,
+                passwordLockedUntil: null,
+                passwordFailureAt: null,
+                authTokenVersion: { increment: 1 }
+              }
+            });
+            await tx.refreshToken.updateMany({
+              where: { userId: record.params.id as string, revokedAt: null },
+              data: { revokedAt: new Date() }
+            });
           });
 
           await logAdminAction({

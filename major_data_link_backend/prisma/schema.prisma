@@ -146,6 +146,9 @@ model User {
   email                String         @unique
   phone                String         @unique
   passwordHash         String?
+  /// Incremented whenever credentials are recovered or changed so every
+  /// previously issued access token becomes invalid immediately.
+  authTokenVersion     Int            @default(0)
   photoUrl             String?
   walletBalanceKobo    BigInt         @default(0)
   referralCode         String         @unique
