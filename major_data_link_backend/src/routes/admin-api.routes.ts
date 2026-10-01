@@ -1,4 +1,4 @@
-﻿import { Router } from 'express';
+import { Router } from 'express';
 import { z } from 'zod';
 import { TransactionStatus, TransactionType } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
@@ -21,10 +21,28 @@ import { logAdminAction } from '../admin/audit.js';
 import { requireAppAdmin, requireFinanceAdmin } from '../middleware/admin-auth.js';
 import { createUserDelivery } from '../services/user-delivery.service.js';
 import { notifyUser } from '../services/notification.service.js';
+import { sendAdminEmail } from '../lib/email.js';
 
 export const adminApiRoutes = Router();
 
 adminApiRoutes.use(requireAppAdmin);
+
+adminApiRoutes.post('/emails/send', requireFinanceAdmin, async (req, res) => {
+  const body = z.object({ audience: z.enum(['CUSTOMERS', 'PARTNERS']), recipient_mode: z.enum(['ALL', 'ONE']), recipient_id: z.string().trim().min(1).optional(), subject: z.string().trim().min(3).max(200), message: z.string().trim().min(2).max(10000) }).parse(req.body);
+  if (body.recipient_mode === 'ONE' && !body.recipient_id) return res.status(400).json({ status: false, message: 'Recipient ID is required' });
+  const whereUser = { accountStatus: 'ACTIVE' as const, ...(body.recipient_mode === 'ONE' ? { id: body.recipient_id! } : {}) };
+  const wherePartner = body.recipient_mode === 'ONE' ? { id: body.recipient_id! } : {};
+  const recipients = body.audience === 'CUSTOMERS'
+    ? (await prisma.user.findMany({ where: whereUser, select: { email: true }, take: body.recipient_mode === 'ONE' ? 1 : 10000 })).map((row) => row.email)
+    : (await prisma.partner.findMany({ where: wherePartner, select: { email: true }, take: body.recipient_mode === 'ONE' ? 1 : 10000 })).map((row) => row.email);
+  if (body.recipient_mode === 'ONE' && !recipients.length) return res.status(404).json({ status: false, message: 'Recipient not found' });
+  if (!recipients.length) return res.status(422).json({ status: false, message: 'No recipients found' });
+  if (recipients.length > 100) return res.status(422).json({ status: false, message: 'Please use the admin email composer for audiences larger than 100 recipients' });
+  const result = await sendAdminEmail({ recipients, subject: body.subject, message: body.message });
+  await logAdminAction({ adminId: req.admin!.id, action: 'SEND_ADMIN_EMAIL', targetType: body.audience, metadata: { audience: body.audience, recipientMode: body.recipient_mode, recipientCount: recipients.length, subject: body.subject, sent: result.sent } });
+  if (!result.sent) return res.status(502).json({ status: false, message: result.error ?? 'Email delivery failed' });
+  res.json({ status: true, data: { recipient_count: recipients.length } });
+});
 
 adminApiRoutes.post('/user-deliveries', requireFinanceAdmin, async (req, res) => {
   const body = z.object({ user_id: z.string().min(1), title: z.string().trim().min(1).max(120), description: z.string().max(500).optional(), file_name: z.string().min(1).max(180), mime_type: z.enum(['application/pdf', 'image/png', 'image/jpeg', 'text/plain']), file_base64: z.string().min(1), reference: z.string().max(120).optional() }).parse(req.body);

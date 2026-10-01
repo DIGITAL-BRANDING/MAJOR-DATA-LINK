@@ -67,6 +67,7 @@ const quickLinks: QuickLink[] = [
   { label: 'Provider Balance', description: 'Alrahuz, BilalSadaSub & Techhub balances', resourceId: 'ProviderBalanceStatus', icon: 'AlertTriangle' },
   { label: 'Referral Settings', description: 'Referral reward configuration', resourceId: 'ReferralSettings', icon: 'Percent' },
   { label: 'Notifications', description: 'Broadcast messages to users', resourceId: 'NotificationBroadcast', icon: 'Bell' },
+  { label: 'Email customers & partners', description: 'Send email announcements through Resend', href: `${ADMIN_ROOT_PATH}/email-composer`, icon: 'Send' },
   { label: 'Partners', description: 'Review API partner accounts and status', resourceId: 'Partner', icon: 'Briefcase' },
   { label: 'App Base URL & Updates', description: 'Change live app URL, version gate and update message', href: `${ADMIN_ROOT_PATH}/resources/AppConfig/records/default/edit`, icon: 'Settings' },
   { label: 'Admin Users', description: 'Admin accounts & roles', resourceId: 'AdminUser', icon: 'Shield' },

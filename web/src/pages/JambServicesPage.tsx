@@ -1,16 +1,16 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { CheckCircle2, Clock3, GraduationCap, Loader2, Send } from 'lucide-react';
 import AppShell from '../components/AppShell';
 import { PinConfirmDialog } from '../components/PinConfirmDialog';
 import { api } from '../lib/api';
 
-const services = [
-  { id: 'cbt_practice_software', name: 'JAMB CBT Practice Software', price: 5000 },
-  { id: 'original_result', name: 'JAMB Original Result', price: 2500 },
-  { id: 'admission_letter', name: 'JAMB Admission Letter', price: 2000 },
-  { id: 'exam_slip', name: 'JAMB Exam Slip', price: 500 },
-  { id: 'result_slip', name: 'JAMB Result Slip', price: 800 },
-] as const;
+const defaultServices = [
+  { id: 'cbt_practice_software', label: 'JAMB CBT Practice Software', price: 5000 },
+  { id: 'original_result', label: 'JAMB Original Result', price: 2500 },
+  { id: 'admission_letter', label: 'JAMB Admission Letter', price: 2000 },
+  { id: 'exam_slip', label: 'JAMB Exam Slip', price: 500 },
+  { id: 'result_slip', label: 'JAMB Result Slip', price: 800 },
+];
 
 /**
  * JAMB fulfilment needs student-specific documents and cannot be safely treated
@@ -18,17 +18,29 @@ const services = [
  * which staff can process, update and close from the existing admin inbox.
  */
 export default function JambServicesPage() {
-  const [serviceId, setServiceId] = useState<(typeof services)[number]['id']>(services[0].id);
+  const [services, setServices] = useState(defaultServices);
+  const [serviceId, setServiceId] = useState<string>(defaultServices[0].id);
   const [registrationNumber, setRegistrationNumber] = useState('');
   const [fullName, setFullName] = useState('');
   const [examYear, setExamYear] = useState(String(new Date().getFullYear()));
   const [sending, setSending] = useState(false);
   const [showPin, setShowPin] = useState(false);
   const [feedback, setFeedback] = useState<{ message: string; status: 'success' | 'error' } | null>(null);
+  const [cbt, setCbt] = useState({ email: '', phone: '', organization_name: '', staff_count: '', trainees_count: '', whatsapp_number: '' });
+
+  useEffect(() => {
+    let active = true;
+    api.get<{ status: boolean; data: Array<{ id: string; label: string; price: number }> }>('/jamb/services')
+      .then(({ data }) => { if (active) { const live = new Map(data.map((row) => [row.id, row])); setServices(defaultServices.map((fallback) => { const row = live.get(fallback.id); return row ? { id: row.id, label: row.label, price: row.price } : fallback; })); } })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, []);
 
   function prepare(e: React.FormEvent) {
     e.preventDefault();
-    if (registrationNumber.trim().length < 4 || fullName.trim().length < 3 || !/^20\d{2}$/.test(examYear)) {
+    if (serviceId === 'cbt_practice_software') {
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(cbt.email) || cbt.phone.trim().length < 6 || cbt.organization_name.trim().length < 2 || !cbt.staff_count || !cbt.trainees_count || cbt.whatsapp_number.trim().length < 6) { setFeedback({ message: 'Complete all CBT application fields with valid contact details.', status: 'error' }); return; }
+    } else if (registrationNumber.trim().length < 4 || fullName.trim().length < 3 || !/^20\d{2}$/.test(examYear)) {
       setFeedback({ message: 'Enter your JAMB registration number, full name and a valid exam year.', status: 'error' });
       return;
     }
@@ -42,14 +54,9 @@ export default function JambServicesPage() {
     setFeedback(null);
     try {
       const service = services.find((item) => item.id === serviceId)!;
-      await api.post('/jamb/requests', {
-        service: service.id,
-        registration_number: registrationNumber.trim(),
-        candidate_full_name: fullName.trim(),
-        exam_year: Number(examYear),
-        pin
-      });
-      setRegistrationNumber(''); setFullName('');
+      const payload = serviceId === 'cbt_practice_software' ? { service: service.id, ...cbt, pin } : { service: service.id, registration_number: registrationNumber.trim(), candidate_full_name: fullName.trim(), exam_year: Number(examYear), pin };
+      await api.post('/jamb/requests', payload);
+      setRegistrationNumber(''); setFullName(''); setCbt({ email: '', phone: '', organization_name: '', staff_count: '', trainees_count: '', whatsapp_number: '' });
       setFeedback({
         message: `₦${service.price.toLocaleString()} has been deducted. Your request will be processed within 2–3 hours during 8:00 AM–6:00 PM, then delivered to My Deliveries.`,
         status: 'success'
@@ -74,7 +81,7 @@ export default function JambServicesPage() {
           <section className="rounded-2xl border border-parchment-line bg-parchment p-5">
             <h2 className="font-display text-lg font-bold text-ink">Available services</h2>
             <ul className="mt-4 space-y-3">
-              {services.map((item) => <li key={item.name} className="flex items-start justify-between gap-2 text-sm text-ink-700"><span className="flex gap-2"><CheckCircle2 className="mt-0.5 shrink-0 text-gold-500" size={16} />{item.name}</span><b className="whitespace-nowrap text-ink">₦{item.price.toLocaleString()}</b></li>)}
+              {services.map((item) => <li key={item.id} className="flex items-start justify-between gap-2 text-sm text-ink-700"><span className="flex gap-2"><CheckCircle2 className="mt-0.5 shrink-0 text-gold-500" size={16} />{item.label}</span><b className="whitespace-nowrap text-ink">₦{item.price.toLocaleString()}</b></li>)}
             </ul>
           </section>
 
@@ -86,18 +93,21 @@ export default function JambServicesPage() {
             </div>
             <label className="mt-4 block text-sm font-semibold text-ink">Service
               <select value={serviceId} onChange={(e) => setServiceId(e.target.value as typeof serviceId)} className="mt-1.5 w-full rounded-lg border border-parchment-line bg-cream px-3 py-2.5 text-sm">
-                {services.map((item) => <option key={item.id} value={item.id}>{item.name} — ₦{item.price.toLocaleString()}</option>)}
+                {services.map((item) => <option key={item.id} value={item.id}>{item.label} — ₦{item.price.toLocaleString()}</option>)}
               </select>
             </label>
-            <label className="mt-4 block text-sm font-semibold text-ink">JAMB Registration Number
-              <input value={registrationNumber} onChange={(e) => setRegistrationNumber(e.target.value)} required placeholder="e.g. 12345678AB" className="mt-1.5 w-full rounded-lg border border-parchment-line bg-cream px-3 py-2.5 text-sm" />
-            </label>
-            <label className="mt-4 block text-sm font-semibold text-ink">Candidate Full Name
-              <input value={fullName} onChange={(e) => setFullName(e.target.value)} required placeholder="Enter full name as on JAMB record" className="mt-1.5 w-full rounded-lg border border-parchment-line bg-cream px-3 py-2.5 text-sm" />
-            </label>
-            <label className="mt-4 block text-sm font-semibold text-ink">Exam Year
-              <input value={examYear} onChange={(e) => setExamYear(e.target.value.replace(/\D/g, '').slice(0, 4))} required inputMode="numeric" placeholder="e.g. 2026" className="mt-1.5 w-full rounded-lg border border-parchment-line bg-cream px-3 py-2.5 text-sm" />
-            </label>
+            {serviceId === 'cbt_practice_software' ? <div className="mt-4 space-y-4">
+              <label className="block text-sm font-semibold text-ink">Email Address<input type="email" required value={cbt.email} onChange={(e) => setCbt({ ...cbt, email: e.target.value })} className="mt-1.5 w-full rounded-lg border border-parchment-line bg-cream px-3 py-2.5 text-sm" /></label>
+              <label className="block text-sm font-semibold text-ink">Phone Number<input type="tel" required value={cbt.phone} onChange={(e) => setCbt({ ...cbt, phone: e.target.value })} className="mt-1.5 w-full rounded-lg border border-parchment-line bg-cream px-3 py-2.5 text-sm" /></label>
+              <label className="block text-sm font-semibold text-ink">Organization/School Name<input required value={cbt.organization_name} onChange={(e) => setCbt({ ...cbt, organization_name: e.target.value })} className="mt-1.5 w-full rounded-lg border border-parchment-line bg-cream px-3 py-2.5 text-sm" /></label>
+              <label className="block text-sm font-semibold text-ink">Approximate number of staff<select required value={cbt.staff_count} onChange={(e) => setCbt({ ...cbt, staff_count: e.target.value })} className="mt-1.5 w-full rounded-lg border border-parchment-line bg-cream px-3 py-2.5 text-sm"><option value="">Select range</option><option>2-5</option><option>5 - 10</option><option>10 - 20</option><option>20 - 50</option></select></label>
+              <label className="block text-sm font-semibold text-ink">Approximate no. of Trainees<select required value={cbt.trainees_count} onChange={(e) => setCbt({ ...cbt, trainees_count: e.target.value })} className="mt-1.5 w-full rounded-lg border border-parchment-line bg-cream px-3 py-2.5 text-sm"><option value="">Select range</option><option>20 - 50</option><option>50 - 100</option><option>100 - above</option></select></label>
+              <label className="block text-sm font-semibold text-ink">WhatsApp Number<input type="tel" required value={cbt.whatsapp_number} onChange={(e) => setCbt({ ...cbt, whatsapp_number: e.target.value })} className="mt-1.5 w-full rounded-lg border border-parchment-line bg-cream px-3 py-2.5 text-sm" /></label>
+            </div> : <>
+              <label className="mt-4 block text-sm font-semibold text-ink">JAMB Registration Number<input value={registrationNumber} onChange={(e) => setRegistrationNumber(e.target.value)} required placeholder="e.g. 12345678AB" className="mt-1.5 w-full rounded-lg border border-parchment-line bg-cream px-3 py-2.5 text-sm" /></label>
+              <label className="mt-4 block text-sm font-semibold text-ink">Candidate Full Name<input value={fullName} onChange={(e) => setFullName(e.target.value)} required placeholder="Enter full name as on JAMB record" className="mt-1.5 w-full rounded-lg border border-parchment-line bg-cream px-3 py-2.5 text-sm" /></label>
+              <label className="mt-4 block text-sm font-semibold text-ink">Exam Year<input value={examYear} onChange={(e) => setExamYear(e.target.value.replace(/\D/g, '').slice(0, 4))} required inputMode="numeric" placeholder="e.g. 2026" className="mt-1.5 w-full rounded-lg border border-parchment-line bg-cream px-3 py-2.5 text-sm" /></label>
+            </>}
             {feedback && <p className={`mt-3 rounded-lg p-3 text-sm ${feedback.status === 'success' ? 'bg-success-500/10 text-success-700' : 'bg-ember-500/10 text-ember-600'}`}>{feedback.message}</p>}
             <button disabled={sending} className="mt-4 flex items-center gap-2 rounded-lg bg-gold-500 px-4 py-2.5 text-sm font-bold text-ink disabled:opacity-60">
               {sending ? <Loader2 className="animate-spin" size={16} /> : <Send size={16} />} Continue to payment

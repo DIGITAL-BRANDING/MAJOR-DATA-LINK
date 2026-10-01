@@ -12,6 +12,7 @@ import { ApiError } from '../middleware/error.js';
 import { verifyLoginPin } from '../services/login-pin.service.js';
 import { tryProvisionInstantVirtualAccount } from '../services/kyc.service.js';
 import { customerLoginChannel } from '../lib/login-activity.js';
+import { sendWelcomeEmail } from '../lib/email.js';
 
 export const authRoutes = Router();
 
@@ -70,6 +71,7 @@ authRoutes.post('/register', async (req, res) => {
   const provisionedUser = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
 
   const tokens = await issueAuthTokens({ id: provisionedUser.id, email: provisionedUser.email });
+  void sendWelcomeEmail({ email: provisionedUser.email, fullName: provisionedUser.fullName }).catch((error) => console.error('[email] Welcome email failed', error));
   await sendUserAuthResponse(req, res, provisionedUser, tokens, 201);
 });
 

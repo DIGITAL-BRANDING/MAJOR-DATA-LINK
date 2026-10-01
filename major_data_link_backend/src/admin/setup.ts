@@ -46,6 +46,7 @@ import { registerPartnerManualRequestRoutes } from './partner-manual-request.js'
 import { registerManualRequestRoutes } from './manual-requests.js';
 import { registerManualVerificationRoutes } from './manual-verification.js';
 import { registerLiveChatRoutes } from './live-chat.js';
+import { registerEmailComposerRoutes } from './email-composer.js';
 import { mobileShell } from './mobile-shell.js';
 import { createMfaRouter } from './mfa.js';
 
@@ -249,6 +250,7 @@ export async function buildAdminRouter() {
   registerManualRequestRoutes(router);
   registerManualVerificationRoutes(router);
   registerLiveChatRoutes(router);
+  registerEmailComposerRoutes(router);
 
   return { admin, router };
 }
