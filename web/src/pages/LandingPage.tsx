@@ -57,7 +57,6 @@ const TXT = {
     heroGetStarted: 'Fara Yanzu',
     servicesTitle: 'Ayyukan Mu (Our Services)',
     servicesSubtitle: 'Zabi sabis din da kake bukata, ka fara amfani da shi yanzu — kai tsaye daga account dinka.',
-    waTooltip: 'Yi Magana A WhatsApp',
     aboutTitle: 'Game da Mu (About Us)',
     aboutSubtitle: 'K-Tech Solutions kamfani ne na fasahar zamani wanda aka gina domin sauki da amincin ayyukan ka na yau da kullum.',
     about: [
@@ -135,7 +134,6 @@ const TXT = {
     heroGetStarted: 'Get Started',
     servicesTitle: 'Our Services',
     servicesSubtitle: 'Pick the service you need and get started right away — straight from your account.',
-    waTooltip: 'Chat on WhatsApp',
     aboutTitle: 'About Us',
     aboutSubtitle: 'K-Tech Solutions provides fast, reliable digital services for everyday transactions.',
     about: [
@@ -577,17 +575,6 @@ export default function LandingPage() {
           <p>{L.footerCompanyName}</p>
         </div>
       </footer>
-
-      {/* WhatsApp Floating Button */}
-      <a
-        href={whatsappLink('Sannu K-Tech Solutions, ina bukatan taimako')}
-        className="whatsapp-float"
-        target="_blank"
-        rel="noreferrer"
-      >
-        <WhatsAppIcon size={28} />
-        <span className="tooltip-text">{L.waTooltip}</span>
-      </a>
     </div>
   );
 }

@@ -8,6 +8,7 @@ import { verifyAuthToken } from '../lib/auth-token.js';
 import { adminSessionStore, ADMIN_SESSION_COOKIE_NAME } from '../admin/setup.js';
 import type { AdminSessionUser } from '../admin/auth.js';
 import { pushToTokens } from '../services/notification.service.js';
+import { sendWebPushToOwner } from '../services/web-push.service.js';
 
 /**
  * K-Tech Live Chat - a self-hosted replacement for the Tawk.to widget
@@ -272,6 +273,28 @@ function pushChatReplyToOwner(conversation: { ownerType: OwnerKind; ownerId: str
   });
 }
 
+/**
+ * Browser (Web Push) alert for the web app's live chat - works with the
+ * browser/tab closed, as long as the person is still signed in on that
+ * browser (logging out removes the subscription; see web/src/lib/web-push.ts).
+ * Customers AND partners (both embed the same widget), unlike the Firebase
+ * push above which only exists for customer app installs.
+ */
+function pushWebChatReplyToOwner(conversation: { ownerType: OwnerKind; ownerId: string }, body: string) {
+  runChatTask('web push chat reply', async () => {
+    await sendWebPushToOwner(
+      { ownerType: conversation.ownerType, ownerId: conversation.ownerId },
+      {
+        title: conversation.ownerType === 'PARTNER' ? 'K-Tech Partner Support' : 'K-Tech Support',
+        body: body.length > 120 ? `${body.slice(0, 117)}...` : body,
+        // ?livechat=1 makes the widget open itself on arrival.
+        url: conversation.ownerType === 'PARTNER' ? '/partner-dashboard?livechat=1' : '/dashboard?livechat=1',
+        tag: 'support-chat-alert'
+      }
+    );
+  });
+}
+
 function registerOwnerHandlers(io: SocketIOServer, socket: Socket, actor: Extract<ChatActor, { kind: 'owner' }>) {
   runChatTask('load owner history', async () => {
     const conversation = await findOrCreateOpenConversation(actor.ownerType, actor.id);
@@ -425,6 +448,13 @@ function registerAdminHandlers(io: SocketIOServer, socket: Socket, actor: Extrac
 
       io.to(conversationRoom(conversationId)).emit('chat:message', serializeMessage(message));
       await broadcastQueueUpdate(io);
+      // Browser Web Push goes out on EVERY admin reply, not only when no
+      // socket is connected: a phone browser that was just backgrounded or
+      // closed keeps looking "connected" to this server for up to a minute,
+      // and a reply landing in that window would otherwise be lost. The
+      // service worker (web/public/sw.js) drops the notification itself when
+      // the person is already looking at the site, so nobody is double-alerted.
+      pushWebChatReplyToOwner(conversation, body);
       // Live in-room delivery above covers an owner actively looking at
       // this conversation; this covers the WhatsApp-style case - app
       // closed, or just not on this screen right now - where that emit

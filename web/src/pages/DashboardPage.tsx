@@ -15,7 +15,8 @@ import NotificationPopup from '../components/NotificationPopup';
 import { useAuth } from '../lib/auth';
 import { api } from '../lib/api';
 import { SERVICES, TINT_CLASSES } from '../lib/services';
-import { CONTACT, whatsappLink } from '../lib/contact';
+import { CONTACT } from '../lib/contact';
+import { openLiveChat } from '../lib/live-chat-events';
 
 const SERVICE_IMAGES: Record<string, string> = {
   'Buy Data': '/branding/logo.png',
@@ -135,17 +136,16 @@ export default function DashboardPage() {
             <MessageCircle size={13} />
             <span>Join group</span>
           </a>
-          <a
-            href={whatsappLink('Hello K-Tech Solutions, I need support.')}
-            target="_blank"
-            rel="noreferrer"
-            aria-label="Contact support"
-            title="Contact support"
+          <button
+            type="button"
+            onClick={openLiveChat}
+            aria-label="Chat with support"
+            title="Live chat support"
             className="flex h-9 items-center gap-1.5 rounded-full bg-brand-700 px-3 text-xs font-bold text-white transition hover:bg-brand-800"
           >
             <Headset size={13} />
             <span>Support</span>
-          </a>
+          </button>
         </div>
         <span className="block font-mono text-xs uppercase tracking-widest text-slate-500">
           Wallet balance

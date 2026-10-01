@@ -26,6 +26,7 @@ import { passwordRoutes } from './routes/password.routes.js';
 import { kycRoutes } from './routes/kyc.routes.js';
 import { legalRoutes } from './routes/legal.routes.js';
 import { notificationRoutes } from './routes/notification.routes.js';
+import { webPushRoutes } from './routes/web-push.routes.js';
 import { referralRoutes } from './routes/referral.routes.js';
 import { supportRoutes } from './routes/support.routes.js';
 import { referralLinkRoutes } from './routes/referral-link.routes.js';
@@ -255,6 +256,7 @@ export function createApp() {
   app.use('/api/wallet', walletRoutes);
   app.use('/api/kyc', kycRoutes);
   app.use('/api/notifications', notificationRoutes);
+  app.use('/api/web-push', userLimiter, webPushRoutes);
   app.use('/api/deliveries', deliveryRoutes);
   app.use('/api/referral', referralRoutes);
   app.use('/api/support', supportRoutes);
@@ -356,6 +358,12 @@ export function createApp() {
     setHeaders: (res, filePath) => {
       if (filePath.endsWith('robots.txt') || filePath.endsWith('sitemap.xml')) {
         res.setHeader('Cache-Control', 'public, max-age=3600');
+      }
+      // The push service worker is NOT fingerprinted (browsers require a
+      // fixed /sw.js URL), so the 1-year immutable default above would pin
+      // every browser to its first version forever. Always revalidate it.
+      if (filePath.endsWith('sw.js')) {
+        res.setHeader('Cache-Control', 'no-cache');
       }
     },
   });

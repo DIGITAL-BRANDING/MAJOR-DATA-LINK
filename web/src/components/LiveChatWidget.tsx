@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { BellRing, MessageCircle, X, Send, CheckCheck } from 'lucide-react';
+import { BellRing, X, Send, CheckCheck } from 'lucide-react';
 import { io, type Socket } from 'socket.io-client';
 import { API_BASE } from '../lib/api';
 import { enableChatNotificationSound, playChatNotificationSound } from '../lib/chat-notification-sound';
+import { OPEN_LIVECHAT_EVENT } from '../lib/live-chat-events';
+import { isWebPushActive, syncWebPush } from '../lib/web-push';
+import WhatsAppIcon from './WhatsAppIcon';
 
 type ChatMessage = {
   id: string;
@@ -47,6 +50,18 @@ if (typeof document !== 'undefined') {
   window.addEventListener('focus', stopTitleFlash);
 }
 
+// Opening the chat is a real click, which is the right moment to ask for
+// notification permission - and, if granted, to register browser push so
+// replies reach this person even after they close the site. Only asks when
+// the browser hasn't been asked yet; never nags after a "Block".
+function promptForPush(
+  token: string,
+  onPermission: (permission: NotificationPermission | 'unsupported') => void
+) {
+  if (typeof Notification === 'undefined' || Notification.permission !== 'default') return;
+  void syncWebPush(token, { prompt: true }).then(() => onPermission(Notification.permission));
+}
+
 /**
  * K-Tech Live Chat - self-hosted replacement for the old Tawk.to widget.
  * Talks directly to the Socket.IO server attached in
@@ -82,6 +97,43 @@ export default function LiveChatWidget({ active, token, ownerKey, headerLabel }:
 
   useEffect(() => enableChatNotificationSound(), []);
 
+  // Everything that can open the panel from outside it, plus keeping browser
+  // push registered while signed in:
+  //  - the dashboard's Support button (OPEN_LIVECHAT_EVENT)
+  //  - clicking a push notification: either the service worker messages an
+  //    already-open tab, or it opens the site at ?livechat=1
+  //  - silent re-sync of an already-granted push subscription (a browser can
+  //    rotate it; this is also what re-attaches it after a fresh login)
+  useEffect(() => {
+    if (!active || !token) return;
+
+    const handleOpen = () => {
+      setOpen(true);
+      promptForPush(token, setNotifPermission);
+    };
+    window.addEventListener(OPEN_LIVECHAT_EVENT, handleOpen);
+
+    const onWorkerMessage = (event: MessageEvent) => {
+      if (event.data?.type === OPEN_LIVECHAT_EVENT) setOpen(true);
+    };
+    navigator.serviceWorker?.addEventListener('message', onWorkerMessage);
+
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('livechat') === '1') {
+      setOpen(true);
+      params.delete('livechat');
+      const query = params.toString();
+      window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`);
+    }
+
+    void syncWebPush(token, { prompt: false });
+
+    return () => {
+      window.removeEventListener(OPEN_LIVECHAT_EVENT, handleOpen);
+      navigator.serviceWorker?.removeEventListener('message', onWorkerMessage);
+    };
+  }, [active, token]);
+
   useEffect(() => {
     if (!active || !token) return;
 
@@ -115,7 +167,9 @@ export default function LiveChatWidget({ active, token, ownerKey, headerLabel }:
         // entirely - see the fallback below if permission was never
         // granted.
         if (document.hidden) startTitleFlash();
-        if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+        // With browser push active, the service worker (public/sw.js) shows
+        // this alert itself - skipped here so it can't appear twice.
+        if (!isWebPushActive() && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
           try {
             const n = new Notification('K-Tech Support', {
               body: message.body.length > 120 ? `${message.body.slice(0, 117)}...` : message.body,
@@ -171,7 +225,15 @@ export default function LiveChatWidget({ active, token, ownerKey, headerLabel }:
 
   function requestNotificationPermission() {
     if (typeof Notification === 'undefined') return;
-    void Notification.requestPermission().then((p) => setNotifPermission(p));
+    void Notification.requestPermission().then((p) => {
+      setNotifPermission(p);
+      if (p === 'granted' && token) void syncWebPush(token, { prompt: false });
+    });
+  }
+
+  function openPanel() {
+    setOpen(true);
+    if (token) promptForPush(token, setNotifPermission);
   }
 
   function send() {
@@ -302,13 +364,15 @@ export default function LiveChatWidget({ active, token, ownerKey, headerLabel }:
         </div>
       )}
 
+      {/* Styled like WhatsApp's floating chat button (green disc, white glyph). */}
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="relative flex h-14 w-14 items-center justify-center rounded-full bg-gold-500 text-ink shadow-xl hover:bg-gold-400"
+        onClick={() => (open ? setOpen(false) : openPanel())}
+        className="relative flex h-[50px] w-[50px] items-center justify-center rounded-full bg-[#25d366] text-white shadow-[2px_2px_10px_rgba(0,0,0,0.3)] transition hover:scale-110 hover:bg-[#128c7e] md:h-[60px] md:w-[60px]"
         aria-label="Open live chat"
+        title="Live chat"
       >
-        <MessageCircle size={24} />
+        <WhatsAppIcon size={30} />
         {unread > 0 && (
           <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-ember-500 px-1 text-[11px] font-bold text-white">
             {unread}

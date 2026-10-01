@@ -4,6 +4,7 @@ import { Trans, useTranslation } from 'react-i18next';
 import LanguageSwitcher from '../components/LanguageSwitcher';
 import LiveChatWidget from '../components/LiveChatWidget';
 import { API_BASE } from '../lib/api';
+import { removeWebPushSubscription } from '../lib/web-push';
 import {
   Activity,
   AlertTriangle,
@@ -206,6 +207,7 @@ export default function PartnerDashboardPage() {
   }
 
   function logout() {
+    void removeWebPushSubscription();
     clearTokens();
     setPartner(null);
     setWallet(null);

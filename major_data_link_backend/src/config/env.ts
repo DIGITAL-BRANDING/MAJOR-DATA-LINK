@@ -8,6 +8,13 @@ const EnvSchema = z.object({
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
   DIRECT_URL: z.string().optional(),
   FIREBASE_SERVICE_ACCOUNT_BASE64: z.string().optional(),
+  // Browser Web Push (VAPID) for live-chat reply alerts when the site is closed.
+  // Generate once with `npx web-push generate-vapid-keys`. All optional: with no
+  // keys the feature is simply off (in-page alerts keep working as before).
+  // VAPID_SUBJECT must be a mailto: address or an https:// URL you control.
+  VAPID_PUBLIC_KEY: z.string().optional(),
+  VAPID_PRIVATE_KEY: z.string().optional(),
+  VAPID_SUBJECT: z.string().optional(),
   ALRAHUZ_BASE_URL: z.string().url().default('https://alrahuzdata.com.ng/api'),
   ALRAHUZ_API_TOKEN: z.string().optional(),
 

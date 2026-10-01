@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { ApiError, api, clearTokens, getAccessToken, setTokens } from './api';
+import { removeWebPushSubscription } from './web-push';
 
 export type AppUser = {
   id: string;
@@ -118,6 +119,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   function logout() {
+    // Stop this browser getting the signed-out account's chat alerts.
+    void removeWebPushSubscription();
     clearTokens();
     setUser(null);
     setMustChangePassword(false);

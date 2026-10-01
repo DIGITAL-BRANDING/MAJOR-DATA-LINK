@@ -866,6 +866,25 @@ model ProviderLedgerEntry {
 /// unique key: if the same physical device later logs in as a different user (e.g.
 /// shared/demo device), the token is re-owned to that new user rather than kept
 /// duplicated under the old one.
+/// Browser (Web Push / VAPID) subscription used to alert a customer or partner
+/// to a live-chat reply even when the site is closed in their browser. One row
+/// per browser profile; `endpoint` is the push service's unique URL for it, so
+/// it is the natural key (same device re-registering after a different person
+/// logs in simply reassigns the row, same idea as DeviceToken.token above).
+model WebPushSubscription {
+  id         String        @id @default(uuid())
+  ownerType  ChatOwnerType
+  ownerId    String
+  endpoint   String        @unique
+  p256dh     String
+  auth       String
+  userAgent  String?
+  lastSeenAt DateTime      @default(now())
+  createdAt  DateTime      @default(now())
+
+  @@index([ownerType, ownerId])
+}
+
 model DeviceToken {
   id         String    @id @default(uuid())
   userId     String
