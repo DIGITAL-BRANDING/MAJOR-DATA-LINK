@@ -602,7 +602,7 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
                   >
                     {busy ? <><Loader2 size={16} className="animate-spin" /> Verifying your request…</> : 'Continue to PIN confirmation'}
                   </button>
-                  {busy && <p role="status" className="mt-3 text-center font-body text-sm text-ink-600">Wannan na iya ɗaukar ƴan dakiku. Kada ku rufe wannan shafin.</p>}
+                  {busy && <p role="status" className="mt-3 text-center font-body text-sm text-ink-600">This may take a few seconds. Please do not close this page.</p>}
                   {message && <p className="mt-3 rounded-lg bg-cream p-3 font-body text-sm text-ink-600">{message}</p>}
                 </div>
               </form>
