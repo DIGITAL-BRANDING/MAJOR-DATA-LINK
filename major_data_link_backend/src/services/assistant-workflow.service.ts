@@ -232,24 +232,7 @@ export const assistantWorkflows: AssistantWorkflow[] = [
   }
 ];
 
-/**
- * Whether `phrase` appears in `normalized` as a whole word/phrase, not
- * merely as a fragment buried inside some longer, unrelated word.
- *
- * The workflow matching below used to do a plain `normalized.includes(intent)`,
- * which let short intent triggers misfire constantly - 'nin' (the NIN slip
- * lookup trigger) matched inside the ordinary English word "training";
- * 'data' matched inside "database"; and worst of all, ipe_clearance's
- * intent list used to write its trigger as 'ipe ' (with a literal trailing
- * space) as an incomplete hand-rolled boundary workaround - which still
- * matched inside "swipe " or "recipe " (both contain the literal substring
- * "ipe "), while ALSO failing to match "ipe" typed as the very last word of
- * a message with nothing after it (no trailing space to match against).
- *
- * Uses Unicode-aware boundaries (\p{L}/\p{N} lookaround) rather than \b,
- * since \b only understands ASCII word characters and would misbehave
- * around Hausa letters like ƙ/ɗ/ɓ that may appear in future intent phrases.
- */
+/** Match a phrase on Unicode-aware word boundaries to avoid substring hits. */
 export function phraseMatches(normalized: string, phrase: string): boolean {
   const trimmed = phrase.trim();
   if (!trimmed) return false;

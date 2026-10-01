@@ -452,7 +452,7 @@ function renderPage(params: {
       (s) => `<tr>
         <td><input type="checkbox" name="selected_${escape(s.service)}"></td>
         <td><b>${escape(s.label)}</b><div class="muted">${escape(s.group)} &middot; cost NGN ${s.provider_cost.toFixed(2)}${s.is_active ? '' : ' &middot; <span style="color:#B3261E">inactive</span>'}</div></td>
-        <td><input type="number" step="0.01" min="0" name="price_${escape(s.service)}" value="${(s.selling_price ?? s.provider_cost).toFixed(2)}" oninput="this.closest('tr').querySelector('input[type=checkbox]').checked = true"></td>
+        <td><input type="number" step="0.01" min="0" name="price_${escape(s.service)}" value="${s.selling_price?.toFixed(2) ?? ''}" placeholder="${s.selling_price === null ? 'Set price' : ''}" oninput="this.closest('tr').querySelector('input[type=checkbox]').checked = true"></td>
       </tr>`
     )
     .join('');

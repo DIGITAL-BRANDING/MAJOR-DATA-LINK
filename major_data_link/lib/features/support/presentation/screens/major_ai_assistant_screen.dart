@@ -521,20 +521,14 @@ class _MajorAiAssistantScreenState
       final cleaned = normalized.replaceAll(RegExp(r'[^a-z0-9.]'), '');
       Map<String, dynamic>? plan;
 
-      // "Which one is cheapest/simplest?" - a genuine, common question
-      // (this is exactly what prompted this fix), answered directly
-      // instead of asking the customer to name a specific plan. _plans is
-      // already sorted cheapest-first by _loadPlans(), so this is just the
-      // first entry.
+      // Resolve comparative requests against the cheapest-first plan list.
       if (RegExp(
         r'(cheap|lowest|affordable|simple|easiest|best|rahusa|sauki|mafi)',
       ).hasMatch(normalized)) {
         plan = _plans.isNotEmpty ? _plans.first : null;
       }
 
-      // Exact match against a tapped button's label - this is how a real
-      // button tap always resolves, since _answer() receives that label
-      // back verbatim.
+      // Match labels returned by tapped plan buttons.
       plan ??= _plans.cast<Map<String, dynamic>?>().firstWhere(
         (p) =>
             p != null &&
@@ -542,8 +536,7 @@ class _MajorAiAssistantScreenState
         orElse: () => null,
       );
 
-      // Free-typed text ("1GB", "the 500 naira one") - looser match against
-      // the plan's name/size, or an exact price match.
+      // Match free text against plan name, size, or price.
       plan ??= _plans.cast<Map<String, dynamic>?>().firstWhere((p) {
         if (p == null) return false;
         final haystack = '${p['name'] ?? ''} ${p['size'] ?? ''}'
@@ -895,10 +888,7 @@ class _MajorAiAssistantScreenState
             queryParameters: _dataType == null ? null : {'category': _dataType},
           );
       final raw = (response.data['data'] ?? response.data) as List<dynamic>;
-      // Cheapest first, so "which is the cheapest/simplest" is answered
-      // just by looking at the top of the list - and _Step.plan below can
-      // auto-pick this same first entry when the customer asks for it
-      // directly instead of naming a specific plan.
+      // Keep the list ordered for comparative requests and default selection.
       _plans = raw.cast<Map<String, dynamic>>().toList()
         ..sort(
           (a, b) => _number(a['price'] ?? a['amount'])
@@ -923,11 +913,7 @@ class _MajorAiAssistantScreenState
         return;
       }
 
-      // The customer already told us a size in their own words ("MTN 1GB
-      // data...") - if exactly one plan matches it, skip straight to
-      // review instead of making them pick the same thing again from a
-      // list. Consumed (cleared) either way, so it never lingers and
-      // silently auto-picks something on a LATER, unrelated plan list.
+      // Use an unambiguous size mentioned earlier to skip redundant selection.
       final sizeHint = _pendingDataSize;
       _pendingDataSize = null;
       if (sizeHint != null) {
@@ -947,9 +933,7 @@ class _MajorAiAssistantScreenState
           await _review();
           return;
         }
-        // Multiple plans matched (different data types for the same size,
-        // e.g. SME 1GB vs Corporate 1GB) - fall through to the full list
-        // below rather than guessing which one they meant.
+        // Do not infer a data type when multiple plans match the same size.
       }
 
       _bot(

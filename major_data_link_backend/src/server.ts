@@ -1,12 +1,5 @@
-// Several Prisma models (Transaction, Coupon, DataPlanPricing) use BigInt
-// columns for kobo-denominated amounts, since Postgres's `bigint` type maps
-// to JS BigInt in Prisma. Node's JSON.stringify has no built-in support for
-// BigInt and throws "Do not know how to serialize a BigInt" the moment any
-// response - including AdminJS's own list/show/edit responses - tries to
-// send one. Kobo amounts in this app are nowhere near Number.MAX_SAFE_INTEGER
-// (2^53), so converting to Number here is lossless for any realistic
-// transaction size. Must run before any other module that could trigger a
-// JSON.stringify of a BigInt value, hence it's the very first thing here.
+// Prisma maps Postgres bigint amounts to JS BigInt; normalize safe kobo values
+// before any response serialization (including AdminJS).
 (BigInt.prototype as unknown as { toJSON: () => number }).toJSON = function toJSON(
   this: bigint
 ) {
@@ -31,11 +24,7 @@ process.on('unhandledRejection', (reason) => {
 
 async function startServer() {
   try {
-    // MOCK_PROVIDER defaults to true when unset (see env.ts) - safe for local
-    // dev, but if it's ever unset on a production deploy, data plans, purchases,
-    // and the provider wallet balance shown in the admin dashboard will all be
-    // fake/static instead of real Alrahuz data, with no visible error. Shout
-    // about it loudly here so a missing Railway env var doesn't go unnoticed.
+    // Prevent production from silently serving mock provider data.
     if (env.NODE_ENV === 'production' && env.MOCK_PROVIDER) {
       console.error(
         '[server] WARNING: NODE_ENV=production but MOCK_PROVIDER is true (unset or not "false"). ' +
@@ -44,8 +33,7 @@ async function startServer() {
       );
     }
 
-    // Same shape of footgun as MOCK_PROVIDER above, for the independent
-    // Techhub identity-verification provider (NIN/BVN) - see techhub.service.ts.
+    // Identity verification has an independent mock-provider switch.
     if (env.NODE_ENV === 'production' && env.MOCK_TECHHUB) {
       console.error(
         '[server] WARNING: NODE_ENV=production but MOCK_TECHHUB is true (unset or not "false"). ' +
@@ -64,17 +52,8 @@ async function startServer() {
     const partnerTicketTimer = setInterval(reconcilePartnerTickets, 30_000);
     partnerTicketTimer.unref();
 
-    // Eagerly create every ServicePricing row (both Techhub NIN/BVN services
-    // and Alrahuz result-pin exam types) right now, instead of waiting for
-    // each one's first real API call. Without this, a freshly-deployed
-    // environment shows an incomplete/empty "Verification Pricing" admin
-    // page until every single service has been purchased at least once —
-    // getOrCreateVerificationPricingRow / getOrCreateServicePricingRow only
-    // insert a row lazily on first read, and AdminJS's ServicePricing
-    // resource queries the table directly (not through those functions), so
-    // rows nobody has bought yet were simply invisible to admins trying to
-    // review or adjust prices. Failure here must never block startup - it's
-    // a convenience seed, not a dependency of anything else.
+    // Seed pricing rows so admin controls include services not yet purchased.
+    // This is best-effort and must not block startup.
     try {
       const { listVerificationPricesForAdmin } = await import('./services/verification.service.js');
       const { listServicePricesForAdmin } = await import('./services/result-pin.service.js');
@@ -89,10 +68,7 @@ async function startServer() {
       console.error('[server] Failed to seed service pricing rows (non-fatal):', error);
     }
 
-    // Socket.IO (K-Tech Live Chat) needs the raw http.Server instance to
-    // attach its WebSocket upgrade handling to - app.listen() would create
-    // one internally but never hand it back, so we create it explicitly
-    // here instead and listen on that.
+    // Socket.IO must attach to the same HTTP server that serves Express.
     const httpServer = http.createServer(app);
     attachChatSocket(httpServer);
 

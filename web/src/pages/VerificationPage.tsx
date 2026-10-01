@@ -29,18 +29,12 @@ type Item = {
   fields: string[];
   icon: typeof IdCard;
   tiers?: string[];
-  /** Sync = one POST returns the finished slip/PDF immediately.
-   *  Async = POST returns a ticket_id; an admin at Techhub processes it,
-   *  and GET {path}/{ticket_id} is polled for the outcome. */
+  /** Whether the request is processed asynchronously and polled by ticket. */
   async?: boolean;
 };
 type PriceRow = { service: string; unitPrice: number; isActive: boolean };
 
-// Shown on the form for services where an admin (not an automated provider)
-// does the actual work, so there's no instant pass/fail and no refund path
-// once submitted - the person needs to know that *before* they pay, not
-// after a support ticket. Keyed by Item['id']; only services that are
-// genuinely non-refundable and admin-processed are listed here.
+// Pre-payment notice for admin-processed services without an automatic refund.
 const NON_REFUNDABLE_NOTICE: Record<string, { serviceName: string; etaLabel: string }> = {
   validation: { serviceName: 'VALIDATION', etaLabel: '24hrs to 5 working days' },
   personalization: { serviceName: 'PERSONALIZATION', etaLabel: 'within 24hrs' },
@@ -49,12 +43,7 @@ const NON_REFUNDABLE_NOTICE: Record<string, { serviceName: string; etaLabel: str
 
 const nin: Item[] = [
   { id: 'by-nin', label: 'NIN Verification', path: '/verification/nin/by-nin', fields: ['nin'], icon: IdCard, tiers: ['premium', 'standard', 'regular', 'vnin', 'personal'] },
-  // Same underlying NIN-by-NIN lookup as 'by-nin' above, but each tile is
-  // permanently pinned to one provider (see NIN_VERIFICATION_V1/V2 in
-  // verification.service.ts) instead of following whatever ServicePricing.provider
-  // an admin last configured. When Techhub or FranceVerified is having network
-  // trouble, the user can just tap the other tile - no admin has to notice
-  // and flip a setting mid-outage.
+  // Provider-pinned variants let users select Techhub or FranceVerified directly.
   { id: 'verification-v1', label: 'NIN Verification V1', path: '/verification/nin/verification-v1', fields: ['nin'], icon: IdCard, tiers: ['premium', 'standard', 'regular', 'vnin', 'personal'] },
   { id: 'verification-v2', label: 'NIN Verification V2', path: '/verification/nin/verification-v2', fields: ['nin'], icon: SearchCheck, tiers: ['premium', 'standard', 'regular', 'vnin', 'personal'] },
   { id: 'by-phone', label: 'NIN by Phone', path: '/verification/nin/by-phone', fields: ['phone'], icon: Phone, tiers: ['premium', 'standard', 'regular', 'personal'] },
@@ -71,10 +60,7 @@ const bvn: Item[] = [
   { id: 'license-onboarding', label: 'BVN License Onboarding', path: '/verification/bvn/license-onboarding', fields: ['agent_location', 'agent_bvn', 'account_number', 'bank_name', 'first_name', 'last_name', 'email', 'phone_number', 'date_of_birth', 'address', 'lga', 'state_of_residence', 'geo_political_zone'], icon: UserRoundCheck },
 ];
 
-// Every validation_type Techhub's nin_validation.php accepts (see the zod
-// enum `ninValidationType` in verification.routes.ts), each priced under its
-// own service key now (NIN_VALIDATION_* in verification.service.ts) instead
-// of the one flat rate this used to charge regardless of type.
+// Keep form options and admin price keys aligned with the API enum.
 const VALIDATION_TYPES: { value: string; label: string; serviceKey: string }[] = [
   { value: 'nin_validation', label: 'General validation', serviceKey: 'NIN_VALIDATION_GENERAL' },
   { value: 'no_record', label: 'No record found', serviceKey: 'NIN_VALIDATION_NO_RECORD' },
@@ -86,9 +72,7 @@ const VALIDATION_TYPES: { value: string; label: string; serviceKey: string }[] =
   { value: 'v.nin_validation', label: 'v.NIN validation', serviceKey: 'NIN_VALIDATION_VNIN' },
 ];
 
-// These match the IPE request categories shown in the provider portal. The
-// type travels with the request so support/admin can see exactly why the
-// customer submitted the tracking ID.
+// IPE categories accepted by the provider API.
 const IPE_TYPES = [
   { value: 'get_old_tracking_id', label: 'Get Old Tracking ID' },
   { value: 'inprocessing_error', label: 'Inprocessing Error' },

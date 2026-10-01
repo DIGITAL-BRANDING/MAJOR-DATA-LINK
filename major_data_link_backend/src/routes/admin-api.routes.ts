@@ -89,7 +89,13 @@ const usageTransactionTypes = [
   TransactionType.BVN_VERIFICATION,
   TransactionType.IDENTITY_SERVICE_REQUEST,
   TransactionType.NIN_MODIFICATION,
-  TransactionType.BVN_LICENSE_ONBOARDING
+  TransactionType.BVN_LICENSE_ONBOARDING,
+  TransactionType.CAC_SERVICE_REQUEST,
+  TransactionType.BVN_MODIFICATION,
+  TransactionType.BIRTH_ATTESTATION,
+  TransactionType.NEWSPAPER_PUBLICATION,
+  TransactionType.BVN_CRM,
+  TransactionType.JAMB_SERVICE_REQUEST
 ] as const;
 
 adminApiRoutes.get('/customer-activity', requireFinanceAdmin, async (req, res) => {
@@ -98,17 +104,21 @@ adminApiRoutes.get('/customer-activity', requireFinanceAdmin, async (req, res) =
     limit: z.coerce.number().int().min(1).max(100).default(20)
   }).parse(req.query);
   const since = new Date(Date.now() - query.days * 24 * 60 * 60 * 1000);
-  const where = {
-    status: TransactionStatus.SUCCESS,
-    type: { in: [...usageTransactionTypes] },
+  const activityWhere = {
     createdAt: { gte: since }
   };
-  const [grouped, recent] = await Promise.all([
-    prisma.transaction.groupBy({ by: ['userId'], where, _count: { _all: true }, _sum: { amountKobo: true }, _max: { createdAt: true } }),
+  const successfulServicesWhere = {
+    ...activityWhere,
+    status: TransactionStatus.SUCCESS,
+    type: { in: [...usageTransactionTypes] }
+  };
+  const [grouped, recent, statusGroups] = await Promise.all([
+    prisma.transaction.groupBy({ by: ['userId'], where: successfulServicesWhere, _count: { _all: true }, _sum: { amountKobo: true }, _max: { createdAt: true } }),
     prisma.transaction.findMany({
-      where, take: query.limit, orderBy: { createdAt: 'desc' },
-      select: { id: true, userId: true, type: true, amountKobo: true, description: true, createdAt: true, user: { select: { fullName: true, email: true } } }
-    })
+      where: activityWhere, take: query.limit, orderBy: { createdAt: 'desc' },
+      select: { id: true, userId: true, type: true, status: true, amountKobo: true, description: true, createdAt: true, user: { select: { fullName: true, email: true } } }
+    }),
+    prisma.transaction.groupBy({ by: ['status'], where: activityWhere, _count: { _all: true } })
   ]);
   const ranked = [...grouped]
     .sort((a, b) => Number(b._sum.amountKobo ?? 0n) - Number(a._sum.amountKobo ?? 0n))
@@ -120,17 +130,19 @@ adminApiRoutes.get('/customer-activity', requireFinanceAdmin, async (req, res) =
   const usersById = new Map(users.map((user) => [user.id, user]));
   const totalUsageKobo = grouped.reduce((total, row) => total + (row._sum.amountKobo ?? 0n), 0n);
   const totalPurchases = grouped.reduce((total, row) => total + row._count._all, 0);
+  const statusCounts = Object.fromEntries(statusGroups.map((row) => [row.status.toLowerCase(), row._count._all]));
+  const totalActivities = statusGroups.reduce((total, row) => total + row._count._all, 0);
 
   res.json({ status: true, data: {
     period_days: query.days,
-    summary: { active_customers: grouped.length, successful_purchases: totalPurchases, total_usage: Number(totalUsageKobo) / 100 },
+    summary: { total_activities: totalActivities, activity_statuses: statusCounts, active_customers: grouped.length, successful_service_purchases: totalPurchases, successful_service_spend: Number(totalUsageKobo) / 100 },
     top_customers: ranked.map((row) => {
       const user = usersById.get(row.userId);
       return { user_id: row.userId, full_name: user?.fullName ?? 'Unknown user', email: user?.email ?? '', purchases: row._count._all, total_usage: Number(row._sum.amountKobo ?? 0n) / 100, last_purchase_at: row._max.createdAt?.toISOString() ?? null };
     }),
-    recent_purchases: recent.map((transaction) => ({
+    recent_activities: recent.map((transaction) => ({
       id: transaction.id, user_id: transaction.userId, full_name: transaction.user.fullName, email: transaction.user.email,
-      type: transaction.type, description: transaction.description, amount: Number(transaction.amountKobo) / 100, created_at: transaction.createdAt.toISOString()
+      type: transaction.type, status: transaction.status, description: transaction.description, amount: Number(transaction.amountKobo) / 100, created_at: transaction.createdAt.toISOString()
     }))
   } });
 });

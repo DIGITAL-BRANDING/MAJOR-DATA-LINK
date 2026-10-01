@@ -56,39 +56,22 @@ const ADMIN_ROOT_PATH = '/admin';
 export function createApp() {
   const app = express();
 
-  // Railway terminates TLS at its edge and forwards requests over plain HTTP
-  // with X-Forwarded-* headers set. Without this, Express treats every request
-  // as insecure (req.secure === false) since it only looks at the raw socket -
-  // that breaks two things: express-rate-limit refuses to trust X-Forwarded-For
-  // for per-IP limiting (the ValidationError seen in deploy logs), and more
-  // importantly, express-session's admin cookie (which defaults to secure:
-  // 'auto', i.e. "secure only if req.secure") never gets marked secure, so
-  // browsers over HTTPS silently drop it - login succeeds server-side but the
-  // very next request has no session, bouncing straight back to /admin/login.
-  // `1` = trust exactly one hop (Railway's own proxy), not an open trust of
-  // arbitrary forwarded headers from the internet.
+  // Trust Railway's single proxy hop so secure cookies and IP rate limits use
+  // forwarded request metadata without trusting client-supplied proxy chains.
   app.set('trust proxy', 1);
 
   app.get('/health', (_req, res) => {
     res.json({ status: true, service: 'major-data-link-backend' });
   });
 
-  // Helmet's default Content-Security-Policy blocks inline <script>/<style> tags
-  // (script-src 'self' etc). That's the right default for our JSON API, but
-  // AdminJS's frontend bundle boots itself via inline scripts/styles - under the
-  // strict default CSP the browser silently refuses to execute that bundle,
-  // producing a blank page at /admin/login with no visible error (only a CSP
-  // violation in the browser console). So: strict CSP everywhere except /admin,
-  // and a relaxed-but-still-scoped CSP for /admin that AdminJS actually needs.
+  // AdminJS requires inline scripts/styles; keep its policy scoped to /admin.
+  // The customer app uses a strict CSP with hashes for Vite's legacy bootstrap.
   app.use((req, res, next) => {
     if (req.path.startsWith(ADMIN_ROOT_PATH)) {
       return helmet({
         contentSecurityPolicy: {
           directives: {
             ...helmet.contentSecurityPolicy.getDefaultDirectives(),
-            // K-Tech Live Chat's Socket.IO client (loaded on /admin/live-chat)
-            // connects back to this same origin only - no third-party chat
-            // service is involved anymore, so 'self' is all connect-src needs.
             'script-src': ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
             'style-src': ["'self'", "'unsafe-inline'"],
             'img-src': ["'self'", 'data:', 'https:'],
@@ -98,21 +81,8 @@ export function createApp() {
         }
       })(req, res, next);
     }
-    // The web app's build (web/vite.config.ts) uses @vitejs/plugin-legacy so
-    // old browsers get a working fallback bundle instead of a permanent blank
-    // page. That plugin injects 4 tiny inline <script> tags into index.html
-    // (modern-browser detection, the Safari 10.1 nomodule fix, and the
-    // SystemJS bootstrap for the legacy chunk) - see legacy-browser-support.patch.
-    // Helmet's default CSP is `script-src 'self'` with NO 'unsafe-inline', so
-    // without this, EVERY ONE of those 4 inline scripts is silently blocked by
-    // the browser (console-only CSP violation, no visible error) and the app
-    // never mounts to <div id="root"> - i.e. exactly the blank-page regression
-    // this CSP entry fixes. We allow-list them by exact sha256 hash (the
-    // secure alternative to 'unsafe-inline') rather than by content, so a
-    // future plugin-legacy upgrade that changes the inline script text will
-    // fail loud (CSP blocks it again) instead of silently trusting new inline
-    // code. Regenerate via `require('@vitejs/plugin-legacy').cspHashes` in
-    // web/ if @vitejs/plugin-legacy is ever upgraded and this breaks again.
+    // Vite's legacy plugin injects bootstrap scripts; allow only their exact
+    // hashes. Regenerate these from @vitejs/plugin-legacy after an upgrade.
     return helmet({
       contentSecurityPolicy: {
         directives: {
@@ -124,9 +94,6 @@ export function createApp() {
             "'sha256-w36slEqa9euNKxfvkw+LLGsDIr++3rsZXpZxtmRh8Aw='",
             "'sha256-+5XkZFazzJo8n0iOP4ti/cLCMUudTf//Mzkb7xNPXIc='"
           ],
-          // K-Tech Live Chat's Socket.IO client connects back to this same
-          // origin only (see the /admin CSP branch above for the full
-          // explanation) - no third-party chat service anymore.
           'connect-src': ["'self'"]
         }
       }
@@ -135,27 +102,11 @@ export function createApp() {
   const allowedOrigins = new Set(
     env.WEB_ALLOWED_ORIGINS.split(',').map((origin) => origin.trim()).filter(Boolean)
   );
-  // The browser dashboard is served by this same Express application. Its
-  // Origin header must always be accepted even when no separate web domain
-  // is configured, while callers from any other domain stay allow-listed.
   app.use((req, res, next) => {
-    // The AdminJS panel is server-rendered and hosted on this same Express
-    // origin. It does not make cross-origin API calls, so applying API CORS
-    // validation here can only reject an otherwise valid admin login request
-    // (as happened on Railway when its forwarded origin differed from Host).
+    // AdminJS is same-origin and does not use the customer API's CORS policy.
     if (req.path.startsWith(ADMIN_ROOT_PATH)) return next();
-    // Same idea, one level more forgiving: compare HOSTNAME only, not the
-    // full "scheme://host" string. Railway terminates TLS at its edge and
-    // forwards internally - `trust proxy` (above) makes req.protocol trust
-    // X-Forwarded-Proto for exactly one hop, but on Railway that header has
-    // been observed to occasionally disagree with what the browser actually
-    // saw (this is the exact "forwarded origin differed from Host" quirk
-    // noted for /admin above, just hitting the scheme instead of the host).
-    // A same-site request landing here with `origin: https://` while
-    // req.protocol briefly reports `http` is our own frontend, not a cross-
-    // site attacker - and this API authenticates with a Bearer token, not a
-    // cookie, so there's no CSRF-style exposure in being lenient about the
-    // scheme specifically. The hostname still has to match exactly.
+    // Permit the current host across proxy-induced scheme differences; all
+    // other origins must match the explicit allow-list.
     const requestHost = req.get('host');
     return cors({
       credentials: true,
@@ -165,30 +116,18 @@ export function createApp() {
         if (requestHost) {
           try {
             if (new URL(origin).host === requestHost) return callback(null, true);
-          } catch {
-            // Malformed Origin header - fall through to reject below.
-          }
+          } catch { /* Reject malformed origins below. */ }
         }
         return callback(new Error('Origin is not allowed by CORS policy'));
       }
     })(req, res, next);
   });
 
-  // Public web pages (no auth, no rate limit) - these are what Play Store's
-  // Data Safety / Privacy Policy fields, and the in-app "Read more" links,
-  // point at. Mounted after helmet/cors (so they still get proper security
-  // headers) but before the rate limiter below, so a burst of App/Play Store
-  // reviewers or crawlers hitting these plain HTML pages can never get 429'd.
+  // Public legal pages remain outside API rate limits but retain security headers.
   app.use(legalRoutes);
   app.use('/ref', referralLinkRoutes);
 
-  // Static branding assets (logo/favicon) used by the AdminJS dashboard.
-  // Served from `public/branding` at the process's working directory
-  // (Railway/npm run this from the backend package root, both in `tsx`
-  // dev mode and against the compiled `dist/` build) rather than resolved
-  // relative to this file, since tsc doesn't copy non-.ts assets into
-  // `dist/` alongside the compiled JS. Unauthenticated and cheap to serve,
-  // so - like the legal pages above - it's mounted before the rate limiter.
+  // Resolve branding from the package working directory; tsc does not copy assets.
   app.use(
     '/branding',
     express.static(path.join(process.cwd(), 'public', 'branding'), { maxAge: '1d' })
@@ -202,13 +141,8 @@ export function createApp() {
     skip: (req) => req.path.startsWith('/api/webhooks')
   }));
 
-  // `skipSuccessfulRequests: true` - only requests that actually FAIL (wrong
-  // password, expired token, validation errors, etc) count toward this
-  // budget. A legitimate user's successful logins/registrations/refreshes in
-  // the same 15-minute window (e.g. opening the app on two devices) no
-  // longer eat into the same 30-request ceiling that's meant to catch
-  // brute-forcing - only genuine failures do, which is what a brute-force
-  // attempt actually looks like.
+  // Count failed attempts only; successful sessions should not consume the
+  // brute-force protection budget.
   const authLimiter = rateLimit({
     windowMs: 15 * 60_000,
     limit: 30,
@@ -218,34 +152,13 @@ export function createApp() {
   });
   const userLimiter = rateLimit({ windowMs: 5 * 60_000, limit: 45, standardHeaders: 'draft-7', legacyHeaders: false });
 
-  // Mounted with a raw body parser, and BEFORE express.json() below, because Paystack's
-  // and KatPay's signatures are both computed over the exact raw bytes of the request
-  // body. `type: '*/*'` (not the narrower 'application/json') is deliberate: if a
-  // provider's webhook delivery omits Content-Type or sends something other than an
-  // exact 'application/json' match, express.raw() would otherwise silently skip parsing
-  // and leave req.body as `{}` - which the handlers below then coerce into the string
-  // "[object Object]" via `(req.body as Buffer).toString()`, permanently failing HMAC
-  // verification with zero error logged anywhere. Capturing raw bytes unconditionally
-  // here removes that whole failure mode; each handler still does its own JSON.parse
-  // and signature check exactly as before.
+  // Webhook signatures cover raw bytes, so parse these before express.json().
   app.use('/api/webhooks', express.raw({ type: '*/*' }), webhookRoutes);
 
-  // CAC gets its own larger body-size limit, mounted before the global
-  // express.json() below (whichever json() middleware runs first "claims"
-  // the body - express-formidable-style middlewares check req._body and
-  // skip re-parsing, so the global one downstream is a no-op for this
-  // path). Up to 4 supporting documents at ~5.5MB base64 each (see
-  // cac.routes.ts's MAX_DOCUMENT_BASE64_LENGTH) plus form fields comfortably
-  // exceeds the 8mb every other route gets.
+  // CAC submissions can include multiple base64 documents and need a larger limit.
   app.use('/api/cac', express.json({ limit: '25mb' }), cacRoutes);
 
-  // 1mb was too small for routes whose zod schemas accept up to a 7MB
-  // base64 document/photo (nin-modification.routes.ts's
-  // MAX_DOCUMENT_BASE64_LENGTH, and birth-attestation.routes.ts's image
-  // field) - anything over 1MB was being rejected by this parser with a 413
-  // before ever reaching that validation, silently defeating those larger
-  // limits. Bumped to comfortably cover the largest documented field plus
-  // JSON/other-fields overhead.
+  // Support the largest validated base64 document/photo payloads.
   app.use(express.json({ limit: '8mb' }));
 
   app.use('/api/auth', authLimiter, authRoutes);
@@ -270,12 +183,7 @@ export function createApp() {
   app.use('/api/birth-attestation', birthAttestationRoutes);
   app.use('/api/bvn-modification', bvnModificationRoutes);
   app.use('/api/jamb', jambRoutes);
-  // This MUST be mounted before the catch-all customer VTU router below.
-  // `vtuRoutes` is mounted at /api and applies customer JWT auth to every
-  // request it sees; mounting /api/v1 after it would make partner API-key
-  // calls fail with "Missing auth token" before they reach partnerApiRoutes.
-  // Same reasoning applies to /api/partner-portal - it needs its own path
-  // segment ahead of the /api catch-all for the exact same reason.
+  // Mount partner routers before the /api customer-auth catch-all.
   app.use('/api/v1', partnerApiRoutes);
   app.use('/api/partner-portal', authLimiter, partnerPortalRoutes);
   app.use('/api', vtuRoutes);
@@ -292,17 +200,10 @@ export function createApp() {
     });
     return adminRouterPromise;
   };
-  // Kick this off now, at server startup, instead of waiting for the first
-  // person to visit /admin. admin.initialize() (the actual bundle build) can
-  // take a few seconds - starting it here gives it a head start so a real
-  // visitor is far less likely to land in the middle of it. Every request
-  // still awaits the same promise below, so correctness doesn't depend on
-  // this head start - it's purely to reduce how often anyone notices the wait.
+  // Build the AdminJS router during startup to avoid delaying its first request.
   void getAdminRouter();
 
-  // Sign-in attempts per IP, on top of the per-account lockout in
-  // admin/auth.ts: slows one address spraying many different admin emails.
-  // Only failed attempts count (a successful sign-in redirects with 302).
+  // Add per-IP protection alongside the per-account admin lockout.
   const adminLoginLimiter = rateLimit({
     windowMs: 15 * 60_000,
     limit: 20,

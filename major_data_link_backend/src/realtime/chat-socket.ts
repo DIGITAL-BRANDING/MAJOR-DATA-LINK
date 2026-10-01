@@ -11,40 +11,9 @@ import { pushToTokens } from '../services/notification.service.js';
 import { sendWebPushToOwner } from '../services/web-push.service.js';
 
 /**
- * K-Tech Live Chat - a self-hosted replacement for the Tawk.to widget
- * (removed from web/index.html, web/public/tawk-widget.js and the AdminJS
- * asset list; see admin/setup.ts). No third-party chat service is involved
- * at any point - this process IS the chat server, and the browser client
- * talks to it over Socket.IO served from this same origin
- * (`/socket.io/socket.io.js`, auto-served by the library below).
- *
- * Three kinds of client connect to the one Socket.IO server created here:
- *
- *  - Customers, from web/src/components/ChatWidget.tsx. Authenticated with
- *    the same access token every customer REST call uses (web/src/lib/api.ts,
- *    `mdl_access_token`), passed as `socket.handshake.auth.token`.
- *
- *  - Partners, from web/src/components/PartnerChatWidget.tsx (mounted
- *    inside PartnerDashboardPage). Authenticated with THAT portal's own,
- *    separate access token (`mdl_partner_portal_access_token`) - a
- *    completely different account type from a customer, same as
- *    requirePartnerSession vs requireAuth on the REST side. Also passed as
- *    `socket.handshake.auth.token`; see resolveOwnerToken() below for how a
- *    bare token is matched against the User table first, then Partner.
- *
- *  - Admins, from the server-rendered /admin/live-chat page (see
- *    ./live-chat.ts). That page never holds a JWT - AdminJS's own login is
- *    a plain express-session cookie (`imam_admin_sid`). Rather than invent
- *    a second admin credential just for chat, we decode that exact same
- *    cookie here via a second express-session middleware instance pointed
- *    at the identical Postgres-backed store (see admin/setup.ts's exported
- *    adminSessionStore) - same session id in, same session data out.
- *
- * One open ChatConversation per owner (customer or partner - see
- * prisma/schema.prisma's ownerType) is the whole "offline queue": whenever
- * unreadByAdmin > 0 on an OPEN conversation, it's waiting for an admin, and
- * the Live Chat page's queue list is nothing more than that same query,
- * live-updated over the 'chat-admins' room broadcast below.
+ * Socket.IO transport for customer, partner, and AdminJS live chat.
+ * Owners authenticate with their access token; admins reuse the AdminJS
+ * session. Open conversations and unread counters back the admin queue.
  */
 
 type OwnerKind = 'USER' | 'PARTNER';
@@ -55,13 +24,7 @@ type ChatActor =
 
 type ExpressStyleNext = (err?: unknown) => void;
 
-// Wraps a plain Express middleware (which expects (req, res, next)) so it
-// can run against a raw Socket.IO handshake - socket.request IS a real
-// node http.IncomingMessage, so express-session works against it
-// unmodified. `{}` stands in for the `res` parameter: express-session only
-// ever calls a handful of response methods (Set-Cookie, mostly) which we
-// don't need here since we're only ever READING an existing session, never
-// issuing a new admin login cookie over the socket.
+// Adapt Express session middleware to Socket.IO's HTTP handshake request.
 function wrapMiddleware(
   middleware: (req: IncomingMessage, res: ServerResponse, next: ExpressStyleNext) => void
 ) {
@@ -88,22 +51,13 @@ function conversationRoom(conversationId: string) {
 }
 const ADMIN_ROOM = 'chat-admins';
 
-// Every socket handler touches the database. Never leave a rejected promise
-// detached: server.ts intentionally exits on unhandled rejections, and one
-// temporary database/network fault in chat must not take down the whole API.
+// Handle asynchronous socket tasks so transient failures do not escape as
+// unhandled rejections and terminate the API process.
 function runChatTask(label: string, task: () => Promise<void>) {
   void task().catch((error) => console.error(`[chat-socket] ${label} failed`, error));
 }
 
-/**
- * A bare access token's payload (`{ sub, email, ... }`) doesn't say which
- * table it belongs to - User and Partner tokens are signed with the exact
- * same createAuthToken/verifyAuthToken primitives (see lib/auth-token.ts).
- * We resolve it the same way the two REST middlewares do it separately
- * (requireAuth vs requirePartnerSession): try User first, fall back to
- * Partner. id collisions between the two tables are not a concern - each
- * mints its own uuid()/nanoid() ids from an effectively disjoint space.
- */
+/** Resolve a shared JWT subject against customer and partner accounts. */
 async function resolveOwnerToken(token: string): Promise<ChatActor | null> {
   const payload = verifyAuthToken(token, 'access');
 
@@ -230,17 +184,7 @@ async function broadcastQueueUpdate(io: SocketIOServer) {
   io.to(ADMIN_ROOM).emit('chat:queue', queue);
 }
 
-/**
- * True if the conversation's owner (customer/partner) currently has this
- * exact conversation open in a connected socket - i.e. they'd actually see
- * a 'chat:message' emit land live. Scans every connected socket rather
- * than keeping a separate presence map: this app's concurrent connection
- * count is small enough (one browser tab or app instance per person) that
- * a scan costs nothing, and it can never drift out of sync with reality
- * the way a hand-maintained map could (a missed disconnect cleanup, etc).
- * Used to decide whether an admin's reply also needs a push notification -
- * no point pushing to someone already looking at the message.
- */
+/** Check whether the owner is already viewing this conversation before pushing. */
 function isOwnerConnected(io: SocketIOServer, conversationId: string): boolean {
   for (const s of io.sockets.sockets.values()) {
     const data = s.data as { actor?: ChatActor; conversationId?: string };
@@ -249,16 +193,7 @@ function isOwnerConnected(io: SocketIOServer, conversationId: string): boolean {
   return false;
 }
 
-/**
- * The WhatsApp-style "message arrives even with the app closed" half of
- * live chat - the desktop-browser sound/title-flash/Notification-API alerts
- * in LiveChatWidget.tsx only fire while that tab is open somewhere, same as
- * GlobalChatAlert.tsx on the admin side. A real push needs a registered
- * DeviceToken, which only the User table has (see prisma/schema.prisma -
- * Partner has no equivalent), so this is customer-only for now; a partner
- * still gets every other alert channel the widget already has, just not an
- * OS-level push if their tab/app is fully closed.
- */
+/** Send a mobile push to customer devices; partners use web push. */
 function pushChatReplyToOwner(conversation: { ownerType: OwnerKind; ownerId: string }, senderName: string, body: string) {
   if (conversation.ownerType !== 'USER') return;
   runChatTask('push chat reply', async () => {
@@ -273,13 +208,7 @@ function pushChatReplyToOwner(conversation: { ownerType: OwnerKind; ownerId: str
   });
 }
 
-/**
- * Browser (Web Push) alert for the web app's live chat - works with the
- * browser/tab closed, as long as the person is still signed in on that
- * browser (logging out removes the subscription; see web/src/lib/web-push.ts).
- * Customers AND partners (both embed the same widget), unlike the Firebase
- * push above which only exists for customer app installs.
- */
+/** Send a web push to subscribed customer or partner browsers. */
 function pushWebChatReplyToOwner(conversation: { ownerType: OwnerKind; ownerId: string }, body: string) {
   runChatTask('web push chat reply', async () => {
     await sendWebPushToOwner(
@@ -298,10 +227,7 @@ function pushWebChatReplyToOwner(conversation: { ownerType: OwnerKind; ownerId: 
 function registerOwnerHandlers(io: SocketIOServer, socket: Socket, actor: Extract<ChatActor, { kind: 'owner' }>) {
   runChatTask('load owner history', async () => {
     const conversation = await findOrCreateOpenConversation(actor.ownerType, actor.id);
-    // Typing indicators and isOwnerConnected() (see above) both need to know
-    // which conversation this socket belongs to without a DB round-trip on
-    // every keystroke - stash it once here, and refresh it below whenever
-    // chat:send resolves a (possibly new, post-reopen) conversation too.
+    // Cache the active conversation ID for typing and presence checks.
     (socket.data as { conversationId?: string }).conversationId = conversation.id;
     // Opening the widget IS reading whatever the admin last sent.
     if (conversation.unreadByOwner > 0) {

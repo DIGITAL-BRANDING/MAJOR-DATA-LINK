@@ -34,6 +34,7 @@ export const BVN_MODIFICATION_TYPES = [
 ] as const;
 
 export type BvnModificationType = (typeof BVN_MODIFICATION_TYPES)[number];
+type BvnEnrollmentPriceGroup = 'AGENCY' | 'BANK';
 
 export type BvnModificationFieldInput = 'text' | 'date' | 'phone' | 'email' | 'bvn' | 'nin' | 'image' | 'select';
 
@@ -142,16 +143,23 @@ function priceToKobo(amount: number) {
   return BigInt(Math.round(amount * 100));
 }
 
-function serviceKeyFor(type: BvnModificationType) {
-  return `BVN_MODIFICATION_${type.toUpperCase()}`;
+function enrollmentPriceGroup(enrollmentType: unknown): BvnEnrollmentPriceGroup {
+  if (enrollmentType === 'Agency Banking') return 'AGENCY';
+  if (BVN_MODIFICATION_ENROLLMENT_TYPES.includes(enrollmentType as typeof BVN_MODIFICATION_ENROLLMENT_TYPES[number])) return 'BANK';
+  throw new ApiError(422, 'Select a valid BVN enrolment channel', 'INVALID_ENROLLMENT_TYPE');
 }
 
-/** Same plain-findUnique-then-conditional-create shape as
- *  getOrCreatePricingRow() in nin-modification.service.ts - never resets an
- *  admin's already-configured price back to the default. */
-async function getOrCreatePricingRow(type: BvnModificationType) {
+export function bvnModificationServiceKey(type: BvnModificationType, enrollmentType: unknown) {
+  const typeKey = type.toUpperCase();
+  // Preserve the existing retail price keys for Agency Banking.
+  return enrollmentPriceGroup(enrollmentType) === 'AGENCY'
+    ? `BVN_MODIFICATION_${typeKey}`
+    : `BVN_MODIFICATION_BANK_${typeKey}`;
+}
+
+async function getOrCreatePricingRow(type: BvnModificationType, group: BvnEnrollmentPriceGroup) {
   const config = BVN_MODIFICATION_CONFIG[type];
-  const service = serviceKeyFor(type);
+  const service = group === 'AGENCY' ? `BVN_MODIFICATION_${type.toUpperCase()}` : `BVN_MODIFICATION_BANK_${type.toUpperCase()}`;
   const existing = await prisma.servicePricing.findUnique({ where: { service } });
   if (existing) return existing;
 
@@ -160,8 +168,10 @@ async function getOrCreatePricingRow(type: BvnModificationType) {
       data: {
         service,
         provider: 'manual',
-        label: `BVN Modification \u2014 ${config.title}`,
-        providerCostKobo: priceToKobo(config.price)
+        label: `BVN Modification \u2014 ${config.title} (${group === 'AGENCY' ? 'Agency Banking' : 'Bank / NIBSS'})`,
+        providerCostKobo: priceToKobo(config.price),
+        // Bank-channel prices must be configured separately by an admin.
+        ...(group === 'BANK' ? { sellingPriceKobo: null } : {})
       }
     });
   } catch (error) {
@@ -172,13 +182,15 @@ async function getOrCreatePricingRow(type: BvnModificationType) {
   }
 }
 
-export async function getBvnModificationPrice(type: BvnModificationType, opts: { forPartner?: boolean } = {}) {
-  const row = await getOrCreatePricingRow(type);
+export async function getBvnModificationPrice(type: BvnModificationType, opts: { forPartner?: boolean; enrollmentType: unknown }) {
+  const group = enrollmentPriceGroup(opts.enrollmentType);
+  const row = await getOrCreatePricingRow(type, group);
   if (!row.isActive) {
     throw new ApiError(422, `${row.label} is currently unavailable`, 'SERVICE_INACTIVE');
   }
-  // API Partners are charged partnerSellingPriceKobo when the admin set one
-  // (Partner Pricing page), otherwise the same retail fallback as before.
+  if (group === 'BANK' && row.sellingPriceKobo === null) {
+    throw new ApiError(422, 'Bank BVN modification pricing has not been configured yet', 'PRICE_NOT_CONFIGURED');
+  }
   const unitKobo = opts.forPartner
     ? (row.partnerSellingPriceKobo ?? row.sellingPriceKobo ?? row.providerCostKobo)
     : (row.sellingPriceKobo ?? row.providerCostKobo);
@@ -187,19 +199,35 @@ export async function getBvnModificationPrice(type: BvnModificationType, opts: {
 
 /** Public price list, keyed by modification type id - never throws on a disabled service. */
 export async function listBvnModificationPrices() {
-  const rows = await Promise.all(BVN_MODIFICATION_TYPES.map((type) => getOrCreatePricingRow(type)));
-  return rows.map((row, index) => ({
-    type: BVN_MODIFICATION_TYPES[index],
-    title: BVN_MODIFICATION_CONFIG[BVN_MODIFICATION_TYPES[index]].title,
-    unitPrice: koboToNaira(row.sellingPriceKobo ?? row.providerCostKobo),
-    isActive: row.isActive
+  return Promise.all(BVN_MODIFICATION_TYPES.map(async (type) => {
+    const [agency, bank] = await Promise.all([
+      getOrCreatePricingRow(type, 'AGENCY'),
+      getOrCreatePricingRow(type, 'BANK')
+    ]);
+    return {
+      type,
+      title: BVN_MODIFICATION_CONFIG[type].title,
+      agencyUnitPrice: koboToNaira(agency.sellingPriceKobo ?? agency.providerCostKobo),
+      bankUnitPrice: bank.sellingPriceKobo === null ? null : koboToNaira(bank.sellingPriceKobo),
+      agencyIsActive: agency.isActive,
+      bankIsActive: bank.isActive
+    };
   }));
 }
 
 /** Shape matching listVerificationPricesForAdmin() - for the shared /admin/service-status page. */
 export async function listBvnModificationPricesForAdmin() {
-  const rows = await Promise.all(BVN_MODIFICATION_TYPES.map((type) => getOrCreatePricingRow(type)));
-  return rows.map((row) => ({ service: row.service, label: row.label, provider: row.provider, provider_cost: koboToNaira(row.providerCostKobo), selling_price: row.sellingPriceKobo ? koboToNaira(row.sellingPriceKobo) : null, partner_selling_price: row.partnerSellingPriceKobo ? koboToNaira(row.partnerSellingPriceKobo) : null, is_active: row.isActive }));
+  const rows = await Promise.all(BVN_MODIFICATION_TYPES.map(async (type) => Promise.all([
+    getOrCreatePricingRow(type, 'AGENCY'),
+    getOrCreatePricingRow(type, 'BANK')
+  ])));
+  return rows.flatMap(([agency, bank], index) => {
+    const title = BVN_MODIFICATION_CONFIG[BVN_MODIFICATION_TYPES[index]].title;
+    return [
+      { ...agency, label: `${title} — Agency Banking` },
+      { ...bank, label: `${title} — Bank / NIBSS` }
+    ];
+  }).map((row) => ({ service: row.service, label: `BVN Modification — ${row.label}`, provider: row.provider, provider_cost: koboToNaira(row.providerCostKobo), selling_price: row.sellingPriceKobo === null ? null : koboToNaira(row.sellingPriceKobo), partner_selling_price: row.partnerSellingPriceKobo === null ? null : koboToNaira(row.partnerSellingPriceKobo), is_active: row.isActive }));
 }
 
 /** Renders exactly what the customer submitted into a one-page PDF - the
@@ -284,8 +312,8 @@ export async function submitBvnModificationRequest(params: {
   idempotencyKey?: string;
 }): Promise<SubmitBvnModificationResult> {
   const config = BVN_MODIFICATION_CONFIG[params.type];
-  const price = await getBvnModificationPrice(params.type);
-  const service = serviceKeyFor(params.type);
+  const price = await getBvnModificationPrice(params.type, { enrollmentType: params.values.enrollment_type });
+  const service = bvnModificationServiceKey(params.type, params.values.enrollment_type);
 
   const debit = await debitWallet({
     userId: params.userId,

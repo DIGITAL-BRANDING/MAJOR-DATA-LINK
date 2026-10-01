@@ -27,18 +27,7 @@ function defaultSellingPrice(providerCost: number, settings: MarkupSettings) {
 }
 
 export class DataPlanPricingService {
-  /**
-   * Was previously one sequential `upsert` per plan (N+1: ~50-100+ round trips
-   * to Postgres, one per plan, every time the in-memory plan cache went cold).
-   * With DATABASE_URL's connection_limit=1 that serialized queue alone could
-   * take several seconds - this was the main cause of "data plans dinah dade
-   * yana loading". Fixed by reading all existing pricing rows for this batch
-   * in ONE query, computing prices from that in-memory map (no DB round trip
-   * needed on the hot path for plans we've already priced before), and only
-   * writing the rows that are actually new/changed - and doing that write
-   * AFTER the response-relevant computation, via persistPricingUpdates(),
-   * fired-and-forgotten so it never blocks what the user is waiting on.
-   */
+  /** Applies persisted overrides and markup, then asynchronously persists catalog changes. */
   async applyPricing(plans: DataPlan[], network: string, provider: string = 'alrahuz') {
     if (plans.length === 0) return [];
 
@@ -119,12 +108,7 @@ export class DataPlanPricingService {
     return priced.filter((plan) => plan.isActive);
   }
 
-  /**
-   * Writes new/changed plan rows in the background, after applyPricing()
-   * has already returned its answer. Still sequential (same connection_limit=1
-   * constraint as before), but that no longer matters for response latency
-   * since nothing is waiting on it - it just needs to finish eventually.
-   */
+  /** Persists provider catalog changes without delaying the pricing response. */
   private async persistPricingUpdates(
     network: string,
     provider: string,

@@ -146,10 +146,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
   final Ref _ref;
 
-  /// Shared by login(), register(), and resetLoginPinWithPassword() so the
-  /// "which mandatory setup screen comes next" logic lives in exactly one
-  /// place. Order: login PIN first (if needed), then transaction PIN (if
-  /// needed) - see pendingTransactionPinSetup and completeLoginPinSetup().
+  /// Resolves the required post-auth setup flow from server flags.
   AuthState _applyPostAuthResult(AuthLoginResult result) {
     final AuthStatus status;
     if (result.requiresLoginPinSetup) {
@@ -170,14 +167,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
     );
   }
 
-  /// Resolves once the very first `_checkSession()` run (kicked off in the
-  /// constructor above) has fully updated `state`. Callers that need to
-  /// branch on the resolved status right after app start - the splash
-  /// screen, specifically - must await this before reading `state`, or they
-  /// race the constructor's fire-and-forget `_checkSession()` call and will
-  /// almost always observe the pre-check default state instead of the real
-  /// one (which is exactly what let a PIN-locked session fall through as if
-  /// it were freshly unauthenticated).
+  /// Completes when the initial persisted-session check has updated state.
   late final Future<void> _ready;
   Future<void> get ready => _ready;
 
@@ -204,17 +194,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
         );
       },
       (user) async {
-        // A valid session on this device: gate on the local login PIN
-        // (no server call - see AuthRepository.unlockWithLoginPin) rather
-        // than dropping straight into the app.
-        // A device that's never cached a local login PIN must be forced
-        // through setup - whether that's a brand new device (fresh install,
-        // valid session but this device never captured a PIN) or an
-        // existing session from before this feature existed at all. Previously
-        // this fell through to `authenticated` here, which is exactly why
-        // already-logged-in users never saw the PIN screen: they have a
-        // valid session but (correctly) no local PIN yet, and this used to
-        // let that combination straight through instead of forcing setup.
+        // Require local PIN setup on devices without a cached PIN.
         final hasLocalPin = await _ref
             .read(authLocalDataSourceProvider)
             .hasLoginPinSet();
@@ -447,10 +427,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
     );
   }
 
-  /// Recovery flow for a forgotten login PIN - proves identity with the
-  /// account password instead, then behaves exactly like a fresh login
-  /// (the backend always comes back with requiresLoginPinSetup: true here,
-  /// so the mandatory setup screen naturally follows via _applyPostAuthResult).
+  /// Reset the login PIN after verifying the account password.
   Future<bool> resetLoginPinWithPassword({
     required String identifier,
     required String password,
@@ -473,10 +450,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
     );
   }
 
-  /// Called from the local PIN-lock screen shown on app resume. Purely
-  /// local - no server call - so a wrong/locked-out PIN never touches the
-  /// network. Returns the underlying Either so the screen can show
-  /// "X attempts remaining" / lockout messaging.
+  /// Verify the locally cached PIN and return lockout details to the screen.
   Future<Either<Failure, bool>> unlockWithPin(String pin) async {
     final result = await _ref
         .read(unlockWithLoginPinUseCaseProvider)
@@ -488,14 +462,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
     return result;
   }
 
-  /// Resolves almost immediately - AuthRepositoryImpl.logout() clears the
-  /// local session (fast, on-device) before returning and only notifies the
-  /// backend afterwards, in the background, rather than making this wait on
-  /// a network round trip. See that method's doc comment for why: this used
-  /// to be gated behind the remote call and could take up to ~40 seconds on
-  /// a slow or dead connection, with no loading indicator shown while it
-  /// happened - exactly the "press sign out and the app just sits there"
-  /// symptom this fixes.
+  /// Clear the local session and notify the backend asynchronously.
   Future<void> logout() async {
     await _ref.read(logoutUseCaseProvider).call();
     _invalidateUserScopedProviders();
@@ -509,16 +476,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
     _ref.read(authStateProvider.notifier).state = AsyncValue.data(state.status);
   }
 
-  /// Drops every provider that caches data scoped to a specific account
-  /// (wallet balance, recent/paginated transactions). These providers are
-  /// process-lifetime singletons that only fetch once and then sit in
-  /// memory - without this, switching accounts (logout -> login as someone
-  /// else) or logging into a freshly created account in the same app
-  /// session would leave the previous user's wallet balance and
-  /// transaction history on screen until an unrelated refresh happened to
-  /// overwrite it. Called on every transition into or out of an
-  /// authenticated session so a new session always starts from a clean
-  /// slate rather than reusing another account's cached state.
+  /// Invalidate data providers scoped to the active account.
   void _invalidateUserScopedProviders() {
     _ref.invalidate(walletNotifierProvider);
     _ref.invalidate(recentTransactionsProvider);

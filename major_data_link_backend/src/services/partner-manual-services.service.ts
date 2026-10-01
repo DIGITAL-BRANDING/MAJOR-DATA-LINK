@@ -11,6 +11,7 @@ import {
 } from './nin-modification.service.js';
 import {
   BVN_MODIFICATION_CONFIG,
+  bvnModificationServiceKey,
   getBvnModificationPrice,
   renderBvnModificationPdf,
   type BvnModificationType
@@ -26,7 +27,6 @@ export type PartnerManualSubmitResult = { reference: string; balanceAfter: numbe
 
 /** Same NIN_MODIFICATION_<TYPE> / BVN_MODIFICATION_<TYPE> / CAC_<TYPE> convention as each retail service's own private serviceKeyFor() - duplicated here (a one-line string template, not worth exporting three near-identical private helpers just to reuse it). */
 function ninModServiceKey(type: ModificationType) { return `NIN_MODIFICATION_${type.toUpperCase()}`; }
-function bvnModServiceKey(type: BvnModificationType) { return `BVN_MODIFICATION_${type.toUpperCase()}`; }
 function cacServiceKey(type: CacType) { return `CAC_${type.toUpperCase()}`; }
 function createCacReference() { return `CAC-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`; }
 
@@ -65,8 +65,8 @@ export async function submitPartnerBvnModification(params: {
   partnerId: string; type: BvnModificationType; values: Record<string, unknown>; idempotencyKey: string;
 }): Promise<PartnerManualSubmitResult> {
   const config = BVN_MODIFICATION_CONFIG[params.type];
-  const price = await getBvnModificationPrice(params.type, { forPartner: true });
-  const service = bvnModServiceKey(params.type);
+  const price = await getBvnModificationPrice(params.type, { forPartner: true, enrollmentType: params.values.enrollment_type });
+  const service = bvnModificationServiceKey(params.type, params.values.enrollment_type);
 
   const debit = await debitPartnerWallet({
     partnerId: params.partnerId, amount: price.unitPrice, type: TransactionType.BVN_MODIFICATION,

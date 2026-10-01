@@ -12,17 +12,7 @@ type KycStatusResponse = {
   virtual_account_funding_paused?: boolean;
 };
 
-/**
- * Generates a customer's permanent dedicated account number. There was
- * previously no web page for this at all - kyc.routes.ts's /kyc/bvn
- * endpoint existed but nothing in web/ ever called it, so a web-only
- * customer had no way to get one (see dashboard's "Generate Permanent
- * Account Number" button, which now leads here).
- *
- * Only asks for BVN: bank_code/account_number are for the older
- * Paystack-specific validation step, which the currently-live ZenithPay
- * provider doesn't use (see kyc.routes.ts).
- */
+/** Generates a customer's permanent dedicated account number using BVN. */
 export default function VerifyAccountPage() {
   const [status, setStatus] = useState<KycStatusResponse | null>(null);
   const [bvn, setBvn] = useState('');

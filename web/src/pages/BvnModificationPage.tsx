@@ -9,7 +9,14 @@ import { BvnModificationConsent } from '../components/BvnModificationConsent';
 type FieldInput = 'text' | 'date' | 'phone' | 'email' | 'bvn' | 'nin' | 'image' | 'select';
 type Field = { key: string; label: string; required: boolean; input: FieldInput; options?: string[]; dependsOn?: { key: string; value: string } };
 type TypeConfig = { id: string; title: string; fields: Field[] };
-type PriceRow = { type: string; title: string; unitPrice: number; isActive: boolean };
+type PriceRow = {
+  type: string;
+  title: string;
+  agencyUnitPrice: number;
+  bankUnitPrice: number | null;
+  agencyIsActive: boolean;
+  bankIsActive: boolean;
+};
 type HistoryEntry = { reference: string; status: string; created_at: string; pdf_base64: string | null; modification_type: string | null };
 type MatchResult = {
   bvn_date_of_birth: string | null;
@@ -24,7 +31,7 @@ type MatchResult = {
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 
 const money = (amount?: number) =>
-  amount === undefined ? '…' : `₦${amount.toLocaleString('en-NG', { maximumFractionDigits: 2 })}`;
+  amount == null ? '…' : `₦${amount.toLocaleString('en-NG', { maximumFractionDigits: 2 })}`;
 
 function readImageAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -61,7 +68,7 @@ export default function BvnModificationPage() {
   const [stage, setStage] = useState<Stage>('decide');
 
   const [types, setTypes] = useState<TypeConfig[]>([]);
-  const [prices, setPrices] = useState<Record<string, number>>({});
+  const [prices, setPrices] = useState<Record<string, PriceRow>>({});
   const [selectedType, setSelectedType] = useState<string | null>(null);
   const [enrollmentType, setEnrollmentType] = useState('');
   const [values, setValues] = useState<Record<string, string>>({});
@@ -89,13 +96,17 @@ export default function BvnModificationPage() {
       .then(([typesRes, pricesRes]) => {
         const ordered = [...typesRes.data].sort((a, b) => TYPE_ORDER.indexOf(a.id) - TYPE_ORDER.indexOf(b.id));
         setTypes(ordered);
-        setPrices(Object.fromEntries(pricesRes.data.map((row) => [row.type, row.unitPrice])));
+        setPrices(Object.fromEntries(pricesRes.data.map((row) => [row.type, row])));
       })
       .catch(() => setMessage('Unable to load modification types. Please refresh and try again.'));
   }, []);
 
   const selected = useMemo(() => types.find((t) => t.id === selectedType) ?? null, [types, selectedType]);
-  const selectedPrice = selectedType ? prices[selectedType] : undefined;
+  const isAgencyEnrollment = enrollmentType === 'Agency Banking';
+  const selectedPriceRow = selectedType ? prices[selectedType] : undefined;
+  const selectedPrice = selectedPriceRow
+    ? (isAgencyEnrollment ? selectedPriceRow.agencyUnitPrice : selectedPriceRow.bankUnitPrice ?? undefined)
+    : undefined;
 
   function continueToEnrollment() {
     setMessage('');
@@ -384,12 +395,20 @@ export default function BvnModificationPage() {
           <section className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3">
             {types.map((type) => {
               const suggested = matchResult?.suggested_types?.includes(type.id);
+              const priceRow = prices[type.id];
+              const typePrice = priceRow
+                ? (isAgencyEnrollment ? priceRow.agencyUnitPrice : priceRow.bankUnitPrice ?? undefined)
+                : undefined;
+              const available = isAgencyEnrollment
+                ? priceRow?.agencyIsActive
+                : priceRow?.bankIsActive && typePrice !== undefined;
               return (
                 <button
                   key={type.id}
                   onClick={() => pickType(type.id)}
+                  disabled={!available}
                   className={`relative flex min-h-28 flex-col items-center justify-center rounded-xl p-4 text-center ${
-                    suggested ? 'bg-gold-500 text-ink' : 'bg-ink text-cream'
+                    !available ? 'cursor-not-allowed bg-gray-300 text-gray-600' : suggested ? 'bg-gold-500 text-ink' : 'bg-ink text-cream'
                   }`}
                 >
                   {suggested && (
@@ -398,7 +417,9 @@ export default function BvnModificationPage() {
                     </span>
                   )}
                   <span className="font-body text-sm font-semibold">{type.title}</span>
-                  <span className={`mt-1 text-xs font-bold ${suggested ? 'text-ink/70' : 'text-gold-300'}`}>{money(prices[type.id])}</span>
+                  <span className={`mt-1 text-xs font-bold ${suggested ? 'text-ink/70' : 'text-gold-300'}`}>
+                    {!priceRow ? 'Loading price…' : typePrice === undefined ? (isAgencyEnrollment ? 'Unavailable' : 'Bank price not set') : money(typePrice)}
+                  </span>
                 </button>
               );
             })}
