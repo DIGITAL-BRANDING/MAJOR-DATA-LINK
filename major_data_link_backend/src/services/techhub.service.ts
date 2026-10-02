@@ -183,40 +183,49 @@ export class TechhubService {
     return env.TECHHUB_BASE_URL.replace(/\/$/, '');
   }
 
-  private apiKey() {
-    if (!env.TECHHUB_API_KEY) {
+  // `service` picks between two independently configured Techhub accounts
+  // (e.g. one account's key dedicated to NIN, another's dedicated to BVN -
+  // see the comment on TECHHUB_NIN_API_KEY/TECHHUB_BVN_API_KEY in env.ts).
+  // Falls back to the single shared TECHHUB_API_KEY when the per-service
+  // one isn't set, so an installation using just one Techhub account for
+  // everything needs no changes.
+  private apiKey(service: 'nin' | 'bvn') {
+    const key = service === 'nin'
+      ? env.TECHHUB_NIN_API_KEY ?? env.TECHHUB_API_KEY
+      : env.TECHHUB_BVN_API_KEY ?? env.TECHHUB_API_KEY;
+    if (!key) {
       throw new ApiError(500, 'Techhub API key is not configured', 'TECHHUB_NOT_CONFIGURED');
     }
-    return env.TECHHUB_API_KEY;
+    return key;
   }
 
   // ---- Slip lookups (synchronous) ----
 
   async ninByNin(nin: string, tier: TechhubSlipTier) {
-    return this.postSlip(NIN_BY_NIN_PATH[tier], { nin });
+    return this.postSlip(NIN_BY_NIN_PATH[tier], { nin }, { service: 'nin' });
   }
 
   async ninPersonalInfoByNin(nin: string) {
-    return this.postSlip(NIN_BY_NIN_PATH.premium, { nin }, { personalInfoSlip: true });
+    return this.postSlip(NIN_BY_NIN_PATH.premium, { nin }, { personalInfoSlip: true, service: 'nin' });
   }
 
   async ninByPhone(phone: string, tier: Exclude<TechhubSlipTier, 'vnin'>) {
     // Techhub's published request schema is exactly `{ api_key, phone }`.
     // Do not add aliases here: some upstream endpoint variants use strict
     // validation and can dispatch unexpectedly when sent extra fields.
-    return this.postSlip(NIN_BY_PHONE_PATH[tier], { phone });
+    return this.postSlip(NIN_BY_PHONE_PATH[tier], { phone }, { service: 'nin' });
   }
 
   async ninPersonalInfoByPhone(phone: string) {
-    return this.postSlip(NIN_BY_PHONE_PATH.premium, { phone }, { personalInfoSlip: true });
+    return this.postSlip(NIN_BY_PHONE_PATH.premium, { phone }, { personalInfoSlip: true, service: 'nin' });
   }
 
   async ninByDemographic(params: { firstname: string; lastname: string; dob: string; gender?: string }) {
-    return this.postSlip('nin_by_demo.php', params);
+    return this.postSlip('nin_by_demo.php', params, { service: 'nin' });
   }
 
   async bvnSlip(bvn: string, tier: TechhubBvnTier) {
-    return this.postSlip(BVN_SLIP_PATH[tier], { bvn });
+    return this.postSlip(BVN_SLIP_PATH[tier], { bvn }, { service: 'bvn' });
   }
 
   // `redirect: 'manual'` so we can see and re-issue a 3xx ourselves. Node's
@@ -266,7 +275,7 @@ export class TechhubService {
     return response;
   }
 
-  private async postSlip(path: string, body: Record<string, unknown>, options?: { personalInfoSlip?: boolean }): Promise<TechhubSlipResult> {
+  private async postSlip(path: string, body: Record<string, unknown>, options: { personalInfoSlip?: boolean; service: 'nin' | 'bvn' }): Promise<TechhubSlipResult> {
     if (env.MOCK_TECHHUB) {
       const userData = { first_name: 'JOHN', last_name: 'DOE', gender: 'MALE', ...body };
       if (options?.personalInfoSlip) {
@@ -284,7 +293,7 @@ export class TechhubService {
       };
     }
 
-    const payload = { api_key: this.apiKey(), ...body };
+    const payload = { api_key: this.apiKey(options.service), ...body };
     let response: Response;
     let data: TechhubSlipResponse;
     try {
@@ -368,34 +377,34 @@ export class TechhubService {
   // ---- Async services (submit + poll) ----
 
   async submitDelinking(nin: string, email: string) {
-    return this.postAsync('delinking.php', { nin, email });
+    return this.postAsync('delinking.php', { nin, email }, 'nin');
   }
   async checkDelinking(ticketId: string) {
-    return this.getAsync('delinking.php', ticketId);
+    return this.getAsync('delinking.php', ticketId, 'nin');
   }
 
   async submitNinValidation(nin: string, validationType?: string) {
     return this.postAsync('nin_validation.php', {
       nin,
       ...(validationType ? { validation_type: validationType } : {})
-    });
+    }, 'nin');
   }
   async checkNinValidation(ticketId: string) {
-    return this.getAsync('nin_validation.php', ticketId);
+    return this.getAsync('nin_validation.php', ticketId, 'nin');
   }
 
   async submitPersonalization(trackingId: string) {
-    return this.postAsync('personalization.php', { tracking_id: trackingId });
+    return this.postAsync('personalization.php', { tracking_id: trackingId }, 'nin');
   }
   async checkPersonalization(ticketId: string) {
-    return this.getAsync('personalization.php', ticketId);
+    return this.getAsync('personalization.php', ticketId, 'nin');
   }
 
   async submitBvnRetrieval(params: { first_name: string; last_name: string; phone_number: string }) {
-    return this.postAsync('bvn_retrieval.php', params);
+    return this.postAsync('bvn_retrieval.php', params, 'bvn');
   }
   async checkBvnRetrieval(ticketId: string) {
-    return this.getAsync('bvn_retrieval.php', ticketId);
+    return this.getAsync('bvn_retrieval.php', ticketId, 'bvn');
   }
 
   async submitIpeClearance(
@@ -407,10 +416,10 @@ export class TechhubService {
     return this.postAsync('ipe_clearance.php', {
       tracking_id: trackingId,
       verification_type: ipeType
-    });
+    }, 'nin');
   }
   async checkIpeClearance(ticketId: string) {
-    return this.getAsync('ipe_clearance.php', ticketId);
+    return this.getAsync('ipe_clearance.php', ticketId, 'nin');
   }
 
   /**
@@ -419,7 +428,7 @@ export class TechhubService {
    * the caller (verification.service.ts) needs to decide whether to refund
    * the user's wallet, not just propagate an exception.
    */
-  private async postAsync(path: string, body: Record<string, unknown>): Promise<TechhubAsyncSubmitResult> {
+  private async postAsync(path: string, body: Record<string, unknown>, service: 'nin' | 'bvn'): Promise<TechhubAsyncSubmitResult> {
     if (env.MOCK_TECHHUB) {
       return { ok: true, ticketId: `MOCK-${Date.now()}`, message: 'Request submitted successfully (mock)', raw: { mock: true } };
     }
@@ -429,7 +438,7 @@ export class TechhubService {
       response = await fetch(`${this.baseUrl()}/${path}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ api_key: this.apiKey(), ...body }),
+        body: JSON.stringify({ api_key: this.apiKey(service), ...body }),
         signal: AbortSignal.timeout(TECHHUB_REQUEST_TIMEOUT_MS)
       });
     } catch (error) {
@@ -507,7 +516,7 @@ export class TechhubService {
    * boolean result. The route handler's express-async-errors + errorHandler
    * turns this straight into the right HTTP response.
    */
-  private async getAsync(path: string, ticketId: string): Promise<TechhubAsyncStatusResult> {
+  private async getAsync(path: string, ticketId: string, service: 'nin' | 'bvn'): Promise<TechhubAsyncStatusResult> {
     if (env.MOCK_TECHHUB) {
       return {
         ticketId,
@@ -518,7 +527,7 @@ export class TechhubService {
     }
 
     const url = new URL(`${this.baseUrl()}/${path}`);
-    url.searchParams.set('api_key', this.apiKey());
+    url.searchParams.set('api_key', this.apiKey(service));
     url.searchParams.set('ticket_id', ticketId);
 
     let response: Response;

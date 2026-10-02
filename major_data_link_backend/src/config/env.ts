@@ -73,6 +73,17 @@ const EnvSchema = z.object({
   // correct even if an env override on Railway still points at the bare host.
   TECHHUB_BASE_URL: z.string().url().default('https://www.techhubltd.co/api/verification'),
   TECHHUB_API_KEY: z.string().optional(),
+  // Optional per-service override: when you run two separate Techhub
+  // accounts (e.g. one account's balance/subscription dedicated to NIN
+  // services, another dedicated to BVN services), set these instead of (or
+  // alongside) TECHHUB_API_KEY. techhub.service.ts picks the matching one
+  // for each call - TECHHUB_NIN_API_KEY for every NIN-domain endpoint (NIN
+  // slips, Delinking, NIN Validation, Personalization, IPE Clearance) and
+  // TECHHUB_BVN_API_KEY for every BVN-domain endpoint (BVN slip, BVN
+  // Retrieval) - and falls back to TECHHUB_API_KEY when the specific one is
+  // unset, so a single-account setup keeps working unchanged.
+  TECHHUB_NIN_API_KEY: z.string().optional(),
+  TECHHUB_BVN_API_KEY: z.string().optional(),
   // FranceVerified is an optional alternate NIN/BVN provider. These values
   // are optional so installations that only use Techhub keep starting normally.
   // Base URL is FranceVerified's documented API root - confirmed against
