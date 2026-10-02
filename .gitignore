@@ -23,6 +23,7 @@
 **/*.aab
 **/*.jks
 **/*.keystore
+/tmp/
 
 # IDE / OS
 **/.idea/

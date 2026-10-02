@@ -30,19 +30,24 @@ import { submitNinValidationFV, checkNinValidationFV } from './franceverified-ni
 export type VerificationProvider = 'techhub' | 'franceverified' | 'manual';
 
 /**
- * Emits only operational timing: no user ID, identifier, ticket, provider,
- * or response body. This gives us a production latency baseline without
- * leaking PII or supplier details into logs visible outside the engineering
- * environment.
+ * Emits operational timing and the selected service provider: no user ID,
+ * identifier, ticket, or response body. This gives us a production latency
+ * baseline and provider-level failure signal without logging PII.
  */
-async function timedVerificationCall<T>(service: string, operation: 'lookup' | 'submit' | 'status', call: () => Promise<T>): Promise<T> {
+async function timedVerificationCall<T>(
+  service: string,
+  provider: VerificationProvider,
+  operation: 'lookup' | 'submit' | 'status',
+  call: () => Promise<T>,
+  succeeded: (result: T) => boolean
+): Promise<T> {
   const startedAt = Date.now();
   try {
     const result = await call();
-    console.info('[verification] upstream timing', JSON.stringify({ service, operation, duration_ms: Date.now() - startedAt, outcome: 'completed' }));
+    console.info('[verification] upstream timing', JSON.stringify({ service, provider, operation, duration_ms: Date.now() - startedAt, outcome: succeeded(result) ? 'success' : 'failed' }));
     return result;
   } catch (error) {
-    console.warn('[verification] upstream timing', JSON.stringify({ service, operation, duration_ms: Date.now() - startedAt, outcome: 'error' }));
+    console.warn('[verification] upstream timing', JSON.stringify({ service, provider, operation, duration_ms: Date.now() - startedAt, outcome: 'error' }));
     throw error;
   }
 }
@@ -398,7 +403,9 @@ async function purchaseSlip(params: {
     };
   }
 
-  const result = await timedVerificationCall(params.service, 'lookup', call);
+  const result = await timedVerificationCall(params.service, price.provider, 'lookup', call, (response) =>
+    typeof response === 'object' && response !== null && 'ok' in response && response.ok === true
+  );
 
   if (result.ok) {
     const recognisedFieldCount = Object.keys(result.userData ?? {}).filter((k) => k !== 'photo').length;
@@ -469,9 +476,23 @@ async function purchaseSlip(params: {
     };
   }
 
+  const existingMetadata = debit.transaction.metadata as Record<string, unknown> | null;
   await prisma.transaction.update({
     where: { id: debit.transaction.id },
-    data: { status: TransactionStatus.FAILED, provider: price.provider }
+    data: {
+      status: TransactionStatus.FAILED,
+      provider: price.provider,
+      metadata: {
+        service: params.service,
+        ...params.operational,
+        unit_price: price.unitPrice,
+        pii: mergeSealedPII(existingMetadata?.pii, {
+          ...params.pii,
+          response: { message: result.message },
+          provider_raw_response: result.raw
+        })
+      } as Prisma.InputJsonValue
+    }
   });
   const refunded = await refundWallet({ transactionId: debit.transaction.id, userId: params.userId });
 
