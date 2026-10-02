@@ -1,4 +1,5 @@
 import { env } from '../../config/env.js';
+import { publicVerificationMessage } from '../../lib/public-verification-message.js';
 
 // Return a clear provider error instead of leaving customers on a loading
 // state when an upstream request stalls.
@@ -15,13 +16,6 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : undefined;
-}
-
-function publicVerificationMessage(value: unknown, fallback: string) {
-  if (typeof value !== 'string' || !value.trim()) return fallback;
-  return value
-    .trim()
-    .replace(/\b(?:tech\s*hub(?:ltd)?|france\s*verified)\b/gi, 'verification service');
 }
 
 /** Shared transport for FranceVerified's JSON verification endpoints. */
@@ -68,7 +62,7 @@ async function franceVerifiedRequest(path: string, init: { method: 'GET' | 'POST
   const data = asRecord(envelope.data) ?? asRecord(envelope.response) ?? (successful ? envelope : undefined);
 
   if (!successful || !data) {
-    return { ok: false, message: publicVerificationMessage(envelope.message, `Verification could not be completed (HTTP ${response.status})`), raw };
+    return { ok: false, message: publicVerificationMessage(envelope.message, 'Your request could not be completed. Please check the details and try again.'), raw };
   }
 
   return { ok: true, message: publicVerificationMessage(envelope.message, 'Verification completed successfully'), data, raw };

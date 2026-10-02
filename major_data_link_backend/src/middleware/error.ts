@@ -49,12 +49,10 @@ export function errorHandler(
 
   // Handle Zod validation errors (from request body parsing)
   if (error instanceof Error && error.name === 'ZodError') {
-    return res.status(422).json({
-      status: false,
-      message: 'Request validation failed',
-      code: 'VALIDATION_ERROR',
-      details: (error as any).errors
-    });
+    const issues = (error as Error & { issues?: Array<{ path?: Array<string | number> }> }).issues ?? [];
+    const fields = issues.flatMap((issue) => issue.path ?? []).map((part) => String(part).toLowerCase());
+    const message = fields.includes('nin') ? 'NIN must be 11 digits.' : fields.includes('bvn') || fields.includes('agent_bvn') ? 'BVN must be 11 digits.' : 'Please check the information you entered and try again.';
+    return res.status(422).json({ status: false, message, code: 'VALIDATION_ERROR' });
   }
 
   // Handle generic/unexpected errors. ApiError and ZodError above are

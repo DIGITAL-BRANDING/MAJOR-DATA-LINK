@@ -1,6 +1,7 @@
 import { env } from '../config/env.js';
 import { ApiError } from '../middleware/error.js';
 import { prisma } from '../lib/prisma.js';
+import { publicVerificationMessage } from '../lib/public-verification-message.js';
 import { renderPersonalInformationSlipPdf, type IdentitySlipField } from '../lib/render-identity-slip-pdf.js';
 
 // No upstream verification call may wait indefinitely.
@@ -105,16 +106,6 @@ function firstNonEmptyString(records: Array<Record<string, unknown> | undefined>
 
 function stringValue(records: Array<Record<string, unknown> | undefined>, keys: string[]) {
   return firstNonEmptyString(records, keys);
-}
-
-// Upstream responses are allowed in server logs for diagnosis, but their
-// wording is shown to customers and partners. Keep supplier names out of
-// every public message even when an upstream happens to include one.
-function publicVerificationMessage(value: unknown, fallback: string) {
-  if (typeof value !== 'string' || !value.trim()) return fallback;
-  return value
-    .trim()
-    .replace(/\b(?:tech\s*hub(?:ltd)?|france\s*verified)\b/gi, 'verification service');
 }
 
 function personalInfoFields(data: Record<string, unknown> | undefined, fallback: Record<string, unknown>): IdentitySlipField[] {
@@ -339,7 +330,7 @@ export class TechhubService {
       console.error(`[techhub] slip lookup failed (path=${path}, http=${response.status}):`, JSON.stringify(data));
       return {
         ok: false,
-        message: publicVerificationMessage(data.message, `Verification could not be completed (HTTP ${response.status})`),
+        message: publicVerificationMessage(data.message, 'Your request could not be completed. Please check the details and try again.'),
         raw: data
       };
     }
@@ -362,7 +353,7 @@ export class TechhubService {
       const photo = stringValue(records, ['image', 'photo', 'picture', 'passport', 'passport_photo']);
       const reference = stringValue(records, ['trackingId', 'tracking_id', 'reference']) ?? `TECHHUB-${Date.now()}`;
       const generatedPdf = await renderPersonalInformationSlipPdf({ title: 'NIN Slip', subtitle: 'Verified by Techhub', reference, fields, photo: photo ? { base64: photo, format: 'jpeg' } : undefined, issuedAt: new Date() });
-      return { ok: true, message: data.message ?? 'Personal information slip generated successfully', userData: previewData(fields, photo), pdfBase64: generatedPdf, raw: data };
+      return { ok: true, message: publicVerificationMessage(data.message, 'Personal information slip generated successfully'), userData: previewData(fields, photo), pdfBase64: generatedPdf, raw: data };
     }
 
     return {
@@ -459,12 +450,12 @@ export class TechhubService {
       console.error(`[techhub] async submit failed (path=${path}, http=${response.status}):`, JSON.stringify(data));
       return {
         ok: false,
-        message: data.message ?? `Verification provider returned HTTP ${response.status}`,
+        message: publicVerificationMessage(data.message, 'Your request could not be completed. Please check the details and try again.'),
         raw: data
       };
     }
 
-    return { ok: true, ticketId: data.ticket_id, message: data.message ?? 'Request submitted successfully', raw: data };
+    return { ok: true, ticketId: data.ticket_id, message: publicVerificationMessage(data.message, 'Request submitted successfully'), raw: data };
   }
 
   /**
@@ -549,7 +540,7 @@ export class TechhubService {
     }
     if (!response.ok) {
       console.error(`[techhub] status check failed (path=${path}, ticket=${ticketId}, http=${response.status}):`, JSON.stringify(data));
-      throw new ApiError(502, data.message ?? `Verification provider returned HTTP ${response.status}`, 'TECHHUB_STATUS_FAILED');
+      throw new ApiError(502, publicVerificationMessage(data.message, 'We could not check your request status. Please try again shortly.'), 'TECHHUB_STATUS_FAILED');
     }
 
     const status: TechhubAsyncStatus = data.status === 'success' || data.status === 'failed' ? data.status : 'pending';

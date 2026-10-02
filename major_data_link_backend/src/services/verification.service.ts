@@ -2,6 +2,7 @@ import { Prisma, TransactionStatus, TransactionType } from '@prisma/client';
 import { koboToNaira } from '../lib/money.js';
 import { mergeSealedPII, openPII, sealPII } from '../lib/pii.js';
 import { prisma } from '../lib/prisma.js';
+import { publicVerificationMessage } from '../lib/public-verification-message.js';
 import { ApiError } from '../middleware/error.js';
 import { debitWallet, refundWallet } from './wallet.service.js';
 import { recordProviderDebit } from './provider-ledger.service.js';
@@ -817,7 +818,7 @@ async function checkAsyncServiceStatus(params: {
     return {
       ticketId: params.ticketId,
       status: transaction.status === TransactionStatus.SUCCESS ? 'success' : 'failed',
-      response: pii?.response ?? null
+      response: transaction.status === TransactionStatus.FAILED ? { message: publicVerificationMessage((pii?.response as Record<string, unknown> | null)?.message, 'Your request could not be completed. Please check the details and try again.') } : pii?.response ?? null
     };
   }
 
@@ -846,7 +847,7 @@ async function checkAsyncServiceStatus(params: {
         status: TransactionStatus.SUCCESS,
         metadata: {
           ...existingMetadata,
-          pii: mergeSealedPII(existingMetadata.pii, { response: result.response, check_raw: result.raw })
+          pii: mergeSealedPII(existingMetadata.pii, { response: result.status === 'failed' ? { message: publicVerificationMessage(result.response?.message, 'Your request could not be completed. Please check the details and try again.') } : result.response, check_raw: result.raw })
         } as Prisma.InputJsonValue
       }
     });
@@ -880,12 +881,12 @@ async function checkAsyncServiceStatus(params: {
       status: TransactionStatus.FAILED,
       metadata: {
         ...existingMetadata,
-        pii: mergeSealedPII(existingMetadata.pii, { response: result.response, check_raw: result.raw })
+        pii: mergeSealedPII(existingMetadata.pii, { response: result.status === 'failed' ? { message: publicVerificationMessage(result.response?.message, 'Your request could not be completed. Please check the details and try again.') } : result.response, check_raw: result.raw })
       } as Prisma.InputJsonValue
     }
   });
   await refundWallet({ transactionId: transaction.id, userId: params.userId });
-  return { ticketId: result.ticketId, status: 'failed', response: result.response };
+  return { ticketId: result.ticketId, status: 'failed', response: { message: publicVerificationMessage(result.response?.message, 'Your request could not be completed. Please check the details and try again.') } };
 }
 
 export function submitDelinking(params: { userId: string; nin: string; email: string; idempotencyKey?: string }) {
