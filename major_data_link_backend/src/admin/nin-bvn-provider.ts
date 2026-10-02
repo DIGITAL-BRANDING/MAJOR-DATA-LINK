@@ -3,6 +3,7 @@ import type { AdminSessionUser } from './auth.js';
 import { logAdminAction } from './audit.js';
 import { updateServicePrice } from '../services/result-pin.service.js';
 import { listVerificationPricesForAdmin } from '../services/verification.service.js';
+import { env } from '../config/env.js';
 
 declare module 'express-session' { interface SessionData { adminUser?: AdminSessionUser; } }
 type FormidableFields = Record<string, string | string[] | undefined>;
@@ -26,6 +27,11 @@ function parseMessage(query: Record<string, unknown>): { type: 'success' | 'erro
 // verification.service.ts. Keeping unavailable choices disabled prevents an
 // admin from saving a route that would fail on the next customer request.
 const FRANCEVERIFIED_SERVICES = new Set([
+  'NIN_VERIFICATION_V2_PREMIUM', 'NIN_VERIFICATION_V2_STANDARD', 'NIN_VERIFICATION_V2_REGULAR',
+  'NIN_VERIFICATION_V2_VNIN', 'NIN_VERIFICATION_V2_PERSONAL',
+  // V2 is explicitly routed to FranceVerified by purchaseNinVerificationV2.
+  'NIN_VERIFICATION_V2_PREMIUM', 'NIN_VERIFICATION_V2_STANDARD', 'NIN_VERIFICATION_V2_REGULAR',
+  'NIN_VERIFICATION_V2_VNIN', 'NIN_VERIFICATION_V2_PERSONAL',
   'NIN_SLIP_PREMIUM', 'NIN_SLIP_STANDARD', 'NIN_SLIP_REGULAR', 'NIN_SLIP_VNIN',
   'NIN_PERSONAL_INFO_SLIP',
   'NIN_PHONE_SLIP_PREMIUM', 'NIN_PHONE_SLIP_STANDARD', 'NIN_PHONE_SLIP_REGULAR',
@@ -42,6 +48,21 @@ const FRANCEVERIFIED_SERVICES = new Set([
   'NIN_VALIDATION_PHOTO_ERROR',
   'NIN_VALIDATION_VNIN'
 ]);
+
+// V1 and V2 are deliberately provider-pinned customer options, not admin
+// routing switches. Only their matching backend implementation is wired.
+const PINNED_PROVIDERS: Record<string, 'techhub' | 'franceverified'> = {
+  NIN_VERIFICATION_V1_PREMIUM: 'techhub',
+  NIN_VERIFICATION_V1_STANDARD: 'techhub',
+  NIN_VERIFICATION_V1_REGULAR: 'techhub',
+  NIN_VERIFICATION_V1_VNIN: 'techhub',
+  NIN_VERIFICATION_V1_PERSONAL: 'techhub',
+  NIN_VERIFICATION_V2_PREMIUM: 'franceverified',
+  NIN_VERIFICATION_V2_STANDARD: 'franceverified',
+  NIN_VERIFICATION_V2_REGULAR: 'franceverified',
+  NIN_VERIFICATION_V2_VNIN: 'franceverified',
+  NIN_VERIFICATION_V2_PERSONAL: 'franceverified'
+};
 
 export function registerNinBvnProviderRoutes(router: Router) {
   router.get('/nin-bvn-provider', async (req, res) => {
@@ -65,8 +86,11 @@ export function registerNinBvnProviderRoutes(router: Router) {
     if (!requested.length) return res.redirect('/admin/nin-bvn-provider?flash=' + redirectMessage('error', 'Ba a sami service da za a adana ba.'));
 
     const knownServices = new Set((await listVerificationPricesForAdmin()).map((item) => item.service));
-    const invalid = requested.find(({ service, provider }) => !knownServices.has(service) || (provider !== 'manual' && provider !== 'techhub' && !(provider === 'franceverified' && FRANCEVERIFIED_SERVICES.has(service))));
-    if (invalid) return res.redirect('/admin/nin-bvn-provider?flash=' + redirectMessage('error', 'An ƙi provider ɗin da aka zaɓa saboda babu haɗinsa da wannan service.'));
+    const invalid = requested.find(({ service, provider }) => {
+      const pinned = PINNED_PROVIDERS[service];
+      return !knownServices.has(service) || (pinned ? provider !== pinned : provider !== 'manual' && provider !== 'techhub' && !(provider === 'franceverified' && FRANCEVERIFIED_SERVICES.has(service) && Boolean(env.FRANCEVERIFIED_API_KEY)));
+    });
+    if (invalid) return res.redirect('/admin/nin-bvn-provider?flash=' + redirectMessage('error', 'Provider ɗin ba ya samuwa ga service ɗin nan ko kuma FranceVerified API key ba a saita ba.'));
 
     let updated = 0;
     const failed: string[] = [];
@@ -83,8 +107,17 @@ export function registerNinBvnProviderRoutes(router: Router) {
 function renderPage(admin: AdminSessionUser, services: Awaited<ReturnType<typeof listVerificationPricesForAdmin>>, message: { type: 'success' | 'error'; message: string } | null) {
   const esc = (value: string) => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   const rows = services.map((service) => {
-    const franceAvailable = FRANCEVERIFIED_SERVICES.has(service.service);
-    return `<tr><td><b>${esc(service.label)}</b><div class="muted">${esc(service.service)}</div></td><td><select name="provider_${esc(service.service)}"><option value="techhub" ${service.provider === 'techhub' ? 'selected' : ''}>Techhub</option><option value="franceverified" ${service.provider === 'franceverified' ? 'selected' : ''} ${franceAvailable ? '' : 'disabled'}>FranceVerified${franceAvailable ? '' : ' — not available yet'}</option><option value="manual" ${service.provider === 'manual' ? 'selected' : ''}>Manual admin processing</option></select></td><td class="muted">${franceAvailable ? 'Choose Techhub, FranceVerified, or Manual.' : 'Choose Techhub or Manual. Manual requests stay pending for an admin to process.'}</td></tr>`;
+    const pinnedProvider = PINNED_PROVIDERS[service.service];
+    const franceImplemented = FRANCEVERIFIED_SERVICES.has(service.service);
+    const franceAvailable = franceImplemented && Boolean(env.FRANCEVERIFIED_API_KEY);
+    if (pinnedProvider) {
+      const providerName = pinnedProvider === 'franceverified' ? 'FranceVerified' : 'Techhub';
+      const keyHint = pinnedProvider === 'franceverified' && !env.FRANCEVERIFIED_API_KEY ? ' The FranceVerified API key is not configured.' : '';
+      return `<tr><td><b>${esc(service.label)}</b><div class="muted">${esc(service.service)}</div></td><td><input type="hidden" name="provider_${esc(service.service)}" value="${pinnedProvider}"><select disabled><option selected>${providerName} (fixed)</option></select></td><td class="muted">This V${pinnedProvider === 'techhub' ? '1' : '2'} service uses ${providerName} directly.${keyHint}</td></tr>`;
+    }
+    const unavailableLabel = franceImplemented ? ' — API key missing' : ' — not available yet';
+    const availability = franceAvailable ? 'Choose Techhub, FranceVerified, or Manual.' : franceImplemented ? 'FranceVerified is integrated, but its API key is not configured.' : 'Choose Techhub or Manual. Manual requests stay pending for an admin to process.';
+    return `<tr><td><b>${esc(service.label)}</b><div class="muted">${esc(service.service)}</div></td><td><select name="provider_${esc(service.service)}"><option value="techhub" ${service.provider === 'techhub' ? 'selected' : ''}>Techhub</option><option value="franceverified" ${service.provider === 'franceverified' ? 'selected' : ''} ${franceAvailable ? '' : 'disabled'}>FranceVerified${franceAvailable ? '' : unavailableLabel}</option><option value="manual" ${service.provider === 'manual' ? 'selected' : ''}>Manual admin processing</option></select></td><td class="muted">${availability}</td></tr>`;
   }).join('');
   const alert = message ? `<div class="alert ${message.type}">${esc(message.message)}</div>` : '';
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>NIN/BVN Provider — K-Tech Solutions</title><style>:root{--gold:#d4af37;--goldDark:#9c7a17;--bg:#faf7ef;--card:#fff;--text:#1a1508;--muted:#6b6248;--border:#e9e1c8}*{box-sizing:border-box}body{margin:0;padding:24px;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}.wrap{max-width:950px;margin:auto}header{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px}h1{font-size:21px;margin:0}a{color:var(--goldDark);text-decoration:none}.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px 24px}.hint,.muted{color:var(--muted);font-size:13px}.hint{margin:0 0 18px}table{width:100%;border-collapse:collapse;font-size:14px}th{color:var(--muted);font-size:12px;text-align:left;padding:10px;border-bottom:1px solid var(--border)}td{padding:11px 10px;border-bottom:1px solid var(--border);vertical-align:middle}select{width:100%;min-width:190px;padding:9px 10px;border:1px solid var(--border);border-radius:7px;background:#fffdf5;font-size:14px}button{margin-top:18px;background:var(--gold);border:0;border-radius:8px;padding:11px 20px;font-weight:700;cursor:pointer}button:hover{background:var(--goldDark);color:white}.table{overflow:auto;border:1px solid var(--border);border-radius:8px}.alert{padding:12px 16px;border-radius:8px;margin-bottom:18px}.success{background:#eaf7ee;color:#1e7b34}.error{background:#fdecec;color:#b3261e}@media(max-width:650px){body{padding:14px}.card{padding:16px}header{align-items:flex-start;gap:12px}table{min-width:700px}}</style></head><body><div class="wrap"><header><h1>NIN/BVN Provider</h1><a href="/admin">← Back to admin panel</a></header>${alert}<div class="card"><p class="hint">Zaɓi provider na kowane NIN/BVN service ɗaya bayan ɗaya, sannan ka danna save. Za ka iya zaɓar <b>Manual admin processing</b> ga kowanne service — request zai kasance PENDING a Transaction ledger, sannan SUPER_ADMIN zai duba encrypted PII da “View PII” ya mark completed, ko Finance/SUPER_ADMIN ya reverse domin refund. FranceVerified yana samuwa ne kawai a services da aka haɗa da shi.</p><form method="post" action="/admin/nin-bvn-provider/save" onsubmit="return confirm('Save the provider selection for all NIN/BVN services?')"><div class="table"><table><thead><tr><th>Service</th><th>Provider</th><th>Availability</th></tr></thead><tbody>${rows}</tbody></table></div><button type="submit">Save provider selections</button></form></div><p class="muted">Signed in as ${esc(admin.fullName)} (${esc(admin.role)})</p></div></body></html>`;

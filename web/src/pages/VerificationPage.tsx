@@ -326,15 +326,14 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
     idempotencyKeyRef.current = null;
   }
 
-  // Kept stable across repeated submit() calls for the *same* attempt (e.g.
-  // the user re-entering their PIN after a timeout/error) so a retry lands
-  // on purchaseSlip's debit.reused replay path server-side instead of
-  // debiting the wallet twice for one slip. Cleared in resetResult()/choose()
-  // whenever the user starts an actually new purchase.
-  const idempotencyKeyRef = useRef<string | null>(null);
+  // Reuse a key only for the exact same slip request if its response timed
+  // out. A completed response clears it so another lookup can be submitted
+  // immediately, and changing the service/input creates a new attempt key.
+  const idempotencyKeyRef = useRef<{ fingerprint: string; key: string } | null>(null);
 
   async function submit(pin: string) {
     if (!selected) return;
+    const isSlipPurchase = !selected.async && selected.id !== 'license-onboarding';
     setShowPin(false);
     setBusy(true);
     setMessage('');
@@ -345,18 +344,31 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
         ...(selected.id === 'license-onboarding' ? { consent: licenseConsent } : {}),
         pin,
       };
-      const isSlipPurchase = !selected.async && selected.id !== 'license-onboarding';
-      const result = isSlipPurchase
-        ? await api.postSlip<{
+      let result: {
+        status: boolean;
+        message: string;
+        data?: { reference: string; tracking_id?: string; transaction_id?: string; document_available?: boolean; user_data?: Record<string, unknown>; ticket_id?: string };
+      };
+      if (isSlipPurchase) {
+        const fingerprint = JSON.stringify({ path: selected.path, data });
+        if (!idempotencyKeyRef.current || idempotencyKeyRef.current.fingerprint !== fingerprint) {
+          idempotencyKeyRef.current = { fingerprint, key: api.newIdempotencyKey() };
+        }
+        result = await api.postSlip<{
             status: boolean;
             message: string;
             data?: { reference: string; tracking_id?: string; transaction_id?: string; document_available?: boolean; user_data?: Record<string, unknown>; ticket_id?: string };
-          }>(selected.path, data, (idempotencyKeyRef.current ??= api.newIdempotencyKey()))
-        : await api.post<{
-            status: boolean;
-            message: string;
-      data?: { reference: string; tracking_id?: string; transaction_id?: string; document_available?: boolean; user_data?: Record<string, unknown>; ticket_id?: string };
-      }>(selected.path, data);
+          }>(selected.path, data, idempotencyKeyRef.current.key);
+        // We received a definitive API response (success or provider-level
+        // failure), so the next deliberate lookup must be a new transaction.
+        idempotencyKeyRef.current = null;
+      } else {
+        result = await api.post<{
+          status: boolean;
+          message: string;
+          data?: { reference: string; tracking_id?: string; transaction_id?: string; document_available?: boolean; user_data?: Record<string, unknown>; ticket_id?: string };
+        }>(selected.path, data);
+      }
       if (!result.status) throw new Error(result.message);
 
       if (selected.id === 'license-onboarding') {
@@ -376,6 +388,12 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
         setMessage(result.message || 'Done - your document is ready below.');
       }
     } catch (error) {
+      // A normal client/server rejection is definitive and can start fresh.
+      // Keep the key on timeouts/network errors and server errors: the backend
+      // may still be processing that exact attempt, so replaying it is safer.
+      if (isSlipPurchase && error instanceof ApiError && error.status > 0 && error.status < 500 && error.status !== 408) {
+        idempotencyKeyRef.current = null;
+      }
       setMessage(error instanceof ApiError ? error.message : error instanceof Error ? error.message : 'Request failed.');
     } finally {
       setBusy(false);

@@ -280,11 +280,9 @@ async function request<T>(
   return payload as T;
 }
 
-// One per page load, reused across a purchase and any user-initiated retry
-// after a timeout, so both attempts land on the same backend transaction
-// via purchaseSlip's idempotencyKey replay path instead of double-charging
-// the wallet. crypto.randomUUID() is available in every browser this app
-// targets (all support fetch + crypto.randomUUID).
+// Creates one idempotency key per slip attempt. VerificationPage keeps it
+// only when retrying the exact same payload after an ambiguous timeout;
+// completed responses and changed inputs start a new transaction.
 function newIdempotencyKey() {
   return typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
@@ -296,9 +294,8 @@ export const api = {
   // For slip-purchase style endpoints (NIN/BVN by Techhub or FranceVerified):
   // a longer timeout to match how long those upstream lookups can actually
   // take, plus a stable Idempotency-Key so a retry after a timeout replays
-  // the original transaction instead of creating a second one. Pass the same
-  // `idempotencyKey` back in on a manual retry (e.g. via newIdempotencyKey()
-  // called once per form submission, not per attempt).
+  // the original transaction instead of creating a second one. Reuse the
+  // key only for that same request payload.
   postSlip: <T>(path: string, body: unknown, idempotencyKey: string, timeoutMs = 45_000) =>
     request<T>(path, { method: 'POST', body, auth: true, timeoutMs, idempotencyKey }),
   newIdempotencyKey,
