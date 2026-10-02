@@ -66,15 +66,33 @@ const ninValidationType = z.enum([
 
 function safeSlipPreview(userData: Record<string, unknown> | undefined) {
   if (!userData) return null;
-  // PDFs and passport photos can be several megabytes. They are already
-  // encrypted in the transaction and must be fetched from the dedicated,
-  // authenticated document endpoint instead of making a purchase response
-  // large enough for a mobile proxy to truncate.
-  const preview: Record<string, string | number | boolean> = {};
-  for (const [key, value] of Object.entries(userData)) {
-    if (/pdf|document|image|photo|picture|passport|base64|raw/i.test(key)) continue;
-    if (typeof value === 'string' && value.length <= 500) preview[key] = value;
-    else if (typeof value === 'number' || typeof value === 'boolean') preview[key] = value;
+  const normalized = new Map(Object.entries(userData).map(([key, value]) => [key.toLowerCase().replace(/[^a-z]/g, ''), value]));
+  const pick = (...keys: string[]) => {
+    for (const key of keys) {
+      const value = normalized.get(key.toLowerCase().replace(/[^a-z]/g, ''));
+      if (typeof value === 'string' && value.trim() && value !== '****' && value.length <= 500) return value.trim();
+    }
+    return undefined;
+  };
+  const preview: Record<string, string> = {};
+  const firstName = pick('firstName', 'firstname', 'First Name');
+  const middleName = pick('middleName', 'middlename', 'Middle Name');
+  const lastName = pick('lastName', 'lastname', 'surname', 'Surname', 'Last Name');
+  const gender = pick('gender');
+  const phone = pick('phone', 'phoneNumber', 'phone_number', 'mobile', 'telephoneno', 'Phone Number');
+  const idNumber = pick('nin', 'bvn', 'idNumber', 'id_number', 'NIN', 'BVN');
+  const photoKey = ['photo', 'image', 'picture', 'passport', 'passport_photo', 'imageBase64'].map((key) => key.toLowerCase().replace(/[^a-z]/g, '')).find((key) => typeof normalized.get(key) === 'string' && (normalized.get(key) as string).length <= 4_000_000);
+  const photo = photoKey ? normalized.get(photoKey) as string : undefined;
+  if (firstName) preview.firstName = firstName;
+  if (middleName) preview.middleName = middleName;
+  if (lastName) preview.lastName = lastName;
+  if (gender) preview.gender = gender;
+  if (phone) preview.phone = phone;
+  if (idNumber) preview.idNumber = idNumber;
+  // Only inline image data can be used for the preview. Arbitrary provider
+  // URLs, documents, raw responses and base64 payload fields are never echoed.
+  if (photo && photo.length <= 4_000_000 && (/^data:image\/(png|jpe?g|webp);base64,/i.test(photo) || /^[a-z0-9+/]+={0,2}$/i.test(photo.replace(/\s/g, '')))) {
+    preview.photo = photo;
   }
   return preview;
 }

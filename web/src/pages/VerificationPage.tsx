@@ -767,7 +767,14 @@ function VerificationHistoryView({
 
 function SlipResultView({ result, message, mode, onDone }: { result: SlipResult; message: string; mode: Mode; onDone: () => void }) {
   const fields = extractIdentityFields(result.user_data, mode === 'nin' ? 'NIN' : 'BVN');
-  const rows = identityFieldRows(fields);
+  const personalName = [fields.firstName, fields.middleName, fields.lastName].filter(Boolean).join(' ');
+  const idLabel = mode === 'nin' ? 'NIN Number' : 'BVN Number';
+  const rows = [
+    ...(personalName ? [{ label: 'Name', value: personalName }] : []),
+    ...(fields.gender ? [{ label: 'Gender', value: fields.gender }] : []),
+    ...(fields.phone ? [{ label: 'Phone Number', value: fields.phone }] : []),
+    ...(fields.idNumber ? [{ label: idLabel, value: fields.idNumber }] : []),
+  ];
 
   return (
     <div className="mt-6">
@@ -777,17 +784,20 @@ function SlipResultView({ result, message, mode, onDone }: { result: SlipResult;
       </div>
 
       {(rows.length > 0 || fields.photo) && (
-        <div className="mt-4 grid gap-4 rounded-xl bg-cream p-4 sm:grid-cols-[minmax(0,1fr)_10rem]">
-          <div className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
-          {rows.map((row) => (
-            <div key={row.label} className="flex min-w-0 justify-between gap-3 border-b border-parchment-line py-1.5 text-sm">
-              <span className="font-body text-ink-600">{row.label}</span>
-              <span className="break-all text-right font-body font-semibold text-ink">{row.value}</span>
-            </div>
-          ))}
+        <section className="mt-4 rounded-xl border border-parchment-line bg-cream p-4">
+          <h3 className="font-display text-sm font-bold uppercase tracking-wide text-ink">Personal details</h3>
+          <div className="mt-3 grid gap-4 sm:grid-cols-[minmax(0,1fr)_10rem]">
+            <dl className="grid content-start gap-x-6 gap-y-2 sm:grid-cols-2">
+              {rows.map((row) => (
+                <div key={row.label} className="flex min-w-0 flex-col border-b border-parchment-line py-2 text-sm">
+                  <dt className="font-body text-xs text-ink-600">{row.label}</dt>
+                  <dd className="mt-1 break-all font-body font-semibold text-ink">{row.value}</dd>
+                </div>
+              ))}
+            </dl>
+            {fields.photo && <div><p className="mb-1 font-body text-xs text-ink-600">Photo</p><img src={fields.photo} alt="Verified identity photo" className="h-44 w-40 rounded-lg border border-parchment-line bg-white object-cover p-1" /></div>}
           </div>
-          {fields.photo && <img src={fields.photo} alt="Verified identity photograph" className="h-44 w-40 rounded-lg border border-parchment-line bg-white object-cover p-1" />}
-        </div>
+        </section>
       )}
 
       {result.document_available && result.transaction_id && (
