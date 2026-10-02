@@ -36,18 +36,18 @@ export type VerificationProvider = 'techhub' | 'franceverified' | 'manual';
  */
 async function timedVerificationCall<T>(
   service: string,
-  provider: VerificationProvider,
   operation: 'lookup' | 'submit' | 'status',
   call: () => Promise<T>,
-  succeeded: (result: T) => boolean
+  options: { provider?: VerificationProvider; succeeded?: (result: T) => boolean } = {}
 ): Promise<T> {
   const startedAt = Date.now();
   try {
     const result = await call();
-    console.info('[verification] upstream timing', JSON.stringify({ service, provider, operation, duration_ms: Date.now() - startedAt, outcome: succeeded(result) ? 'success' : 'failed' }));
+    const outcome = options.succeeded ? (options.succeeded(result) ? 'success' : 'failed') : 'completed';
+    console.info('[verification] upstream timing', JSON.stringify({ service, ...(options.provider ? { provider: options.provider } : {}), operation, duration_ms: Date.now() - startedAt, outcome }));
     return result;
   } catch (error) {
-    console.warn('[verification] upstream timing', JSON.stringify({ service, provider, operation, duration_ms: Date.now() - startedAt, outcome: 'error' }));
+    console.warn('[verification] upstream timing', JSON.stringify({ service, ...(options.provider ? { provider: options.provider } : {}), operation, duration_ms: Date.now() - startedAt, outcome: 'error' }));
     throw error;
   }
 }
@@ -403,9 +403,10 @@ async function purchaseSlip(params: {
     };
   }
 
-  const result = await timedVerificationCall(params.service, price.provider, 'lookup', call, (response) =>
-    typeof response === 'object' && response !== null && 'ok' in response && response.ok === true
-  );
+  const result = await timedVerificationCall(params.service, 'lookup', call, {
+    provider: price.provider,
+    succeeded: (response) => typeof response === 'object' && response !== null && 'ok' in response && response.ok === true
+  });
 
   if (result.ok) {
     const recognisedFieldCount = Object.keys(result.userData ?? {}).filter((k) => k !== 'photo').length;
