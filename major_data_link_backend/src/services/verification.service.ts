@@ -847,7 +847,7 @@ async function checkAsyncServiceStatus(params: {
         status: TransactionStatus.SUCCESS,
         metadata: {
           ...existingMetadata,
-          pii: mergeSealedPII(existingMetadata.pii, { response: result.status === 'failed' ? { message: publicVerificationMessage(result.response?.message, 'Your request could not be completed. Please check the details and try again.') } : result.response, check_raw: result.raw })
+          pii: mergeSealedPII(existingMetadata.pii, { response: result.response, check_raw: result.raw })
         } as Prisma.InputJsonValue
       }
     });
