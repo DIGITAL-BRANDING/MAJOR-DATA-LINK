@@ -166,13 +166,10 @@ const NIN_BY_PHONE_PATH: Record<Exclude<TechhubSlipTier, 'vnin'>, string> = {
   regular: 'nin_by_phone_regular.php'
 };
 
-// Techhub's docs only ever showed the Premium slip's exact filename
-// (bvn_premium_slip.php); Standard is inferred from the same naming
-// pattern every other tiered endpoint above uses. Confirm against the
-// dashboard if BVN Standard slip requests start failing.
+// BVN Slip endpoint filenames from Techhub's current API documentation.
 const BVN_SLIP_PATH: Record<TechhubBvnTier, string> = {
   premium: 'bvn_premium_slip.php',
-  standard: 'bvn_standard_slip.php'
+  standard: 'bvn_full_details_slip.php'
 };
 
 function mockPdfBase64() {
@@ -325,6 +322,8 @@ export class TechhubService {
       providerStatus === true ||
       providerStatus === 'success' ||
       providerStatus === 'successful';
+
+    console.info('[techhub] slip response', JSON.stringify({ endpoint: path, http_status: response.status, outcome: response.ok && isSuccess ? 'success' : 'failed' }));
 
     if (!response.ok || !isSuccess) {
       console.error(`[techhub] slip lookup failed (path=${path}, http=${response.status}):`, JSON.stringify(data));
