@@ -15,8 +15,12 @@ import {
   listVerificationPrices,
   purchaseBvnSlip,
   purchaseNinByDemographic,
+  purchaseNinByDemographicV1,
+  purchaseNinByDemographicV2,
   purchaseNinByNin,
   purchaseNinByPhone,
+  purchaseNinByPhoneV1,
+  purchaseNinByPhoneV2,
   purchaseNinVerificationV1,
   purchaseNinVerificationV2,
   submitBvnRetrieval,
@@ -311,6 +315,79 @@ verificationRoutes.post('/nin/by-demographic', async (req, res) => {
     .parse(req.body);
   await requirePinConfirmation(req.user!.id, body.pin);
   const result = await purchaseNinByDemographic({
+    userId: req.user!.id,
+    firstname: body.firstname,
+    lastname: body.lastname,
+    dob: body.dob,
+    gender: body.gender,
+    idempotencyKey: idempotencyKeyFrom(req)
+  });
+  res.json(slipResponse(result));
+});
+
+// "NIN by Phone V1"/"V2" and "NIN by Demographic V1"/"V2" - same
+// user-picked-provider pattern as /nin/verification-v1 and -v2 above,
+// extended to the Phone and Demographic lookups. See the SERVICE_KEYS
+// comment for NIN_PHONE_SLIP_V1/V2 and NIN_DEMOGRAPHIC_V1/V2 in
+// verification.service.ts.
+verificationRoutes.post('/nin/by-phone-v1', async (req, res) => {
+  const body = z.object({ phone: z.string().trim().length(11), tier: ninPhoneSlipTier, ...pinField }).parse(req.body);
+  await requirePinConfirmation(req.user!.id, body.pin);
+  const result = await purchaseNinByPhoneV1({
+    userId: req.user!.id,
+    phone: body.phone,
+    tier: body.tier,
+    idempotencyKey: idempotencyKeyFrom(req)
+  });
+  res.json(slipResponse(result));
+});
+
+verificationRoutes.post('/nin/by-phone-v2', async (req, res) => {
+  const body = z.object({ phone: z.string().trim().length(11), tier: ninPhoneSlipTier, ...pinField }).parse(req.body);
+  await requirePinConfirmation(req.user!.id, body.pin);
+  const result = await purchaseNinByPhoneV2({
+    userId: req.user!.id,
+    phone: body.phone,
+    tier: body.tier,
+    idempotencyKey: idempotencyKeyFrom(req)
+  });
+  res.json(slipResponse(result));
+});
+
+verificationRoutes.post('/nin/by-demographic-v1', async (req, res) => {
+  const body = z
+    .object({
+      firstname: z.string().trim().min(1),
+      lastname: z.string().trim().min(1),
+      dob: z.string().trim().min(1),
+      gender: z.enum(['MALE', 'FEMALE']).optional(),
+      ...pinField
+    })
+    .parse(req.body);
+  await requirePinConfirmation(req.user!.id, body.pin);
+  const result = await purchaseNinByDemographicV1({
+    userId: req.user!.id,
+    firstname: body.firstname,
+    lastname: body.lastname,
+    dob: body.dob,
+    gender: body.gender,
+    idempotencyKey: idempotencyKeyFrom(req)
+  });
+  res.json(slipResponse(result));
+});
+
+verificationRoutes.post('/nin/by-demographic-v2', async (req, res) => {
+  const body = z
+    .object({
+      firstname: z.string().trim().min(1),
+      lastname: z.string().trim().min(1),
+      dob: z.string().trim().min(1),
+      gender: z.enum(['MALE', 'FEMALE']).optional(),
+      ...pinField
+    })
+    .parse(req.body);
+  await requirePinConfirmation(req.user!.id, body.pin);
+  const result = await purchaseNinByDemographicV2({
     userId: req.user!.id,
     firstname: body.firstname,
     lastname: body.lastname,

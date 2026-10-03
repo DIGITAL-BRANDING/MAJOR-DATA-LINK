@@ -100,7 +100,24 @@ const SERVICE_KEYS = [
   'NIN_VERIFICATION_V2_STANDARD',
   'NIN_VERIFICATION_V2_REGULAR',
   'NIN_VERIFICATION_V2_VNIN',
-  'NIN_VERIFICATION_V2_PERSONAL'
+  'NIN_VERIFICATION_V2_PERSONAL',
+  // Same provider-pinned pattern as NIN_VERIFICATION_V1/V2 above, extended to
+  // the By-Phone and By-Demographic lookups - a customer can route around a
+  // Techhub outage on these too instead of being stuck on the single
+  // admin-routed NIN_PHONE_SLIP_*/NIN_DEMOGRAPHIC service, which has no
+  // customer-facing fallback if Techhub's phone/demographic endpoint is
+  // failing. VNIN has no by-phone equivalent (see NIN_BY_PHONE_PATH's
+  // comment in techhub.service.ts), so no V1/V2 VNIN variant here either.
+  'NIN_PHONE_SLIP_V1_PREMIUM',
+  'NIN_PHONE_SLIP_V1_STANDARD',
+  'NIN_PHONE_SLIP_V1_REGULAR',
+  'NIN_PHONE_SLIP_V1_PERSONAL',
+  'NIN_PHONE_SLIP_V2_PREMIUM',
+  'NIN_PHONE_SLIP_V2_STANDARD',
+  'NIN_PHONE_SLIP_V2_REGULAR',
+  'NIN_PHONE_SLIP_V2_PERSONAL',
+  'NIN_DEMOGRAPHIC_V1',
+  'NIN_DEMOGRAPHIC_V2'
 ] as const;
 
 export type VerificationServiceKey = (typeof SERVICE_KEYS)[number];
@@ -173,7 +190,17 @@ const DEFAULTS: Record<VerificationServiceKey, { label: string; price: number; p
   NIN_VERIFICATION_V2_STANDARD: { label: 'NIN Verification V2 (Standard)', price: 120, provider: 'franceverified' },
   NIN_VERIFICATION_V2_REGULAR: { label: 'NIN Verification V2 (Regular)', price: 120, provider: 'franceverified' },
   NIN_VERIFICATION_V2_VNIN: { label: 'NIN Verification V2 (VNIN)', price: 120, provider: 'franceverified' },
-  NIN_VERIFICATION_V2_PERSONAL: { label: 'NIN Verification V2 (Personal Info)', price: 120, provider: 'franceverified' }
+  NIN_VERIFICATION_V2_PERSONAL: { label: 'NIN Verification V2 (Personal Info)', price: 120, provider: 'franceverified' },
+  NIN_PHONE_SLIP_V1_PREMIUM: { label: 'NIN Slip V1 (Premium) — by Phone', price: 130, provider: 'techhub' },
+  NIN_PHONE_SLIP_V1_STANDARD: { label: 'NIN Slip V1 (Standard) — by Phone', price: 130, provider: 'techhub' },
+  NIN_PHONE_SLIP_V1_REGULAR: { label: 'NIN Slip V1 (Regular) — by Phone', price: 130, provider: 'techhub' },
+  NIN_PHONE_SLIP_V1_PERSONAL: { label: 'NIN Personal Information Slip V1 — by Phone', price: 130, provider: 'techhub' },
+  NIN_PHONE_SLIP_V2_PREMIUM: { label: 'NIN Slip V2 (Premium) — by Phone', price: 130, provider: 'franceverified' },
+  NIN_PHONE_SLIP_V2_STANDARD: { label: 'NIN Slip V2 (Standard) — by Phone', price: 130, provider: 'franceverified' },
+  NIN_PHONE_SLIP_V2_REGULAR: { label: 'NIN Slip V2 (Regular) — by Phone', price: 130, provider: 'franceverified' },
+  NIN_PHONE_SLIP_V2_PERSONAL: { label: 'NIN Personal Information Slip V2 — by Phone', price: 130, provider: 'franceverified' },
+  NIN_DEMOGRAPHIC_V1: { label: 'NIN Slip V1 — by Demographic', price: 130, provider: 'techhub' },
+  NIN_DEMOGRAPHIC_V2: { label: 'NIN Slip V2 — by Demographic', price: 130, provider: 'franceverified' }
 };
 
 // Maps the validation_type string Techhub's API (and our own zod enum in
@@ -522,6 +549,20 @@ const NIN_PHONE_SLIP_SERVICE_BY_TIER: Record<Exclude<TechhubSlipTier, 'vnin'>, V
   regular: 'NIN_PHONE_SLIP_REGULAR'
 };
 
+const NIN_PHONE_SLIP_V1_SERVICE_BY_TIER: Record<NinPhoneSlipChoice, VerificationServiceKey> = {
+  premium: 'NIN_PHONE_SLIP_V1_PREMIUM',
+  standard: 'NIN_PHONE_SLIP_V1_STANDARD',
+  regular: 'NIN_PHONE_SLIP_V1_REGULAR',
+  personal: 'NIN_PHONE_SLIP_V1_PERSONAL'
+};
+
+const NIN_PHONE_SLIP_V2_SERVICE_BY_TIER: Record<NinPhoneSlipChoice, VerificationServiceKey> = {
+  premium: 'NIN_PHONE_SLIP_V2_PREMIUM',
+  standard: 'NIN_PHONE_SLIP_V2_STANDARD',
+  regular: 'NIN_PHONE_SLIP_V2_REGULAR',
+  personal: 'NIN_PHONE_SLIP_V2_PERSONAL'
+};
+
 const BVN_SLIP_SERVICE_BY_TIER: Record<TechhubBvnTier, VerificationServiceKey> = {
   premium: 'BVN_SLIP_PREMIUM',
   standard: 'BVN_SLIP_STANDARD'
@@ -636,6 +677,44 @@ export function purchaseNinByPhone(params: {
   });
 }
 
+/**
+ * "NIN by Phone V1"/"V2" - the same user-picked-provider pattern as
+ * NIN_VERIFICATION_V1/V2 above, applied to the by-phone lookup. Lets a
+ * customer route a by-phone request straight to FranceVerified (V2) when
+ * Techhub's by-phone endpoint (V1) is down, instead of being stuck on
+ * whichever provider the admin last configured for the generic
+ * NIN_PHONE_SLIP_* service above.
+ */
+export function purchaseNinByPhoneV1(params: { userId: string; phone: string; tier: NinPhoneSlipChoice; idempotencyKey?: string }) {
+  return purchaseSlip({
+    userId: params.userId,
+    service: NIN_PHONE_SLIP_V1_SERVICE_BY_TIER[params.tier],
+    transactionType: TransactionType.NIN_VERIFICATION,
+    description: `NIN slip (V1 - Techhub, ${params.tier}) by Phone`,
+    operational: { mode: 'by_phone', tier: params.tier },
+    pii: { phone: params.phone },
+    idempotencyKey: params.idempotencyKey,
+    callByProvider: {
+      techhub: () => params.tier === 'personal' ? techhubService.ninPersonalInfoByPhone(params.phone) : techhubService.ninByPhone(params.phone, params.tier)
+    }
+  });
+}
+
+export function purchaseNinByPhoneV2(params: { userId: string; phone: string; tier: NinPhoneSlipChoice; idempotencyKey?: string }) {
+  return purchaseSlip({
+    userId: params.userId,
+    service: NIN_PHONE_SLIP_V2_SERVICE_BY_TIER[params.tier],
+    transactionType: TransactionType.NIN_VERIFICATION,
+    description: `NIN slip (V2 - FranceVerified, ${params.tier}) by Phone`,
+    operational: { mode: 'by_phone', tier: params.tier },
+    pii: { phone: params.phone },
+    idempotencyKey: params.idempotencyKey,
+    callByProvider: {
+      franceverified: () => franceverifiedSlipAdapter.ninByPhone(params.phone, params.tier === 'personal' ? undefined : params.tier === 'premium' ? 'premium' : undefined, params.tier === 'personal')
+    }
+  });
+}
+
 export function purchaseNinByDemographic(params: {
   userId: string;
   firstname: string;
@@ -665,6 +744,49 @@ export function purchaseNinByDemographic(params: {
           dob: params.dob,
           gender: params.gender
         }),
+      franceverified: () =>
+        franceverifiedSlipAdapter.ninByDemographic({
+          firstname: params.firstname,
+          lastname: params.lastname,
+          dob: params.dob,
+          gender: params.gender
+        })
+    }
+  });
+}
+
+/** "NIN by Demographic V1"/"V2" - same user-picked-provider pattern as above. */
+export function purchaseNinByDemographicV1(params: { userId: string; firstname: string; lastname: string; dob: string; gender?: string; idempotencyKey?: string }) {
+  return purchaseSlip({
+    userId: params.userId,
+    service: 'NIN_DEMOGRAPHIC_V1',
+    transactionType: TransactionType.NIN_VERIFICATION,
+    description: 'NIN slip by demographic details (V1 - Techhub)',
+    operational: { mode: 'by_demographic' },
+    pii: { firstname: params.firstname, lastname: params.lastname, dob: params.dob, gender: params.gender },
+    idempotencyKey: params.idempotencyKey,
+    callByProvider: {
+      techhub: () =>
+        techhubService.ninByDemographic({
+          firstname: params.firstname,
+          lastname: params.lastname,
+          dob: params.dob,
+          gender: params.gender
+        })
+    }
+  });
+}
+
+export function purchaseNinByDemographicV2(params: { userId: string; firstname: string; lastname: string; dob: string; gender?: string; idempotencyKey?: string }) {
+  return purchaseSlip({
+    userId: params.userId,
+    service: 'NIN_DEMOGRAPHIC_V2',
+    transactionType: TransactionType.NIN_VERIFICATION,
+    description: 'NIN slip by demographic details (V2 - FranceVerified)',
+    operational: { mode: 'by_demographic' },
+    pii: { firstname: params.firstname, lastname: params.lastname, dob: params.dob, gender: params.gender },
+    idempotencyKey: params.idempotencyKey,
+    callByProvider: {
       franceverified: () =>
         franceverifiedSlipAdapter.ninByDemographic({
           firstname: params.firstname,

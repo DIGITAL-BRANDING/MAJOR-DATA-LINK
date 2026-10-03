@@ -47,7 +47,11 @@ const nin: Item[] = [
   { id: 'verification-v1', label: 'NIN Verification V1', path: '/verification/nin/verification-v1', fields: ['nin'], icon: IdCard, tiers: ['premium', 'standard', 'regular', 'vnin', 'personal'] },
   { id: 'verification-v2', label: 'NIN Verification V2', path: '/verification/nin/verification-v2', fields: ['nin'], icon: SearchCheck, tiers: ['premium', 'standard', 'regular', 'vnin', 'personal'] },
   { id: 'by-phone', label: 'NIN by Phone', path: '/verification/nin/by-phone', fields: ['phone'], icon: Phone, tiers: ['premium', 'standard', 'regular', 'personal'] },
+  { id: 'by-phone-v1', label: 'NIN by Phone V1', path: '/verification/nin/by-phone-v1', fields: ['phone'], icon: Phone, tiers: ['premium', 'standard', 'regular', 'personal'] },
+  { id: 'by-phone-v2', label: 'NIN by Phone V2', path: '/verification/nin/by-phone-v2', fields: ['phone'], icon: SearchCheck, tiers: ['premium', 'standard', 'regular', 'personal'] },
   { id: 'demographic', label: 'NIN Demographic', path: '/verification/nin/by-demographic', fields: ['firstname', 'lastname', 'dob', 'gender'], icon: UserRoundCheck },
+  { id: 'demographic-v1', label: 'NIN Demographic V1', path: '/verification/nin/by-demographic-v1', fields: ['firstname', 'lastname', 'dob', 'gender'], icon: UserRoundCheck },
+  { id: 'demographic-v2', label: 'NIN Demographic V2', path: '/verification/nin/by-demographic-v2', fields: ['firstname', 'lastname', 'dob', 'gender'], icon: SearchCheck },
   { id: 'validation', label: 'NIN Validation', path: '/verification/nin-validation', fields: ['nin', 'validation_type'], icon: SearchCheck, async: true },
   { id: 'modification', label: 'NIN Modification', path: '/verification/nin-validation', fields: ['nin'], icon: PenLine, async: true },
   { id: 'personalization', label: 'NIN Personalization', path: '/verification/personalization', fields: ['tracking_id'], icon: UserRoundCheck, async: true },
@@ -113,12 +117,16 @@ function keyFor(item: Item, tier = 'premium') {
   const name = tier.toUpperCase();
   if (item.id === 'by-nin') return tier === 'personal' ? 'NIN_PERSONAL_INFO_SLIP' : `NIN_SLIP_${name}`;
   if (item.id === 'by-phone') return tier === 'personal' ? 'NIN_PHONE_PERSONAL_INFO_SLIP' : `NIN_PHONE_SLIP_${name}`;
+  if (item.id === 'by-phone-v1') return `NIN_PHONE_SLIP_V1_${tier === 'personal' ? 'PERSONAL' : name}`;
+  if (item.id === 'by-phone-v2') return `NIN_PHONE_SLIP_V2_${tier === 'personal' ? 'PERSONAL' : name}`;
   if (item.id === 'verification-v1') return `NIN_VERIFICATION_V1_${tier === 'personal' ? 'PERSONAL' : name}`;
   if (item.id === 'verification-v2') return `NIN_VERIFICATION_V2_${tier === 'personal' ? 'PERSONAL' : name}`;
   if (item.id === 'slip') return `BVN_SLIP_${name}`;
   return (
     {
       demographic: 'NIN_DEMOGRAPHIC',
+      'demographic-v1': 'NIN_DEMOGRAPHIC_V1',
+      'demographic-v2': 'NIN_DEMOGRAPHIC_V2',
       // 'validation' has no single key any more - each of the 8
       // validation_type choices is its own priced service (see
       // VALIDATION_TYPES above). Resolved separately in selectedPrice below.
@@ -201,13 +209,26 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
       .catch(() => setMessage('Unable to load current prices. Please refresh and try again.'));
   }, []);
 
+  // Prefix-match families for the pinned V1/V2 tiles (several services
+  // share one price-toggle family, e.g. all 4 NIN_VERIFICATION_V1_* tiers)
+  // vs. exact-match for the single-service demographic V1/V2 tiles.
+  const AVAILABILITY_FAMILY: Record<string, string> = {
+    'verification-v1': 'NIN_VERIFICATION_V1',
+    'verification-v2': 'NIN_VERIFICATION_V2',
+    'by-phone-v1': 'NIN_PHONE_SLIP_V1',
+    'by-phone-v2': 'NIN_PHONE_SLIP_V2',
+  };
+  const AVAILABILITY_EXACT: Record<string, string> = {
+    'demographic-v1': 'NIN_DEMOGRAPHIC_V1',
+    'demographic-v2': 'NIN_DEMOGRAPHIC_V2',
+  };
   function isItemAvailable(item: Item) {
-    const family = item.id === 'verification-v1'
-      ? 'NIN_VERIFICATION_V1'
-      : item.id === 'verification-v2'
-        ? 'NIN_VERIFICATION_V2'
-        : null;
-    return !family || activeServices === null || Object.entries(activeServices).some(([service, enabled]) => service.startsWith(`${family}_`) && enabled);
+    if (activeServices === null) return true;
+    const exact = AVAILABILITY_EXACT[item.id];
+    if (exact) return activeServices[exact] !== false;
+    const family = AVAILABILITY_FAMILY[item.id];
+    if (!family) return true;
+    return Object.entries(activeServices).some(([service, enabled]) => service.startsWith(`${family}_`) && enabled);
   }
   const selectedPrice = useMemo(() => {
     if (!selected) return undefined;

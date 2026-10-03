@@ -61,7 +61,17 @@ const PINNED_PROVIDERS: Record<string, 'techhub' | 'franceverified'> = {
   NIN_VERIFICATION_V2_STANDARD: 'franceverified',
   NIN_VERIFICATION_V2_REGULAR: 'franceverified',
   NIN_VERIFICATION_V2_VNIN: 'franceverified',
-  NIN_VERIFICATION_V2_PERSONAL: 'franceverified'
+  NIN_VERIFICATION_V2_PERSONAL: 'franceverified',
+  NIN_PHONE_SLIP_V1_PREMIUM: 'techhub',
+  NIN_PHONE_SLIP_V1_STANDARD: 'techhub',
+  NIN_PHONE_SLIP_V1_REGULAR: 'techhub',
+  NIN_PHONE_SLIP_V1_PERSONAL: 'techhub',
+  NIN_PHONE_SLIP_V2_PREMIUM: 'franceverified',
+  NIN_PHONE_SLIP_V2_STANDARD: 'franceverified',
+  NIN_PHONE_SLIP_V2_REGULAR: 'franceverified',
+  NIN_PHONE_SLIP_V2_PERSONAL: 'franceverified',
+  NIN_DEMOGRAPHIC_V1: 'techhub',
+  NIN_DEMOGRAPHIC_V2: 'franceverified'
 };
 
 export function registerNinBvnProviderRoutes(router: Router) {

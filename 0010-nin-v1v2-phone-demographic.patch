@@ -1,0 +1,351 @@
+diff --git a/major_data_link_backend/src/admin/nin-bvn-provider.ts b/major_data_link_backend/src/admin/nin-bvn-provider.ts
+index deda4b1..c99171f 100644
+--- a/major_data_link_backend/src/admin/nin-bvn-provider.ts
++++ b/major_data_link_backend/src/admin/nin-bvn-provider.ts
+@@ -61,7 +61,17 @@ const PINNED_PROVIDERS: Record<string, 'techhub' | 'franceverified'> = {
+   NIN_VERIFICATION_V2_STANDARD: 'franceverified',
+   NIN_VERIFICATION_V2_REGULAR: 'franceverified',
+   NIN_VERIFICATION_V2_VNIN: 'franceverified',
+-  NIN_VERIFICATION_V2_PERSONAL: 'franceverified'
++  NIN_VERIFICATION_V2_PERSONAL: 'franceverified',
++  NIN_PHONE_SLIP_V1_PREMIUM: 'techhub',
++  NIN_PHONE_SLIP_V1_STANDARD: 'techhub',
++  NIN_PHONE_SLIP_V1_REGULAR: 'techhub',
++  NIN_PHONE_SLIP_V1_PERSONAL: 'techhub',
++  NIN_PHONE_SLIP_V2_PREMIUM: 'franceverified',
++  NIN_PHONE_SLIP_V2_STANDARD: 'franceverified',
++  NIN_PHONE_SLIP_V2_REGULAR: 'franceverified',
++  NIN_PHONE_SLIP_V2_PERSONAL: 'franceverified',
++  NIN_DEMOGRAPHIC_V1: 'techhub',
++  NIN_DEMOGRAPHIC_V2: 'franceverified'
+ };
+ 
+ export function registerNinBvnProviderRoutes(router: Router) {
+diff --git a/major_data_link_backend/src/routes/verification.routes.ts b/major_data_link_backend/src/routes/verification.routes.ts
+index 6270ba2..236c03a 100644
+--- a/major_data_link_backend/src/routes/verification.routes.ts
++++ b/major_data_link_backend/src/routes/verification.routes.ts
+@@ -15,8 +15,12 @@ import {
+   listVerificationPrices,
+   purchaseBvnSlip,
+   purchaseNinByDemographic,
++  purchaseNinByDemographicV1,
++  purchaseNinByDemographicV2,
+   purchaseNinByNin,
+   purchaseNinByPhone,
++  purchaseNinByPhoneV1,
++  purchaseNinByPhoneV2,
+   purchaseNinVerificationV1,
+   purchaseNinVerificationV2,
+   submitBvnRetrieval,
+@@ -321,6 +325,79 @@ verificationRoutes.post('/nin/by-demographic', async (req, res) => {
+   res.json(slipResponse(result));
+ });
+ 
++// "NIN by Phone V1"/"V2" and "NIN by Demographic V1"/"V2" - same
++// user-picked-provider pattern as /nin/verification-v1 and -v2 above,
++// extended to the Phone and Demographic lookups. See the SERVICE_KEYS
++// comment for NIN_PHONE_SLIP_V1/V2 and NIN_DEMOGRAPHIC_V1/V2 in
++// verification.service.ts.
++verificationRoutes.post('/nin/by-phone-v1', async (req, res) => {
++  const body = z.object({ phone: z.string().trim().length(11), tier: ninPhoneSlipTier, ...pinField }).parse(req.body);
++  await requirePinConfirmation(req.user!.id, body.pin);
++  const result = await purchaseNinByPhoneV1({
++    userId: req.user!.id,
++    phone: body.phone,
++    tier: body.tier,
++    idempotencyKey: idempotencyKeyFrom(req)
++  });
++  res.json(slipResponse(result));
++});
++
++verificationRoutes.post('/nin/by-phone-v2', async (req, res) => {
++  const body = z.object({ phone: z.string().trim().length(11), tier: ninPhoneSlipTier, ...pinField }).parse(req.body);
++  await requirePinConfirmation(req.user!.id, body.pin);
++  const result = await purchaseNinByPhoneV2({
++    userId: req.user!.id,
++    phone: body.phone,
++    tier: body.tier,
++    idempotencyKey: idempotencyKeyFrom(req)
++  });
++  res.json(slipResponse(result));
++});
++
++verificationRoutes.post('/nin/by-demographic-v1', async (req, res) => {
++  const body = z
++    .object({
++      firstname: z.string().trim().min(1),
++      lastname: z.string().trim().min(1),
++      dob: z.string().trim().min(1),
++      gender: z.enum(['MALE', 'FEMALE']).optional(),
++      ...pinField
++    })
++    .parse(req.body);
++  await requirePinConfirmation(req.user!.id, body.pin);
++  const result = await purchaseNinByDemographicV1({
++    userId: req.user!.id,
++    firstname: body.firstname,
++    lastname: body.lastname,
++    dob: body.dob,
++    gender: body.gender,
++    idempotencyKey: idempotencyKeyFrom(req)
++  });
++  res.json(slipResponse(result));
++});
++
++verificationRoutes.post('/nin/by-demographic-v2', async (req, res) => {
++  const body = z
++    .object({
++      firstname: z.string().trim().min(1),
++      lastname: z.string().trim().min(1),
++      dob: z.string().trim().min(1),
++      gender: z.enum(['MALE', 'FEMALE']).optional(),
++      ...pinField
++    })
++    .parse(req.body);
++  await requirePinConfirmation(req.user!.id, body.pin);
++  const result = await purchaseNinByDemographicV2({
++    userId: req.user!.id,
++    firstname: body.firstname,
++    lastname: body.lastname,
++    dob: body.dob,
++    gender: body.gender,
++    idempotencyKey: idempotencyKeyFrom(req)
++  });
++  res.json(slipResponse(result));
++});
++
+ verificationRoutes.post('/bvn/slip', async (req, res) => {
+   const body = z.object({ bvn: z.string().trim().length(11), tier: bvnSlipTier, ...pinField }).parse(req.body);
+   await requirePinConfirmation(req.user!.id, body.pin);
+diff --git a/major_data_link_backend/src/services/verification.service.ts b/major_data_link_backend/src/services/verification.service.ts
+index 6ee3ef7..0a1a84f 100644
+--- a/major_data_link_backend/src/services/verification.service.ts
++++ b/major_data_link_backend/src/services/verification.service.ts
+@@ -100,7 +100,24 @@ const SERVICE_KEYS = [
+   'NIN_VERIFICATION_V2_STANDARD',
+   'NIN_VERIFICATION_V2_REGULAR',
+   'NIN_VERIFICATION_V2_VNIN',
+-  'NIN_VERIFICATION_V2_PERSONAL'
++  'NIN_VERIFICATION_V2_PERSONAL',
++  // Same provider-pinned pattern as NIN_VERIFICATION_V1/V2 above, extended to
++  // the By-Phone and By-Demographic lookups - a customer can route around a
++  // Techhub outage on these too instead of being stuck on the single
++  // admin-routed NIN_PHONE_SLIP_*/NIN_DEMOGRAPHIC service, which has no
++  // customer-facing fallback if Techhub's phone/demographic endpoint is
++  // failing. VNIN has no by-phone equivalent (see NIN_BY_PHONE_PATH's
++  // comment in techhub.service.ts), so no V1/V2 VNIN variant here either.
++  'NIN_PHONE_SLIP_V1_PREMIUM',
++  'NIN_PHONE_SLIP_V1_STANDARD',
++  'NIN_PHONE_SLIP_V1_REGULAR',
++  'NIN_PHONE_SLIP_V1_PERSONAL',
++  'NIN_PHONE_SLIP_V2_PREMIUM',
++  'NIN_PHONE_SLIP_V2_STANDARD',
++  'NIN_PHONE_SLIP_V2_REGULAR',
++  'NIN_PHONE_SLIP_V2_PERSONAL',
++  'NIN_DEMOGRAPHIC_V1',
++  'NIN_DEMOGRAPHIC_V2'
+ ] as const;
+ 
+ export type VerificationServiceKey = (typeof SERVICE_KEYS)[number];
+@@ -173,7 +190,17 @@ const DEFAULTS: Record<VerificationServiceKey, { label: string; price: number; p
+   NIN_VERIFICATION_V2_STANDARD: { label: 'NIN Verification V2 (Standard)', price: 120, provider: 'franceverified' },
+   NIN_VERIFICATION_V2_REGULAR: { label: 'NIN Verification V2 (Regular)', price: 120, provider: 'franceverified' },
+   NIN_VERIFICATION_V2_VNIN: { label: 'NIN Verification V2 (VNIN)', price: 120, provider: 'franceverified' },
+-  NIN_VERIFICATION_V2_PERSONAL: { label: 'NIN Verification V2 (Personal Info)', price: 120, provider: 'franceverified' }
++  NIN_VERIFICATION_V2_PERSONAL: { label: 'NIN Verification V2 (Personal Info)', price: 120, provider: 'franceverified' },
++  NIN_PHONE_SLIP_V1_PREMIUM: { label: 'NIN Slip V1 (Premium) — by Phone', price: 130, provider: 'techhub' },
++  NIN_PHONE_SLIP_V1_STANDARD: { label: 'NIN Slip V1 (Standard) — by Phone', price: 130, provider: 'techhub' },
++  NIN_PHONE_SLIP_V1_REGULAR: { label: 'NIN Slip V1 (Regular) — by Phone', price: 130, provider: 'techhub' },
++  NIN_PHONE_SLIP_V1_PERSONAL: { label: 'NIN Personal Information Slip V1 — by Phone', price: 130, provider: 'techhub' },
++  NIN_PHONE_SLIP_V2_PREMIUM: { label: 'NIN Slip V2 (Premium) — by Phone', price: 130, provider: 'franceverified' },
++  NIN_PHONE_SLIP_V2_STANDARD: { label: 'NIN Slip V2 (Standard) — by Phone', price: 130, provider: 'franceverified' },
++  NIN_PHONE_SLIP_V2_REGULAR: { label: 'NIN Slip V2 (Regular) — by Phone', price: 130, provider: 'franceverified' },
++  NIN_PHONE_SLIP_V2_PERSONAL: { label: 'NIN Personal Information Slip V2 — by Phone', price: 130, provider: 'franceverified' },
++  NIN_DEMOGRAPHIC_V1: { label: 'NIN Slip V1 — by Demographic', price: 130, provider: 'techhub' },
++  NIN_DEMOGRAPHIC_V2: { label: 'NIN Slip V2 — by Demographic', price: 130, provider: 'franceverified' }
+ };
+ 
+ // Maps the validation_type string Techhub's API (and our own zod enum in
+@@ -522,6 +549,20 @@ const NIN_PHONE_SLIP_SERVICE_BY_TIER: Record<Exclude<TechhubSlipTier, 'vnin'>, V
+   regular: 'NIN_PHONE_SLIP_REGULAR'
+ };
+ 
++const NIN_PHONE_SLIP_V1_SERVICE_BY_TIER: Record<NinPhoneSlipChoice, VerificationServiceKey> = {
++  premium: 'NIN_PHONE_SLIP_V1_PREMIUM',
++  standard: 'NIN_PHONE_SLIP_V1_STANDARD',
++  regular: 'NIN_PHONE_SLIP_V1_REGULAR',
++  personal: 'NIN_PHONE_SLIP_V1_PERSONAL'
++};
++
++const NIN_PHONE_SLIP_V2_SERVICE_BY_TIER: Record<NinPhoneSlipChoice, VerificationServiceKey> = {
++  premium: 'NIN_PHONE_SLIP_V2_PREMIUM',
++  standard: 'NIN_PHONE_SLIP_V2_STANDARD',
++  regular: 'NIN_PHONE_SLIP_V2_REGULAR',
++  personal: 'NIN_PHONE_SLIP_V2_PERSONAL'
++};
++
+ const BVN_SLIP_SERVICE_BY_TIER: Record<TechhubBvnTier, VerificationServiceKey> = {
+   premium: 'BVN_SLIP_PREMIUM',
+   standard: 'BVN_SLIP_STANDARD'
+@@ -636,6 +677,44 @@ export function purchaseNinByPhone(params: {
+   });
+ }
+ 
++/**
++ * "NIN by Phone V1"/"V2" - the same user-picked-provider pattern as
++ * NIN_VERIFICATION_V1/V2 above, applied to the by-phone lookup. Lets a
++ * customer route a by-phone request straight to FranceVerified (V2) when
++ * Techhub's by-phone endpoint (V1) is down, instead of being stuck on
++ * whichever provider the admin last configured for the generic
++ * NIN_PHONE_SLIP_* service above.
++ */
++export function purchaseNinByPhoneV1(params: { userId: string; phone: string; tier: NinPhoneSlipChoice; idempotencyKey?: string }) {
++  return purchaseSlip({
++    userId: params.userId,
++    service: NIN_PHONE_SLIP_V1_SERVICE_BY_TIER[params.tier],
++    transactionType: TransactionType.NIN_VERIFICATION,
++    description: `NIN slip (V1 - Techhub, ${params.tier}) by Phone`,
++    operational: { mode: 'by_phone', tier: params.tier },
++    pii: { phone: params.phone },
++    idempotencyKey: params.idempotencyKey,
++    callByProvider: {
++      techhub: () => params.tier === 'personal' ? techhubService.ninPersonalInfoByPhone(params.phone) : techhubService.ninByPhone(params.phone, params.tier)
++    }
++  });
++}
++
++export function purchaseNinByPhoneV2(params: { userId: string; phone: string; tier: NinPhoneSlipChoice; idempotencyKey?: string }) {
++  return purchaseSlip({
++    userId: params.userId,
++    service: NIN_PHONE_SLIP_V2_SERVICE_BY_TIER[params.tier],
++    transactionType: TransactionType.NIN_VERIFICATION,
++    description: `NIN slip (V2 - FranceVerified, ${params.tier}) by Phone`,
++    operational: { mode: 'by_phone', tier: params.tier },
++    pii: { phone: params.phone },
++    idempotencyKey: params.idempotencyKey,
++    callByProvider: {
++      franceverified: () => franceverifiedSlipAdapter.ninByPhone(params.phone, params.tier === 'personal' ? undefined : params.tier === 'premium' ? 'premium' : undefined, params.tier === 'personal')
++    }
++  });
++}
++
+ export function purchaseNinByDemographic(params: {
+   userId: string;
+   firstname: string;
+@@ -676,6 +755,49 @@ export function purchaseNinByDemographic(params: {
+   });
+ }
+ 
++/** "NIN by Demographic V1"/"V2" - same user-picked-provider pattern as above. */
++export function purchaseNinByDemographicV1(params: { userId: string; firstname: string; lastname: string; dob: string; gender?: string; idempotencyKey?: string }) {
++  return purchaseSlip({
++    userId: params.userId,
++    service: 'NIN_DEMOGRAPHIC_V1',
++    transactionType: TransactionType.NIN_VERIFICATION,
++    description: 'NIN slip by demographic details (V1 - Techhub)',
++    operational: { mode: 'by_demographic' },
++    pii: { firstname: params.firstname, lastname: params.lastname, dob: params.dob, gender: params.gender },
++    idempotencyKey: params.idempotencyKey,
++    callByProvider: {
++      techhub: () =>
++        techhubService.ninByDemographic({
++          firstname: params.firstname,
++          lastname: params.lastname,
++          dob: params.dob,
++          gender: params.gender
++        })
++    }
++  });
++}
++
++export function purchaseNinByDemographicV2(params: { userId: string; firstname: string; lastname: string; dob: string; gender?: string; idempotencyKey?: string }) {
++  return purchaseSlip({
++    userId: params.userId,
++    service: 'NIN_DEMOGRAPHIC_V2',
++    transactionType: TransactionType.NIN_VERIFICATION,
++    description: 'NIN slip by demographic details (V2 - FranceVerified)',
++    operational: { mode: 'by_demographic' },
++    pii: { firstname: params.firstname, lastname: params.lastname, dob: params.dob, gender: params.gender },
++    idempotencyKey: params.idempotencyKey,
++    callByProvider: {
++      franceverified: () =>
++        franceverifiedSlipAdapter.ninByDemographic({
++          firstname: params.firstname,
++          lastname: params.lastname,
++          dob: params.dob,
++          gender: params.gender
++        })
++    }
++  });
++}
++
+ export function purchaseBvnSlip(params: { userId: string; bvn: string; tier: TechhubBvnTier; idempotencyKey?: string }) {
+   return purchaseSlip({
+     userId: params.userId,
+diff --git a/web/src/pages/VerificationPage.tsx b/web/src/pages/VerificationPage.tsx
+index eb5039f..891e37b 100644
+--- a/web/src/pages/VerificationPage.tsx
++++ b/web/src/pages/VerificationPage.tsx
+@@ -47,7 +47,11 @@ const nin: Item[] = [
+   { id: 'verification-v1', label: 'NIN Verification V1', path: '/verification/nin/verification-v1', fields: ['nin'], icon: IdCard, tiers: ['premium', 'standard', 'regular', 'vnin', 'personal'] },
+   { id: 'verification-v2', label: 'NIN Verification V2', path: '/verification/nin/verification-v2', fields: ['nin'], icon: SearchCheck, tiers: ['premium', 'standard', 'regular', 'vnin', 'personal'] },
+   { id: 'by-phone', label: 'NIN by Phone', path: '/verification/nin/by-phone', fields: ['phone'], icon: Phone, tiers: ['premium', 'standard', 'regular', 'personal'] },
++  { id: 'by-phone-v1', label: 'NIN by Phone V1', path: '/verification/nin/by-phone-v1', fields: ['phone'], icon: Phone, tiers: ['premium', 'standard', 'regular', 'personal'] },
++  { id: 'by-phone-v2', label: 'NIN by Phone V2', path: '/verification/nin/by-phone-v2', fields: ['phone'], icon: SearchCheck, tiers: ['premium', 'standard', 'regular', 'personal'] },
+   { id: 'demographic', label: 'NIN Demographic', path: '/verification/nin/by-demographic', fields: ['firstname', 'lastname', 'dob', 'gender'], icon: UserRoundCheck },
++  { id: 'demographic-v1', label: 'NIN Demographic V1', path: '/verification/nin/by-demographic-v1', fields: ['firstname', 'lastname', 'dob', 'gender'], icon: UserRoundCheck },
++  { id: 'demographic-v2', label: 'NIN Demographic V2', path: '/verification/nin/by-demographic-v2', fields: ['firstname', 'lastname', 'dob', 'gender'], icon: SearchCheck },
+   { id: 'validation', label: 'NIN Validation', path: '/verification/nin-validation', fields: ['nin', 'validation_type'], icon: SearchCheck, async: true },
+   { id: 'modification', label: 'NIN Modification', path: '/verification/nin-validation', fields: ['nin'], icon: PenLine, async: true },
+   { id: 'personalization', label: 'NIN Personalization', path: '/verification/personalization', fields: ['tracking_id'], icon: UserRoundCheck, async: true },
+@@ -113,12 +117,16 @@ function keyFor(item: Item, tier = 'premium') {
+   const name = tier.toUpperCase();
+   if (item.id === 'by-nin') return tier === 'personal' ? 'NIN_PERSONAL_INFO_SLIP' : `NIN_SLIP_${name}`;
+   if (item.id === 'by-phone') return tier === 'personal' ? 'NIN_PHONE_PERSONAL_INFO_SLIP' : `NIN_PHONE_SLIP_${name}`;
++  if (item.id === 'by-phone-v1') return `NIN_PHONE_SLIP_V1_${tier === 'personal' ? 'PERSONAL' : name}`;
++  if (item.id === 'by-phone-v2') return `NIN_PHONE_SLIP_V2_${tier === 'personal' ? 'PERSONAL' : name}`;
+   if (item.id === 'verification-v1') return `NIN_VERIFICATION_V1_${tier === 'personal' ? 'PERSONAL' : name}`;
+   if (item.id === 'verification-v2') return `NIN_VERIFICATION_V2_${tier === 'personal' ? 'PERSONAL' : name}`;
+   if (item.id === 'slip') return `BVN_SLIP_${name}`;
+   return (
+     {
+       demographic: 'NIN_DEMOGRAPHIC',
++      'demographic-v1': 'NIN_DEMOGRAPHIC_V1',
++      'demographic-v2': 'NIN_DEMOGRAPHIC_V2',
+       // 'validation' has no single key any more - each of the 8
+       // validation_type choices is its own priced service (see
+       // VALIDATION_TYPES above). Resolved separately in selectedPrice below.
+@@ -201,13 +209,26 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
+       .catch(() => setMessage('Unable to load current prices. Please refresh and try again.'));
+   }, []);
+ 
++  // Prefix-match families for the pinned V1/V2 tiles (several services
++  // share one price-toggle family, e.g. all 4 NIN_VERIFICATION_V1_* tiers)
++  // vs. exact-match for the single-service demographic V1/V2 tiles.
++  const AVAILABILITY_FAMILY: Record<string, string> = {
++    'verification-v1': 'NIN_VERIFICATION_V1',
++    'verification-v2': 'NIN_VERIFICATION_V2',
++    'by-phone-v1': 'NIN_PHONE_SLIP_V1',
++    'by-phone-v2': 'NIN_PHONE_SLIP_V2',
++  };
++  const AVAILABILITY_EXACT: Record<string, string> = {
++    'demographic-v1': 'NIN_DEMOGRAPHIC_V1',
++    'demographic-v2': 'NIN_DEMOGRAPHIC_V2',
++  };
+   function isItemAvailable(item: Item) {
+-    const family = item.id === 'verification-v1'
+-      ? 'NIN_VERIFICATION_V1'
+-      : item.id === 'verification-v2'
+-        ? 'NIN_VERIFICATION_V2'
+-        : null;
+-    return !family || activeServices === null || Object.entries(activeServices).some(([service, enabled]) => service.startsWith(`${family}_`) && enabled);
++    if (activeServices === null) return true;
++    const exact = AVAILABILITY_EXACT[item.id];
++    if (exact) return activeServices[exact] !== false;
++    const family = AVAILABILITY_FAMILY[item.id];
++    if (!family) return true;
++    return Object.entries(activeServices).some(([service, enabled]) => service.startsWith(`${family}_`) && enabled);
+   }
+   const selectedPrice = useMemo(() => {
+     if (!selected) return undefined;
