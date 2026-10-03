@@ -99,7 +99,7 @@ export function registerUserWalletRoutes(router: Router) {
     } catch (error) {
       console.error('[user-wallet] ledger reconciliation failed:', error);
       // Say WHY (would go negative, wallet changed meanwhile ...) instead of "check the server logs".
-      const message = error instanceof ApiError && error.status < 500
+      const message = error instanceof ApiError && error.statusCode < 500
         ? error.message
         : 'Could not reconcile this wallet. Check the server logs.';
       return res.redirect(backTo(encodeFlash('error', message)));
