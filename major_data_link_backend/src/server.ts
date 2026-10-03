@@ -52,6 +52,10 @@ async function startServer() {
     const partnerTicketTimer = setInterval(reconcilePartnerTickets, 30_000);
     partnerTicketTimer.unref();
 
+    // Watchdog: logs loudly if any wallet stops matching its ledger.
+    const { startWalletDriftMonitor } = await import('./services/wallet-drift.service.js');
+    startWalletDriftMonitor();
+
     // Seed pricing rows so admin controls include services not yet purchased.
     // This is best-effort and must not block startup.
     try {

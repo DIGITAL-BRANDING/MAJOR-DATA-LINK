@@ -6,6 +6,7 @@ import { ApiError } from '../middleware/error.js';
 import { koboToNaira, nairaToKobo } from '../lib/money.js';
 import { prisma } from '../lib/prisma.js';
 import { clearLockout, isLocked, recordFailure } from '../lib/lockout.js';
+import { ledgerBalanceKobo } from './wallet-ledger.js';
 import { notifyUser } from './notification.service.js';
 
 function formatNaira(kobo: bigint) {
@@ -283,6 +284,32 @@ export async function creditWalletByReference(reference: string) {
       throw new ApiError(409, 'Only a pending funding transaction can be credited', 'FUNDING_NOT_PENDING');
     }
 
+    // Atomically CLAIM this funding (PENDING -> SUCCESS) before touching the
+    // balance. The status check above is only a fast path. The same payment is
+    // confirmed by several callers at once - the provider webhook, the app's
+    // /wallet/fund/verify (the web page polls it every 5 seconds while the
+    // customer transfers), a webhook redelivery, an admin "mark as received".
+    // Under Postgres's default READ COMMITTED isolation two of them can BOTH
+    // read PENDING before either commits, and then both incremented the
+    // wallet: one ledger row, but the money credited twice (this is how
+    // wallets ended up holding money the ledger could not account for).
+    // A conditional UPDATE takes a row lock, so the second caller waits,
+    // re-checks `status: PENDING` against the committed row, matches nothing
+    // and credits nothing. (When WALLET_FUNDING_FEE_PERCENT is above 0 the
+    // duplicate FEE-<ref> row used to trip a unique constraint and roll the
+    // second credit back by accident; with the fee at 0 nothing stopped it.)
+    const claim = await tx.transaction.updateMany({
+      where: { id: transaction.id, status: TransactionStatus.PENDING },
+      data: { status: TransactionStatus.SUCCESS }
+    });
+    if (claim.count === 0) {
+      const latest = await tx.transaction.findUniqueOrThrow({ where: { id: transaction.id } });
+      if (latest.status === TransactionStatus.SUCCESS) {
+        return { transaction: latest, finalBalanceKobo: latest.balanceAfterKobo, alreadyCredited: true };
+      }
+      throw new ApiError(409, 'Only a pending funding transaction can be credited', 'FUNDING_NOT_PENDING');
+    }
+
     const user = await tx.user.update({
       where: { id: transaction.userId },
       data: { walletBalanceKobo: { increment: transaction.amountKobo } }
@@ -290,7 +317,7 @@ export async function creditWalletByReference(reference: string) {
 
     const updated = await tx.transaction.update({
       where: { id: transaction.id },
-      data: { status: TransactionStatus.SUCCESS, balanceAfterKobo: user.walletBalanceKobo }
+      data: { balanceAfterKobo: user.walletBalanceKobo }
     });
 
     const fee = await applyFundingFee(tx, {
@@ -579,7 +606,7 @@ export async function creditDirectDepositByAccountNumber(params: {
       const redelivered = await prisma.transaction.findFirst({
         where: {
           userId: user.id,
-          provider: 'katpay',
+          provider,
           providerRef,
           type: TransactionType.WALLET_FUNDING
         }
@@ -670,15 +697,29 @@ export async function manualWalletAdjustment(params: {
   amount: number;
   reason: string;
   adminId: string;
+  /** Ledger repair only: let a debit take the balance below zero (the user then owes the difference). */
+  allowNegative?: boolean;
+  /** Apply only if the stored balance is still exactly this (guards a repair against a purchase made meanwhile). */
+  expectedCurrentKobo?: bigint;
+  /** Marks the row as a correction of the stored balance (excluded from the ledger sum, see wallet-ledger.ts). */
+  reconciliation?: boolean;
 }) {
   const amountKobo = nairaToKobo(params.amount);
 
   const result = await prisma.$transaction(async (tx) => {
     const before = await tx.user.findUnique({ where: { id: params.userId } });
     if (!before) throw new ApiError(404, 'User not found', 'USER_NOT_FOUND');
+    if (params.expectedCurrentKobo !== undefined && before.walletBalanceKobo !== params.expectedCurrentKobo) {
+      throw new ApiError(409, 'The wallet balance changed while you were reviewing it. Reload the page and try again.', 'WALLET_CHANGED');
+    }
 
     let after;
-    if (params.direction === 'debit') {
+    if (params.direction === 'debit' && params.allowNegative) {
+      after = await tx.user.update({
+        where: { id: params.userId },
+        data: { walletBalanceKobo: { decrement: amountKobo } }
+      });
+    } else if (params.direction === 'debit') {
       const updateResult = await tx.user.updateMany({
         where: { id: params.userId, walletBalanceKobo: { gte: amountKobo } },
         data: { walletBalanceKobo: { decrement: amountKobo } }
@@ -705,7 +746,7 @@ export async function manualWalletAdjustment(params: {
         balanceAfterKobo: after.walletBalanceKobo,
         reference: `IDS-ADJ-${Date.now()}-${nanoid(8).toUpperCase()}`,
         description: `Manual ${params.direction} by admin: ${params.reason}`,
-        metadata: { adminId: params.adminId, direction: params.direction, reason: params.reason }
+        metadata: { adminId: params.adminId, direction: params.direction, reason: params.reason, ...(params.reconciliation ? { reconciliation: true } : {}) }
       }
     });
 
@@ -735,22 +776,7 @@ export async function getWalletLedgerReconciliation(userId: string) {
       select: { type: true, status: true, amountKobo: true, balanceBeforeKobo: true, metadata: true }
     })
   ]);
-  let expected = rows[0]?.balanceBeforeKobo ?? 0n;
-  for (const row of rows) {
-    if (row.type === TransactionType.WALLET_FUNDING || row.type === TransactionType.REFUND || row.type === TransactionType.COUPON_REDEMPTION) {
-      if (row.status === TransactionStatus.SUCCESS) expected += row.amountKobo;
-    } else if (row.type === TransactionType.WALLET_FUNDING_FEE) {
-      if (row.status === TransactionStatus.SUCCESS) expected -= row.amountKobo;
-    } else if (row.type === TransactionType.MANUAL_ADJUSTMENT) {
-      if (row.status === TransactionStatus.SUCCESS) {
-        const metadata = row.metadata as Record<string, unknown> | null;
-        expected += metadata?.direction === 'debit' ? -row.amountKobo : row.amountKobo;
-      }
-    } else if (row.type !== TransactionType.REFERRAL_COMMISSION) {
-      // debitWallet deducts at creation time, even while the request remains pending.
-      expected -= row.amountKobo;
-    }
-  }
+  const expected = ledgerBalanceKobo(rows);
   return { currentKobo: user.walletBalanceKobo, expectedKobo: expected, differenceKobo: expected - user.walletBalanceKobo, matches: expected === user.walletBalanceKobo };
 }
 
@@ -759,20 +785,42 @@ export async function getWalletLedgerReconciliation(userId: string) {
  * MANUAL_ADJUSTMENT entry instead of silently overwriting the user balance,
  * so a later reconciliation remains consistent with the ledger.
  */
-export async function reconcileWalletBalanceFromLedger(params: { userId: string; adminId: string }) {
+export async function reconcileWalletBalanceFromLedger(params: {
+  userId: string;
+  adminId: string;
+  /** Finance has confirmed the user spent money they never paid in and may be left owing it (negative balance). */
+  allowNegative?: boolean;
+}) {
   const snapshot = await getWalletLedgerReconciliation(params.userId);
   if (snapshot.matches) return { changed: false, balanceAfterKobo: snapshot.currentKobo, differenceKobo: 0n };
   const direction = snapshot.differenceKobo > 0n ? 'credit' as const : 'debit' as const;
   const amountKobo = snapshot.differenceKobo > 0n ? snapshot.differenceKobo : -snapshot.differenceKobo;
+
+  // Taking money OFF a wallet that has already spent it. The honest figure is
+  // negative: the user consumed services the ledger shows they never paid for.
+  // Never do that silently - the admin must confirm it explicitly.
+  if (direction === 'debit' && snapshot.currentKobo < amountKobo && !params.allowNegative) {
+    throw new ApiError(
+      409,
+      `This wallet holds ${formatNaira(snapshot.currentKobo)} but the ledger says it should hold ${formatNaira(snapshot.expectedKobo)}. ` +
+        `Correcting it leaves the user owing ${formatNaira(-snapshot.expectedKobo)} until they fund again. Tick the confirmation box to apply it.`,
+      'RECONCILE_WOULD_GO_NEGATIVE'
+    );
+  }
+
   const adjustment = await manualWalletAdjustment({
     userId: params.userId,
     direction,
     amount: koboToNaira(amountKobo),
     adminId: params.adminId,
+    allowNegative: direction === 'debit' && params.allowNegative === true,
+    expectedCurrentKobo: snapshot.currentKobo,
+    reconciliation: true,
     reason: `Ledger reconciliation: stored balance differed from the transaction ledger by ${formatNaira(amountKobo)}.`
   });
   return { changed: true, balanceAfterKobo: adjustment.balanceAfter, differenceKobo: snapshot.differenceKobo };
 }
+
 /**
  * Reverses a debit: credits the amount back to the user's wallet as a NEW,
  * separate REFUND transaction linked to the original via
@@ -809,49 +857,49 @@ export async function refundWallet(params: {
       return { transaction: existingRefund ?? original, alreadyReversed: true };
     }
 
+    // CLAIM the reversal first (status -> REVERSED, only if nobody changed the
+    // status since we read it). Previously two simultaneous refunds both
+    // passed the REVERSED check and relied on a unique-reference error to
+    // stop the second; that error was caught INSIDE the transaction, but in
+    // Postgres a failed statement poisons the whole transaction, so the
+    // "graceful" fallback itself failed and the caller got a 500 instead of
+    // the existing refund. A compare-and-swap has no failure path to catch.
+    const claim = await tx.transaction.updateMany({
+      where: { id: original.id, userId: params.userId, status: original.status },
+      data: { status: TransactionStatus.REVERSED }
+    });
+    if (claim.count === 0) {
+      const existingRefund = await tx.transaction.findFirst({
+        where: { relatedTransactionId: original.id, type: TransactionType.REFUND }
+      });
+      return { transaction: existingRefund ?? original, alreadyReversed: true };
+    }
+
     const user = await tx.user.findUniqueOrThrow({ where: { id: params.userId } });
     const updatedUser = await tx.user.update({
       where: { id: params.userId },
       data: { walletBalanceKobo: { increment: original.amountKobo } }
     });
 
-    let refund;
-    try {
-      refund = await tx.transaction.create({
-        data: {
-          id: nanoid(),
-          userId: params.userId,
-          type: TransactionType.REFUND,
-          status: TransactionStatus.SUCCESS,
-          amountKobo: original.amountKobo,
-          balanceBeforeKobo: user.walletBalanceKobo,
-          balanceAfterKobo: updatedUser.walletBalanceKobo,
-          reference: `RFND-${original.reference}`,
-          relatedTransactionId: original.id,
-          description: params.reason
-            ? `Refund: ${params.reason} (was: "${original.description}")`
-            : `Refund for "${original.description}"`,
-          metadata: {
-            originalTransactionId: original.id,
-            initiatedByAdminId: params.initiatedByAdminId ?? null
-          }
+    const refund = await tx.transaction.create({
+      data: {
+        id: nanoid(),
+        userId: params.userId,
+        type: TransactionType.REFUND,
+        status: TransactionStatus.SUCCESS,
+        amountKobo: original.amountKobo,
+        balanceBeforeKobo: user.walletBalanceKobo,
+        balanceAfterKobo: updatedUser.walletBalanceKobo,
+        reference: `RFND-${original.reference}`,
+        relatedTransactionId: original.id,
+        description: params.reason
+          ? `Refund: ${params.reason} (was: "${original.description}")`
+          : `Refund for "${original.description}"`,
+        metadata: {
+          originalTransactionId: original.id,
+          initiatedByAdminId: params.initiatedByAdminId ?? null
         }
-      });
-    } catch (error) {
-      // Two concurrent refund attempts both passed the REVERSED check above
-      // before either committed - the unique `reference` constraint on
-      // `RFND-${original.reference}` catches the duplicate here. Whichever
-      // request loses the race gets back the winner's row instead of erroring.
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-        refund = await tx.transaction.findUniqueOrThrow({ where: { reference: `RFND-${original.reference}` } });
-      } else {
-        throw error;
       }
-    }
-
-    await tx.transaction.update({
-      where: { id: original.id },
-      data: { status: TransactionStatus.REVERSED }
     });
 
     return { transaction: refund, alreadyReversed: false };

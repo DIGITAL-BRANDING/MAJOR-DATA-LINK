@@ -89,12 +89,20 @@ export function registerUserWalletRoutes(router: Router) {
     const backTo = (flash: string) => `/admin/user-wallet?q=${encodeURIComponent(q)}&flash=${flash}`;
     if (!admin) return res.redirect('/admin/login');
     try {
-      const result = await reconcileWalletBalanceFromLedger({ userId: req.params.userId, adminId: admin.id });
+      const result = await reconcileWalletBalanceFromLedger({
+        userId: req.params.userId,
+        adminId: admin.id,
+        allowNegative: field(req, 'confirm_negative') === 'yes'
+      });
       await logAdminAction({ adminId: admin.id, action: 'RECONCILE_USER_WALLET_FROM_LEDGER', targetType: 'User', targetId: req.params.userId, metadata: { changed: result.changed, balanceAfterKobo: result.balanceAfterKobo.toString(), differenceKobo: result.differenceKobo.toString() } });
       return res.redirect(backTo(encodeFlash('success', result.changed ? `Wallet reconciled to NGN${koboToNaira(result.balanceAfterKobo).toLocaleString('en-NG', { minimumFractionDigits: 2 })}.` : 'Wallet balance already matches the ledger.')));
     } catch (error) {
       console.error('[user-wallet] ledger reconciliation failed:', error);
-      return res.redirect(backTo(encodeFlash('error', 'Could not reconcile this wallet. Check the server logs.')));
+      // Say WHY (would go negative, wallet changed meanwhile ...) instead of "check the server logs".
+      const message = error instanceof ApiError && error.status < 500
+        ? error.message
+        : 'Could not reconcile this wallet. Check the server logs.';
+      return res.redirect(backTo(encodeFlash('error', message)));
     }
   });
 
@@ -326,7 +334,7 @@ function renderPage(params: {
     <div class="card" style="border-color:#B3261E">
       <h2>Ledger balance mismatch</h2>
       <p class="hint">Stored balance: ${naira(koboToNaira(reconciliation.currentKobo))}. Ledger balance: ${naira(koboToNaira(reconciliation.expectedKobo))}. Difference: ${naira(koboToNaira(reconciliation.differenceKobo < 0n ? -reconciliation.differenceKobo : reconciliation.differenceKobo))}.</p>
-      ${canFinance(admin) ? `<form method="POST" action="/admin/user-wallet/${encodeURIComponent(user.id)}/reconcile-ledger"><input type="hidden" name="q" value="${escape(q)}"><button type="submit">Reconcile wallet from ledger</button></form>` : '<p class="hint">A Finance or Super Admin must reconcile this wallet.</p>'}
+      ${canFinance(admin) ? `<form method="POST" action="/admin/user-wallet/${encodeURIComponent(user.id)}/reconcile-ledger"><input type="hidden" name="q" value="${escape(q)}">${reconciliation.differenceKobo < 0n && reconciliation.currentKobo < -reconciliation.differenceKobo ? `<p class="hint" style="color:#B3261E"><b>This user has already spent money that was never paid in.</b> Reconciling leaves their balance at ${naira(koboToNaira(reconciliation.expectedKobo))}, i.e. they owe the company that amount and cannot buy until they fund past it.</p><label style="display:flex;gap:8px;align-items:center;margin:8px 0"><input type="checkbox" name="confirm_negative" value="yes" required> I understand and want to apply it</label>` : ''}<button type="submit">Reconcile wallet from ledger</button></form><p class="hint"><a href="/admin/wallet-drift">See every wallet that is out of balance</a></p>` : '<p class="hint">A Finance or Super Admin must reconcile this wallet.</p>'}
     </div>` : ''}
 
     ${adjustFormHtml}
