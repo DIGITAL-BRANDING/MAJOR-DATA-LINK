@@ -108,24 +108,29 @@ function stringValue(records: Array<Record<string, unknown> | undefined>, keys: 
   return firstNonEmptyString(records, keys);
 }
 
-function personalInfoFields(data: Record<string, unknown> | undefined, fallback: Record<string, unknown>): IdentitySlipField[] {
-  const address = data?.address !== null && typeof data?.address === 'object' && !Array.isArray(data.address)
-    ? data.address as Record<string, unknown> : undefined;
-  const records = [data, address, fallback];
+function personalInfoFields(data: Record<string, unknown> | undefined, fallback: Record<string, unknown>, outer: Array<Record<string, unknown> | undefined> = []): IdentitySlipField[] {
+  const addressValue = data?.address ?? data?.residence;
+  const address = addressValue !== null && typeof addressValue === 'object' && !Array.isArray(addressValue)
+    ? addressValue as Record<string, unknown> : undefined;
+  const records = [data, ...outer, address, fallback];
+  const residence = [
+    stringValue(records, ['residence_AdressLine1', 'residence_address', 'addressLine', 'address_line', 'address']),
+    stringValue(records, ['residence_lga', 'lga', 'localGovernment']),
+    stringValue(records, ['residence_state', 'state'])
+  ].filter(Boolean).join(', ');
   const fields: IdentitySlipField[] = [
     { label: 'National Identification Number (NIN)', value: stringValue(records, ['nin', 'idNumber', 'id_number']) },
     { label: 'Tracking ID', value: stringValue(records, ['trackingId', 'tracking_id', 'reference']) },
     { label: 'First Name', value: stringValue(records, ['firstName', 'first_name', 'firstname']) },
     { label: 'Middle Name', value: stringValue(records, ['middleName', 'middle_name', 'middlename']) },
     { label: 'Last Name', value: stringValue(records, ['lastName', 'last_name', 'surname', 'lastname']) },
+    { label: 'Maiden Name', value: stringValue(records, ['maidenName', 'maiden_name', 'maidenname']) },
     { label: 'Phone Number', value: stringValue(records, ['phoneNumber', 'phone', 'mobile', 'telephoneno']) },
     { label: 'Date of Birth', value: stringValue(records, ['dateOfBirth', 'date_of_birth', 'birthdate', 'birthday', 'dob']) },
     { label: 'Gender', value: stringValue(records, ['gender']) },
-    { label: 'Residence State', value: stringValue(records, ['residence_state', 'state']) },
-    { label: 'LGA/Town', value: stringValue(records, ['residence_lga', 'lga', 'localGovernment']) },
-    { label: 'Address', value: stringValue(records, ['residence_AdressLine1', 'residence_address', 'addressLine', 'address_line']) }
+    { label: 'Residence', value: residence || undefined }
   ];
-  return fields.filter((field) => typeof field.value === 'string' && field.value.trim().length > 0);
+  return fields;
 }
 
 function previewData(fields: IdentitySlipField[], photo?: string): Record<string, string> {
@@ -357,7 +362,7 @@ export class TechhubService {
     const pdfUrl = firstNonEmptyString(records, ['pdf_url', 'slip_url', 'download_url']);
 
     if (options?.personalInfoSlip) {
-      const fields = personalInfoFields(userDataRecord, body);
+      const fields = personalInfoFields(userDataRecord, body, [data as Record<string, unknown>, nested]);
       const photo = stringValue(records, ['image', 'photo', 'picture', 'passport', 'passport_photo']);
       const reference = stringValue(records, ['trackingId', 'tracking_id', 'reference']) ?? `TECHHUB-${Date.now()}`;
       const generatedPdf = await renderPersonalInformationSlipPdf({ title: 'NIN Slip', subtitle: 'Verified by Techhub', reference, fields, photo: photo ? { base64: photo, format: 'jpeg' } : undefined, issuedAt: new Date() });

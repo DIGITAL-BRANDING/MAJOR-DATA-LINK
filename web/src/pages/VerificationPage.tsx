@@ -771,14 +771,8 @@ function VerificationHistoryView({
                   >
                     <Download size={14} /> Download file
                   </button>
-                ) : entry.document_available ? (
-                  <button
-                    type="button"
-                    onClick={() => void downloadServiceDocument(entry.transaction_id, entry.reference)}
-                    className="flex items-center gap-2 rounded-lg bg-gold-500 px-3 py-2 font-body text-xs font-bold text-ink"
-                  >
-                    <Download size={14} /> Retrieve PDF
-                  </button>
+                ) : entry.document_available && entry.transaction_id ? (
+                  <ServiceDocumentPreview transactionId={entry.transaction_id} reference={entry.reference} />
                 ) : canCheckStatus ? (
                   <div className="flex items-center gap-3">
                     <span className="font-body text-xs font-semibold capitalize text-ink-600">{entry.status}</span>
@@ -840,13 +834,7 @@ function SlipResultView({ result, message, mode, onDone }: { result: SlipResult;
       )}
 
       {result.document_available && result.transaction_id && (
-        <button
-          type="button"
-          onClick={() => void downloadServiceDocument(result.transaction_id, result.reference || 'slip')}
-          className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-gold-500 py-3 font-display font-semibold text-ink"
-        >
-          <Download size={16} /> Download PDF slip
-        </button>
+        <ServiceDocumentPreview transactionId={result.transaction_id} reference={result.reference || 'slip'} autoPreview />
       )}
 
       {!result.document_available && (
@@ -862,18 +850,58 @@ function SlipResultView({ result, message, mode, onDone }: { result: SlipResult;
   );
 }
 
-async function downloadServiceDocument(transactionId: string, reference: string) {
-  try {
-    const pdf = await api.getFile(`/transactions/${encodeURIComponent(transactionId)}/service-document`);
-    const url = URL.createObjectURL(pdf);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `${reference}.pdf`;
-    link.click();
-    URL.revokeObjectURL(url);
-  } catch {
-    window.alert('Could not download this slip. Please try again from Service History.');
-  }
+function ServiceDocumentPreview({ transactionId, reference, autoPreview = false }: { transactionId: string; reference: string; autoPreview?: boolean }) {
+  const [url, setUrl] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const objectUrl = useRef('');
+
+  const loadPreview = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const pdf = await api.getFile(`/transactions/${encodeURIComponent(transactionId)}/service-document`);
+      if (objectUrl.current) URL.revokeObjectURL(objectUrl.current);
+      objectUrl.current = URL.createObjectURL(pdf);
+      setUrl(objectUrl.current);
+    } catch {
+      setError('Could not load the PDF preview. Try retrieving it again.');
+    } finally {
+      setLoading(false);
+    }
+  }, [transactionId]);
+
+  useEffect(() => {
+    if (autoPreview) void loadPreview();
+  }, [autoPreview, loadPreview]);
+
+  useEffect(() => () => { if (objectUrl.current) URL.revokeObjectURL(objectUrl.current); }, []);
+
+  return (
+    <div className={autoPreview ? 'mt-4' : 'w-full sm:w-auto'}>
+      {url ? (
+        <>
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <p className="font-body text-sm font-semibold text-ink">PDF preview</p>
+            <a href={url} download={`${reference}.pdf`} className="flex items-center gap-2 rounded-lg bg-gold-500 px-3 py-2 font-body text-xs font-bold text-ink">
+              <Download size={14} /> Download PDF
+            </a>
+          </div>
+          <iframe title={`PDF preview for ${reference}`} src={url} className="h-[min(70vh,720px)] min-h-[420px] w-full rounded-xl border border-parchment-line bg-white" />
+        </>
+      ) : (
+        <button
+          type="button"
+          disabled={loading}
+          onClick={() => void loadPreview()}
+          className={`${autoPreview ? 'w-full py-3' : 'w-full sm:w-auto'} flex items-center justify-center gap-2 rounded-xl bg-gold-500 px-4 font-display font-semibold text-ink disabled:opacity-60`}
+        >
+          {loading ? <><Loader2 size={16} className="animate-spin" /> Loading preview…</> : <><Download size={16} /> {autoPreview ? 'Load PDF preview' : 'Retrieve PDF preview'}</>}
+        </button>
+      )}
+      {error && <p role="alert" className="mt-2 text-sm text-rose-700">{error}</p>}
+    </div>
+  );
 }
 
 // For requests an admin completed by hand and attached a result file to

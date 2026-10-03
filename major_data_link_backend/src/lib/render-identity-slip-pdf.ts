@@ -68,43 +68,44 @@ export function renderPersonalInformationSlipPdf(params: {
   fields: IdentitySlipField[]; photo?: IdentitySlipPhoto; issuedAt: Date; tier?: IdentitySlipTier;
 }): Promise<string> {
   return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ size: 'A4', margin: 46 });
+    const doc = new PDFDocument({ size: 'A4', margin: 40 });
     const chunks: Buffer[] = [];
     doc.on('data', (chunk: Buffer) => chunks.push(chunk));
     doc.on('end', () => resolve(Buffer.concat(chunks).toString('base64')));
     doc.on('error', reject);
 
-    const left = 46; const right = 549; const width = right - left;
-    doc.rect(left, 45, width, 76).fill('#102a5c');
-    doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(18).text('MAJOR DATA-LINK', left + 20, 65);
-    doc.font('Helvetica').fontSize(9).text('Verified identity service', left + 20, 91);
-    doc.fillColor('#111111').font('Helvetica-Bold').fontSize(17).text('Personal Information Slip', left, 144, { width, align: 'center' });
-    doc.font('Helvetica').fontSize(9).fillColor('#555555').text(`${params.title} - ${params.subtitle}`, left, 168, { width, align: 'center' });
+    const left = 40; const right = 555; const width = right - left;
+    doc.rect(left, 40, width, 66).fill('#102a5c');
+    doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(17).text('MAJOR DATA-LINK', left + 17, 56);
+    doc.font('Helvetica').fontSize(8.5).text('Third-party identity verification report', left + 17, 81);
+    doc.fillColor('#111111').font('Helvetica-Bold').fontSize(16).text('Personal Information Slip', left, 125, { width, align: 'center' });
+    doc.font('Helvetica').fontSize(9).fillColor('#555555').text(`${params.title} - ${params.subtitle}`, left, 147, { width, align: 'center' });
 
-    const photoX = left; const photoY = 210; const photoWidth = 175; const photoHeight = 220;
-    doc.rect(photoX, photoY, photoWidth, photoHeight).fill('#f4f6f8');
+    const photoX = left; const photoY = 178; const photoWidth = 180; const photoHeight = 225;
+    doc.rect(photoX, photoY, photoWidth, photoHeight).fill('#f4f6f8').strokeColor('#cbd5e1').lineWidth(.6).stroke();
     if (params.photo) {
-      try { doc.image(imageBuffer(params.photo.base64), photoX, photoY, { fit: [photoWidth, photoHeight], align: 'center', valign: 'center' }); }
+      try { doc.image(imageBuffer(params.photo.base64), photoX + 1, photoY + 1, { fit: [photoWidth - 2, photoHeight - 2], align: 'center', valign: 'center' }); }
       catch (error) { console.error('[identity-slip-pdf] failed to embed photo, continuing without it:', error); }
     } else {
       doc.fillColor('#64748b').font('Helvetica').fontSize(10).text('No photograph returned', photoX, photoY + 100, { width: photoWidth, align: 'center' });
     }
 
-    const tableX = photoX + photoWidth + 22; const tableWidth = right - tableX; const labelWidth = Math.min(135, tableWidth * .46);
+    const tableX = photoX + photoWidth + 18; const tableWidth = right - tableX; const labelWidth = Math.min(130, tableWidth * .46);
     let y = photoY;
-    doc.rect(tableX, y, tableWidth, 31).fill('#eef2f7').strokeColor('#94a3b8').lineWidth(.5).stroke();
-    doc.fillColor('#334155').font('Helvetica-Bold').fontSize(12).text('Personal Information', tableX, y + 9, { width: tableWidth, align: 'center' }); y += 31;
-    const rows: IdentitySlipField[] = [{ label: 'Reference', value: params.reference }, ...params.fields];
+    doc.rect(tableX, y, tableWidth, 30).fill('#eef2f7').strokeColor('#94a3b8').lineWidth(.5).stroke();
+    doc.fillColor('#334155').font('Helvetica-Bold').fontSize(11).text('Personal Information', tableX, y + 8, { width: tableWidth, align: 'center' }); y += 30;
+    const rows: IdentitySlipField[] = params.fields;
     for (const field of rows) {
-      const value = valueForPdf(field.value); const valueWidth = tableWidth - labelWidth - 16;
-      const height = Math.max(29, doc.heightOfString(value, { width: valueWidth, lineGap: 2 }) + 14);
+      const value = valueForPdf(field.value); const valueWidth = tableWidth - labelWidth - 14;
+      const height = Math.max(27, doc.heightOfString(value, { width: valueWidth, lineGap: 2 }) + 12);
       doc.rect(tableX, y, labelWidth, height).fill('#f8fafc'); doc.rect(tableX + labelWidth, y, tableWidth - labelWidth, height).fill('#ffffff');
       doc.rect(tableX, y, tableWidth, height).lineWidth(.5).strokeColor('#94a3b8').stroke();
-      doc.fillColor('#475569').font('Helvetica-Bold').fontSize(8.5).text(field.label, tableX + 7, y + 9, { width: labelWidth - 14 });
-      doc.fillColor('#111111').font('Helvetica').fontSize(8.5).text(value, tableX + labelWidth + 8, y + 9, { width: valueWidth, lineGap: 2 }); y += height;
+      doc.fillColor('#475569').font('Helvetica-Bold').fontSize(8).text(field.label, tableX + 7, y + 8, { width: labelWidth - 14 });
+      doc.fillColor('#111111').font('Helvetica').fontSize(8).text(value, tableX + labelWidth + 7, y + 8, { width: valueWidth, lineGap: 2 }); y += height;
     }
-    const footerY = Math.max(y, photoY + photoHeight) + 35;
-    doc.fillColor('#64748b').font('Helvetica').fontSize(8).text(`Generated ${params.issuedAt.toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ' UTC')} from provider-verified data. This is not an official NIMC or NIBSS-issued identity document.`, left, footerY, { width, align: 'center' });
+    const footerY = Math.max(y, photoY + photoHeight) + 24;
+    doc.fillColor('#64748b').font('Helvetica').fontSize(8).text(`Reference: ${params.reference}  |  Generated ${params.issuedAt.toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ' UTC')}`, left, footerY, { width, align: 'center' });
+    doc.font('Helvetica-Bold').fontSize(8).fillColor('#7a5a17').text('This third-party report is not issued or certified by NIMC.', left, footerY + 16, { width, align: 'center' });
     doc.end();
   });
 }

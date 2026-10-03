@@ -115,6 +115,35 @@ export const franceverifiedSlipAdapter = {
     }
     const d = result.data as Record<string, unknown>;
     const reference = str(d.trackingId) ?? `FV-${Date.now()}`;
+    const residence = [
+      firstString(d, 'residence_AdressLine1', 'residence_address', 'addressLine', 'address_line'),
+      firstString(d, 'residence_lga', 'lga', 'localGovernment'),
+      firstString(d, 'residence_state', 'state')
+    ].filter(Boolean).join(', ');
+    const regularFields: IdentitySlipField[] = [
+      { label: 'First Name', value: firstString(d, 'firstname', 'firstName') },
+      { label: 'Middle Name', value: firstString(d, 'middlename', 'middleName') },
+      { label: 'Surname', value: firstString(d, 'surname', 'lastName') },
+      { label: 'NIN', value: firstString(d, 'nin', 'idNumber', 'id_number') ?? nin },
+      { label: 'Gender', value: titleCaseGender(d.gender) },
+      { label: 'Date of Birth', value: str(d.birthdate) },
+      { label: 'Phone', value: str(d.telephoneno) },
+      { label: 'State of Residence', value: str(d.residence_state) },
+      { label: 'LGA of Residence', value: str(d.residence_lga) },
+      { label: 'Address', value: str(d.residence_AdressLine1) }
+    ];
+    const personalInfoFields: IdentitySlipField[] = [
+      { label: 'National Identification Number (NIN)', value: firstString(d, 'nin', 'idNumber', 'id_number') ?? nin },
+      { label: 'Tracking ID', value: reference },
+      { label: 'First Name', value: firstString(d, 'firstname', 'firstName') },
+      { label: 'Middle Name', value: firstString(d, 'middlename', 'middleName') ?? 'Not returned' },
+      { label: 'Last Name', value: firstString(d, 'surname', 'lastName', 'lastname') ?? 'Not returned' },
+      { label: 'Maiden Name', value: firstString(d, 'maidenName', 'maiden_name', 'maidenname') ?? 'Not returned' },
+      { label: 'Gender', value: titleCaseGender(d.gender) ?? 'Not returned' },
+      { label: 'Date of Birth', value: firstString(d, 'birthdate', 'dateOfBirth', 'date_of_birth', 'dob') ?? 'Not returned' },
+      { label: 'Phone Number', value: firstString(d, 'telephoneno', 'phoneNumber', 'phone', 'mobile') ?? 'Not returned' },
+      { label: 'Residence', value: residence || 'Not returned' }
+    ];
     const slip = await renderSlip({
       title: 'NIN Slip',
       subtitle: 'Verified by NIN',
@@ -122,18 +151,7 @@ export const franceverifiedSlipAdapter = {
       photoBase64: embeddedPhoto(d),
       tier,
       personalInfo,
-      fields: fieldsFromRaw(d, [
-        { label: 'First Name', value: firstString(d, 'firstname', 'firstName') },
-        { label: 'Middle Name', value: firstString(d, 'middlename', 'middleName') },
-        { label: 'Surname', value: firstString(d, 'surname', 'lastName') },
-        { label: 'NIN', value: firstString(d, 'nin', 'idNumber', 'id_number') ?? nin },
-        { label: 'Gender', value: titleCaseGender(d.gender) },
-        { label: 'Date of Birth', value: str(d.birthdate) },
-        { label: 'Phone', value: str(d.telephoneno) },
-        { label: 'State of Residence', value: str(d.residence_state) },
-        { label: 'LGA of Residence', value: str(d.residence_lga) },
-        { label: 'Address', value: str(d.residence_AdressLine1) }
-      ])
+      fields: fieldsFromRaw(d, personalInfo ? personalInfoFields : regularFields)
     });
     return { ok: true, message: result.message, userData: slip.userData, pdfBase64: slip.pdfBase64, raw: result.raw };
   },

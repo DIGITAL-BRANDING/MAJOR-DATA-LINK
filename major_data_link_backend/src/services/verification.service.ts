@@ -368,6 +368,9 @@ async function purchaseSlip(params: {
   // slipCallFor() usage at each call site below for which providers a given
   // slip flow actually supports today.
   callByProvider: Partial<Record<VerificationProvider, () => Promise<TechhubSlipResult>>>;
+  /** The admin-routed by-NIN service can recover from a provider-specific
+   * no-record response by checking the same NIN with the other provider. */
+  retryNoRecordWith?: Partial<Record<VerificationProvider, () => Promise<TechhubSlipResult>>>;
 }): Promise<SlipPurchaseResult> {
   const price = await getVerificationPrice(params.service);
   if (price.provider === 'manual') {
@@ -430,10 +433,23 @@ async function purchaseSlip(params: {
     };
   }
 
-  const result = await timedVerificationCall(params.service, 'lookup', call, {
+  let actualProvider = price.provider;
+  let result = await timedVerificationCall(params.service, 'lookup', call, {
     provider: price.provider,
     succeeded: (response) => typeof response === 'object' && response !== null && 'ok' in response && response.ok === true
   });
+
+  const noRecord = !result.ok && /\b(?:no\s+record\s+found|record\s+not\s+found|no\s+match\s+found|data\s+not\s+found)\b/i.test(result.message);
+  const fallbackProvider: VerificationProvider = price.provider === 'techhub' ? 'franceverified' : 'techhub';
+  const fallbackCall = noRecord ? params.retryNoRecordWith?.[fallbackProvider] : undefined;
+  if (fallbackCall) {
+    console.info(`[verification] ${params.service} returned no record from ${price.provider}; retrying ${fallbackProvider}`);
+    actualProvider = fallbackProvider;
+    result = await timedVerificationCall(params.service, 'lookup', fallbackCall, {
+      provider: fallbackProvider,
+      succeeded: (response) => typeof response === 'object' && response !== null && 'ok' in response && response.ok === true
+    });
+  }
 
   if (result.ok) {
     const recognisedFieldCount = Object.keys(result.userData ?? {}).filter((k) => k !== 'photo').length;
@@ -454,7 +470,7 @@ async function purchaseSlip(params: {
       where: { id: debit.transaction.id },
       data: {
         status: TransactionStatus.SUCCESS,
-        provider: price.provider,
+        provider: actualProvider,
         metadata: {
           service: params.service,
           ...params.operational,
@@ -484,7 +500,7 @@ async function purchaseSlip(params: {
     // "request is taking too long" timeout even on responses that had, in
     // fact, succeeded.
     void recordProviderDebit({
-      provider: price.provider,
+      provider: actualProvider,
       amountKobo: price.providerCostKobo,
       relatedTransactionId: debit.transaction.id,
       description: params.description
@@ -509,7 +525,7 @@ async function purchaseSlip(params: {
     where: { id: debit.transaction.id },
     data: {
       status: TransactionStatus.FAILED,
-      provider: price.provider,
+      provider: actualProvider,
       metadata: {
         service: params.service,
         ...params.operational,
@@ -587,6 +603,14 @@ export function purchaseNinByNin(params: { userId: string; nin: string; tier: Ni
       // Techhub-style tier was requested - only 'premium' gets the richer
       // visual treatment (see IdentitySlipTier); 'standard'/'regular'/'vnin'
       // all render with the same plain look.
+      franceverified: () => franceverifiedSlipAdapter.ninByNin(params.nin, params.tier === 'personal' ? undefined : params.tier === 'premium' ? 'premium' : undefined, params.tier === 'personal')
+    },
+    // The regular admin-routed tile can use the same provider coverage as
+    // V1/V2 if one provider's dataset cannot find an otherwise valid NIN.
+    // Only a no-record response triggers this; provider outages and other
+    // errors keep their original message and never fan out a second lookup.
+    retryNoRecordWith: {
+      techhub: () => params.tier === 'personal' ? techhubService.ninPersonalInfoByNin(params.nin) : techhubService.ninByNin(params.nin, params.tier),
       franceverified: () => franceverifiedSlipAdapter.ninByNin(params.nin, params.tier === 'personal' ? undefined : params.tier === 'premium' ? 'premium' : undefined, params.tier === 'personal')
     }
   });

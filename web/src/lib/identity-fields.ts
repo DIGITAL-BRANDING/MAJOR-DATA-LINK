@@ -31,6 +31,11 @@ function pick(data: Record<string, unknown>, keys: string[]): string | undefined
     const value = data[key];
     if (typeof value === 'string' && value.trim() && value !== '****') return value.trim();
   }
+  const normaliseKey = (key: string) => key.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const wanted = new Set(keys.map(normaliseKey));
+  for (const [key, value] of Object.entries(data)) {
+    if (wanted.has(normaliseKey(key)) && typeof value === 'string' && value.trim() && value !== '****') return value.trim();
+  }
   return undefined;
 }
 
@@ -53,7 +58,7 @@ export function extractIdentityFields(data: Record<string, unknown> | undefined,
 
   const nin = pick(data, ['nin']);
   const bvn = pick(data, ['bvn']);
-  const genericId = pick(data, ['idNumber', 'id_number']);
+  const genericId = pick(data, ['idNumber', 'id_number', 'National Identification Number (NIN)']);
   const idNumber = idHint === 'NIN' ? (nin ?? genericId) : (bvn ?? genericId);
 
   return {
@@ -62,12 +67,12 @@ export function extractIdentityFields(data: Record<string, unknown> | undefined,
     lastName: pick(data, ['surname', 'lastName', 'last_name']),
     gender: normaliseGender(pick(data, ['gender'])),
     dateOfBirth: pick(data, ['birthdate', 'dateOfBirth', 'dob', 'birthday', 'date_of_birth']),
-    phone: pick(data, ['telephoneno', 'mobile', 'phoneNumber', 'phone', 'phone_number']),
+    phone: pick(data, ['telephoneno', 'mobile', 'phoneNumber', 'phone', 'phone_number', 'Phone Number']),
     idNumber,
     idLabel: idNumber ? idHint : undefined,
     state: pick(data, ['residence_state', 'state']),
     lga: pick(data, ['residence_lga', 'lga']),
-    address: pick(data, ['residence_AdressLine1', 'address', 'addressLine', 'address_line']),
+    address: pick(data, ['residence_AdressLine1', 'address', 'addressLine', 'address_line', 'Residence']),
     photo: normalisePhoto(photoRaw),
   };
 }
