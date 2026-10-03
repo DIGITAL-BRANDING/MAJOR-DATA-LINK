@@ -94,7 +94,10 @@ export function createApp() {
             "'sha256-w36slEqa9euNKxfvkw+LLGsDIr++3rsZXpZxtmRh8Aw='",
             "'sha256-+5XkZFazzJo8n0iOP4ti/cLCMUudTf//Mzkb7xNPXIc='"
           ],
-          'connect-src': ["'self'"]
+          'connect-src': ["'self'"],
+          // PDFs are fetched with the user's Authorization header and shown
+          // from a short-lived blob URL; allow that same-origin app frame.
+          'frame-src': ["'self'", 'blob:']
         }
       }
     })(req, res, next);
