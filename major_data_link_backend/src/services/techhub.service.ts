@@ -94,10 +94,15 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
 }
 
 function firstNonEmptyString(records: Array<Record<string, unknown> | undefined>, keys: string[]) {
+  const normalise = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, '');
   for (const record of records) {
     if (!record) continue;
     for (const key of keys) {
-      const value = record[key];
+      const direct = record[key];
+      const actualKey = typeof direct === 'string'
+        ? key
+        : Object.keys(record).find((candidate) => normalise(candidate) === normalise(key));
+      const value = actualKey ? record[actualKey] : undefined;
       if (typeof value === 'string' && value.trim().length > 0) return value.trim();
     }
   }
@@ -109,25 +114,24 @@ function stringValue(records: Array<Record<string, unknown> | undefined>, keys: 
 }
 
 function personalInfoFields(data: Record<string, unknown> | undefined, fallback: Record<string, unknown>, outer: Array<Record<string, unknown> | undefined> = []): IdentitySlipField[] {
-  const addressValue = data?.address ?? data?.residence;
-  const address = addressValue !== null && typeof addressValue === 'object' && !Array.isArray(addressValue)
-    ? addressValue as Record<string, unknown> : undefined;
-  const records = [data, ...outer, address, fallback];
+  const records = [data, ...outer, fallback];
+  const addresses = records.flatMap((record) => [record?.address, record?.residence])
+    .filter((value): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value));
+  const allRecords = [...records, ...addresses];
   const residence = [
-    stringValue(records, ['residence_AdressLine1', 'residence_address', 'addressLine', 'address_line', 'address']),
-    stringValue(records, ['residence_lga', 'lga', 'localGovernment']),
-    stringValue(records, ['residence_state', 'state'])
+    stringValue(allRecords, ['residence_AdressLine1', 'residence_address', 'addressLine', 'address_line', 'address']),
+    stringValue(allRecords, ['residence_lga', 'lga', 'localGovernment']),
+    stringValue(allRecords, ['residence_state', 'state'])
   ].filter(Boolean).join(', ');
   const fields: IdentitySlipField[] = [
-    { label: 'National Identification Number (NIN)', value: stringValue(records, ['nin', 'idNumber', 'id_number']) },
-    { label: 'Tracking ID', value: stringValue(records, ['trackingId', 'tracking_id', 'reference']) },
-    { label: 'First Name', value: stringValue(records, ['firstName', 'first_name', 'firstname']) },
-    { label: 'Middle Name', value: stringValue(records, ['middleName', 'middle_name', 'middlename']) },
-    { label: 'Last Name', value: stringValue(records, ['lastName', 'last_name', 'surname', 'lastname']) },
-    { label: 'Maiden Name', value: stringValue(records, ['maidenName', 'maiden_name', 'maidenname']) },
-    { label: 'Phone Number', value: stringValue(records, ['phoneNumber', 'phone', 'mobile', 'telephoneno']) },
-    { label: 'Date of Birth', value: stringValue(records, ['dateOfBirth', 'date_of_birth', 'birthdate', 'birthday', 'dob']) },
-    { label: 'Gender', value: stringValue(records, ['gender']) },
+    { label: 'National Identification Number (NIN)', value: stringValue(allRecords, ['nin', 'idNumber', 'id_number']) },
+    { label: 'First Name', value: stringValue(allRecords, ['firstName', 'first_name', 'firstname']) },
+    { label: 'Middle Name', value: stringValue(allRecords, ['middleName', 'middle_name', 'middlename']) },
+    { label: 'Last Name', value: stringValue(allRecords, ['lastName', 'last_name', 'surname', 'lastname']) },
+    { label: 'Maiden Name', value: stringValue(allRecords, ['maidenName', 'maiden_name', 'maidenname']) },
+    { label: 'Phone Number', value: stringValue(allRecords, ['phoneNumber', 'phone', 'mobile', 'telephoneno']) },
+    { label: 'Date of Birth', value: stringValue(allRecords, ['dateOfBirth', 'date_of_birth', 'birthdate', 'birthday', 'dob']) },
+    { label: 'Gender', value: stringValue(allRecords, ['gender']) },
     { label: 'Residence', value: residence || undefined }
   ];
   return fields;
@@ -137,6 +141,11 @@ function previewData(fields: IdentitySlipField[], photo?: string): Record<string
   const result = Object.fromEntries(fields.filter((field): field is IdentitySlipField & { value: string } => typeof field.value === 'string' && field.value.trim() !== '').map((field) => [field.label, field.value]));
   if (photo) result.photo = photo;
   return result;
+}
+
+function hasPersonalInfoFields(fields: IdentitySlipField[]) {
+  const values = new Map(fields.map(({ label, value }) => [label.toLowerCase(), value?.trim() ?? '']));
+  return Boolean(values.get('first name') && values.get('last name') && values.get('date of birth') && values.get('phone number'));
 }
 
 export type TechhubAsyncSubmitResult = {
@@ -285,8 +294,10 @@ export class TechhubService {
       const userData = { first_name: 'JOHN', last_name: 'DOE', gender: 'MALE', ...body };
       if (options?.personalInfoSlip) {
         const fields = personalInfoFields(userData, body);
-        const reference = stringValue([userData], ['trackingId', 'tracking_id', 'reference']) ?? `TECHHUB-${Date.now()}`;
-        const pdfBase64 = await renderPersonalInformationSlipPdf({ title: 'NIN Slip', subtitle: 'Verified by Techhub', reference, fields, issuedAt: new Date() });
+        if (!hasPersonalInfoFields(fields)) {
+          return { ok: false, message: 'The provider did not return enough identity details to prepare a Personal Info slip. No charge was made.', raw: { mock: true } };
+        }
+        const pdfBase64 = await renderPersonalInformationSlipPdf({ title: 'NIN Slip', subtitle: 'Identity details', fields, issuedAt: new Date() });
         return { ok: true, message: 'Personal information slip generated (mock)', userData: previewData(fields), pdfBase64, raw: { mock: true } };
       }
       return {
@@ -349,12 +360,17 @@ export class TechhubService {
     }
 
     const nested = data.data;
+    const nestedRecord = asRecord(nested);
+    const responseRecord = asRecord((data as Record<string, unknown>).response)
+      ?? asRecord((data as Record<string, unknown>).result)
+      ?? asRecord(nestedRecord?.response)
+      ?? asRecord(nestedRecord?.result);
     // Premium-slip responses have appeared in both shapes below:
     // { pdf_base64: ... } and { user_data: { pdf_base64: ... } }. The latter
     // must become a downloadable document, not a raw field in the UI.
-    const userData = data.user_data ?? nested?.user_data ?? nested;
+    const userData = data.user_data ?? nestedRecord?.user_data ?? responseRecord ?? nestedRecord;
     const userDataRecord = asRecord(userData);
-    const records = [data as Record<string, unknown>, nested, userDataRecord];
+    const records = [data as Record<string, unknown>, nestedRecord, responseRecord, userDataRecord];
     const pdfBase64 = firstNonEmptyString(records, ['pdf_base64', 'pdf', 'pdf_data']);
     // Some Techhub slip variants return a ready-to-download URL instead of
     // embedding the PDF.  Preserve it for the user dashboard rather than
@@ -362,10 +378,12 @@ export class TechhubService {
     const pdfUrl = firstNonEmptyString(records, ['pdf_url', 'slip_url', 'download_url']);
 
     if (options?.personalInfoSlip) {
-      const fields = personalInfoFields(userDataRecord, body, [data as Record<string, unknown>, nested]);
+      const fields = personalInfoFields(userDataRecord, body, [data as Record<string, unknown>, nestedRecord, responseRecord]);
       const photo = stringValue(records, ['image', 'photo', 'picture', 'passport', 'passport_photo']);
-      const reference = stringValue(records, ['trackingId', 'tracking_id', 'reference']) ?? `TECHHUB-${Date.now()}`;
-      const generatedPdf = await renderPersonalInformationSlipPdf({ title: 'NIN Slip', subtitle: 'Verified by Techhub', reference, fields, photo: photo ? { base64: photo, format: 'jpeg' } : undefined, issuedAt: new Date() });
+      if (!hasPersonalInfoFields(fields) || !photo) {
+        return { ok: false, message: 'The provider did not return a complete Personal Info slip (identity details and photograph). Please try again later.', raw: data };
+      }
+      const generatedPdf = await renderPersonalInformationSlipPdf({ title: 'NIN Slip', subtitle: 'Identity details', fields, photo: { base64: photo, format: 'jpeg' }, issuedAt: new Date() });
       return { ok: true, message: publicVerificationMessage(data.message, 'Personal information slip generated successfully'), userData: previewData(fields, photo), pdfBase64: generatedPdf, raw: data };
     }
 

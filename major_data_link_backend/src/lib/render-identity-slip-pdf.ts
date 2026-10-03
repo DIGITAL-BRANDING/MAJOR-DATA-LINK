@@ -64,7 +64,7 @@ export function renderIdentitySlipPdf(params: {
 }
 
 export function renderPersonalInformationSlipPdf(params: {
-  title: 'NIN Slip' | 'BVN Slip'; subtitle: string; reference: string;
+  title: 'NIN Slip' | 'BVN Slip'; subtitle: string;
   fields: IdentitySlipField[]; photo?: IdentitySlipPhoto; issuedAt: Date; tier?: IdentitySlipTier;
 }): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -76,10 +76,10 @@ export function renderPersonalInformationSlipPdf(params: {
 
     const left = 40; const right = 555; const width = right - left;
     doc.rect(left, 40, width, 66).fill('#102a5c');
-    doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(17).text('MAJOR DATA-LINK', left + 17, 56);
+    doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(17).text('K-TECH SOLUTIONS', left + 17, 56);
     doc.font('Helvetica').fontSize(8.5).text('Third-party identity verification report', left + 17, 81);
-    doc.fillColor('#111111').font('Helvetica-Bold').fontSize(16).text('Personal Information Slip', left, 125, { width, align: 'center' });
-    doc.font('Helvetica').fontSize(9).fillColor('#555555').text(`${params.title} - ${params.subtitle}`, left, 147, { width, align: 'center' });
+    doc.fillColor('#111111').font('Helvetica-Bold').fontSize(16).text('Personal Information Report', left, 125, { width, align: 'center' });
+    doc.font('Helvetica').fontSize(9).fillColor('#555555').text(`${params.title} - Identity details`, left, 147, { width, align: 'center' });
 
     const photoX = left; const photoY = 178; const photoWidth = 180; const photoHeight = 225;
     doc.rect(photoX, photoY, photoWidth, photoHeight).fill('#f4f6f8').strokeColor('#cbd5e1').lineWidth(.6).stroke();
@@ -104,7 +104,7 @@ export function renderPersonalInformationSlipPdf(params: {
       doc.fillColor('#111111').font('Helvetica').fontSize(8).text(value, tableX + labelWidth + 7, y + 8, { width: valueWidth, lineGap: 2 }); y += height;
     }
     const footerY = Math.max(y, photoY + photoHeight) + 24;
-    doc.fillColor('#64748b').font('Helvetica').fontSize(8).text(`Reference: ${params.reference}  |  Generated ${params.issuedAt.toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ' UTC')}`, left, footerY, { width, align: 'center' });
+    doc.fillColor('#64748b').font('Helvetica').fontSize(8).text(`Generated ${params.issuedAt.toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ' UTC')}`, left, footerY, { width, align: 'center' });
     doc.font('Helvetica-Bold').fontSize(8).fillColor('#7a5a17').text('This third-party report is not issued or certified by NIMC.', left, footerY + 16, { width, align: 'center' });
     doc.end();
   });

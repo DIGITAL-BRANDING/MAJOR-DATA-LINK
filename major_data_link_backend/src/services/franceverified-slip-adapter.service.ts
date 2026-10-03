@@ -77,6 +77,11 @@ function fieldsFromRaw(
   });
 }
 
+function hasPersonalInfoFields(fields: IdentitySlipField[]) {
+  const values = new Map(fields.map(({ label, value }) => [label.toLowerCase(), value?.trim() ?? '']));
+  return Boolean(values.get('first name') && values.get('last name') && values.get('date of birth') && values.get('phone number'));
+}
+
 function previewData(fields: IdentitySlipField[], photo?: string): Record<string, string> {
   const data = Object.fromEntries(fields
     .filter((field): field is IdentitySlipField & { value: string } => typeof field.value === 'string' && field.value.trim() !== '')
@@ -94,16 +99,10 @@ async function renderSlip(params: {
   tier?: IdentitySlipTier;
   personalInfo?: boolean;
 }): Promise<{ pdfBase64: string; userData: Record<string, string> }> {
-  const render = params.personalInfo ? renderPersonalInformationSlipPdf : renderIdentitySlipPdf;
-  const pdfBase64 = await render({
-    title: params.title,
-    subtitle: params.subtitle,
-    reference: params.reference,
-    fields: params.fields,
-    photo: params.photoBase64 ? { base64: params.photoBase64, format: 'jpeg' } : undefined,
-    issuedAt: new Date(),
-    tier: params.tier
-  });
+  const photo = params.photoBase64 ? { base64: params.photoBase64, format: 'jpeg' as const } : undefined;
+  const pdfBase64 = params.personalInfo
+    ? await renderPersonalInformationSlipPdf({ title: params.title, subtitle: 'Identity details', fields: params.fields, photo, issuedAt: new Date(), tier: params.tier })
+    : await renderIdentitySlipPdf({ title: params.title, subtitle: params.subtitle, reference: params.reference, fields: params.fields, photo, issuedAt: new Date(), tier: params.tier });
   return { pdfBase64, userData: previewData(params.fields, params.photoBase64) };
 }
 
@@ -134,7 +133,6 @@ export const franceverifiedSlipAdapter = {
     ];
     const personalInfoFields: IdentitySlipField[] = [
       { label: 'National Identification Number (NIN)', value: firstString(d, 'nin', 'idNumber', 'id_number') ?? nin },
-      { label: 'Tracking ID', value: reference },
       { label: 'First Name', value: firstString(d, 'firstname', 'firstName') },
       { label: 'Middle Name', value: firstString(d, 'middlename', 'middleName') ?? 'Not returned' },
       { label: 'Last Name', value: firstString(d, 'surname', 'lastName', 'lastname') ?? 'Not returned' },
@@ -144,6 +142,9 @@ export const franceverifiedSlipAdapter = {
       { label: 'Phone Number', value: firstString(d, 'telephoneno', 'phoneNumber', 'phone', 'mobile') ?? 'Not returned' },
       { label: 'Residence', value: residence || 'Not returned' }
     ];
+    if (personalInfo && (!hasPersonalInfoFields(personalInfoFields) || !embeddedPhoto(d))) {
+      return { ok: false, message: 'The provider did not return a complete Personal Info report (identity details and photograph). Please try again later.', raw: result.raw };
+    }
     const slip = await renderSlip({
       title: 'NIN Slip',
       subtitle: 'Verified by NIN',
