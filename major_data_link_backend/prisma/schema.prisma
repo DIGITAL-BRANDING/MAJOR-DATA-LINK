@@ -358,8 +358,9 @@ model PartnerWebhookDelivery {
   eventKey            String
   event               String
   payload             Json
-  /// Encrypted secret snapshot: rotating a partner's current secret does not
-  /// make retries of an already queued delivery unverifiable.
+  /// Legacy encrypted enqueue-time secret snapshot. New delivery attempts
+  /// sign with the partner's current webhook secret so rotated endpoints can
+  /// accept retries of old queued events.
   signingSecret       Json
   status              PartnerWebhookDeliveryStatus @default(PENDING)
   attemptCount        Int                          @default(0)

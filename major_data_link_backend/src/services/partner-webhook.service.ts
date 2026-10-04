@@ -241,7 +241,7 @@ async function deliverOne(id: string) {
   const now = new Date();
   const claimed = await prisma.partnerWebhookDelivery.updateMany({ where: { id, status: PartnerWebhookDeliveryStatus.PENDING, nextAttemptAt: { lte: now } }, data: { status: PartnerWebhookDeliveryStatus.PROCESSING, lockedAt: now } });
   if (!claimed.count) return;
-  const delivery = await prisma.partnerWebhookDelivery.findUniqueOrThrow({ where: { id }, include: { partner: { select: { webhookUrl: true } } } });
+  const delivery = await prisma.partnerWebhookDelivery.findUniqueOrThrow({ where: { id }, include: { partner: { select: { webhookUrl: true, webhookSecretEncrypted: true } } } });
   const timestamp = Math.floor(Date.now() / 1000).toString();
   const rawBody = JSON.stringify(delivery.payload);
   let responseStatus: number | null = null;
@@ -249,7 +249,10 @@ async function deliverOne(id: string) {
   try {
     if (!delivery.partner.webhookUrl) throw new Error('Partner webhook URL is no longer configured');
     const endpoint = await assertSafeWebhookUrl(delivery.partner.webhookUrl);
-    const secret = secretFromSealed(delivery.signingSecret);
+    // Use the currently configured secret at send time. A queued event can
+    // outlive API-key or webhook-secret rotation; signing it with the old
+    // enqueue-time snapshot makes the receiver reject every retry forever.
+    const secret = secretFromSealed(delivery.partner.webhookSecretEncrypted);
     if (!secret) throw new Error('Webhook signing secret is unavailable');
     const signature = createHmac('sha256', secret).update(`${timestamp}.${rawBody}`, 'utf8').digest('hex');
     // Do not follow redirects: a public endpoint could otherwise redirect the
