@@ -58,7 +58,11 @@ async function franceVerifiedRequest(path: string, init: { method: 'GET' | 'POST
   const raw: unknown = await response.json().catch(() => ({}));
   const envelope = asRecord(raw) ?? {};
   const status = typeof envelope.status === 'string' ? envelope.status.toLowerCase() : envelope.status;
-  const successful = response.ok && (envelope.success === true || envelope.ok === true || status === 'success' || status === 'successful' || status === 'pending' || (!('success' in envelope) && !('ok' in envelope) && !('status' in envelope)));
+  // FranceVerified normally documents `status: "success"`, but some
+  // responses use a boolean `status: true` alongside the same `data` object.
+  // HTTP 200 alone is not enough to accept a lookup: explicit false/error
+  // envelopes must still fail and be refunded by purchaseSlip().
+  const successful = response.ok && (envelope.success === true || envelope.ok === true || status === true || status === 'success' || status === 'successful' || status === 'pending' || (!('success' in envelope) && !('ok' in envelope) && !('status' in envelope)));
   const data = asRecord(envelope.data) ?? asRecord(envelope.response) ?? (successful ? envelope : undefined);
 
   console.info('[franceverified] response', JSON.stringify({ endpoint: path, http_status: response.status, outcome: successful && Boolean(data) ? 'success' : 'failed' }));
