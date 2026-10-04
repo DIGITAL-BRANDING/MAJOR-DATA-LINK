@@ -15,6 +15,7 @@ import {
   type TechhubAsyncStatusResult
 } from './techhub.service.js';
 import { franceverifiedSlipAdapter } from './franceverified-slip-adapter.service.js';
+import type { IdentitySlipTier } from '../lib/render-identity-slip-pdf.js';
 import { submitNinValidationFV, checkNinValidationFV } from './franceverified-nin-validation-adapter.service.js';
 
 /**
@@ -559,6 +560,16 @@ const NIN_SLIP_SERVICE_BY_TIER: Record<TechhubSlipTier, VerificationServiceKey> 
 type NinSlipChoice = TechhubSlipTier | 'personal';
 type NinPhoneSlipChoice = Exclude<TechhubSlipTier, 'vnin'> | 'personal';
 
+/**
+ * FranceVerified returns data only, so we draw the PDF ourselves and the tier
+ * decides which layout (premium / standard / regular / vnin - see
+ * identity-slip-layouts.ts). 'personal' has its own report renderer, which
+ * takes no tier.
+ */
+function franceSlipTier(tier: NinSlipChoice): IdentitySlipTier | undefined {
+  return tier === 'personal' ? undefined : tier;
+}
+
 const NIN_PHONE_SLIP_SERVICE_BY_TIER: Record<Exclude<TechhubSlipTier, 'vnin'>, VerificationServiceKey> = {
   premium: 'NIN_PHONE_SLIP_PREMIUM',
   standard: 'NIN_PHONE_SLIP_STANDARD',
@@ -594,16 +605,14 @@ export function purchaseNinByNin(params: { userId: string; nin: string; tier: Ni
     pii: { nin: params.nin },
     idempotencyKey: params.idempotencyKey,
     // FranceVerified's /nin/verify/nin has no premium/standard/regular/vnin
-    // concept of its own (that's a Techhub-only distinction) - whichever
-    // tier's ServicePricing row is pointed at franceverified calls the same
-    // underlying endpoint. Admin can still price each tier differently.
+    // concept of its own - whichever tier's ServicePricing row is pointed at
+    // franceverified calls the same underlying endpoint, and the tier picks
+    // which slip layout we render from the result. Admin can still price
+    // each tier differently.
     callByProvider: {
       techhub: () => params.tier === 'personal' ? techhubService.ninPersonalInfoByNin(params.nin) : techhubService.ninByNin(params.nin, params.tier),
-      // FranceVerified's NIN result is identical regardless of which
-      // Techhub-style tier was requested - only 'premium' gets the richer
-      // visual treatment (see IdentitySlipTier); 'standard'/'regular'/'vnin'
-      // all render with the same plain look.
-      franceverified: () => franceverifiedSlipAdapter.ninByNin(params.nin, params.tier === 'personal' ? undefined : params.tier === 'premium' ? 'premium' : undefined, params.tier === 'personal')
+      // Same data for every tier; only the rendered layout differs.
+      franceverified: () => franceverifiedSlipAdapter.ninByNin(params.nin, franceSlipTier(params.tier), params.tier === 'personal')
     },
     // The regular admin-routed tile can use the same provider coverage as
     // V1/V2 if one provider's dataset cannot find an otherwise valid NIN.
@@ -611,7 +620,7 @@ export function purchaseNinByNin(params: { userId: string; nin: string; tier: Ni
     // errors keep their original message and never fan out a second lookup.
     retryNoRecordWith: {
       techhub: () => params.tier === 'personal' ? techhubService.ninPersonalInfoByNin(params.nin) : techhubService.ninByNin(params.nin, params.tier),
-      franceverified: () => franceverifiedSlipAdapter.ninByNin(params.nin, params.tier === 'personal' ? undefined : params.tier === 'premium' ? 'premium' : undefined, params.tier === 'personal')
+      franceverified: () => franceverifiedSlipAdapter.ninByNin(params.nin, franceSlipTier(params.tier), params.tier === 'personal')
     }
   });
 }
@@ -673,7 +682,7 @@ export function purchaseNinVerificationV2(params: { userId: string; nin: string;
     callByProvider: {
       franceverified: () => franceverifiedSlipAdapter.ninByNin(
         params.nin,
-        params.tier === 'personal' ? undefined : params.tier === 'premium' ? 'premium' : undefined,
+        franceSlipTier(params.tier),
         params.tier === 'personal'
       )
     }
@@ -696,7 +705,7 @@ export function purchaseNinByPhone(params: {
     idempotencyKey: params.idempotencyKey,
     callByProvider: {
       techhub: () => params.tier === 'personal' ? techhubService.ninPersonalInfoByPhone(params.phone) : techhubService.ninByPhone(params.phone, params.tier),
-      franceverified: () => franceverifiedSlipAdapter.ninByPhone(params.phone, params.tier === 'personal' ? undefined : params.tier === 'premium' ? 'premium' : undefined, params.tier === 'personal')
+      franceverified: () => franceverifiedSlipAdapter.ninByPhone(params.phone, franceSlipTier(params.tier), params.tier === 'personal')
     }
   });
 }
@@ -734,7 +743,7 @@ export function purchaseNinByPhoneV2(params: { userId: string; phone: string; ti
     pii: { phone: params.phone },
     idempotencyKey: params.idempotencyKey,
     callByProvider: {
-      franceverified: () => franceverifiedSlipAdapter.ninByPhone(params.phone, params.tier === 'personal' ? undefined : params.tier === 'premium' ? 'premium' : undefined, params.tier === 'personal')
+      franceverified: () => franceverifiedSlipAdapter.ninByPhone(params.phone, franceSlipTier(params.tier), params.tier === 'personal')
     }
   });
 }

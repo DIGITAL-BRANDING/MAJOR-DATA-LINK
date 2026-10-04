@@ -1,4 +1,15 @@
 import PDFDocument from 'pdfkit';
+import {
+  drawQr,
+  imageBuffer,
+  qrPayload,
+  valueForPdf,
+  type IdentitySlipField,
+  type IdentitySlipParams,
+  type IdentitySlipPhoto,
+  type IdentitySlipTier
+} from './identity-slip-common.js';
+import { renderRegularFormSlip, renderStandardDigitalSlip, renderVninRecordSlip } from './identity-slip-layouts.js';
 
 /**
  * Renders a NIN/BVN slip PDF from plain identity fields - for providers
@@ -8,27 +19,13 @@ import PDFDocument from 'pdfkit';
  * `provider` column on ServicePricing) never changes what the customer gets
  * to download - same "one PDF per slip purchase" shape either way.
  *
- * Same pdfkit conventions as nin-modification.service.ts's
- * renderModificationPdf() (A4, 50pt margin, Helvetica, base64 via
- * chunks/end) - kept as its own file since both verification.service.ts's
- * slip flow and, if it ever needs one, a future BVN-only flow can reuse it.
+ * NIN slips pick one of four layouts by tier (premium here; standard,
+ * regular and vnin in identity-slip-layouts.ts). BVN slips keep their
+ * original premium/standard looks. Tier only changes presentation - every
+ * layout is built from the same provider data.
  */
 
-export type IdentitySlipPhoto = { base64: string; format?: 'jpeg' | 'png' };
-
-export type IdentitySlipField = { label: string; value: string | null | undefined };
-
-/**
- * Only meaningful for providers (FranceVerified) whose own API has no real
- * premium/standard distinction - see franceverified-slip-adapter.ts. Both
- * tiers render from the exact same underlying data; this only changes the
- * PDF's visual presentation, so a customer who paid for "Premium" still
- * gets a document that looks worth the extra cost even though FranceVerified
- * itself never distinguished the two. Techhub-issued slips never pass
- * through here at all (they arrive as a finished pdfBase64), so this only
- * affects the FranceVerified path.
- */
-export type IdentitySlipTier = 'premium' | 'standard';
+export type { IdentitySlipField, IdentitySlipPhoto, IdentitySlipTier };
 
 const pageLeft = 50;
 const pageRight = 545;
@@ -36,30 +33,23 @@ const GOLD = '#b98a2c';
 const GOLD_DARK = '#7a5a17';
 const INK = '#171106';
 
-function valueForPdf(value: string | null | undefined): string {
-  return value === undefined || value === null || value.trim() === '' || value === '****' ? 'N/A' : value;
-}
-
-/** Accept either raw base64 or a browser-friendly data URL from a provider. */
-function imageBuffer(value: string): Buffer {
-  const base64 = value
-    .trim()
-    .replace(/^data:image\/(?:png|jpe?g|webp);base64,/i, '')
-    .replace(/\s/g, '');
-  return Buffer.from(base64, 'base64');
-}
-
-export function renderIdentitySlipPdf(params: {
-  title: 'NIN Slip' | 'BVN Slip';
-  subtitle: string;
-  reference: string;
-  fields: IdentitySlipField[];
-  photo?: IdentitySlipPhoto;
-  issuedAt: Date;
-  /** Defaults to 'standard' (today's existing look) when omitted, so any
-   *  caller that doesn't care about tiers keeps behaving exactly as before. */
-  tier?: IdentitySlipTier;
-}): Promise<string> {
+export function renderIdentitySlipPdf(params: IdentitySlipParams): Promise<string> {
+  if (params.title === 'NIN Slip') {
+    switch (params.tier) {
+      case 'premium':
+        return renderPremiumSlip(params);
+      case 'standard':
+        return renderStandardDigitalSlip(params);
+      case 'regular':
+        return renderRegularFormSlip(params);
+      case 'vnin':
+        return renderVninRecordSlip(params);
+      default:
+        // No tier given: the original plain look.
+        return renderStandardSlip(params);
+    }
+  }
+  // BVN slips only ever had the two original looks.
   return params.tier === 'premium' ? renderPremiumSlip(params) : renderStandardSlip(params);
 }
 
@@ -256,6 +246,18 @@ function renderPremiumSlip(params: {
       } catch (error) {
         console.error('[identity-slip-pdf] failed to embed photo, continuing without it:', error);
       }
+    }
+
+    // Premium NIN slips carry a QR of our reference in the free space under
+    // the photo (the field table sits to the right of the photo, so there is
+    // no collision). Skipped without a photo, where the table is full width.
+    if (hasPhoto && params.title === 'NIN Slip') {
+      const qrSize = 110;
+      const qrX = photoX + (photoWidth - qrSize) / 2;
+      const qrY = photoY + photoHeight + 24;
+      doc.lineWidth(0.8).strokeColor(GOLD).rect(qrX - 4, qrY - 4, qrSize + 8, qrSize + 8).stroke();
+      drawQr(doc, qrPayload(params.reference), qrX, qrY, qrSize);
+      doc.fillColor(GOLD_DARK).font('Helvetica-Bold').fontSize(7).text('SCAN FOR K-TECH REFERENCE', photoX, qrY + qrSize + 10, { width: photoWidth, align: 'center', lineBreak: false });
     }
 
     const tableX = hasPhoto ? photoX + photoWidth + 24 : pageLeft;
