@@ -94,6 +94,10 @@ const en = {
       testQueued: 'Test event queued - check your endpoint in a moment.',
       saveFailed: 'Could not save webhook URL',
       testFailed: 'Could not queue test event',
+      retryFailed: 'Recover missed updates',
+      retryQueued: 'Queued {{count}} missed update(s) for delivery.',
+      retryNone: 'No old transaction updates are waiting for delivery.',
+      retryFailedError: 'Could not retry failed updates',
       configuredNotice: 'Webhook configured. Save the secret now; it will not be shown again.'
     },
     pricing: {

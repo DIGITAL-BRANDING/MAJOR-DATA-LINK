@@ -25,6 +25,7 @@ import {
   Mail,
   Phone,
   PlusCircle,
+  RefreshCw,
   Search,
   ShieldCheck,
   Tag,
@@ -963,6 +964,21 @@ function WebhookCard({
     }
   }
 
+  async function retryFailed() {
+    setBusy(true);
+    onError('');
+    try {
+      const result = await portalFetch<{ data: { requeued: number } }>('/webhook/retry-failed', { method: 'POST' });
+      onNotice(result.data.requeued > 0
+        ? t('partnerPortal.webhook.retryQueued', { count: result.data.requeued })
+        : t('partnerPortal.webhook.retryNone'));
+    } catch (err) {
+      onError(err instanceof Error ? err.message : t('partnerPortal.webhook.retryFailedError'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function copy(value: string) {
     await navigator.clipboard.writeText(value);
     onNotice(t('partnerPortal.common.copied'));
@@ -1004,14 +1020,24 @@ function WebhookCard({
       )}
 
       {webhook?.configured && (
-        <button
-          disabled={busy}
-          onClick={() => void sendTest()}
-          className="mt-4 inline-flex items-center gap-2 rounded-lg border border-brand-700 px-3 py-2 text-xs font-semibold text-brand-700 disabled:opacity-50"
-        >
-          <CheckCircle2 size={14} />
-          {t('partnerPortal.webhook.sendTest')}
-        </button>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            disabled={busy}
+            onClick={() => void sendTest()}
+            className="inline-flex items-center gap-2 rounded-lg border border-brand-700 px-3 py-2 text-xs font-semibold text-brand-700 disabled:opacity-50"
+          >
+            <CheckCircle2 size={14} />
+            {t('partnerPortal.webhook.sendTest')}
+          </button>
+          <button
+            disabled={busy}
+            onClick={() => void retryFailed()}
+            className="inline-flex items-center gap-2 rounded-lg border border-amber-600 px-3 py-2 text-xs font-semibold text-amber-800 disabled:opacity-50"
+          >
+            <RefreshCw size={14} />
+            {t('partnerPortal.webhook.retryFailed')}
+          </button>
+        </div>
       )}
     </article>
   );

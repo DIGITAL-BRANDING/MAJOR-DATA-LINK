@@ -16,6 +16,7 @@ import { ApiError } from '../middleware/error.js';
 import {
   configurePartnerWebhook,
   queuePartnerWebhookTest,
+  retryFailedPartnerTransactionWebhooks,
   webhookConfiguration
 } from '../services/partner-webhook.service.js';
 import {
@@ -321,6 +322,11 @@ partnerPortalRoutes.post('/webhook/test', requirePartnerSession, async (req, res
     message: 'Webhook test queued',
     data: { event_id: delivery.eventId, status: delivery.status.toLowerCase(), attempts: delivery.attemptCount }
   });
+});
+
+partnerPortalRoutes.post('/webhook/retry-failed', requirePartnerSession, async (req, res) => {
+  const result = await retryFailedPartnerTransactionWebhooks(req.partner!.id);
+  res.json({ status: true, data: result });
 });
 
 partnerPortalRoutes.get('/webhook/deliveries', requirePartnerSession, async (req, res) => {

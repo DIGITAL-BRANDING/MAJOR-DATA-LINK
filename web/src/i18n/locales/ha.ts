@@ -94,6 +94,10 @@ const ha = {
       testQueued: 'An sanya test event a layi - duba endpoint ɗinku a cikin dakiku kaɗan.',
       saveFailed: 'An kasa ajiye webhook URL',
       testFailed: 'An kasa sanya test event a layi',
+      retryFailed: 'Dawo da tsofaffin updates',
+      retryQueued: 'An saka tsofaffin updates {{count}} domin a aika.',
+      retryNone: 'Babu tsohon transaction update da ke jiran aikawa.',
+      retryFailedError: 'An kasa sake aika updates din',
       configuredNotice: 'An saita webhook. Ajiye secret ɗin yanzu; ba za a sake nuna shi ba.'
     },
     pricing: {

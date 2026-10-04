@@ -1,7 +1,7 @@
 import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
-import { PartnerWebhookDeliveryStatus, TransactionStatus, type PartnerTransaction } from '@prisma/client';
+import { PartnerWebhookDeliveryStatus, TransactionStatus, TransactionType, type PartnerTransaction } from '@prisma/client';
 import { koboToNaira } from '../lib/money.js';
 import { openPII, sealPII, type SealedPII } from '../lib/pii.js';
 import { prisma } from '../lib/prisma.js';
@@ -78,6 +78,8 @@ function payloadFor(tx: PartnerTransaction, eventId: string) {
     created_at: new Date().toISOString(),
     data: {
       reference: tx.reference,
+      // Allows a consuming app to settle the matching pending provider ticket.
+      ...(tx.providerRef ? { ticket_id: tx.providerRef } : {}),
       status: tx.status.toLowerCase(),
       type: tx.type.toLowerCase(),
       amount: koboToNaira(tx.amountKobo),
@@ -176,6 +178,40 @@ export async function queuePartnerWebhookTest(partnerId: string) {
   }, eventId);
   await deliverDuePartnerWebhooks(1);
   return prisma.partnerWebhookDelivery.findUnique({ where: { eventId } });
+}
+
+/** Recover terminal async-verification updates which either failed before
+ * the receiver was fixed or completed before a webhook was configured. */
+export async function retryFailedPartnerTransactionWebhooks(partnerId: string) {
+  const partner = await prisma.partner.findUnique({ where: { id: partnerId }, select: { webhookUrl: true, webhookSecretEncrypted: true } });
+  const secret = secretFromSealed(partner?.webhookSecretEncrypted);
+  if (!partner?.webhookUrl || !secret) throw new ApiError(422, 'Configure your webhook URL and secret before retrying deliveries.', 'WEBHOOK_NOT_CONFIGURED');
+
+  const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+  const transactions = await prisma.partnerTransaction.findMany({
+    where: { partnerId, type: TransactionType.IDENTITY_SERVICE_REQUEST, status: { not: TransactionStatus.PENDING }, providerRef: { not: null }, createdAt: { gte: cutoff } },
+    orderBy: { createdAt: 'asc' }, take: 500
+  });
+  let requeued = 0;
+  for (const transaction of transactions) {
+    const eventKey = `${transaction.id}:${transaction.status}`;
+    const existing = await prisma.partnerWebhookDelivery.findFirst({ where: { partnerId, eventKey } });
+    if (!existing) {
+      await enqueuePartnerWebhookEvent(partnerId, 'transaction.updated', eventKey, payloadFor(transaction, randomUUID()));
+      requeued += 1;
+      continue;
+    }
+    const oldData = (existing.payload as { data?: { ticket_id?: unknown } }).data;
+    const missingTicket = typeof oldData?.ticket_id !== 'string' || !oldData.ticket_id;
+    if (existing.status === PartnerWebhookDeliveryStatus.PROCESSING || (existing.status !== PartnerWebhookDeliveryStatus.FAILED && !missingTicket)) continue;
+    const reset = await prisma.partnerWebhookDelivery.updateMany({
+      where: { id: existing.id, status: existing.status },
+      data: { status: PartnerWebhookDeliveryStatus.PENDING, attemptCount: 0, nextAttemptAt: new Date(), lockedAt: null, deliveredAt: null, lastAttemptAt: null, lastResponseStatus: null, lastError: null, payload: payloadFor(transaction, existing.eventId), signingSecret: sealPII({ secret }) }
+    });
+    requeued += reset.count;
+  }
+  if (requeued) await deliverDuePartnerWebhooks(Math.min(requeued, 25));
+  return { requeued };
 }
 
 function retryAt(attempt: number) {
