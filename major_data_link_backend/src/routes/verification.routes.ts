@@ -55,6 +55,8 @@ function idempotencyKeyFrom(req: Request) {
 }
 
 const ninSlipTier = z.enum(['premium', 'standard', 'regular', 'vnin', 'personal']);
+// V2 (FranceVerified) additionally offers the smart-card and portrait layouts.
+const ninSlipTierV2 = z.enum([...ninSlipTier.options, 'smart', 'portrait']);
 const ninPhoneSlipTier = z.enum(['premium', 'standard', 'regular', 'personal']);
 const bvnSlipTier = z.enum(['premium', 'standard']);
 const ninValidationType = z.enum([
@@ -280,7 +282,7 @@ verificationRoutes.post('/nin/verification-v1', async (req, res) => {
 });
 
 verificationRoutes.post('/nin/verification-v2', async (req, res) => {
-  const body = z.object({ nin: z.string().trim().length(11), tier: ninSlipTier, ...pinField }).parse(req.body);
+  const body = z.object({ nin: z.string().trim().length(11), tier: ninSlipTierV2, ...pinField }).parse(req.body);
   await requirePinConfirmation(req.user!.id, body.pin);
   const result = await purchaseNinVerificationV2({
     userId: req.user!.id,

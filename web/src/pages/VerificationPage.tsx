@@ -75,7 +75,7 @@ const nin: Item[] = [
   {
     id: 'verification-v2', label: 'NIN Verification V2', path: '', fields: [], icon: SearchCheck,
     methods: [
-      { id: 'v2-by-nin', label: 'By NIN', path: '/verification/nin/verification-v2', fields: ['nin'], icon: IdCard, tiers: ['premium', 'standard', 'regular', 'vnin', 'personal'] },
+      { id: 'v2-by-nin', label: 'By NIN', path: '/verification/nin/verification-v2', fields: ['nin'], icon: IdCard, tiers: ['premium', 'standard', 'regular', 'vnin', 'smart', 'portrait', 'personal'] },
       { id: 'v2-by-phone', label: 'By Phone', path: '/verification/nin/by-phone-v2', fields: ['phone'], icon: Phone, tiers: ['premium', 'standard', 'regular', 'personal'] },
       { id: 'v2-by-demographic', label: 'By Demographic', path: '/verification/nin/by-demographic-v2', fields: ['firstname', 'lastname', 'dob', 'gender'], icon: UserRoundCheck },
     ],
@@ -184,6 +184,27 @@ const NIN_SLIP_IMAGES: Record<string, string> = {
   personal: '/branding/information slip.jpg',
 };
 
+// NIN Verification V2 (FranceVerified) slips are drawn by us, so their tiles
+// preview those K-TECH layouts (specimen data) instead of the Techhub slips
+// shown for V1. Generated from the real renderer - see web/public/branding/v2-*.jpg.
+const NIN_SLIP_IMAGES_V2: Record<string, string> = {
+  premium: '/branding/v2-premium.jpg',
+  standard: '/branding/v2-standard.jpg',
+  regular: '/branding/v2-regular.jpg',
+  vnin: '/branding/v2-vnin.jpg',
+  smart: '/branding/v2-smart.jpg',
+  portrait: '/branding/v2-portrait.jpg',
+  personal: '/branding/v2-personal.jpg',
+};
+
+const TIER_LABELS: Record<string, string> = {
+  vnin: 'V-NIN Slip',
+  personal: 'Personal Info Slip',
+  smart: 'Smart ID Card Slip',
+  portrait: 'Premium Portrait Slip',
+};
+const tierLabel = (option: string) => TIER_LABELS[option] ?? `${option[0].toUpperCase() + option.slice(1)} Slip`;
+
 type SlipResult = { user_data?: Record<string, unknown>; reference: string; transaction_id: string; document_available: boolean };
 type AsyncResult = { ticket_id: string; reference: string };
 type TicketStatus = { ticket_id: string; status: 'pending' | 'success' | 'failed'; response: Record<string, unknown> | null };
@@ -254,7 +275,7 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
       'NIN_DEMOGRAPHIC_V1',
     ],
     'verification-v2': [
-      'NIN_VERIFICATION_V2_PREMIUM', 'NIN_VERIFICATION_V2_STANDARD', 'NIN_VERIFICATION_V2_REGULAR', 'NIN_VERIFICATION_V2_VNIN', 'NIN_VERIFICATION_V2_PERSONAL',
+      'NIN_VERIFICATION_V2_PREMIUM', 'NIN_VERIFICATION_V2_STANDARD', 'NIN_VERIFICATION_V2_REGULAR', 'NIN_VERIFICATION_V2_VNIN', 'NIN_VERIFICATION_V2_SMART', 'NIN_VERIFICATION_V2_PORTRAIT', 'NIN_VERIFICATION_V2_PERSONAL',
       'NIN_PHONE_SLIP_V2_PREMIUM', 'NIN_PHONE_SLIP_V2_STANDARD', 'NIN_PHONE_SLIP_V2_REGULAR', 'NIN_PHONE_SLIP_V2_PERSONAL',
       'NIN_DEMOGRAPHIC_V2',
     ],
@@ -712,8 +733,8 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
                 {leaf.tiers && (
                   <div className="sm:col-span-2 font-body text-sm font-medium text-ink-600">
                     <span>Slip type</span>
-                    <div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-                      {leaf.tiers.map((option) => <button key={option} type="button" onClick={() => setTier(option)} className={`rounded-xl border p-3 text-center transition hover:-translate-y-0.5 ${tier === option ? 'border-[#8b6914] bg-[#6b4f0b] text-white shadow-md' : 'border-parchment-line bg-cream text-ink hover:border-gold-500'}`}><img src={NIN_SLIP_IMAGES[option]} alt={`${option} slip preview`} className="mx-auto h-14 w-full rounded-lg bg-white object-contain p-1"/><span className="mt-2 block font-semibold">{option === 'vnin' ? 'V-NIN Slip' : option === 'personal' ? 'Personal Info Slip' : `${option[0].toUpperCase() + option.slice(1)} Slip`}</span><span className={`mt-1 block text-xs font-bold ${tier === option ? 'text-[#ffe9a3]' : 'text-gold-700'}`}>{money(prices[keyFor(leaf, option)])}</span></button>)}
+                    <div className={`mt-2 grid grid-cols-2 gap-3 sm:grid-cols-3 ${leaf.tiers.length > 5 ? 'lg:grid-cols-4' : 'lg:grid-cols-5'}`}>
+                      {leaf.tiers.map((option) => <button key={option} type="button" onClick={() => setTier(option)} className={`rounded-xl border p-3 text-center transition hover:-translate-y-0.5 ${tier === option ? 'border-[#8b6914] bg-[#6b4f0b] text-white shadow-md' : 'border-parchment-line bg-cream text-ink hover:border-gold-500'}`}><img src={(leaf.id === 'v2-by-nin' ? NIN_SLIP_IMAGES_V2 : NIN_SLIP_IMAGES)[option]} alt={`${tierLabel(option)} preview`} className="mx-auto h-14 w-full rounded-lg bg-white object-contain p-1"/><span className="mt-2 block font-semibold">{tierLabel(option)}</span><span className={`mt-1 block text-xs font-bold ${tier === option ? 'text-[#ffe9a3]' : 'text-gold-700'}`}>{money(prices[keyFor(leaf, option)])}</span></button>)}
                     </div>
                   </div>
                 )}

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createHash } from 'node:crypto';
 import { buildPdf, formatNin, qrPayload, splitFields, type IdentitySlipParams, type PdfDoc } from '../identity-slip-common.js';
-import { drawRegularForm, drawStandardDigital, drawVninRecord } from '../identity-slip-layouts.js';
+import { drawPremiumPortrait, drawRegularForm, drawSmartIdCard, drawStandardDigital, drawVninRecord } from '../identity-slip-layouts.js';
 import { renderIdentitySlipPdf } from '../render-identity-slip-pdf.js';
 
 // 1x1 transparent PNG - a valid image, so the photo path runs without a fixture file.
@@ -39,19 +39,19 @@ const hash = (b64: string) =>
     .digest('hex');
 
 describe('NIN slip layouts', () => {
-  it('renders four visually distinct, single-page PDFs - one per tier', async () => {
-    const out = await Promise.all((['premium', 'standard', 'regular', 'vnin'] as const).map((tier) => renderIdentitySlipPdf({ ...base, tier })));
+  it('renders six visually distinct, single-page PDFs - one per tier', async () => {
+    const out = await Promise.all((['premium', 'standard', 'regular', 'vnin', 'smart', 'portrait'] as const).map((tier) => renderIdentitySlipPdf({ ...base, tier })));
     out.forEach((pdf) => {
       expect(Buffer.from(pdf, 'base64').subarray(0, 5).toString()).toBe('%PDF-');
       expect(pages(pdf)).toBe(1);
     });
-    expect(new Set(out.map(hash)).size).toBe(4);
+    expect(new Set(out.map(hash)).size).toBe(6);
     // Same tier twice = byte-identical layout (proves the hash really ignores only timestamps).
     expect(hash(await renderIdentitySlipPdf({ ...base, tier: 'regular' }))).toBe(hash(out[2]));
   });
 
-  it('standard prints the NIN grouped, regular too, and both carry the not-NIMC disclaimer', async () => {
-    for (const draw of [drawStandardDigital, drawRegularForm]) {
+  it('standard, regular, smart and portrait print the NIN grouped and carry the not-NIMC disclaimer', async () => {
+    for (const draw of [drawStandardDigital, drawRegularForm, drawSmartIdCard, drawPremiumPortrait]) {
       const text = await textOf(draw);
       expect(text).toContain('1234 567 8901');
       expect(text).toContain('OKONKWO');
@@ -70,7 +70,7 @@ describe('NIN slip layouts', () => {
   });
 
   it('never uses government/agency wording on any layout', async () => {
-    for (const draw of [drawStandardDigital, drawRegularForm, drawVninRecord]) {
+    for (const draw of [drawStandardDigital, drawRegularForm, drawVninRecord, drawSmartIdCard, drawPremiumPortrait]) {
       const text = await textOf(draw);
       expect(text).not.toMatch(/Federal Republic|NATIONAL IDENTITY MANAGEMENT|Verification as a Service/i);
       expect(text).toContain('K-TECH SOLUTIONS');
@@ -82,7 +82,7 @@ describe('NIN slip layouts', () => {
     ['an undecodable photo', { ...base, photo: { base64: 'bm90LWFuLWltYWdl', format: 'jpeg' as const } }],
     ['missing fields', { ...base, fields: [{ label: 'Surname', value: 'OKONKWO' }] }]
   ])('still renders every tier with %s', async (_name, params) => {
-    for (const tier of ['premium', 'standard', 'regular', 'vnin'] as const) {
+    for (const tier of ['premium', 'standard', 'regular', 'vnin', 'smart', 'portrait'] as const) {
       vi.spyOn(console, 'error').mockImplementation(() => undefined);
       const pdf = await renderIdentitySlipPdf({ ...params, tier });
       expect(pages(pdf)).toBeGreaterThanOrEqual(1);
@@ -93,6 +93,17 @@ describe('NIN slip layouts', () => {
   it('spills long field lists onto a second page instead of overflowing', async () => {
     const many = [...base.fields, ...Array.from({ length: 30 }, (_v, i) => ({ label: `Extra ${i}`, value: `value ${i}` }))];
     expect(pages(await renderIdentitySlipPdf({ ...base, fields: many, tier: 'standard' }))).toBeGreaterThan(1);
+  });
+
+  it('smart card has a front and a back; portrait keeps every field by continuing onto a second page', async () => {
+    const smart = await textOf(drawSmartIdCard);
+    expect(smart).toContain('SMART ID CARD SLIP');
+    expect(smart).toContain('not an identity document');
+    const many = [...base.fields, ...Array.from({ length: 14 }, (_v, i) => ({ label: `Extra ${i}`, value: `value ${i}` }))];
+    const portrait = await renderIdentitySlipPdf({ ...base, fields: many, tier: 'portrait' });
+    expect(pages(portrait)).toBe(2);
+    const text = await textOf(drawPremiumPortrait, { ...base, fields: many });
+    expect(text).toContain('value 13');
   });
 
   it('keeps the original looks for BVN slips and for NIN slips with no tier', async () => {

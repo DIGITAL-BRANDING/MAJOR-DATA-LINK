@@ -33,6 +33,11 @@ const LEFT = 40;
 const RIGHT = 555;
 const WIDTH = RIGHT - LEFT;
 const PAGE_BOTTOM = 770;
+const BURGUNDY = '#5b1a3a';
+const GOLD = '#b8892b';
+const GOLD_DARK = '#7a5a17';
+const CARD_NAVY = '#0b2447';
+const AMBER = '#fbbf24';
 
 function headerBand(doc: PdfDoc, color: string, tag: string) {
   doc.rect(LEFT, 40, WIDTH, 56).fill(color);
@@ -239,6 +244,156 @@ export function drawVninRecord(doc: PdfDoc, p: IdentitySlipParams) {
   disclaimer(doc, 780);
 }
 
+// ── Smart ID card: card-sized, front + back ──────────────────────────────
+
+export function drawSmartIdCard(doc: PdfDoc, p: IdentitySlipParams) {
+  const f = splitFields(p.fields);
+  const rest = [...f.rest];
+  headerBand(doc, CARD_NAVY, 'SMART ID CARD SLIP');
+  title(doc, `${p.title} \u2014 Smart Verification Card`, p.subtitle);
+
+  // ID-1 proportions (85.6 x 54 mm), enlarged to 400 x 252 pt.
+  const cw = 400;
+  const ch = 252;
+  const cx = (595 - cw) / 2;
+
+  // Front
+  const fy = 168;
+  caption(doc, 'Front', cx, fy - 13, 60);
+  doc.roundedRect(cx, fy, cw, ch, 12).fill(CARD_NAVY);
+  doc.rect(cx, fy + 30, cw, 1.5).fill(AMBER);
+  doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(9).text('K-TECH SOLUTIONS', cx + 16, fy + 11, { lineBreak: false });
+  doc.fillColor(AMBER).font('Helvetica-Bold').fontSize(6.5).text('SMART VERIFICATION CARD', cx + 16, fy + 21, { lineBreak: false });
+  // Decorative contact-chip motif.
+  doc.roundedRect(cx + cw - 52, fy + 8, 32, 20, 3).fill(AMBER);
+  doc.lineWidth(0.6).strokeColor(CARD_NAVY).moveTo(cx + cw - 52, fy + 18).lineTo(cx + cw - 20, fy + 18).moveTo(cx + cw - 36, fy + 8).lineTo(cx + cw - 36, fy + 28).stroke();
+
+  const px = cx + 16;
+  const py = fy + 44;
+  if (!drawPhoto(doc, p.photo, px, py, 92, 116)) drawPhotoPlaceholder(doc, px, py, 92, 116);
+  doc.lineWidth(1.2).strokeColor('#ffffff').rect(px, py, 92, 116).stroke();
+
+  const tx = cx + 124;
+  caption(doc, 'Surname', tx, fy + 44, 150, '#9db4dc');
+  value(doc, f.surname, tx, fy + 54, 12, 150, '#ffffff');
+  caption(doc, 'Given names', tx, fy + 80, 150, '#9db4dc');
+  value(doc, f.givenNames, tx, fy + 90, 12, 150, '#ffffff');
+  caption(doc, 'Date of birth', tx, fy + 116, 90, '#9db4dc');
+  value(doc, f.dob, tx, fy + 126, 10.5, 90, '#ffffff');
+  caption(doc, 'Gender', tx + 98, fy + 116, 60, '#9db4dc');
+  value(doc, f.gender, tx + 98, fy + 126, 10.5, 60, '#ffffff');
+
+  caption(doc, 'National Identification Number (NIN)', px, fy + ch - 56, 260, AMBER);
+  doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(17).text(valueForPdf(formatNin(f.nin)), px, fy + ch - 44, { width: 250, lineBreak: false });
+  drawQr(doc, qrPayload(p.reference), cx + cw - 16 - 72, fy + ch - 16 - 72, 72);
+
+  // Back
+  const by = fy + ch + 40;
+  caption(doc, 'Back', cx, by - 13, 60);
+  doc.roundedRect(cx, by, cw, ch, 12).fill('#f8fafc');
+  doc.dash(4, { space: 3 }).lineWidth(1).strokeColor(CARD_NAVY).roundedRect(cx, by, cw, ch, 12).stroke().undash();
+  doc.fillColor(CARD_NAVY).font('Helvetica-Bold').fontSize(10).text('K-TECH SOLUTIONS', cx + 16, by + 14, { lineBreak: false });
+  doc.fillColor(GREY).font('Helvetica').fontSize(7).text('Smart verification card \u2014 reference copy', cx + 16, by + 28, { lineBreak: false });
+  doc.lineWidth(0.6).strokeColor('#cbd5e1').moveTo(cx + 16, by + 42).lineTo(cx + cw - 16, by + 42).stroke();
+
+  const backRows: IdentitySlipField[] = [
+    { label: 'Reference', value: p.reference },
+    { label: 'Issued', value: formatIssued(p.issuedAt) },
+    ...rest.filter((r) => r.value && r.value.trim() !== '' && r.value !== '****').slice(0, 5),
+    { label: 'Status', value: 'Verified' }
+  ];
+  let ry = by + 52;
+  for (const row of backRows) {
+    doc.fillColor(GREY).font('Helvetica-Bold').fontSize(7).text(row.label.toUpperCase(), cx + 16, ry + 1, { width: 92, lineBreak: false });
+    doc.fillColor(INK).font('Helvetica').fontSize(8.5).text(valueForPdf(row.value), cx + 112, ry, { width: cw - 128, height: 11, ellipsis: true });
+    ry += 17;
+  }
+  doc.fillColor(GREY).font('Helvetica-Oblique').fontSize(6.8).text(
+    'Third-party verification record, not an identity document. Not issued or certified by NIMC. Always verify the original ID.',
+    cx + 16, by + ch - 30, { width: cw - 32, align: 'center' }
+  );
+  disclaimer(doc, 780);
+}
+
+// ── Premium portrait: centred photo, name and NIN ────────────────────────
+
+export function drawPremiumPortrait(doc: PdfDoc, p: IdentitySlipParams) {
+  const f = splitFields(p.fields);
+  const rest = [...f.rest];
+
+  const frame = () => {
+    doc.lineWidth(1.4).strokeColor(GOLD).rect(24, 24, 547, 794).stroke();
+    doc.lineWidth(0.5).strokeColor(GOLD).rect(30, 30, 535, 782).stroke();
+  };
+  frame();
+
+  doc.rect(LEFT, 44, WIDTH, 52).fill(BURGUNDY);
+  doc.rect(LEFT, 44, WIDTH, 3).fill(GOLD);
+  doc.fillColor('#f6e3a8').font('Helvetica-Bold').fontSize(16).text('K-TECH SOLUTIONS', LEFT + 18, 62, { lineBreak: false });
+  doc.fillColor('#e9c9d7').font('Helvetica').fontSize(8.5).text('Premium identity verification', LEFT + 18, 81, { lineBreak: false });
+  doc.fillColor('#f6e3a8').font('Helvetica-Bold').fontSize(9).text('PREMIUM PORTRAIT SLIP', 300, 66, { width: RIGHT - 18 - 300, align: 'right', lineBreak: false });
+
+  doc.fillColor(INK).font('Helvetica-Bold').fontSize(13).text(`${p.title} \u2014 Premium Portrait`, LEFT, 110, { width: WIDTH, align: 'center', lineBreak: false });
+  doc.fillColor(GOLD_DARK).font('Helvetica-Oblique').fontSize(9).text(p.subtitle, LEFT, 128, { width: WIDTH, align: 'center', lineBreak: false });
+
+  const pw = 170;
+  const ph = 212;
+  const px = (595 - pw) / 2;
+  const py = 160;
+  doc.lineWidth(2.2).strokeColor(GOLD).rect(px - 5, py - 5, pw + 10, ph + 10).stroke();
+  doc.lineWidth(0.6).strokeColor(GOLD).rect(px - 9, py - 9, pw + 18, ph + 18).stroke();
+  if (!drawPhoto(doc, p.photo, px, py, pw, ph)) drawPhotoPlaceholder(doc, px, py, pw, ph);
+
+  const fullName = [f.surname, f.givenNames].filter(Boolean).join(' ');
+  doc.fillColor(BURGUNDY).font('Times-Bold').fontSize(21).text(valueForPdf(fullName || undefined).toUpperCase(), LEFT + 10, 396, { width: WIDTH - 20, align: 'center', height: 28, ellipsis: true });
+  doc.fillColor(GREY).font('Helvetica-Bold').fontSize(7).text('NATIONAL IDENTIFICATION NUMBER', LEFT, 430, { width: WIDTH, align: 'center', lineBreak: false });
+  doc.fillColor(BURGUNDY).font('Helvetica-Bold').fontSize(26).text(valueForPdf(formatNin(f.nin)), LEFT, 442, { width: WIDTH, align: 'center', lineBreak: false });
+  doc.lineWidth(1).strokeColor(GOLD).moveTo(LEFT + 90, 484).lineTo(RIGHT - 90, 484).stroke();
+
+  // Headline extras first, then whatever else the provider returned. Rows that
+  // don't fit continue on a second framed page rather than being dropped.
+  const items: IdentitySlipField[] = [
+    { label: 'Date of birth', value: f.dob },
+    { label: 'Gender', value: f.gender },
+    { label: 'Reference', value: p.reference },
+    { label: 'Issued', value: formatIssued(p.issuedAt) },
+    ...rest.filter((r) => r.value && r.value.trim() !== '' && r.value !== '****')
+  ];
+  const colW = WIDTH / 2;
+  const rowH = 38;
+  let y = 498;
+  let limit = 668;
+  for (let i = 0; i < items.length; i += 2) {
+    if (y + rowH > limit) {
+      doc.addPage();
+      frame();
+      y = 60;
+      limit = 740;
+    }
+    for (const [j, item] of [items[i], items[i + 1]].entries()) {
+      if (!item) continue;
+      const x = LEFT + 14 + j * colW;
+      caption(doc, item.label, x, y, colW - 28, GOLD_DARK);
+      doc.fillColor(INK).font('Helvetica-Bold').fontSize(10).text(valueForPdf(item.value), x, y + 11, { width: colW - 28, height: 24, ellipsis: true });
+    }
+    y += rowH;
+  }
+
+  const qrSize = 84;
+  let qrY = Math.max(y + 8, 676);
+  if (qrY + qrSize + 40 > 806) {
+    doc.addPage();
+    frame();
+    qrY = 80;
+  }
+  doc.lineWidth(0.8).strokeColor(GOLD).rect((595 - qrSize) / 2 - 4, qrY - 4, qrSize + 8, qrSize + 8).stroke();
+  drawQr(doc, qrPayload(p.reference), (595 - qrSize) / 2, qrY, qrSize);
+  doc.fillColor(GOLD_DARK).font('Helvetica-Bold').fontSize(6.5).text('SCAN FOR K-TECH REFERENCE', LEFT, qrY + qrSize + 8, { width: WIDTH, align: 'center', lineBreak: false });
+  doc.fillColor(GREY).font('Helvetica').fontSize(7).text(SLIP_DISCLAIMER, LEFT + 20, qrY + qrSize + 26, { width: WIDTH - 40, align: 'center' });
+}
+
 export const renderStandardDigitalSlip = (p: IdentitySlipParams) => buildPdf((doc) => drawStandardDigital(doc, p));
 export const renderRegularFormSlip = (p: IdentitySlipParams) => buildPdf((doc) => drawRegularForm(doc, p));
 export const renderVninRecordSlip = (p: IdentitySlipParams) => buildPdf((doc) => drawVninRecord(doc, p));
+export const renderSmartIdCardSlip = (p: IdentitySlipParams) => buildPdf((doc) => drawSmartIdCard(doc, p));
+export const renderPremiumPortraitSlip = (p: IdentitySlipParams) => buildPdf((doc) => drawPremiumPortrait(doc, p));

@@ -9,7 +9,7 @@ import {
   type IdentitySlipPhoto,
   type IdentitySlipTier
 } from './identity-slip-common.js';
-import { renderRegularFormSlip, renderStandardDigitalSlip, renderVninRecordSlip } from './identity-slip-layouts.js';
+import { renderPremiumPortraitSlip, renderRegularFormSlip, renderSmartIdCardSlip, renderStandardDigitalSlip, renderVninRecordSlip } from './identity-slip-layouts.js';
 
 /**
  * Renders a NIN/BVN slip PDF from plain identity fields - for providers
@@ -19,8 +19,8 @@ import { renderRegularFormSlip, renderStandardDigitalSlip, renderVninRecordSlip 
  * `provider` column on ServicePricing) never changes what the customer gets
  * to download - same "one PDF per slip purchase" shape either way.
  *
- * NIN slips pick one of four layouts by tier (premium here; standard,
- * regular and vnin in identity-slip-layouts.ts). BVN slips keep their
+ * NIN slips pick one of six layouts by tier (premium here; standard,
+ * regular, vnin, smart and portrait in identity-slip-layouts.ts). BVN slips keep their
  * original premium/standard looks. Tier only changes presentation - every
  * layout is built from the same provider data.
  */
@@ -44,6 +44,10 @@ export function renderIdentitySlipPdf(params: IdentitySlipParams): Promise<strin
         return renderRegularFormSlip(params);
       case 'vnin':
         return renderVninRecordSlip(params);
+      case 'smart':
+        return renderSmartIdCardSlip(params);
+      case 'portrait':
+        return renderPremiumPortraitSlip(params);
       default:
         // No tier given: the original plain look.
         return renderStandardSlip(params);

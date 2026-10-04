@@ -19,11 +19,13 @@ export type IdentitySlipField = { label: string; value: string | null | undefine
  *   standard - "digital slip": ID-card style panel with QR
  *   regular  - plain bordered form grid, photo top-right
  *   vnin     - minimal-disclosure verification record (NIN number withheld)
+ *   smart    - credit-card-sized "smart card" with a front and a back
+ *   portrait - premium portrait page: large centred photo, name and NIN
  * BVN slips only use premium/standard (their original two looks).
  * Rendering tier is purely presentation - every tier is built from the same
  * provider data.
  */
-export type IdentitySlipTier = 'premium' | 'standard' | 'regular' | 'vnin';
+export type IdentitySlipTier = 'premium' | 'standard' | 'regular' | 'vnin' | 'smart' | 'portrait';
 export type IdentitySlipTitle = 'NIN Slip' | 'BVN Slip';
 
 export type IdentitySlipParams = {

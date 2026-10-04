@@ -101,6 +101,9 @@ const SERVICE_KEYS = [
   'NIN_VERIFICATION_V2_STANDARD',
   'NIN_VERIFICATION_V2_REGULAR',
   'NIN_VERIFICATION_V2_VNIN',
+  // France-only slip looks (Techhub has no equivalent, so no V1 counterpart).
+  'NIN_VERIFICATION_V2_SMART',
+  'NIN_VERIFICATION_V2_PORTRAIT',
   'NIN_VERIFICATION_V2_PERSONAL',
   // Same provider-pinned pattern as NIN_VERIFICATION_V1/V2 above, extended to
   // the By-Phone and By-Demographic lookups - a customer can route around a
@@ -191,6 +194,8 @@ const DEFAULTS: Record<VerificationServiceKey, { label: string; price: number; p
   NIN_VERIFICATION_V2_STANDARD: { label: 'NIN Verification V2 (Standard)', price: 120, provider: 'franceverified' },
   NIN_VERIFICATION_V2_REGULAR: { label: 'NIN Verification V2 (Regular)', price: 120, provider: 'franceverified' },
   NIN_VERIFICATION_V2_VNIN: { label: 'NIN Verification V2 (VNIN)', price: 120, provider: 'franceverified' },
+  NIN_VERIFICATION_V2_SMART: { label: 'NIN Verification V2 (Smart ID Card)', price: 120, provider: 'franceverified' },
+  NIN_VERIFICATION_V2_PORTRAIT: { label: 'NIN Verification V2 (Premium Portrait)', price: 120, provider: 'franceverified' },
   NIN_VERIFICATION_V2_PERSONAL: { label: 'NIN Verification V2 (Personal Info)', price: 120, provider: 'franceverified' },
   NIN_PHONE_SLIP_V1_PREMIUM: { label: 'NIN Slip V1 (Premium) — by Phone', price: 130, provider: 'techhub' },
   NIN_PHONE_SLIP_V1_STANDARD: { label: 'NIN Slip V1 (Standard) — by Phone', price: 130, provider: 'techhub' },
@@ -559,6 +564,8 @@ const NIN_SLIP_SERVICE_BY_TIER: Record<TechhubSlipTier, VerificationServiceKey> 
 
 type NinSlipChoice = TechhubSlipTier | 'personal';
 type NinPhoneSlipChoice = Exclude<TechhubSlipTier, 'vnin'> | 'personal';
+/** V2 (FranceVerified) has two layouts Techhub doesn't: the smart card and the portrait slip. */
+type NinV2SlipChoice = NinSlipChoice | 'smart' | 'portrait';
 
 /**
  * FranceVerified returns data only, so we draw the PDF ourselves and the tier
@@ -566,7 +573,7 @@ type NinPhoneSlipChoice = Exclude<TechhubSlipTier, 'vnin'> | 'personal';
  * identity-slip-layouts.ts). 'personal' has its own report renderer, which
  * takes no tier.
  */
-function franceSlipTier(tier: NinSlipChoice): IdentitySlipTier | undefined {
+function franceSlipTier(tier: NinV2SlipChoice): IdentitySlipTier | undefined {
   return tier === 'personal' ? undefined : tier;
 }
 
@@ -644,11 +651,13 @@ const NIN_VERIFICATION_V1_SERVICE_BY_TIER: Record<NinSlipChoice, VerificationSer
   personal: 'NIN_VERIFICATION_V1_PERSONAL'
 };
 
-const NIN_VERIFICATION_V2_SERVICE_BY_TIER: Record<NinSlipChoice, VerificationServiceKey> = {
+const NIN_VERIFICATION_V2_SERVICE_BY_TIER: Record<NinV2SlipChoice, VerificationServiceKey> = {
   premium: 'NIN_VERIFICATION_V2_PREMIUM',
   standard: 'NIN_VERIFICATION_V2_STANDARD',
   regular: 'NIN_VERIFICATION_V2_REGULAR',
   vnin: 'NIN_VERIFICATION_V2_VNIN',
+  smart: 'NIN_VERIFICATION_V2_SMART',
+  portrait: 'NIN_VERIFICATION_V2_PORTRAIT',
   personal: 'NIN_VERIFICATION_V2_PERSONAL'
 };
 
@@ -670,7 +679,7 @@ export function purchaseNinVerificationV1(params: { userId: string; nin: string;
 }
 
 /** "NIN Verification V2" - the FranceVerified-only counterpart to V1 above. */
-export function purchaseNinVerificationV2(params: { userId: string; nin: string; tier: NinSlipChoice; idempotencyKey?: string }) {
+export function purchaseNinVerificationV2(params: { userId: string; nin: string; tier: NinV2SlipChoice; idempotencyKey?: string }) {
   return purchaseSlip({
     userId: params.userId,
     service: NIN_VERIFICATION_V2_SERVICE_BY_TIER[params.tier],
