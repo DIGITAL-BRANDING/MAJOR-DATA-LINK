@@ -98,6 +98,14 @@ const ha = {
       retryQueued: 'An saka tsofaffin updates {{count}} domin a aika.',
       retryNone: 'Babu tsohon transaction update da ke jiran aikawa.',
       retryFailedError: 'An kasa sake aika updates din',
+      recentDeliveries: 'Webhooks na baya-bayan nan',
+      refresh: 'Sake dubawa',
+      noDeliveries: 'Babu webhook delivery tukuna.',
+      historyFailed: 'An kasa loda jerin webhook deliveries',
+      attempts: 'ƙoƙari {{count}}',
+      retryOne: 'Sake gwadawa yanzu',
+      deliveryRetried: 'An sake aika webhook ɗin cikin nasara.',
+      deliveryRetryQueued: 'An saka webhook ɗin domin a sake aikawa.',
       configuredNotice: 'An saita webhook. Ajiye secret ɗin yanzu; ba za a sake nuna shi ba.'
     },
     pricing: {

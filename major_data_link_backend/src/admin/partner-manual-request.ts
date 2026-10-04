@@ -209,7 +209,10 @@ export function registerPartnerManualRequestRoutes(router: Router) {
       orderBy: { updatedAt: 'desc' },
       take: 250
     });
-    const rows = transactions.filter((transaction) => MANUAL_SERVICE_TRANSACTION_TYPES.includes(transaction.type));
+    // Include manual-provider verification requests as well as the dedicated
+    // manual-service transaction types. The previous type-only filter hid
+    // completed manual NIN/BVN requests from this recovery page entirely.
+    const rows = transactions.filter(isAdminManageablePartnerRequest);
     // A delivery stores a signed immutable payload rather than a foreign key
     // to the transaction. Its reference is therefore the stable, safe join
     // key for both old records and newly retried events.

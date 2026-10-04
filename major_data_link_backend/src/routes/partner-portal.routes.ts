@@ -17,6 +17,7 @@ import {
   configurePartnerWebhook,
   queuePartnerWebhookTest,
   retryFailedPartnerTransactionWebhooks,
+  retryPartnerWebhookDelivery,
   webhookConfiguration
 } from '../services/partner-webhook.service.js';
 import {
@@ -350,6 +351,12 @@ partnerPortalRoutes.get('/webhook/deliveries', requirePartnerSession, async (req
       next_attempt_at: row.status === 'PENDING' ? row.nextAttemptAt.toISOString() : null
     }))
   });
+});
+
+partnerPortalRoutes.post('/webhook/deliveries/:eventId/retry', requirePartnerSession, async (req, res) => {
+  const eventId = z.string().uuid().parse(req.params.eventId);
+  const delivery = await retryPartnerWebhookDelivery(req.partner!.id, eventId);
+  res.json({ status: true, data: { event_id: delivery.eventId, status: delivery.status.toLowerCase(), attempts: delivery.attemptCount } });
 });
 
 // ── Dashboard: metrics, calls-over-time, pricing, searchable history ───

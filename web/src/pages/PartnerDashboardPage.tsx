@@ -82,6 +82,7 @@ type Transaction = {
   created_at: string;
 };
 type WebhookConfig = { webhook_url: string | null; configured: boolean };
+type WebhookDelivery = { event_id: string; event: string; status: string; attempts: number; response_status: number | null; last_error: string | null; created_at: string; delivered_at: string | null; next_attempt_at: string | null };
 type ExactTransfer = { amount: number; reference: string; account_number: string; bank_name: string | null; expires_at: string | null };
 
 function getTokens() {
@@ -925,6 +926,19 @@ function WebhookCard({
   const [url, setUrl] = useState(webhook?.webhook_url ?? '');
   const [busy, setBusy] = useState(false);
   const [revealedSecret, setRevealedSecret] = useState<string | null>(null);
+  const [deliveries, setDeliveries] = useState<WebhookDelivery[]>([]);
+
+  async function loadDeliveries() {
+    if (!webhook?.configured) { setDeliveries([]); return; }
+    try {
+      const result = await portalFetch<{ data: WebhookDelivery[] }>('/webhook/deliveries?limit=10');
+      setDeliveries(result.data);
+    } catch (err) {
+      onError(err instanceof Error ? err.message : t('partnerPortal.webhook.historyFailed'));
+    }
+  }
+
+  useEffect(() => { void loadDeliveries(); }, [webhook?.configured]);
 
   async function save(event: FormEvent) {
     event.preventDefault();
@@ -957,6 +971,7 @@ function WebhookCard({
       } else {
         onError(`Webhook test was not delivered yet (status: ${result.data.status}, attempt: ${result.data.attempts}). Check the callback route and webhook secret.`);
       }
+      await loadDeliveries();
     } catch (err) {
       onError(err instanceof Error ? err.message : t('partnerPortal.webhook.testFailed'));
     } finally {
@@ -972,11 +987,25 @@ function WebhookCard({
       onNotice(result.data.requeued > 0
         ? t('partnerPortal.webhook.retryQueued', { count: result.data.requeued })
         : t('partnerPortal.webhook.retryNone'));
+      await loadDeliveries();
     } catch (err) {
       onError(err instanceof Error ? err.message : t('partnerPortal.webhook.retryFailedError'));
     } finally {
       setBusy(false);
     }
+  }
+
+  async function retryDelivery(eventId: string) {
+    setBusy(true);
+    onError('');
+    try {
+      const result = await portalFetch<{ data: { status: string } }>(`/webhook/deliveries/${encodeURIComponent(eventId)}/retry`, { method: 'POST' });
+      if (result.data.status === 'delivered') onNotice(t('partnerPortal.webhook.deliveryRetried'));
+      else onNotice(t('partnerPortal.webhook.deliveryRetryQueued'));
+      await loadDeliveries();
+    } catch (err) {
+      onError(err instanceof Error ? err.message : t('partnerPortal.webhook.retryFailedError'));
+    } finally { setBusy(false); }
   }
 
   async function copy(value: string) {
@@ -1038,6 +1067,28 @@ function WebhookCard({
             {t('partnerPortal.webhook.retryFailed')}
           </button>
         </div>
+      )}
+      {webhook?.configured && (
+        <section className="mt-5 border-t border-slate-200 pt-4">
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="text-sm font-semibold">{t('partnerPortal.webhook.recentDeliveries')}</h3>
+            <button type="button" disabled={busy} onClick={() => void loadDeliveries()} className="text-xs font-semibold text-brand-700 disabled:opacity-50">{t('partnerPortal.webhook.refresh')}</button>
+          </div>
+          {deliveries.length === 0 ? <p className="mt-2 text-xs text-slate-500">{t('partnerPortal.webhook.noDeliveries')}</p> : (
+            <div className="mt-2 divide-y divide-slate-100">
+              {deliveries.map((delivery) => (
+                <div key={delivery.event_id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-xs">
+                  <div className="min-w-0">
+                    <p className="font-semibold">{delivery.event} · <span className={delivery.status === 'failed' ? 'text-red-700' : delivery.status === 'delivered' ? 'text-green-700' : 'text-amber-700'}>{delivery.status}</span></p>
+                    <p className="text-slate-500">{new Date(delivery.created_at).toLocaleString()} · {t('partnerPortal.webhook.attempts', { count: delivery.attempts })}{delivery.response_status ? ` · HTTP ${delivery.response_status}` : ''}</p>
+                    {delivery.last_error && <p className="break-all text-red-700">{delivery.last_error}</p>}
+                  </div>
+                  {delivery.status === 'failed' && <button type="button" disabled={busy} onClick={() => void retryDelivery(delivery.event_id)} className="rounded-lg border border-amber-600 px-2 py-1 font-semibold text-amber-800 disabled:opacity-50">{t('partnerPortal.webhook.retryOne')}</button>}
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
       )}
     </article>
   );

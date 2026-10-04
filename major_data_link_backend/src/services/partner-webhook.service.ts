@@ -214,6 +214,24 @@ export async function retryFailedPartnerTransactionWebhooks(partnerId: string) {
   return { requeued };
 }
 
+/** Partner-initiated retry for a failed event, scoped to the authenticated partner. */
+export async function retryPartnerWebhookDelivery(partnerId: string, eventId: string) {
+  const delivery = await prisma.partnerWebhookDelivery.findFirst({
+    where: { partnerId, eventId },
+    select: { id: true, status: true }
+  });
+  if (!delivery) throw new ApiError(404, 'Webhook delivery not found', 'WEBHOOK_DELIVERY_NOT_FOUND');
+  if (delivery.status !== PartnerWebhookDeliveryStatus.FAILED) {
+    throw new ApiError(409, 'Only failed webhook deliveries can be retried', 'WEBHOOK_DELIVERY_NOT_FAILED');
+  }
+  const reset = await prisma.partnerWebhookDelivery.updateMany({
+    where: { id: delivery.id, partnerId, status: PartnerWebhookDeliveryStatus.FAILED },
+    data: { status: PartnerWebhookDeliveryStatus.PENDING, attemptCount: 0, nextAttemptAt: new Date(), lockedAt: null, lastError: null, lastResponseStatus: null }
+  });
+  if (reset.count) await deliverDuePartnerWebhooks(1);
+  return prisma.partnerWebhookDelivery.findUniqueOrThrow({ where: { id: delivery.id } });
+}
+
 function retryAt(attempt: number) {
   // 1, 2, 4, 8, 16, 32 minutes, then cap at one hour.
   return new Date(Date.now() + Math.min(60, 2 ** Math.max(0, attempt - 1)) * 60_000);

@@ -98,6 +98,14 @@ const en = {
       retryQueued: 'Queued {{count}} missed update(s) for delivery.',
       retryNone: 'No old transaction updates are waiting for delivery.',
       retryFailedError: 'Could not retry failed updates',
+      recentDeliveries: 'Recent webhook deliveries',
+      refresh: 'Refresh',
+      noDeliveries: 'No webhook deliveries yet.',
+      historyFailed: 'Could not load webhook deliveries',
+      attempts: '{{count}} attempt(s)',
+      retryOne: 'Retry now',
+      deliveryRetried: 'Webhook delivery retried successfully.',
+      deliveryRetryQueued: 'Webhook retry queued.',
       configuredNotice: 'Webhook configured. Save the secret now; it will not be shown again.'
     },
     pricing: {
