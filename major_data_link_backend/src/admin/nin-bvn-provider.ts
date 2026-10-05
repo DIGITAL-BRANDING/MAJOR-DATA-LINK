@@ -23,6 +23,8 @@ function parseMessage(query: Record<string, unknown>): { type: 'success' | 'erro
   return type === 'success' || type === 'error' ? { type, message: rest.join(':') } : null;
 }
 
+function isPartnerOnlyIpePrice(service: string) { return service.startsWith('IPE_CLEARANCE_'); }
+
 // These are the only services currently implemented by BOTH providers in
 // verification.service.ts. Keeping unavailable choices disabled prevents an
 // admin from saving a route that would fail on the next customer request.
@@ -81,7 +83,7 @@ export function registerNinBvnProviderRoutes(router: Router) {
     const admin = canManage(req);
     if (!admin) return res.redirect('/admin/login');
     try {
-      const services = await listVerificationPricesForAdmin();
+      const services = (await listVerificationPricesForAdmin()).filter((service) => !isPartnerOnlyIpePrice(service.service));
       res.type('html').send(renderPage(admin, services, parseMessage(req.query)));
     } catch (error) {
       console.error('[nin-bvn-provider] failed to load page:', error);
@@ -97,7 +99,7 @@ export function registerNinBvnProviderRoutes(router: Router) {
       .map(([key, value]) => ({ service: key.slice('provider_'.length), provider: typeof value === 'string' ? value : value?.[0] ?? '' }));
     if (!requested.length) return res.redirect('/admin/nin-bvn-provider?flash=' + redirectMessage('error', 'Ba a sami service da za a adana ba.'));
 
-    const knownServices = new Set((await listVerificationPricesForAdmin()).map((item) => item.service));
+    const knownServices = new Set((await listVerificationPricesForAdmin()).filter((item) => !isPartnerOnlyIpePrice(item.service)).map((item) => item.service));
     const invalid = requested.find(({ service, provider }) => {
       const pinned = PINNED_PROVIDERS[service];
       return !knownServices.has(service) || (pinned ? provider !== pinned : provider !== 'manual' && provider !== 'techhub' && !(provider === 'franceverified' && FRANCEVERIFIED_SERVICES.has(service) && Boolean(env.FRANCEVERIFIED_API_KEY)));

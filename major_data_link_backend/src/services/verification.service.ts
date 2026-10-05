@@ -83,6 +83,11 @@ const SERVICE_KEYS = [
   'NIN_PERSONALIZATION',
   'BVN_RETRIEVAL',
   'IPE_CLEARANCE',
+  'IPE_CLEARANCE_GET_OLD_TRACKING_ID',
+  'IPE_CLEARANCE_INPROCESSING_ERROR',
+  'IPE_CLEARANCE_TRACKING_IS_BEING_PROCESSED',
+  'IPE_CLEARANCE_MODIFICATION_IPE',
+  'IPE_CLEARANCE_HIT_BLOCKED',
   // Two user-facing, single-provider-locked tiles (see purchaseNinVerificationV1/V2
   // below) - NOT admin-switchable like every other service above. The whole
   // point is that the END USER picks which upstream API to hit (V1=Techhub,
@@ -125,6 +130,14 @@ const SERVICE_KEYS = [
 ] as const;
 
 export type VerificationServiceKey = (typeof SERVICE_KEYS)[number];
+export type IpeClearanceType = 'get_old_tracking_id' | 'inprocessing_error' | 'tracking_is_being_processed' | 'modification_ipe' | 'hit_blocked';
+const IPE_PARTNER_PRICE_SERVICE: Record<IpeClearanceType, VerificationServiceKey> = {
+  get_old_tracking_id: 'IPE_CLEARANCE_GET_OLD_TRACKING_ID',
+  inprocessing_error: 'IPE_CLEARANCE_INPROCESSING_ERROR',
+  tracking_is_being_processed: 'IPE_CLEARANCE_TRACKING_IS_BEING_PROCESSED',
+  modification_ipe: 'IPE_CLEARANCE_MODIFICATION_IPE',
+  hit_blocked: 'IPE_CLEARANCE_HIT_BLOCKED'
+};
 
 /**
  * Provider cost (naira) - what Techhub actually charges us per call, taken
@@ -178,7 +191,14 @@ const DEFAULTS: Record<VerificationServiceKey, { label: string; price: number; p
   NIN_VALIDATION_VNIN: { label: 'NIN Validation — v.NIN Validation', price: 360 },
   NIN_PERSONALIZATION: { label: 'NIN Personalization', price: 300 },
   BVN_RETRIEVAL: { label: 'BVN Retrieval', price: 700 },
-  IPE_CLEARANCE: { label: 'IPE Clearance', price: 450 },
+  // IPE requests require staff review by default. Admins can explicitly
+  // switch this service to Techhub from the NIN/BVN Provider settings.
+  IPE_CLEARANCE: { label: 'IPE Clearance', price: 450, provider: 'manual' },
+  IPE_CLEARANCE_GET_OLD_TRACKING_ID: { label: 'IPE Clearance — Get Old Tracking ID', price: 450, provider: 'manual' },
+  IPE_CLEARANCE_INPROCESSING_ERROR: { label: 'IPE Clearance — Inprocessing Error', price: 450, provider: 'manual' },
+  IPE_CLEARANCE_TRACKING_IS_BEING_PROCESSED: { label: 'IPE Clearance — Tracking Is Being Processed', price: 450, provider: 'manual' },
+  IPE_CLEARANCE_MODIFICATION_IPE: { label: 'IPE Clearance — Modification IPE', price: 450, provider: 'manual' },
+  IPE_CLEARANCE_HIT_BLOCKED: { label: 'IPE Clearance — HIT/Blocked', price: 450, provider: 'manual' },
   // provider is explicit (not left to getOrCreateVerificationPricingRow's
   // 'techhub' default) so these two are correctly wired the moment their
   // ServicePricing row is first created - no admin has to remember to open
@@ -268,13 +288,19 @@ async function getOrCreateVerificationPricingRow(service: VerificationServiceKey
  * PATCH /api/admin/service-prices/:service. Falls all the way back to
  * providerCostKobo if neither price is configured yet.
  */
-export async function getVerificationPrice(service: VerificationServiceKey, opts: { forPartner?: boolean } = {}) {
+export async function getVerificationPrice(service: VerificationServiceKey, opts: { forPartner?: boolean; ipeType?: IpeClearanceType } = {}) {
   const row = await getOrCreateVerificationPricingRow(service);
   if (!row.isActive) {
     throw new ApiError(422, `${row.label} is currently unavailable`, 'SERVICE_INACTIVE');
   }
+  const partnerIpeRow = opts.forPartner && service === 'IPE_CLEARANCE' && opts.ipeType
+    ? await getOrCreateVerificationPricingRow(IPE_PARTNER_PRICE_SERVICE[opts.ipeType])
+    : null;
+  if (partnerIpeRow && !partnerIpeRow.isActive) {
+    throw new ApiError(422, `${partnerIpeRow.label} is currently unavailable`, 'SERVICE_INACTIVE');
+  }
   const unitKobo = opts.forPartner
-    ? row.partnerSellingPriceKobo ?? row.sellingPriceKobo ?? row.providerCostKobo
+    ? partnerIpeRow?.partnerSellingPriceKobo ?? partnerIpeRow?.sellingPriceKobo ?? partnerIpeRow?.providerCostKobo ?? row.partnerSellingPriceKobo ?? row.sellingPriceKobo ?? row.providerCostKobo
     : row.sellingPriceKobo ?? row.providerCostKobo;
   return {
     service: row.service,
@@ -292,7 +318,7 @@ export async function getVerificationPrice(service: VerificationServiceKey, opts
 /** Public price list for every screen to read from - never throws on a disabled service. */
 export async function listVerificationPrices() {
   const rows = await Promise.all(SERVICE_KEYS.map((key) => getOrCreateVerificationPricingRow(key)));
-  return rows.map((row) => ({
+  return rows.filter((row) => !row.service.startsWith('IPE_CLEARANCE_')).map((row) => ({
     service: row.service,
     label: row.label,
     unitPrice: koboToNaira(row.sellingPriceKobo ?? row.providerCostKobo),
@@ -308,7 +334,7 @@ export async function listVerificationPrices() {
  */
 export async function listVerificationPricesForPartner() {
   const rows = await Promise.all(SERVICE_KEYS.map((key) => getOrCreateVerificationPricingRow(key)));
-  return rows.map((row) => ({
+  return rows.filter((row) => row.service !== 'IPE_CLEARANCE').map((row) => ({
     service: row.service,
     label: row.label,
     unitPrice: koboToNaira(row.partnerSellingPriceKobo ?? row.sellingPriceKobo ?? row.providerCostKobo),
@@ -1181,8 +1207,8 @@ export function submitIpeClearance(params: {
     userId: params.userId,
     service: 'IPE_CLEARANCE',
     description: `IPE clearance request (${params.ipeType.replace(/_/g, ' ')})`,
-    operational: {},
-    pii: { tracking_id: params.trackingId, ipe_type: params.ipeType },
+    operational: { ipe_type: params.ipeType },
+    pii: { tracking_id: params.trackingId },
     idempotencyKey: params.idempotencyKey,
     callByProvider: { techhub: () => techhubService.submitIpeClearance(params.trackingId, params.ipeType) }
   });
