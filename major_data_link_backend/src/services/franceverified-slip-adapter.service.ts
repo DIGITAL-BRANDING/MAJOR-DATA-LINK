@@ -79,7 +79,8 @@ function fieldsFromRaw(
 
 function hasPersonalInfoFields(fields: IdentitySlipField[]) {
   const values = new Map(fields.map(({ label, value }) => [label.toLowerCase(), value?.trim() ?? '']));
-  return Boolean(values.get('first name') && values.get('last name') && values.get('date of birth') && values.get('phone number'));
+  // Phone is not required: NIMC's own Personal Information slip leaves it blank for many records.
+  return Boolean(values.get('first name') && values.get('last name') && values.get('date of birth'));
 }
 
 function previewData(fields: IdentitySlipField[], photo?: string): Record<string, string> {

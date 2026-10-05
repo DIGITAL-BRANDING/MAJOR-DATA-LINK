@@ -3,6 +3,7 @@ import { ApiError } from '../middleware/error.js';
 import { prisma } from '../lib/prisma.js';
 import { publicVerificationMessage } from '../lib/public-verification-message.js';
 import { renderPersonalInformationSlipPdf, type IdentitySlipField } from '../lib/render-identity-slip-pdf.js';
+import { extractPhotoFromPdf } from '../lib/pdf-photo-extract.js';
 
 // No upstream verification call may wait indefinitely.
 const TECHHUB_REQUEST_TIMEOUT_MS = 20_000;
@@ -125,6 +126,7 @@ function personalInfoFields(data: Record<string, unknown> | undefined, fallback:
   ].filter(Boolean).join(', ');
   const fields: IdentitySlipField[] = [
     { label: 'National Identification Number (NIN)', value: stringValue(allRecords, ['nin', 'idNumber', 'id_number']) },
+    { label: 'Tracking ID', value: stringValue(allRecords, ['trackingId', 'tracking_id', 'trackingid']) },
     { label: 'First Name', value: stringValue(allRecords, ['firstName', 'first_name', 'firstname']) },
     { label: 'Middle Name', value: stringValue(allRecords, ['middleName', 'middle_name', 'middlename']) },
     { label: 'Last Name', value: stringValue(allRecords, ['lastName', 'last_name', 'surname', 'lastname']) },
@@ -143,9 +145,12 @@ function previewData(fields: IdentitySlipField[], photo?: string): Record<string
   return result;
 }
 
+// The identity essentials. Phone number is deliberately NOT required: NIMC's
+// own Personal Information slip prints it blank for many records, and
+// demanding it made perfectly good, already-billed lookups fail and refund.
 function hasPersonalInfoFields(fields: IdentitySlipField[]) {
   const values = new Map(fields.map(({ label, value }) => [label.toLowerCase(), value?.trim() ?? '']));
-  return Boolean(values.get('first name') && values.get('last name') && values.get('date of birth') && values.get('phone number'));
+  return Boolean(values.get('first name') && values.get('last name') && values.get('date of birth'));
 }
 
 export type TechhubAsyncSubmitResult = {
@@ -219,8 +224,13 @@ export class TechhubService {
     return this.postSlip(NIN_BY_NIN_PATH[tier], { nin }, { service: 'nin' });
   }
 
+  // Techhub has no "Personal Info" product. We buy their cheapest full-data
+  // lookup - the REGULAR slip - and draw our own Personal Information slip
+  // from its identity fields and the photograph inside its PDF (see the
+  // personalInfoSlip branch in postSlip). It used to call the PREMIUM
+  // endpoint, so Techhub billed and logged a premium slip for every one.
   async ninPersonalInfoByNin(nin: string) {
-    return this.postSlip(NIN_BY_NIN_PATH.premium, { nin }, { personalInfoSlip: true, service: 'nin' });
+    return this.postSlip(NIN_BY_NIN_PATH.regular, { nin }, { personalInfoSlip: true, service: 'nin' });
   }
 
   async ninByPhone(phone: string, tier: Exclude<TechhubSlipTier, 'vnin'>) {
@@ -231,7 +241,7 @@ export class TechhubService {
   }
 
   async ninPersonalInfoByPhone(phone: string) {
-    return this.postSlip(NIN_BY_PHONE_PATH.premium, { phone }, { personalInfoSlip: true, service: 'nin' });
+    return this.postSlip(NIN_BY_PHONE_PATH.regular, { phone }, { personalInfoSlip: true, service: 'nin' });
   }
 
   async ninByDemographic(params: { firstname: string; lastname: string; dob: string; gender?: string }) {
@@ -379,10 +389,29 @@ export class TechhubService {
 
     if (options?.personalInfoSlip) {
       const fields = personalInfoFields(userDataRecord, body, [data as Record<string, unknown>, nestedRecord, responseRecord]);
-      const photo = stringValue(records, ['image', 'photo', 'picture', 'passport', 'passport_photo']);
-      if (!hasPersonalInfoFields(fields) || !photo) {
+      // The photograph normally is NOT a JSON field - it only exists inside
+      // the slip PDF - so read it out of there when no field carries it.
+      let photo = stringValue(records, ['image', 'photo', 'picture', 'passport', 'passport_photo']);
+      let photoSource = photo ? 'json' : 'none';
+      let imagesInPdf = 0;
+      if (!photo && pdfBase64) {
+        const extracted = await extractPhotoFromPdf(pdfBase64);
+        imagesInPdf = extracted.imagesInPdf;
+        if (extracted.image) {
+          photo = extracted.image.base64;
+          photoSource = 'pdf';
+        }
+      }
+      const fieldsOk = hasPersonalInfoFields(fields);
+      if (!fieldsOk || !photo) {
+        // Keys only (never values) so this is safe to keep in logs.
+        console.error(
+          `[techhub] personal info incomplete (path=${path}): identity_fields=${fieldsOk ? 'ok' : 'MISSING'}, photo=${photo ? 'ok' : 'MISSING'}, ` +
+            `pdf_returned=${Boolean(pdfBase64)}, images_in_pdf=${imagesInPdf}, response_keys=${Object.keys(data as Record<string, unknown>).join(',')}, user_data_keys=${Object.keys(userDataRecord ?? {}).join(',')}`
+        );
         return { ok: false, message: 'The provider did not return a complete Personal Info slip (identity details and photograph). Please try again later.', raw: data };
       }
+      console.info(`[techhub] personal info built from ${path} (photo from ${photoSource})`);
       const generatedPdf = await renderPersonalInformationSlipPdf({ title: 'NIN Slip', subtitle: 'Identity details', fields, photo: { base64: photo, format: 'jpeg' }, issuedAt: new Date() });
       return { ok: true, message: publicVerificationMessage(data.message, 'Personal information slip generated successfully'), userData: previewData(fields, photo), pdfBase64: generatedPdf, raw: data };
     }
