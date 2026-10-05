@@ -219,7 +219,15 @@ export const partnerVerification = {
     return submitPartnerAsync({ partnerId, service: services[type] ?? 'NIN_VALIDATION_GENERAL', description: `NIN validation (${type})`, operational: { validation_type: type }, pii: { nin }, idempotencyKey, callByProvider: { techhub: () => techhubService.submitNinValidation(nin, validationType), franceverified: () => submitNinValidationFV(nin, validationType) } });
   },
   checkNinValidation: (partnerId: string, ticketId: string) => checkPartnerAsync({ partnerId, ticketId, callByProvider: { techhub: (id) => techhubService.checkNinValidation(id), franceverified: (id) => checkNinValidationFV(id) } }),
-  submitIpeClearance: (partnerId: string, trackingId: string, idempotencyKey: string) => submitPartnerAsync({ partnerId, service: 'IPE_CLEARANCE', description: 'IPE clearance request', operational: {}, pii: { tracking_id: trackingId }, idempotencyKey, callByProvider: { techhub: () => techhubService.submitIpeClearance(trackingId) } }),
+  submitIpeClearance: (partnerId: string, trackingId: string, ipeType: 'get_old_tracking_id' | 'inprocessing_error' | 'tracking_is_being_processed' | 'modification_ipe' | 'hit_blocked', idempotencyKey: string) => submitPartnerAsync({
+    partnerId,
+    service: 'IPE_CLEARANCE',
+    description: `IPE clearance request (${ipeType.replace(/_/g, ' ')})`,
+    operational: { ipe_type: ipeType },
+    pii: { tracking_id: trackingId },
+    idempotencyKey,
+    callByProvider: { techhub: () => techhubService.submitIpeClearance(trackingId, ipeType) }
+  }),
   checkIpeClearance: (partnerId: string, ticketId: string) => checkPartnerAsync({ partnerId, ticketId, callByProvider: { techhub: (id) => techhubService.checkIpeClearance(id) } }),
   submitPersonalization: (partnerId: string, trackingId: string, idempotencyKey: string) => submitPartnerAsync({ partnerId, service: 'NIN_PERSONALIZATION', description: 'NIN personalization request', operational: {}, pii: { tracking_id: trackingId }, idempotencyKey, callByProvider: { techhub: () => techhubService.submitPersonalization(trackingId) } }),
   checkPersonalization: (partnerId: string, ticketId: string) => checkPartnerAsync({ partnerId, ticketId, callByProvider: { techhub: (id) => techhubService.checkPersonalization(id) } })

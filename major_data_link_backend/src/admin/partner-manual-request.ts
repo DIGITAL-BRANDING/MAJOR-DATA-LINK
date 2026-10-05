@@ -70,11 +70,29 @@ function serviceLabel(transaction: PartnerManualTransaction) {
   return typeof service === 'string' ? service.replace(/_/g, ' ') : transaction.type.replace(/_/g, ' ');
 }
 
+function ipeTypeLabel(transaction: PartnerManualTransaction) {
+  const metadata = transaction.metadata as Record<string, unknown> | null;
+  if (metadata?.service !== 'IPE_CLEARANCE') return '';
+  const operationalType = metadata.ipe_type;
+  const piiType = decryptPartnerManualPII(transaction)?.ipe_type;
+  const value = typeof operationalType === 'string' ? operationalType : piiType;
+  if (typeof value !== 'string') return '';
+  const labels: Record<string, string> = {
+    get_old_tracking_id: 'Get Old Tracking ID',
+    inprocessing_error: 'Inprocessing Error',
+    tracking_is_being_processed: 'Tracking Is Being Processed',
+    modification_ipe: 'Modification IPE',
+    hit_blocked: 'HIT/Blocked'
+  };
+  return labels[value] ?? value.replace(/_/g, ' ');
+}
+
 function renderBatchPage(params: { rows: Array<PartnerManualTransaction & { partner: { businessName: string; email: string } }>; flash?: string }) {
   const tableRows = params.rows.length
     ? params.rows.map((transaction) => {
         const id = transaction.id;
-        return `<tr><td><strong>${escapeHtml(transaction.partner.businessName)}</strong><br><small>${escapeHtml(transaction.partner.email)}</small></td><td><strong>${escapeHtml(serviceLabel(transaction))}</strong><br><small>${escapeHtml(transaction.reference)}</small></td><td>${escapeHtml(requestIdentifier(transaction))}</td><td>${escapeHtml(transaction.createdAt.toLocaleString())}</td><td><select name="action_${id}"><option value="">No change</option><option value="complete">Complete request</option><option value="decline">Decline &amp; refund</option></select></td><td><textarea name="note_${id}" rows="2" placeholder="Completion note, or decline reason"></textarea></td><td><input type="file" name="file_${id}" accept="application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/png,image/jpeg"><small>Optional; used only when completing.</small></td></tr>`;
+        const ipeType = ipeTypeLabel(transaction);
+        return `<tr><td><strong>${escapeHtml(transaction.partner.businessName)}</strong><br><small>${escapeHtml(transaction.partner.email)}</small></td><td><strong>${escapeHtml(serviceLabel(transaction))}</strong>${ipeType ? `<br><small>IPE type: ${escapeHtml(ipeType)}</small>` : ''}<br><small>${escapeHtml(transaction.reference)}</small></td><td>${escapeHtml(requestIdentifier(transaction))}</td><td>${escapeHtml(transaction.createdAt.toLocaleString())}</td><td><select name="action_${id}"><option value="">No change</option><option value="complete">Complete request</option><option value="decline">Decline &amp; refund</option></select></td><td><textarea name="note_${id}" rows="2" placeholder="Completion note, or decline reason"></textarea></td><td><input type="file" name="file_${id}" accept="application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/png,image/jpeg"><small>Optional; used only when completing.</small></td></tr>`;
       }).join('')
     : '<tr><td colspan="7" class="empty">No pending partner requests in this queue.</td></tr>';
   return `<!doctype html><html><head><meta charset="utf-8"><title>Partner Request Queue</title><style>body{font:14px Arial,sans-serif;background:#f5f6f8;color:#18212f;margin:0;padding:28px}a{color:#0756b8;font-weight:600;text-decoration:none}.top{display:flex;justify-content:space-between;align-items:center;gap:16px}.flash{background:#e6f4ea;border:1px solid #8fd1a1;color:#155724;padding:12px 15px;border-radius:8px;margin:16px 0}form{overflow-x:auto}table{border-collapse:collapse;width:100%;min-width:1180px;background:#fff;box-shadow:0 1px 4px #0001}th,td{text-align:left;padding:12px;border-bottom:1px solid #e7edf4;vertical-align:top}th{background:#0b2f73;color:#fff}textarea,select,input[type=file]{box-sizing:border-box;width:100%;font:inherit;border:1px solid #bdc9d8;border-radius:6px;padding:8px;background:#fff}input[type=file]{font-size:12px}small{display:block;color:#5b6878;margin-top:4px}.empty{text-align:center;padding:32px}.submit{margin-top:16px;background:#0b2f73;color:#fff;border:0;border-radius:8px;padding:12px 20px;font-size:15px;font-weight:bold;cursor:pointer}.hint{color:#536273}</style></head><body><div class="top"><div><h1>Partner request queue</h1><p class="hint">Complete or decline many pending Partner API requests on one page. Only rows with a selected action will change.</p></div><a href="/admin">← Admin Dashboard</a></div><p><a href="/admin/manual-requests">← All manual requests</a> · <a href="/admin/partner-manual-requests/updates">Send partner update</a> · <a href="/admin/partner-manual-requests/resend">Manual partner request webhook recovery</a></p>${params.flash ? `<p class="flash">${escapeHtml(params.flash)}</p>` : ''}<form method="post" action="/admin/partner-manual-requests/batch" enctype="multipart/form-data"><table><thead><tr><th>Partner</th><th>Request</th><th>Submitted ID</th><th>Submitted</th><th>Action</th><th>Message</th><th>Result file</th></tr></thead><tbody>${tableRows}</tbody></table>${params.rows.length ? '<button class="submit" type="submit">Apply selected changes</button>' : ''}</form></body></html>`;

@@ -331,8 +331,11 @@ partnerApiRoutes.get('/verification/nin/validation/:ticketId', async (req, res) 
 });
 
 partnerApiRoutes.post('/verification/nin/ipe-clearance', async (req, res) => {
-  const body = z.object({ tracking_id: z.string().trim().min(1).max(50) }).parse(req.body);
-  const result = await partnerVerification.submitIpeClearance(req.partner!.id, body.tracking_id, idempotencyKeyFrom(req));
+  const body = z.object({
+    tracking_id: z.string().trim().min(1).max(50),
+    ipe_type: z.enum(['get_old_tracking_id', 'inprocessing_error', 'tracking_is_being_processed', 'modification_ipe', 'hit_blocked']).optional()
+  }).parse(req.body);
+  const result = await partnerVerification.submitIpeClearance(req.partner!.id, body.tracking_id, body.ipe_type ?? 'inprocessing_error', idempotencyKeyFrom(req));
   res.set('Cache-Control', 'no-store');
   res.status(202).json(asyncVerificationResponse(result));
 });

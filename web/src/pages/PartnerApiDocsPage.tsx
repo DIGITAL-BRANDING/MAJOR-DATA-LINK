@@ -234,10 +234,13 @@ export default function PartnerApiDocsPage() {
           />
           <AsyncServiceCard
             title="IPE Clearance"
-            desc="Submit an IPE clearance request by tracking ID."
+            desc="Submit an IPE clearance request by tracking ID and the selected IPE issue type."
             submitPath="/verification/nin/ipe-clearance"
             checkPath="/verification/nin/ipe-clearance/:ticketId"
-            rows={[{ name: 'tracking_id', type: 'string', required: true, desc: 'Tracking ID' }]}
+            rows={[
+              { name: 'tracking_id', type: 'string', required: true, desc: 'Tracking ID' },
+              { name: 'ipe_type', type: 'string', required: false, desc: 'get_old_tracking_id, inprocessing_error, tracking_is_being_processed, modification_ipe, or hit_blocked (defaults to inprocessing_error)' }
+            ]}
           />
         </Section>
 
