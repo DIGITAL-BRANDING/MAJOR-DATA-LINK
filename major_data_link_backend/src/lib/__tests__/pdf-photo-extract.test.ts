@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { inflateSync } from 'node:zlib';
 import { extractPhotoFromPdf } from '../pdf-photo-extract.js';
-import { JPEG_PHOTO_B64, makeDamagedPdfWithJpeg, makeIndexedPng, makePdfWithImages, makePdfWithRawFlateImage, makePdfWithWrappedJpeg, makePng } from '../../test-utils/slip-fixtures.js';
+import { JPEG_PHOTO_B64, makeDamagedPdfWithJpeg, makeIndexedPng, makePdfWithImages, makePdfWithRawFlateImage, makePdfWithWrappedJpeg, makePng, makeRgbaPng } from '../../test-utils/slip-fixtures.js';
 
 const jpeg = Buffer.from(JPEG_PHOTO_B64, 'base64');
 
@@ -34,6 +34,20 @@ describe('extractPhotoFromPdf', () => {
     expect(result.imagesInPdf).toBe(2);
     expect(result.image).toMatchObject({ format: 'jpeg', width: 100, height: 125 });
     expect(Buffer.from(result.image!.base64, 'base64').subarray(0, 2).toString('hex')).toBe('ffd8');
+  });
+
+  // Regression: Techhub's slip PDFs (dompdf) hold a huge full-page PNG template, a QR/crest
+  // overlay with a soft mask, and the photograph as a small JPEG. Picking "the largest image"
+  // returned the template instead of the person's photo.
+  it('picks the small JPEG photograph over a much larger full-page PNG template', async () => {
+    const result = await extractPhotoFromPdf(await makePdfWithImages([makePng(900, 1200), makeRgbaPng(300, 300), jpeg]));
+    expect(result.imagesInPdf).toBe(3);
+    expect(result.image).toMatchObject({ format: 'jpeg', width: 100, height: 125 });
+  });
+
+  it('with no JPEG at all, prefers an unmasked portrait image over a larger masked overlay', async () => {
+    const result = await extractPhotoFromPdf(await makePdfWithImages([makeRgbaPng(400, 400), makePng(90, 110)]));
+    expect(result.image).toMatchObject({ format: 'png', width: 90, height: 110 });
   });
 
   it('returns the JPEG bytes untouched (no re-encoding)', async () => {

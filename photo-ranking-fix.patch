@@ -1,0 +1,174 @@
+diff --git a/major_data_link_backend/src/lib/__tests__/pdf-photo-extract.test.ts b/major_data_link_backend/src/lib/__tests__/pdf-photo-extract.test.ts
+index 3e1a09d..99e76c9 100644
+--- a/major_data_link_backend/src/lib/__tests__/pdf-photo-extract.test.ts
++++ b/major_data_link_backend/src/lib/__tests__/pdf-photo-extract.test.ts
+@@ -1,7 +1,7 @@
+ import { describe, expect, it, vi } from 'vitest';
+ import { inflateSync } from 'node:zlib';
+ import { extractPhotoFromPdf } from '../pdf-photo-extract.js';
+-import { JPEG_PHOTO_B64, makeDamagedPdfWithJpeg, makeIndexedPng, makePdfWithImages, makePdfWithRawFlateImage, makePdfWithWrappedJpeg, makePng } from '../../test-utils/slip-fixtures.js';
++import { JPEG_PHOTO_B64, makeDamagedPdfWithJpeg, makeIndexedPng, makePdfWithImages, makePdfWithRawFlateImage, makePdfWithWrappedJpeg, makePng, makeRgbaPng } from '../../test-utils/slip-fixtures.js';
+ 
+ const jpeg = Buffer.from(JPEG_PHOTO_B64, 'base64');
+ 
+@@ -36,6 +36,20 @@ describe('extractPhotoFromPdf', () => {
+     expect(Buffer.from(result.image!.base64, 'base64').subarray(0, 2).toString('hex')).toBe('ffd8');
+   });
+ 
++  // Regression: Techhub's slip PDFs (dompdf) hold a huge full-page PNG template, a QR/crest
++  // overlay with a soft mask, and the photograph as a small JPEG. Picking "the largest image"
++  // returned the template instead of the person's photo.
++  it('picks the small JPEG photograph over a much larger full-page PNG template', async () => {
++    const result = await extractPhotoFromPdf(await makePdfWithImages([makePng(900, 1200), makeRgbaPng(300, 300), jpeg]));
++    expect(result.imagesInPdf).toBe(3);
++    expect(result.image).toMatchObject({ format: 'jpeg', width: 100, height: 125 });
++  });
++
++  it('with no JPEG at all, prefers an unmasked portrait image over a larger masked overlay', async () => {
++    const result = await extractPhotoFromPdf(await makePdfWithImages([makeRgbaPng(400, 400), makePng(90, 110)]));
++    expect(result.image).toMatchObject({ format: 'png', width: 90, height: 110 });
++  });
++
+   it('returns the JPEG bytes untouched (no re-encoding)', async () => {
+     const result = await extractPhotoFromPdf(await makePdfWithImages([jpeg]));
+     expect(Buffer.from(result.image!.base64, 'base64').equals(jpeg)).toBe(true);
+diff --git a/major_data_link_backend/src/lib/pdf-photo-extract.ts b/major_data_link_backend/src/lib/pdf-photo-extract.ts
+index cae6a8b..64bb072 100644
+--- a/major_data_link_backend/src/lib/pdf-photo-extract.ts
++++ b/major_data_link_backend/src/lib/pdf-photo-extract.ts
+@@ -1,5 +1,5 @@
+ import { deflateSync, inflateSync } from 'node:zlib';
+-import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFNumber, PDFRawStream, PDFString } from 'pdf-lib';
++import { PDFArray, PDFBool, PDFDict, PDFDocument, PDFHexString, PDFName, PDFNumber, PDFRawStream, PDFRef, PDFString } from 'pdf-lib';
+ 
+ /**
+  * Pulls the holder's photograph out of a provider-issued slip PDF.
+@@ -198,7 +198,10 @@ function pixelFormatOf(dict: PDFDict): PixelFormat | undefined {
+ 
+ // ── Candidates ───────────────────────────────────────────────────────────
+ 
+-function candidateFrom(stream: PDFRawStream): Candidate | undefined {
++/** Passport-style portrait/near-square: what an ID photo looks like (backgrounds and banners are not). */
++const looksLikePortrait = (width: number, height: number) => width / height >= 0.55 && width / height <= 1.0;
++
++function candidateFrom(stream: PDFRawStream, allowFlate: boolean): Candidate | undefined {
+   const { dict } = stream;
+   const width = num(dict, 'Width');
+   const height = num(dict, 'Height');
+@@ -216,10 +219,17 @@ function candidateFrom(stream: PDFRawStream): Candidate | undefined {
+     if (cs instanceof PDFName && cs.toString() === '/DeviceCMYK') return undefined;
+     const bytes = decodeFilters(source, filters.slice(0, -1));
+     if (!bytes || bytes.length < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8) return undefined;
+-    // Photographs are JPEGs; crests/logos are usually Flate PNGs - prefer JPEG.
+-    return { base64: bytes.toString('base64'), format: 'jpeg', width, height, score: area * 2 };
++    // Photographs are JPEGs, while page backgrounds, QR codes and crests are
++    // Flate PNGs (dompdf, FPDF...) - so a JPEG always outranks them, and a
++    // portrait-shaped JPEG outranks any other JPEG. Within a tier, bigger wins.
++    return { base64: bytes.toString('base64'), format: 'jpeg', width, height, score: (looksLikePortrait(width, height) ? 2e9 : 1e9) + area };
+   }
+ 
++  // Flate images are only considered when the PDF has no JPEG at all (a
++  // photograph stored losslessly). Skipped otherwise: they are the expensive
++  // ones to convert and are almost never the photograph.
++  if (!allowFlate) return undefined;
++
+   const format = pixelFormatOf(dict);
+   if (!format || filters[filters.length - 1] !== '/FlateDecode') return undefined;
+   const bitDepth = num(dict, 'BitsPerComponent') ?? 8;
+@@ -243,7 +253,11 @@ function candidateFrom(stream: PDFRawStream): Candidate | undefined {
+     return undefined; // TIFF predictor: not worth supporting
+   }
+   const png = toPng(width, height, bitDepth, format.colorType, scanlines, format.palette);
+-  return { base64: png.toString('base64'), format: 'png', width, height, score: area };
++  // An image with a soft mask (/SMask) is an overlay - logo, QR code, page
++  // template - not a photograph, so unmasked portrait images rank first.
++  const masked = dict.has(PDFName.of('SMask')) || dict.has(PDFName.of('Mask'));
++  const score = (masked ? 0 : 5e8) + (looksLikePortrait(width, height) ? 2.5e8 : 0) + area;
++  return { base64: png.toString('base64'), format: 'png', width, height, score };
+ }
+ 
+ // ── Raw JPEG scan (fallback) ─────────────────────────────────────────────
+@@ -316,20 +330,35 @@ export async function extractPhotoFromPdf(pdfBase64: string): Promise<PhotoExtra
+ 
+   try {
+     const doc = await PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false, throwOnInvalidObject: false });
+-    const candidates: Candidate[] = [];
+-    for (const [, object] of doc.context.enumerateIndirectObjects()) {
++    const streams: { ref: string; stream: PDFRawStream }[] = [];
++    const maskRefs = new Set<string>();
++    for (const [ref, object] of doc.context.enumerateIndirectObjects()) {
+       if (!(object instanceof PDFRawStream)) continue;
+       if (object.dict.lookup(PDFName.of('Subtype')) !== PDFName.of('Image')) continue;
+-      imagesInPdf += 1;
+-      try {
+-        const candidate = candidateFrom(object);
+-        if (candidate) candidates.push(candidate);
+-      } catch {
+-        // One undecodable image must not stop us finding the photo.
++      streams.push({ ref: ref.toString(), stream: object });
++      // The alpha channel / stencil of another image is stored as its own Image
++      // XObject (a large grey picture). It is never the photograph.
++      for (const key of ['SMask', 'Mask']) {
++        const target = object.dict.get(PDFName.of(key));
++        if (target instanceof PDFRef) maskRefs.add(target.toString());
++      }
++    }
++    const images = streams.filter(({ ref, stream }) => !maskRefs.has(ref) && stream.dict.lookup(PDFName.of('ImageMask')) !== PDFBool.True).map(({ stream }) => stream);
++    imagesInPdf = images.length;
++    // Pass 1: JPEGs only. Pass 2 (Flate/PNG-style images) only if pass 1 found nothing.
++    for (const allowFlate of [false, true]) {
++      const candidates: Candidate[] = [];
++      for (const stream of images) {
++        try {
++          const candidate = candidateFrom(stream, allowFlate);
++          if (candidate) candidates.push(candidate);
++        } catch {
++          // One undecodable image must not stop us finding the photo.
++        }
+       }
++      const image = best(candidates);
++      if (image) return { image, imagesInPdf, method: 'pdf-objects' };
+     }
+-    const image = best(candidates);
+-    if (image) return { image, imagesInPdf, method: 'pdf-objects' };
+   } catch (error) {
+     console.error('[pdf-photo-extract] could not parse the PDF structure, scanning raw bytes:', error instanceof Error ? error.message : error);
+   }
+diff --git a/major_data_link_backend/src/test-utils/slip-fixtures.ts b/major_data_link_backend/src/test-utils/slip-fixtures.ts
+index 9c70ff2..7f07417 100644
+--- a/major_data_link_backend/src/test-utils/slip-fixtures.ts
++++ b/major_data_link_backend/src/test-utils/slip-fixtures.ts
+@@ -137,3 +137,33 @@ export function makeDamagedPdfWithJpeg(jpeg: Buffer): string {
+     Buffer.alloc(80, 0x20)
+   ]).toString('base64');
+ }
++
++/** RGBA PNG (colour type 6): pdfkit embeds these with a soft mask (/SMask), like logos/QR overlays in dompdf output. */
++export function makeRgbaPng(width: number, height: number): Buffer {
++  const crcTable = Array.from({ length: 256 }, (_v, n) => {
++    let c = n;
++    for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
++    return c >>> 0;
++  });
++  const crc = (buf: Buffer) => {
++    let c = 0xffffffff;
++    for (const byte of buf) c = crcTable[(c ^ byte) & 0xff] ^ (c >>> 8);
++    return (c ^ 0xffffffff) >>> 0;
++  };
++  const chunk = (type: string, data: Buffer) => {
++    const body = Buffer.concat([Buffer.from(type), data]);
++    const len = Buffer.alloc(4);
++    len.writeUInt32BE(data.length);
++    const sum = Buffer.alloc(4);
++    sum.writeUInt32BE(crc(body));
++    return Buffer.concat([len, body, sum]);
++  };
++  const ihdr = Buffer.alloc(13);
++  ihdr.writeUInt32BE(width, 0);
++  ihdr.writeUInt32BE(height, 4);
++  ihdr[8] = 8;
++  ihdr[9] = 6;
++  const row = Buffer.concat([Buffer.from([0]), Buffer.from(Array.from({ length: width }, () => [20, 20, 20, 180]).flat())]);
++  const raw = Buffer.concat(Array.from({ length: height }, () => row));
++  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), chunk('IDAT', deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]);
++}

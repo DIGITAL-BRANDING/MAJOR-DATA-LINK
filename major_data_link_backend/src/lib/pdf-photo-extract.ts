@@ -1,5 +1,5 @@
 import { deflateSync, inflateSync } from 'node:zlib';
-import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFNumber, PDFRawStream, PDFString } from 'pdf-lib';
+import { PDFArray, PDFBool, PDFDict, PDFDocument, PDFHexString, PDFName, PDFNumber, PDFRawStream, PDFRef, PDFString } from 'pdf-lib';
 
 /**
  * Pulls the holder's photograph out of a provider-issued slip PDF.
@@ -198,7 +198,10 @@ function pixelFormatOf(dict: PDFDict): PixelFormat | undefined {
 
 // ── Candidates ───────────────────────────────────────────────────────────
 
-function candidateFrom(stream: PDFRawStream): Candidate | undefined {
+/** Passport-style portrait/near-square: what an ID photo looks like (backgrounds and banners are not). */
+const looksLikePortrait = (width: number, height: number) => width / height >= 0.55 && width / height <= 1.0;
+
+function candidateFrom(stream: PDFRawStream, allowFlate: boolean): Candidate | undefined {
   const { dict } = stream;
   const width = num(dict, 'Width');
   const height = num(dict, 'Height');
@@ -216,9 +219,16 @@ function candidateFrom(stream: PDFRawStream): Candidate | undefined {
     if (cs instanceof PDFName && cs.toString() === '/DeviceCMYK') return undefined;
     const bytes = decodeFilters(source, filters.slice(0, -1));
     if (!bytes || bytes.length < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8) return undefined;
-    // Photographs are JPEGs; crests/logos are usually Flate PNGs - prefer JPEG.
-    return { base64: bytes.toString('base64'), format: 'jpeg', width, height, score: area * 2 };
+    // Photographs are JPEGs, while page backgrounds, QR codes and crests are
+    // Flate PNGs (dompdf, FPDF...) - so a JPEG always outranks them, and a
+    // portrait-shaped JPEG outranks any other JPEG. Within a tier, bigger wins.
+    return { base64: bytes.toString('base64'), format: 'jpeg', width, height, score: (looksLikePortrait(width, height) ? 2e9 : 1e9) + area };
   }
+
+  // Flate images are only considered when the PDF has no JPEG at all (a
+  // photograph stored losslessly). Skipped otherwise: they are the expensive
+  // ones to convert and are almost never the photograph.
+  if (!allowFlate) return undefined;
 
   const format = pixelFormatOf(dict);
   if (!format || filters[filters.length - 1] !== '/FlateDecode') return undefined;
@@ -243,7 +253,11 @@ function candidateFrom(stream: PDFRawStream): Candidate | undefined {
     return undefined; // TIFF predictor: not worth supporting
   }
   const png = toPng(width, height, bitDepth, format.colorType, scanlines, format.palette);
-  return { base64: png.toString('base64'), format: 'png', width, height, score: area };
+  // An image with a soft mask (/SMask) is an overlay - logo, QR code, page
+  // template - not a photograph, so unmasked portrait images rank first.
+  const masked = dict.has(PDFName.of('SMask')) || dict.has(PDFName.of('Mask'));
+  const score = (masked ? 0 : 5e8) + (looksLikePortrait(width, height) ? 2.5e8 : 0) + area;
+  return { base64: png.toString('base64'), format: 'png', width, height, score };
 }
 
 // ── Raw JPEG scan (fallback) ─────────────────────────────────────────────
@@ -316,20 +330,35 @@ export async function extractPhotoFromPdf(pdfBase64: string): Promise<PhotoExtra
 
   try {
     const doc = await PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false, throwOnInvalidObject: false });
-    const candidates: Candidate[] = [];
-    for (const [, object] of doc.context.enumerateIndirectObjects()) {
+    const streams: { ref: string; stream: PDFRawStream }[] = [];
+    const maskRefs = new Set<string>();
+    for (const [ref, object] of doc.context.enumerateIndirectObjects()) {
       if (!(object instanceof PDFRawStream)) continue;
       if (object.dict.lookup(PDFName.of('Subtype')) !== PDFName.of('Image')) continue;
-      imagesInPdf += 1;
-      try {
-        const candidate = candidateFrom(object);
-        if (candidate) candidates.push(candidate);
-      } catch {
-        // One undecodable image must not stop us finding the photo.
+      streams.push({ ref: ref.toString(), stream: object });
+      // The alpha channel / stencil of another image is stored as its own Image
+      // XObject (a large grey picture). It is never the photograph.
+      for (const key of ['SMask', 'Mask']) {
+        const target = object.dict.get(PDFName.of(key));
+        if (target instanceof PDFRef) maskRefs.add(target.toString());
       }
     }
-    const image = best(candidates);
-    if (image) return { image, imagesInPdf, method: 'pdf-objects' };
+    const images = streams.filter(({ ref, stream }) => !maskRefs.has(ref) && stream.dict.lookup(PDFName.of('ImageMask')) !== PDFBool.True).map(({ stream }) => stream);
+    imagesInPdf = images.length;
+    // Pass 1: JPEGs only. Pass 2 (Flate/PNG-style images) only if pass 1 found nothing.
+    for (const allowFlate of [false, true]) {
+      const candidates: Candidate[] = [];
+      for (const stream of images) {
+        try {
+          const candidate = candidateFrom(stream, allowFlate);
+          if (candidate) candidates.push(candidate);
+        } catch {
+          // One undecodable image must not stop us finding the photo.
+        }
+      }
+      const image = best(candidates);
+      if (image) return { image, imagesInPdf, method: 'pdf-objects' };
+    }
   } catch (error) {
     console.error('[pdf-photo-extract] could not parse the PDF structure, scanning raw bytes:', error instanceof Error ? error.message : error);
   }
