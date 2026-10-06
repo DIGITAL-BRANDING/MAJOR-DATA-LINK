@@ -73,26 +73,59 @@ describe('Techhub Personal Info slip (built from the REGULAR slip response)', ()
     expect(result.userData?.photo).toBe(JPEG_PHOTO_B64);
   });
 
-  it('fails with a diagnosable log (keys only, no personal data) when no photo exists anywhere', async () => {
+  it('does NOT fail (or refund) when no photograph exists anywhere: builds the slip with a "no photograph" box and logs why', async () => {
     const pdf = await makePdfWithImages([]);
     mockFetch({ status: 'success', user_data: IDENTITY, pdf_base64: pdf });
     const result = await (await load()).ninPersonalInfoByNin('12345678901');
-    expect(result.ok).toBe(false);
-    expect(result.message).toMatch(/complete Personal Info slip/);
-    const logged = (console.error as unknown as ReturnType<typeof vi.fn>).mock.calls.flat().join(' ');
-    expect(logged).toContain('photo=MISSING');
-    expect(logged).toContain('images_in_pdf=0');
-    expect(logged).toContain('user_data_keys=nin,first_name');
-    expect(logged).not.toContain('SPECIMEN');
-    expect(logged).not.toContain('12345678901');
+    expect(result.ok).toBe(true);
+    expect(result.userData).toMatchObject({ 'First Name': 'SPECIMEN' });
+    expect(result.userData?.photo).toBeUndefined();
+    expect(Buffer.from(result.pdfBase64!, 'base64').subarray(0, 5).toString()).toBe('%PDF-');
+    const warned = (console.warn as unknown as ReturnType<typeof vi.fn>).mock.calls.flat().join(' ');
+    expect(warned).toContain('WITHOUT a photograph');
+    expect(warned).toContain('photo=MISSING');
+    expect(warned).toContain('images_in_pdf=0');
+    expect(warned).toContain('user_data_keys=nin,first_name');
+    expect(warned).not.toContain('SPECIMEN');
+    expect(warned).not.toContain('12345678901');
   });
 
-  it('fails when the core identity details are missing', async () => {
+  it('finds the photograph however the provider names it (base64 JPEG nested under an unknown key)', async () => {
+    mockFetch({ status: 'success', user_data: IDENTITY, extra: { attachments: [{ blob_b64: JPEG_PHOTO_B64 }] } });
+    const result = await (await load()).ninPersonalInfoByNin('12345678901');
+    expect(result.ok).toBe(true);
+    expect(result.userData?.photo).toBe(JPEG_PHOTO_B64);
+  });
+
+  it('finds the slip PDF under an unknown key and takes the photograph from it', async () => {
+    const pdf = await makePdfWithImages([Buffer.from(JPEG_PHOTO_B64, 'base64')]);
+    mockFetch({ status: 'success', user_data: IDENTITY, files: { slip_document: pdf } });
+    const result = await (await load()).ninPersonalInfoByNin('12345678901');
+    expect(result.ok).toBe(true);
+    expect(result.userData?.photo).toBe(JPEG_PHOTO_B64);
+  });
+
+  it('one name is enough: DOB, phone, address and photo may all be missing', async () => {
+    mockFetch({ status: 'success', user_data: { nin: '12345678901', surname: 'PERSON' } });
+    const result = await (await load()).ninPersonalInfoByNin('12345678901');
+    expect(result.ok).toBe(true);
+    expect(result.userData).toMatchObject({ 'Last Name': 'PERSON' });
+  });
+
+  it("when our slip cannot be built but Techhub sent its slip, delivers Techhub's slip instead of failing", async () => {
     const pdf = await makePdfWithImages([Buffer.from(JPEG_PHOTO_B64, 'base64')]);
     mockFetch({ status: 'success', user_data: { nin: '12345678901' }, pdf_base64: pdf });
     const result = await (await load()).ninPersonalInfoByNin('12345678901');
+    expect(result.ok).toBe(true);
+    expect(result.pdfBase64).toBe(pdf);
+    expect(result.message).toMatch(/Regular slip is attached instead/);
+  });
+
+  it('only fails (so the caller refunds) when there is truly nothing to deliver', async () => {
+    mockFetch({ status: 'success', user_data: { nin: '12345678901' } });
+    const result = await (await load()).ninPersonalInfoByNin('12345678901');
     expect(result.ok).toBe(false);
-    expect((console.error as unknown as ReturnType<typeof vi.fn>).mock.calls.flat().join(' ')).toContain('identity_fields=MISSING');
+    expect((console.error as unknown as ReturnType<typeof vi.fn>).mock.calls.flat().join(' ')).toContain('nothing to deliver');
   });
 
   it('standard and regular NIN lookups are untouched and still hit their own endpoints', async () => {

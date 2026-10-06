@@ -79,8 +79,12 @@ function fieldsFromRaw(
 
 function hasPersonalInfoFields(fields: IdentitySlipField[]) {
   const values = new Map(fields.map(({ label, value }) => [label.toLowerCase(), value?.trim() ?? '']));
-  // Phone is not required: NIMC's own Personal Information slip leaves it blank for many records.
-  return Boolean(values.get('first name') && values.get('last name') && values.get('date of birth'));
+  // At least one name is enough; everything else is optional (see Techhub's equivalent).
+  const present = (label: string) => {
+    const value = values.get(label)?.toLowerCase();
+    return Boolean(value) && value !== 'not returned';
+  };
+  return present('first name') || present('last name');
 }
 
 function previewData(fields: IdentitySlipField[], photo?: string): Record<string, string> {
@@ -143,8 +147,10 @@ export const franceverifiedSlipAdapter = {
       { label: 'Phone Number', value: firstString(d, 'telephoneno', 'phoneNumber', 'phone', 'mobile') ?? 'Not returned' },
       { label: 'Residence', value: residence || 'Not returned' }
     ];
-    if (personalInfo && (!hasPersonalInfoFields(personalInfoFields) || !embeddedPhoto(d))) {
-      return { ok: false, message: 'The provider did not return a complete Personal Info report (identity details and photograph). Please try again later.', raw: result.raw };
+    // The provider has already answered (and billed us): only an empty reply is a
+    // failure. A missing photograph or phone number prints as N/A / a placeholder.
+    if (personalInfo && !hasPersonalInfoFields(personalInfoFields)) {
+      return { ok: false, message: 'The provider did not return enough identity details to prepare a Personal Info report. Please try again later.', raw: result.raw };
     }
     const slip = await renderSlip({
       title: 'NIN Slip',

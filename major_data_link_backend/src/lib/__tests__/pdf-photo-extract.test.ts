@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { inflateSync } from 'node:zlib';
 import { extractPhotoFromPdf } from '../pdf-photo-extract.js';
-import { JPEG_PHOTO_B64, makePdfWithImages, makePdfWithRawFlateImage, makePng } from '../../test-utils/slip-fixtures.js';
+import { JPEG_PHOTO_B64, makeDamagedPdfWithJpeg, makeIndexedPng, makePdfWithImages, makePdfWithRawFlateImage, makePdfWithWrappedJpeg, makePng } from '../../test-utils/slip-fixtures.js';
 
 const jpeg = Buffer.from(JPEG_PHOTO_B64, 'base64');
 
@@ -51,6 +51,27 @@ describe('extractPhotoFromPdf', () => {
     const result = await extractPhotoFromPdf(await makePdfWithRawFlateImage(80, 100));
     expect(result.image?.format).toBe('png');
     expect(inspectPng(result.image!.base64)).toEqual({ width: 80, height: 100, scanlineBytes: 100 * (1 + 80 * 3) });
+  });
+
+  it.each(['flate', 'ascii85'] as const)('decodes a JPEG hidden behind an extra %s filter', async (mode) => {
+    const result = await extractPhotoFromPdf(await makePdfWithWrappedJpeg(jpeg, mode));
+    expect(result.image?.format).toBe('jpeg');
+    expect(Buffer.from(result.image!.base64, 'base64').equals(jpeg)).toBe(true);
+  });
+
+  it('turns a palette (Indexed) PNG into a valid PNG with its palette', async () => {
+    const result = await extractPhotoFromPdf(await makePdfWithImages([makeIndexedPng(90, 110)]));
+    expect(result.image?.format).toBe('png');
+    const png = Buffer.from(result.image!.base64, 'base64');
+    expect(png[25]).toBe(3); // IHDR colour type = palette
+    expect(png.includes(Buffer.from('PLTE'))).toBe(true);
+  });
+
+  it('falls back to scanning raw bytes when the PDF structure has no readable image', async () => {
+    const result = await extractPhotoFromPdf(makeDamagedPdfWithJpeg(jpeg));
+    expect(result.method).toBe('jpeg-scan');
+    expect(result.image).toMatchObject({ format: 'jpeg', width: 100, height: 125 });
+    expect(Buffer.from(result.image!.base64, 'base64').equals(jpeg)).toBe(true);
   });
 
   it('ignores tiny images (icons/bullets)', async () => {

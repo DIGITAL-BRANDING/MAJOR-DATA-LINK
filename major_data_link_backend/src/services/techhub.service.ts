@@ -4,6 +4,7 @@ import { prisma } from '../lib/prisma.js';
 import { publicVerificationMessage } from '../lib/public-verification-message.js';
 import { renderPersonalInformationSlipPdf, type IdentitySlipField } from '../lib/render-identity-slip-pdf.js';
 import { extractPhotoFromPdf } from '../lib/pdf-photo-extract.js';
+import { collectObjects, findEmbeddedImage, findEmbeddedPdf } from '../lib/provider-response-scan.js';
 
 // No upstream verification call may wait indefinitely.
 const TECHHUB_REQUEST_TIMEOUT_MS = 20_000;
@@ -127,13 +128,13 @@ function personalInfoFields(data: Record<string, unknown> | undefined, fallback:
   const fields: IdentitySlipField[] = [
     { label: 'National Identification Number (NIN)', value: stringValue(allRecords, ['nin', 'idNumber', 'id_number']) },
     { label: 'Tracking ID', value: stringValue(allRecords, ['trackingId', 'tracking_id', 'trackingid']) },
-    { label: 'First Name', value: stringValue(allRecords, ['firstName', 'first_name', 'firstname']) },
-    { label: 'Middle Name', value: stringValue(allRecords, ['middleName', 'middle_name', 'middlename']) },
-    { label: 'Last Name', value: stringValue(allRecords, ['lastName', 'last_name', 'surname', 'lastname']) },
+    { label: 'First Name', value: stringValue(allRecords, ['firstName', 'first_name', 'firstname', 'givenName', 'forename', 'fname']) },
+    { label: 'Middle Name', value: stringValue(allRecords, ['middleName', 'middle_name', 'middlename', 'otherNames', 'middleNames']) },
+    { label: 'Last Name', value: stringValue(allRecords, ['lastName', 'last_name', 'surname', 'lastname', 'familyName', 'lname']) },
     { label: 'Maiden Name', value: stringValue(allRecords, ['maidenName', 'maiden_name', 'maidenname']) },
-    { label: 'Phone Number', value: stringValue(allRecords, ['phoneNumber', 'phone', 'mobile', 'telephoneno']) },
+    { label: 'Phone Number', value: stringValue(allRecords, ['phoneNumber', 'phone', 'mobile', 'mobileNumber', 'telephoneno']) },
     { label: 'Date of Birth', value: stringValue(allRecords, ['dateOfBirth', 'date_of_birth', 'birthdate', 'birthday', 'dob']) },
-    { label: 'Gender', value: stringValue(allRecords, ['gender']) },
+    { label: 'Gender', value: stringValue(allRecords, ['gender', 'sex']) },
     { label: 'Residence', value: residence || undefined }
   ];
   return fields;
@@ -145,12 +146,14 @@ function previewData(fields: IdentitySlipField[], photo?: string): Record<string
   return result;
 }
 
-// The identity essentials. Phone number is deliberately NOT required: NIMC's
-// own Personal Information slip prints it blank for many records, and
-// demanding it made perfectly good, already-billed lookups fail and refund.
+// Enough to build a meaningful slip: at least one name. Everything else
+// (phone, DOB, address, photograph...) is optional and prints as N/A when the
+// provider didn't send it - NIMC's own Personal Information slip leaves many
+// of those blank too. Demanding more made perfectly good, already-billed
+// lookups fail and get refunded while the provider had charged us.
 function hasPersonalInfoFields(fields: IdentitySlipField[]) {
   const values = new Map(fields.map(({ label, value }) => [label.toLowerCase(), value?.trim() ?? '']));
-  return Boolean(values.get('first name') && values.get('last name') && values.get('date of birth'));
+  return Boolean(values.get('first name') || values.get('last name'));
 }
 
 export type TechhubAsyncSubmitResult = {
@@ -381,39 +384,72 @@ export class TechhubService {
     const userData = data.user_data ?? nestedRecord?.user_data ?? responseRecord ?? nestedRecord;
     const userDataRecord = asRecord(userData);
     const records = [data as Record<string, unknown>, nestedRecord, responseRecord, userDataRecord];
-    const pdfBase64 = firstNonEmptyString(records, ['pdf_base64', 'pdf', 'pdf_data']);
+    // Key names have varied, so also accept any base64 PDF found anywhere in the reply.
+    const pdfBase64 = firstNonEmptyString(records, ['pdf_base64', 'pdf', 'pdf_data']) ?? findEmbeddedPdf(data);
     // Some Techhub slip variants return a ready-to-download URL instead of
     // embedding the PDF.  Preserve it for the user dashboard rather than
     // showing a misleading success without a document.
     const pdfUrl = firstNonEmptyString(records, ['pdf_url', 'slip_url', 'download_url']);
 
     if (options?.personalInfoSlip) {
-      const fields = personalInfoFields(userDataRecord, body, [data as Record<string, unknown>, nestedRecord, responseRecord]);
-      // The photograph normally is NOT a JSON field - it only exists inside
-      // the slip PDF - so read it out of there when no field carries it.
-      let photo = stringValue(records, ['image', 'photo', 'picture', 'passport', 'passport_photo']);
-      let photoSource = photo ? 'json' : 'none';
+      // Look through the WHOLE reply (any nesting, any key name), not just the
+      // handful of places a field has appeared before.
+      const fields = personalInfoFields(userDataRecord, body, [data as Record<string, unknown>, nestedRecord, responseRecord, ...collectObjects(data)]);
+      const fieldsOk = hasPersonalInfoFields(fields);
+
+      // Photograph: a base64 image anywhere in the JSON (found by its bytes, not
+      // its key name) or, failing that, the largest picture inside the slip PDF.
+      const jsonImage = findEmbeddedImage(data);
+      let photo = jsonImage ? { base64: jsonImage.base64, format: jsonImage.format } : undefined;
+      let photoSource = jsonImage ? `json:${jsonImage.key}` : 'none';
       let imagesInPdf = 0;
       if (!photo && pdfBase64) {
         const extracted = await extractPhotoFromPdf(pdfBase64);
         imagesInPdf = extracted.imagesInPdf;
         if (extracted.image) {
-          photo = extracted.image.base64;
-          photoSource = 'pdf';
+          photo = { base64: extracted.image.base64, format: extracted.image.format };
+          photoSource = `pdf:${extracted.method}`;
         }
       }
-      const fieldsOk = hasPersonalInfoFields(fields);
-      if (!fieldsOk || !photo) {
-        // Keys only (never values) so this is safe to keep in logs.
-        console.error(
-          `[techhub] personal info incomplete (path=${path}): identity_fields=${fieldsOk ? 'ok' : 'MISSING'}, photo=${photo ? 'ok' : 'MISSING'}, ` +
-            `pdf_returned=${Boolean(pdfBase64)}, images_in_pdf=${imagesInPdf}, response_keys=${Object.keys(data as Record<string, unknown>).join(',')}, user_data_keys=${Object.keys(userDataRecord ?? {}).join(',')}`
-        );
-        return { ok: false, message: 'The provider did not return a complete Personal Info slip (identity details and photograph). Please try again later.', raw: data };
+      // Keys only (never values) so this is safe to keep in logs.
+      const shape = `identity_fields=${fieldsOk ? 'ok' : 'MISSING'}, photo=${photo ? `ok(${photoSource})` : 'MISSING'}, pdf_returned=${Boolean(pdfBase64)}, images_in_pdf=${imagesInPdf}, ` +
+        `response_keys=${Object.keys(data as Record<string, unknown>).join(',')}, user_data_keys=${Object.keys(userDataRecord ?? {}).join(',')}`;
+
+      // The provider has already answered (and billed us). Whenever there is
+      // anything to hand the customer, do that rather than fail and refund:
+      //   1. identity details present -> our Personal Info slip, with the photo
+      //      if we found one and a "no photograph" box if we did not;
+      //   2. our slip could not be built -> the provider's own Regular slip PDF;
+      //   3. nothing usable at all -> only then fail (and the caller refunds).
+      if (fieldsOk) {
+        if (!photo) console.warn(`[techhub] personal info built WITHOUT a photograph (path=${path}): ${shape}`);
+        else console.info(`[techhub] personal info built from ${path}: ${shape}`);
+        try {
+          const generatedPdf = await renderPersonalInformationSlipPdf({ title: 'NIN Slip', subtitle: 'Identity details', fields, photo, issuedAt: new Date() });
+          return {
+            ok: true,
+            message: publicVerificationMessage(data.message, 'Personal information slip generated successfully'),
+            userData: previewData(fields, photo?.base64),
+            pdfBase64: generatedPdf,
+            raw: data
+          };
+        } catch (error) {
+          console.error(`[techhub] could not render the Personal Info slip (path=${path}):`, error);
+        }
       }
-      console.info(`[techhub] personal info built from ${path} (photo from ${photoSource})`);
-      const generatedPdf = await renderPersonalInformationSlipPdf({ title: 'NIN Slip', subtitle: 'Identity details', fields, photo: { base64: photo, format: 'jpeg' }, issuedAt: new Date() });
-      return { ok: true, message: publicVerificationMessage(data.message, 'Personal information slip generated successfully'), userData: previewData(fields, photo), pdfBase64: generatedPdf, raw: data };
+      if (pdfBase64 || pdfUrl) {
+        console.error(`[techhub] personal info not buildable, delivering the provider's slip instead (path=${path}): ${shape}`);
+        return {
+          ok: true,
+          message: 'Your Personal Info slip could not be prepared from the provider data, so the provider\'s Regular slip is attached instead.',
+          userData: userDataRecord,
+          pdfBase64,
+          pdfUrl,
+          raw: data
+        };
+      }
+      console.error(`[techhub] personal info failed, nothing to deliver (path=${path}): ${shape}`);
+      return { ok: false, message: 'The provider did not return enough information to prepare a Personal Info slip. Please try again later.', raw: data };
     }
 
     return {

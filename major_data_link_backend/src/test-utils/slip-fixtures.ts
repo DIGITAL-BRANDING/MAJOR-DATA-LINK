@@ -67,3 +67,73 @@ export async function makePdfWithRawFlateImage(width: number, height: number): P
   page.node.Resources()?.set(PDFName.of('XObject'), lib.context.obj({ Im0: ref }));
   return Buffer.from(await lib.save()).toString('base64');
 }
+
+/** PNG with a 4-colour palette (colour type 3, 8-bit), like palette PNGs embedded by FPDF/pdfkit. */
+export function makeIndexedPng(width: number, height: number): Buffer {
+  const crcTable = Array.from({ length: 256 }, (_v, n) => {
+    let c = n;
+    for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    return c >>> 0;
+  });
+  const crc = (buf: Buffer) => {
+    let c = 0xffffffff;
+    for (const byte of buf) c = crcTable[(c ^ byte) & 0xff] ^ (c >>> 8);
+    return (c ^ 0xffffffff) >>> 0;
+  };
+  const chunk = (type: string, data: Buffer) => {
+    const body = Buffer.concat([Buffer.from(type), data]);
+    const len = Buffer.alloc(4);
+    len.writeUInt32BE(data.length);
+    const sum = Buffer.alloc(4);
+    sum.writeUInt32BE(crc(body));
+    return Buffer.concat([len, body, sum]);
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8;
+  ihdr[9] = 3;
+  const palette = Buffer.from([255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 0]);
+  const rows = Buffer.concat(Array.from({ length: height }, (_v, y) => Buffer.concat([Buffer.from([0]), Buffer.from(Array.from({ length: width }, (_w, x) => (x + y) % 4))])));
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), chunk('PLTE', palette), chunk('IDAT', deflateSync(rows)), chunk('IEND', Buffer.alloc(0))]);
+}
+
+export function ascii85Encode(input: Buffer): string {
+  let out = '';
+  for (let i = 0; i < input.length; i += 4) {
+    const chunk = input.subarray(i, i + 4);
+    const padded = Buffer.concat([chunk, Buffer.alloc(4 - chunk.length)]);
+    let n = padded.readUInt32BE(0);
+    const digits: string[] = [];
+    for (let d = 0; d < 5; d += 1) {
+      digits.unshift(String.fromCharCode((n % 85) + 33));
+      n = Math.floor(n / 85);
+    }
+    out += digits.slice(0, chunk.length + 1).join('');
+  }
+  return `${out}~>`;
+}
+
+/** A PDF whose only image is a JPEG behind extra filters (e.g. [/FlateDecode /DCTDecode] or [/ASCII85Decode /DCTDecode]). */
+export async function makePdfWithWrappedJpeg(jpeg: Buffer, mode: 'flate' | 'ascii85'): Promise<string> {
+  const lib = await LibPdf.create();
+  const page = lib.addPage([300, 300]);
+  const contents = mode === 'flate' ? deflateSync(jpeg) : Buffer.from(ascii85Encode(jpeg), 'latin1');
+  const stream = lib.context.stream(contents, {
+    Type: 'XObject', Subtype: 'Image', Width: 100, Height: 125, ColorSpace: 'DeviceRGB', BitsPerComponent: 8,
+    Filter: lib.context.obj([mode === 'flate' ? 'FlateDecode' : 'ASCII85Decode', 'DCTDecode'])
+  });
+  const ref = lib.context.register(stream);
+  page.node.Resources()?.set(PDFName.of('XObject'), lib.context.obj({ Im0: ref }));
+  return Buffer.from(await lib.save()).toString('base64');
+}
+
+/** A damaged PDF: header + a JPEG stream whose dictionary says nothing about being an image, then junk. */
+export function makeDamagedPdfWithJpeg(jpeg: Buffer): string {
+  return Buffer.concat([
+    Buffer.from('%PDF-1.4\n1 0 obj\n<< /Length 999999 >>\nstream\n'),
+    jpeg,
+    Buffer.from('\nendstream\nendobj\ntrailer << /Root 9 0 R >>\nstartxref\n1\n%%EOF\n'.repeat(1)),
+    Buffer.alloc(80, 0x20)
+  ]).toString('base64');
+}
