@@ -11,6 +11,8 @@
 // why Railway showed "Application failed to respond" after a failed signup.
 import 'express-async-errors';
 
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import cors from 'cors';
 import express from 'express';
@@ -53,8 +55,26 @@ import { partnerPortalRoutes } from './routes/partner-portal.routes.js';
 
 const ADMIN_ROOT_PATH = '/admin';
 
+/**
+ * Vite's legacy plugin emits inline feature-detection/bootstrap scripts whose
+ * contents change with the build. Derive CSP hashes from the exact HTML that
+ * is served so a frontend rebuild cannot silently block the app at startup.
+ */
+function getAppInlineScriptHashes(): string[] {
+  try {
+    const html = readFileSync(path.resolve(process.cwd(), 'public/app/index.html'), 'utf8');
+    return [...html.matchAll(/<script\b(?![^>]*\bsrc\s*=)[^>]*>([\s\S]*?)<\/script\s*>/gi)]
+      .filter((match) => !/\btype\s*=\s*["']application\/ld\+json["']/i.test(match[0]))
+      .map((match) => `'sha256-${createHash('sha256').update(match[1]).digest('base64')}'`);
+  } catch {
+    // The backend can run without a built customer app in local development.
+    return [];
+  }
+}
+
 export function createApp() {
   const app = express();
+  const appInlineScriptHashes = getAppInlineScriptHashes();
 
   // Trust Railway's single proxy hop so secure cookies and IP rate limits use
   // forwarded request metadata without trusting client-supplied proxy chains.
@@ -81,18 +101,17 @@ export function createApp() {
         }
       })(req, res, next);
     }
-    // Vite's legacy plugin injects bootstrap scripts; allow only their exact
-    // hashes. Regenerate these from @vitejs/plugin-legacy after an upgrade.
+    // Vite's legacy plugin injects bootstrap scripts and uses a data: module
+    // URL for its import.meta.resolve capability check. Permit that probe and
+    // hash the exact inline scripts from the built HTML.
     return helmet({
       contentSecurityPolicy: {
         directives: {
           ...helmet.contentSecurityPolicy.getDefaultDirectives(),
           'script-src': [
             "'self'",
-            "'sha256-MS6/3FCg4WjP9gwgaBGwLpRCY6fZBgwmhVCdrPrNf3E='",
-            "'sha256-tQjf8gvb2ROOMapIxFvFAYBeUJ0v1HCbOcSmDNXGtDo='",
-            "'sha256-w36slEqa9euNKxfvkw+LLGsDIr++3rsZXpZxtmRh8Aw='",
-            "'sha256-+5XkZFazzJo8n0iOP4ti/cLCMUudTf//Mzkb7xNPXIc='"
+            'data:',
+            ...appInlineScriptHashes
           ],
           'connect-src': ["'self'"],
           // PDFs are fetched with the user's Authorization header and shown
