@@ -75,7 +75,9 @@ export async function getResultPinStockSummary() {
 /** Locks and consumes stock in one database transaction, preventing duplicate PIN delivery. */
 async function allocateStock(params: { examType: ExamPinType; quantity: number; userId: string; transactionId: string; unitPrice: number }) {
   return prisma.$transaction(async (tx) => {
-    const ids = await tx.$queryRaw<{ id: string }[]>`SELECT "id" FROM "ResultPinInventory" WHERE "examType" = ${params.examType} AND "status" = 'AVAILABLE' ORDER BY "createdAt" ASC FOR UPDATE SKIP LOCKED LIMIT ${params.quantity}`;
+    // PostgreSQL requires LIMIT before the row-locking clause. With FOR UPDATE
+    // before LIMIT, every purchase fails during allocation and is refunded.
+    const ids = await tx.$queryRaw<{ id: string }[]>`SELECT "id" FROM "ResultPinInventory" WHERE "examType" = ${params.examType} AND "status" = 'AVAILABLE' ORDER BY "createdAt" ASC LIMIT ${params.quantity} FOR UPDATE SKIP LOCKED`;
     if (ids.length !== params.quantity) return null;
     const rows = await tx.resultPinInventory.findMany({ where: { id: { in: ids.map((r) => r.id) } } });
     const pins = rows.map((row) => decryptPII(row.pinEncrypted));
@@ -108,8 +110,9 @@ export async function purchaseResultPin(params: { userId: string; examType: Exam
     if (!stock) throw new ApiError(409, 'The last available PIN was just sold. Your wallet will be refunded.', 'RESULT_PIN_OUT_OF_STOCK');
     return { status: 'success' as const, message: 'PIN purchase successful', reference: debit.reference, pin: stock.pins[0], pins: stock.pins, serial: stock.serials[0], serials: stock.serials, balanceAfter: debit.balanceAfter };
   } catch (error) {
+    console.error('[result-pin] stock allocation failed; refunding purchase', error);
     await prisma.transaction.update({ where: { id: debit.transaction.id }, data: { status: TransactionStatus.FAILED, provider: 'inventory' } });
-    const refunded = await refundWallet({ transactionId: debit.transaction.id, userId: params.userId });
+    await refundWallet({ transactionId: debit.transaction.id, userId: params.userId });
     if (error instanceof ApiError) throw error;
     throw new ApiError(500, 'PIN delivery failed and your wallet has been refunded. Please try again.', 'RESULT_PIN_DELIVERY_FAILED');
   }
