@@ -27,6 +27,18 @@ export async function listBvnLicensePriceForAdmin() {
   const row = await getOrCreatePrice();
   return [{ service: row.service, label: row.label, provider: row.provider, provider_cost: koboToNaira(row.providerCostKobo), selling_price: row.sellingPriceKobo ? koboToNaira(row.sellingPriceKobo) : null, partner_selling_price: row.partnerSellingPriceKobo ? koboToNaira(row.partnerSellingPriceKobo) : null, is_active: row.isActive }];
 }
+/**
+ * Customer-facing price row for GET /verification/prices. BVN Licence
+ * Onboarding is priced here (getOrCreatePrice) rather than through the
+ * verification service's SERVICE_KEYS list, so listVerificationPrices() never
+ * returned it and the web page sat on "Price loading..." forever. Unlike
+ * getBvnLicensePrice() this does not throw when the service is switched off -
+ * it reports isActive so the page can say so instead of failing the whole list.
+ */
+export async function listBvnLicensePriceForCustomers() {
+  const row = await getOrCreatePrice();
+  return [{ service: row.service, label: row.label, unitPrice: koboToNaira(row.sellingPriceKobo ?? row.providerCostKobo), isActive: row.isActive }];
+}
 async function renderPdf(values:BvnLicenseInput, trackingId:string) {
   const doc = new PDFDocument({ size: 'A4', margin: 48 }); const chunks:Buffer[]=[];
   doc.on('data',(c:Buffer)=>chunks.push(c));

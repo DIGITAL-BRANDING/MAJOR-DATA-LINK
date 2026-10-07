@@ -173,8 +173,6 @@ function validationServiceKey(validationType?: string) {
   return VALIDATION_TYPES.find((t) => t.value === (validationType ?? 'nin_validation'))?.serviceKey ?? 'NIN_VALIDATION_GENERAL';
 }
 
-const money = (amount?: number) =>
-  amount === undefined ? 'Price loading…' : `₦${amount.toLocaleString('en-NG', { maximumFractionDigits: 2 })}`;
 
 const NIN_SLIP_IMAGES: Record<string, string> = {
   premium: '/branding/premium slip.jpg',
@@ -233,6 +231,13 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [prices, setPrices] = useState<Record<string, number>>({});
+  // "Price loading…" must only show while the list is actually loading. Once it
+  // has loaded (or failed), a missing price says so instead of spinning forever.
+  const [pricesLoaded, setPricesLoaded] = useState(false);
+  const money = (amount?: number) =>
+    amount === undefined
+      ? pricesLoaded ? 'Price unavailable' : 'Price loading…'
+      : `₦${amount.toLocaleString('en-NG', { maximumFractionDigits: 2 })}`;
   const [activeServices, setActiveServices] = useState<Record<string, boolean> | null>(null);
   const [slipResult, setSlipResult] = useState<SlipResult | null>(null);
   const [asyncResult, setAsyncResult] = useState<AsyncResult | null>(null);
@@ -260,8 +265,12 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
         const rows = Array.isArray(result) ? result : (result.data ?? []);
         setPrices(Object.fromEntries(rows.map((row) => [row.service, Number(row.unitPrice)])));
         setActiveServices(Object.fromEntries(rows.map((row) => [row.service, row.isActive])));
+        setPricesLoaded(true);
       })
-      .catch(() => setMessage('Unable to load current prices. Please refresh and try again.'));
+      .catch(() => {
+        setPricesLoaded(true);
+        setMessage('Unable to load current prices. Please refresh and try again.');
+      });
   }, []);
 
   // A methods-bearing tile (V1/V2) is greyed out on the grid only if an

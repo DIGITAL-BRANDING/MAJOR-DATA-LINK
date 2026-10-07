@@ -1,0 +1,658 @@
+diff --git a/major_data_link_backend/src/routes/__tests__/user-profile.routes.test.ts b/major_data_link_backend/src/routes/__tests__/user-profile.routes.test.ts
+new file mode 100644
+index 0000000..1b4c6bd
+--- /dev/null
++++ b/major_data_link_backend/src/routes/__tests__/user-profile.routes.test.ts
+@@ -0,0 +1,128 @@
++import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
++import 'express-async-errors';
++import express from 'express';
++import type { Server } from 'node:http';
++import type { AddressInfo } from 'node:net';
++
++const { prismaMock, verifyPin } = vi.hoisted(() => ({
++  prismaMock: {
++    user: { findUniqueOrThrow: vi.fn(), findFirst: vi.fn(), update: vi.fn() },
++    transaction: { aggregate: vi.fn() }
++  },
++  verifyPin: vi.fn()
++}));
++
++vi.mock('../../lib/prisma.js', () => ({ prisma: prismaMock }));
++vi.mock('../../middleware/auth.js', () => ({
++  requireAuth: (req: express.Request, _res: express.Response, next: express.NextFunction) => {
++    (req as unknown as { user: unknown }).user = { id: 'u1', email: 'old@example.com', phone: '08011111111' };
++    next();
++  }
++}));
++vi.mock('../../services/wallet.service.js', () => ({ setPin: vi.fn(), setPinIfUnset: vi.fn(), verifyPin }));
++vi.mock('../../services/login-pin.service.js', () => ({ setLoginPin: vi.fn(), setLoginPinIfUnset: vi.fn(), verifyLoginPin: vi.fn() }));
++vi.mock('../../services/kyc.service.js', () => ({ tryProvisionInstantVirtualAccount: vi.fn() }));
++vi.mock('../../lib/public-user.js', () => ({
++  publicUser: async (u: { fullName: string; email: string; phone: string }) => ({ full_name: u.fullName, email: u.email, phone: u.phone })
++}));
++
++import { userRoutes } from '../user.routes.js';
++import { errorHandler } from '../../middleware/error.js';
++
++let server: Server;
++let base = '';
++beforeAll(async () => {
++  const app = express();
++  app.use(express.json());
++  app.use('/api/user', userRoutes);
++  app.use(errorHandler);
++  await new Promise<void>((resolve) => {
++    server = app.listen(0, () => resolve());
++  });
++  base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/user`;
++});
++afterAll(() => {
++  server.close();
++});
++
++const current = { id: 'u1', fullName: 'Old Name', email: 'old@example.com', phone: '08011111111', pinHash: 'x', passwordHash: null };
++beforeEach(() => {
++  vi.clearAllMocks();
++  vi.spyOn(console, 'error').mockImplementation(() => undefined);
++  prismaMock.user.findUniqueOrThrow.mockResolvedValue(current);
++  prismaMock.user.findFirst.mockResolvedValue(null);
++  prismaMock.user.update.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ ...current, ...Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined)) }));
++  verifyPin.mockResolvedValue(undefined);
++});
++
++const post = (body: unknown) => fetch(`${base}/profile/update`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
++const same = { email: 'old@example.com', phone: '08011111111' };
++
++describe('GET /user/profile/summary (total funded)', () => {
++  it('sums successful wallet fundings only and reports the count and last date', async () => {
++    prismaMock.transaction.aggregate.mockResolvedValue({ _sum: { amountKobo: 12_550_000n }, _count: 3, _max: { createdAt: new Date('2026-10-01T08:00:00Z') } });
++    const res = await fetch(`${base}/profile/summary`);
++    expect(await res.json()).toEqual({ status: true, data: { total_funded: 125500, funding_count: 3, last_funded_at: '2026-10-01T08:00:00.000Z' } });
++    const where = prismaMock.transaction.aggregate.mock.calls[0][0].where;
++    expect(where).toEqual({ userId: 'u1', type: 'WALLET_FUNDING', status: 'SUCCESS' });
++  });
++
++  it('is zero (not an error) for someone who has never funded', async () => {
++    prismaMock.transaction.aggregate.mockResolvedValue({ _sum: { amountKobo: null }, _count: 0, _max: { createdAt: null } });
++    const res = await fetch(`${base}/profile/summary`);
++    expect((await res.json()).data).toEqual({ total_funded: 0, funding_count: 0, last_funded_at: null });
++  });
++});
++
++describe('POST /user/profile/update', () => {
++  it('lets a user change their name without a PIN and leaves verification flags alone', async () => {
++    const res = await post({ full_name: 'New Name', ...same });
++    expect(res.status).toBe(200);
++    expect((await res.json()).data.full_name).toBe('New Name');
++    expect(verifyPin).not.toHaveBeenCalled();
++    const data = prismaMock.user.update.mock.calls[0][0].data;
++    expect(data).toMatchObject({ fullName: 'New Name' });
++    expect(data.emailVerified).toBeUndefined();
++    expect(data.phoneVerified).toBeUndefined();
++  });
++
++  it('requires the PIN to change the email, and does not write anything without it', async () => {
++    const res = await post({ full_name: 'Old Name', email: 'new@example.com', phone: same.phone });
++    expect(res.status).toBe(422);
++    expect((await res.json()).code).toBe('CREDENTIAL_REQUIRED');
++    expect(prismaMock.user.update).not.toHaveBeenCalled();
++  });
++
++  it('rejects a wrong PIN without changing anything', async () => {
++    const { ApiError } = await import('../../middleware/error.js');
++    verifyPin.mockRejectedValue(new ApiError(401, 'Incorrect PIN', 'INVALID_PIN'));
++    const res = await post({ full_name: 'Old Name', email: same.email, phone: '08022222222', pin: '0000' });
++    expect(res.status).toBe(401);
++    expect(prismaMock.user.update).not.toHaveBeenCalled();
++  });
++
++  it('changes email/phone with the right PIN and marks the new contact unverified', async () => {
++    const res = await post({ full_name: 'Old Name', email: 'NEW@Example.com', phone: '08022222222', pin: '1234' });
++    expect(res.status).toBe(200);
++    expect(verifyPin).toHaveBeenCalledWith('u1', '1234');
++    const data = prismaMock.user.update.mock.calls[0][0].data;
++    expect(data).toMatchObject({ email: 'new@example.com', phone: '08022222222', emailVerified: false, phoneVerified: false });
++  });
++
++  it('refuses an email or phone that belongs to another account', async () => {
++    prismaMock.user.findFirst.mockResolvedValue({ id: 'someone-else' });
++    const res = await post({ full_name: 'Old Name', email: 'taken@example.com', phone: same.phone, pin: '1234' });
++    expect(res.status).toBe(409);
++    expect(prismaMock.user.update).not.toHaveBeenCalled();
++  });
++
++  it('only checks conflicts for the field that actually changed', async () => {
++    await post({ full_name: 'Old Name', email: same.email, phone: '08022222222', pin: '1234' });
++    expect(prismaMock.user.findFirst.mock.calls[0][0].where.OR).toEqual([{ phone: '08022222222' }]);
++  });
++
++  it('validates input', async () => {
++    expect((await post({ full_name: 'A', ...same })).status).toBe(422);
++    expect((await post({ full_name: 'Valid Name', email: 'not-an-email', phone: same.phone })).status).toBe(422);
++  });
++});
+diff --git a/major_data_link_backend/src/routes/__tests__/verification-prices.routes.test.ts b/major_data_link_backend/src/routes/__tests__/verification-prices.routes.test.ts
+new file mode 100644
+index 0000000..b6dfcec
+--- /dev/null
++++ b/major_data_link_backend/src/routes/__tests__/verification-prices.routes.test.ts
+@@ -0,0 +1,78 @@
++import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
++import 'express-async-errors';
++import express from 'express';
++import type { Server } from 'node:http';
++import type { AddressInfo } from 'node:net';
++
++const { prismaMock } = vi.hoisted(() => ({ prismaMock: { servicePricing: { findUnique: vi.fn(), create: vi.fn() } } }));
++
++vi.mock('../../lib/prisma.js', () => ({ prisma: prismaMock }));
++vi.mock('../../middleware/auth.js', () => ({
++  requireAuth: (req: express.Request, _res: express.Response, next: express.NextFunction) => {
++    (req as unknown as { user: unknown }).user = { id: 'u1' };
++    next();
++  }
++}));
++
++import { verificationRoutes } from '../verification.routes.js';
++import { errorHandler } from '../../middleware/error.js';
++
++let server: Server;
++let base = '';
++beforeAll(async () => {
++  const app = express();
++  app.use(express.json());
++  app.use('/api/verification', verificationRoutes);
++  app.use(errorHandler);
++  await new Promise<void>((resolve) => {
++    server = app.listen(0, () => resolve());
++  });
++  base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/verification`;
++});
++afterAll(() => {
++  server.close();
++});
++
++const row = (service: string, overrides: Record<string, unknown> = {}) => ({
++  service, label: service, provider: 'manual', providerCostKobo: 5_000_00n, sellingPriceKobo: null, partnerSellingPriceKobo: null, isActive: true, ...overrides
++});
++
++beforeEach(() => {
++  vi.clearAllMocks();
++  prismaMock.servicePricing.findUnique.mockImplementation(async ({ where }: { where: { service: string } }) =>
++    where.service === 'BVN_LICENSE_ONBOARDING' ? row('BVN_LICENSE_ONBOARDING', { label: 'BVN License Onboarding', providerCostKobo: 10_000_00n }) : row(where.service)
++  );
++});
++
++const prices = async () => ((await (await fetch(`${base}/prices`)).json()) as { data: { service: string; unitPrice: number; isActive: boolean }[] }).data;
++
++describe('GET /verification/prices', () => {
++  // Regression: the BVN Licence Creation page reads prices.BVN_LICENSE_ONBOARDING, which this
++  // list never contained, so it showed "Price loading..." forever.
++  it('includes the BVN Licence Onboarding price the licence page needs', async () => {
++    const licence = (await prices()).find((p) => p.service === 'BVN_LICENSE_ONBOARDING');
++    expect(licence).toMatchObject({ unitPrice: 10000, isActive: true });
++  });
++
++  it('uses the admin selling price when one is set', async () => {
++    prismaMock.servicePricing.findUnique.mockImplementation(async ({ where }: { where: { service: string } }) =>
++      where.service === 'BVN_LICENSE_ONBOARDING' ? row('BVN_LICENSE_ONBOARDING', { providerCostKobo: 10_000_00n, sellingPriceKobo: 15_000_00n }) : row(where.service)
++    );
++    expect((await prices()).find((p) => p.service === 'BVN_LICENSE_ONBOARDING')?.unitPrice).toBe(15000);
++  });
++
++  it('still lists the licence (flagged inactive) when it is switched off, instead of failing the whole list', async () => {
++    prismaMock.servicePricing.findUnique.mockImplementation(async ({ where }: { where: { service: string } }) =>
++      where.service === 'BVN_LICENSE_ONBOARDING' ? row('BVN_LICENSE_ONBOARDING', { isActive: false }) : row(where.service)
++    );
++    const list = await prices();
++    expect(list.find((p) => p.service === 'BVN_LICENSE_ONBOARDING')?.isActive).toBe(false);
++    expect(list.length).toBeGreaterThan(10); // the normal verification prices are still there
++  });
++
++  it('creates the default ₦10,000 row on first use', async () => {
++    prismaMock.servicePricing.findUnique.mockImplementation(async ({ where }: { where: { service: string } }) => (where.service === 'BVN_LICENSE_ONBOARDING' ? null : row(where.service)));
++    prismaMock.servicePricing.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => row(String(data.service), { ...data }));
++    expect((await prices()).find((p) => p.service === 'BVN_LICENSE_ONBOARDING')?.unitPrice).toBe(10000);
++  });
++});
+diff --git a/major_data_link_backend/src/routes/user.routes.ts b/major_data_link_backend/src/routes/user.routes.ts
+index b60f205..c6e90eb 100644
+--- a/major_data_link_backend/src/routes/user.routes.ts
++++ b/major_data_link_backend/src/routes/user.routes.ts
+@@ -11,6 +11,7 @@ import { setLoginPin, setLoginPinIfUnset, verifyLoginPin } from '../services/log
+ import { tryProvisionInstantVirtualAccount } from '../services/kyc.service.js';
+ import { issueAuthTokens } from '../lib/auth-token.js';
+ import { sendUserAuthResponse } from '../lib/web-auth-session.js';
++import { getFundingSummary } from '../services/profile.service.js';
+ 
+ export const userRoutes = Router();
+ 
+@@ -44,6 +45,65 @@ userRoutes.get('/profile', async (req, res) => {
+   res.json(await publicUser(user));
+ });
+ 
++/** Profile page numbers that are not part of the cached user object: lifetime funding. */
++userRoutes.get('/profile/summary', async (req, res) => {
++  res.json({ status: true, data: await getFundingSummary(req.user!.id) });
++});
++
++/**
++ * Self-service edit from the web profile page. The name is freely editable;
++ * the email and phone number are how the account is identified and recovered,
++ * so changing either needs the transaction PIN (or the password for an account
++ * that has no PIN yet) - a stolen session alone must not be able to re-point the
++ * account at someone else's contact details. A changed contact is marked
++ * unverified again, the same as POST /profile/sync.
++ */
++userRoutes.post('/profile/update', async (req, res) => {
++  const body = z
++    .object({
++      full_name: z.string().trim().min(2).max(120),
++      email: z.string().trim().email().transform((value) => value.toLowerCase()),
++      phone: z.string().trim().min(6).max(20),
++      pin: z.string().optional()
++    })
++    .parse(req.body);
++
++  const current = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id } });
++  const emailChanged = body.email !== current.email;
++  const phoneChanged = body.phone !== current.phone;
++
++  if (emailChanged || phoneChanged) {
++    if (!body.pin) {
++      throw new ApiError(422, 'Enter your transaction PIN to change your email or phone number', 'CREDENTIAL_REQUIRED');
++    }
++    await verifyPinOrPassword(current.id, body.pin);
++
++    const conflict = await prisma.user.findFirst({
++      where: {
++        id: { not: current.id },
++        OR: [...(emailChanged ? [{ email: body.email }] : []), ...(phoneChanged ? [{ phone: body.phone }] : [])]
++      },
++      select: { id: true }
++    });
++    if (conflict) {
++      throw new ApiError(409, 'That email or phone is already in use by another account', 'PROFILE_CONFLICT');
++    }
++  }
++
++  const updated = await prisma.user.update({
++    where: { id: current.id },
++    data: {
++      fullName: body.full_name,
++      email: body.email,
++      phone: body.phone,
++      emailVerified: emailChanged ? false : undefined,
++      phoneVerified: phoneChanged ? false : undefined
++    }
++  });
++
++  res.json({ status: true, message: 'Profile updated', data: await publicUser(updated) });
++});
++
+ userRoutes.post('/profile/sync', async (req, res) => {
+   const body = z
+     .object({
+diff --git a/major_data_link_backend/src/routes/verification.routes.ts b/major_data_link_backend/src/routes/verification.routes.ts
+index 1469679..fea40fd 100644
+--- a/major_data_link_backend/src/routes/verification.routes.ts
++++ b/major_data_link_backend/src/routes/verification.routes.ts
+@@ -2,7 +2,7 @@ import { Router, type Request } from 'express';
+ import { z } from 'zod';
+ import { TransactionStatus, TransactionType } from '@prisma/client';
+ import { requireAuth } from '../middleware/auth.js';
+-import { GEO_POLITICAL_ZONES, submitBvnLicense } from '../services/bvn-license-onboarding.service.js';
++import { GEO_POLITICAL_ZONES, submitBvnLicense, listBvnLicensePriceForCustomers } from '../services/bvn-license-onboarding.service.js';
+ import { pinField, requirePinConfirmation } from '../lib/require-pin.js';
+ import { prisma } from '../lib/prisma.js';
+ import {
+@@ -120,8 +120,8 @@ function slipResponse(result: Awaited<ReturnType<typeof purchaseNinByNin>>) {
+ // ── Prices ───────────────────────────────────────────────────────
+ 
+ verificationRoutes.get('/prices', async (_req, res) => {
+-  const prices = await listVerificationPrices();
+-  res.json({ status: true, data: prices });
++  const [prices, licensePrices] = await Promise.all([listVerificationPrices(), listBvnLicensePriceForCustomers()]);
++  res.json({ status: true, data: [...prices, ...licensePrices] });
+ });
+ 
+ verificationRoutes.post('/bvn/license-onboarding', async (req, res) => {
+diff --git a/major_data_link_backend/src/services/bvn-license-onboarding.service.ts b/major_data_link_backend/src/services/bvn-license-onboarding.service.ts
+index 25f815d..1e25cd0 100644
+--- a/major_data_link_backend/src/services/bvn-license-onboarding.service.ts
++++ b/major_data_link_backend/src/services/bvn-license-onboarding.service.ts
+@@ -27,6 +27,18 @@ export async function listBvnLicensePriceForAdmin() {
+   const row = await getOrCreatePrice();
+   return [{ service: row.service, label: row.label, provider: row.provider, provider_cost: koboToNaira(row.providerCostKobo), selling_price: row.sellingPriceKobo ? koboToNaira(row.sellingPriceKobo) : null, partner_selling_price: row.partnerSellingPriceKobo ? koboToNaira(row.partnerSellingPriceKobo) : null, is_active: row.isActive }];
+ }
++/**
++ * Customer-facing price row for GET /verification/prices. BVN Licence
++ * Onboarding is priced here (getOrCreatePrice) rather than through the
++ * verification service's SERVICE_KEYS list, so listVerificationPrices() never
++ * returned it and the web page sat on "Price loading..." forever. Unlike
++ * getBvnLicensePrice() this does not throw when the service is switched off -
++ * it reports isActive so the page can say so instead of failing the whole list.
++ */
++export async function listBvnLicensePriceForCustomers() {
++  const row = await getOrCreatePrice();
++  return [{ service: row.service, label: row.label, unitPrice: koboToNaira(row.sellingPriceKobo ?? row.providerCostKobo), isActive: row.isActive }];
++}
+ async function renderPdf(values:BvnLicenseInput, trackingId:string) {
+   const doc = new PDFDocument({ size: 'A4', margin: 48 }); const chunks:Buffer[]=[];
+   doc.on('data',(c:Buffer)=>chunks.push(c));
+diff --git a/major_data_link_backend/src/services/profile.service.ts b/major_data_link_backend/src/services/profile.service.ts
+new file mode 100644
+index 0000000..6c5c99a
+--- /dev/null
++++ b/major_data_link_backend/src/services/profile.service.ts
+@@ -0,0 +1,24 @@
++import { TransactionStatus, TransactionType } from '@prisma/client';
++import { prisma } from '../lib/prisma.js';
++import { koboToNaira } from '../lib/money.js';
++
++/**
++ * Lifetime wallet funding for the profile page: the sum of this user's
++ * SUCCESSFUL WALLET_FUNDING rows (card, bank transfer and virtual-account
++ * deposits all land here). Pending/failed/ignored attempts never count, and the
++ * separate WALLET_FUNDING_FEE rows are excluded on purpose - the figure is what
++ * the customer paid in, not what was left after the funding fee.
++ */
++export async function getFundingSummary(userId: string) {
++  const funded = await prisma.transaction.aggregate({
++    where: { userId, type: TransactionType.WALLET_FUNDING, status: TransactionStatus.SUCCESS },
++    _sum: { amountKobo: true },
++    _count: true,
++    _max: { createdAt: true }
++  });
++  return {
++    total_funded: koboToNaira(funded._sum.amountKobo ?? 0n),
++    funding_count: funded._count,
++    last_funded_at: funded._max.createdAt ? funded._max.createdAt.toISOString() : null
++  };
++}
+diff --git a/web/src/App.tsx b/web/src/App.tsx
+index b22eb93..ac78676 100644
+--- a/web/src/App.tsx
++++ b/web/src/App.tsx
+@@ -26,6 +26,7 @@ import PaymentCallbackPage from './pages/PaymentCallbackPage';
+ import DeliveriesPage from './pages/DeliveriesPage';
+ import ReceiptPage from './pages/ReceiptPage';
+ import ReferralPage from './pages/ReferralPage';
++import ProfilePage from './pages/ProfilePage';
+ import PinSetupPage from './pages/PinSetupPage';
+ import PartnerDashboardPage from './pages/PartnerDashboardPage';
+ import PartnerApiDocsPage from './pages/PartnerApiDocsPage';
+@@ -107,6 +108,7 @@ export default function App() {
+           <Route path="/deliveries" element={<ProtectedRoute><DeliveriesPage /></ProtectedRoute>} />
+           <Route path="/receipt/:id" element={<ProtectedRoute><ReceiptPage /></ProtectedRoute>} />
+           <Route path="/referrals" element={<ProtectedRoute><ReferralPage /></ProtectedRoute>} />
++          <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
+           <Route path="/setup-pins" element={<ProtectedRoute><PinSetupPage /></ProtectedRoute>} />
+           <Route path="/payment/callback" element={<ProtectedRoute><PaymentCallbackPage /></ProtectedRoute>} />
+           <Route path="/set-new-password" element={<ProtectedRoute><SetNewPasswordPage /></ProtectedRoute>} />
+diff --git a/web/src/components/AppShell.tsx b/web/src/components/AppShell.tsx
+index e5ce634..eb3ba21 100644
+--- a/web/src/components/AppShell.tsx
++++ b/web/src/components/AppShell.tsx
+@@ -1,6 +1,6 @@
+ import { useEffect, useState, type ReactNode } from 'react';
+ import { Link, NavLink, useNavigate } from 'react-router-dom';
+-import { Bell, Fingerprint, GraduationCap, IdCard, LayoutDashboard, LogOut, Menu, MessageCircle, PackageOpen, Smartphone, WalletCards, X, Briefcase, Phone, ShieldCheck, CheckCircle2, MapPin, Search, Unlink, FilePenLine, Baby, Receipt, Newspaper, History, Settings2 } from 'lucide-react';
++import { Bell, Fingerprint, GraduationCap, IdCard, LayoutDashboard, LogOut, Menu, MessageCircle, PackageOpen, Smartphone, WalletCards, X, Briefcase, Phone, ShieldCheck, CheckCircle2, MapPin, Search, Unlink, FilePenLine, Baby, Receipt, Newspaper, History, Settings2, UserRound, Gift } from 'lucide-react';
+ import Logo from './Logo';
+ import { useAuth } from '../lib/auth';
+ import { api } from '../lib/api';
+@@ -17,6 +17,8 @@ function Sidebar({ close }: { close?: () => void }) {
+     <Link to="/dashboard" onClick={close} className="mb-8 px-3"><Logo dark /></Link>
+     <nav className="flex-1 space-y-1 overflow-y-auto">
+       <NavLink to="/dashboard" onClick={close} className={navClass}><LayoutDashboard size={17} />Dashboard</NavLink>
++      <NavLink to="/profile" onClick={close} className={navClass}><UserRound size={17} />My Profile</NavLink>
++      <NavLink to="/referrals" onClick={close} className={navClass}><Gift size={17} />Referrals</NavLink>
+       {serviceLinks.map(([label, to, Icon]) => <NavLink key={to} to={to} onClick={close} className={navClass}><Icon size={17} />{label}</NavLink>)}
+       <NavLink to="/verifications" onClick={close} className={navClass}><History size={17} />Service History</NavLink>
+       <NavLink to="/deliveries" onClick={close} className={navClass}><PackageOpen size={17} />My Deliveries</NavLink>
+@@ -40,5 +42,5 @@ function NotificationBell() {
+ 
+ export default function AppShell({ children }: { children: ReactNode }) {
+   const { user } = useAuth(); const [mobileOpen, setMobileOpen] = useState(false);
+-  return <div className="min-h-screen bg-[#f5f7fb]"><div className="fixed inset-y-0 left-0 z-30 hidden lg:block"><Sidebar/></div><header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur lg:ml-72"><div className="flex h-16 items-center justify-between px-4 sm:px-5"><button onClick={() => setMobileOpen(true)} className="rounded-lg p-2 text-brand-700 lg:hidden"><Menu/></button><span className="hidden text-sm text-slate-500 sm:block">Welcome back, {user?.full_name?.split(' ')[0] ?? 'User'}</span><Link to="/dashboard" className="lg:hidden"><Logo/></Link><div className="flex items-center gap-3"><NotificationBell/><span className="flex items-center gap-2 text-sm font-medium text-slate-600"><Smartphone size={17} className="text-brand-600"/><span className="hidden sm:inline">Secure services</span></span></div></div></header>{mobileOpen && <div className="fixed inset-0 z-50 lg:hidden"><button onClick={() => setMobileOpen(false)} className="absolute inset-0 bg-slate-950/35"/><div className="relative h-full"><button onClick={() => setMobileOpen(false)} className="absolute right-3 top-3 z-10 rounded-lg p-2"><X/></button><Sidebar close={() => setMobileOpen(false)}/></div></div>}<main className="px-4 py-6 sm:px-5 sm:py-7 lg:ml-72 lg:px-8">{children}</main></div>;
++  return <div className="min-h-screen bg-[#f5f7fb]"><div className="fixed inset-y-0 left-0 z-30 hidden lg:block"><Sidebar/></div><header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur lg:ml-72"><div className="flex h-16 items-center justify-between px-4 sm:px-5"><button onClick={() => setMobileOpen(true)} className="rounded-lg p-2 text-brand-700 lg:hidden"><Menu/></button><Link to="/profile" className="hidden text-sm text-slate-500 hover:text-brand-700 sm:block" title="Open my profile">Welcome back, {user?.full_name?.split(' ')[0] ?? 'User'}</Link><Link to="/dashboard" className="lg:hidden"><Logo/></Link><div className="flex items-center gap-3"><NotificationBell/><span className="flex items-center gap-2 text-sm font-medium text-slate-600"><Smartphone size={17} className="text-brand-600"/><span className="hidden sm:inline">Secure services</span></span></div></div></header>{mobileOpen && <div className="fixed inset-0 z-50 lg:hidden"><button onClick={() => setMobileOpen(false)} className="absolute inset-0 bg-slate-950/35"/><div className="relative h-full"><button onClick={() => setMobileOpen(false)} className="absolute right-3 top-3 z-10 rounded-lg p-2"><X/></button><Sidebar close={() => setMobileOpen(false)}/></div></div>}<main className="px-4 py-6 sm:px-5 sm:py-7 lg:ml-72 lg:px-8">{children}</main></div>;
+ }
+diff --git a/web/src/pages/ProfilePage.tsx b/web/src/pages/ProfilePage.tsx
+new file mode 100644
+index 0000000..86865b5
+--- /dev/null
++++ b/web/src/pages/ProfilePage.tsx
+@@ -0,0 +1,190 @@
++import { useEffect, useState, type FormEvent } from 'react';
++import { Link } from 'react-router-dom';
++import { BadgeCheck, Copy, Gift, Mail, Pencil, Phone, Share2, ShieldAlert, Users, Wallet, X } from 'lucide-react';
++import AppShell from '../components/AppShell';
++import { ApiError, api } from '../lib/api';
++import { useAuth } from '../lib/auth';
++
++type FundingSummary = { total_funded: number; funding_count: number; last_funded_at: string | null };
++type ReferralStats = { referral_code: string; total_referrals: number; total_earned: number; pending_commission: number; commission_rate: number };
++
++const naira = (amount: number) => `₦${amount.toLocaleString('en-NG', { maximumFractionDigits: 2 })}`;
++const formatDate = (iso?: string | null) => (iso ? new Date(iso).toLocaleDateString('en-NG', { year: 'numeric', month: 'long', day: 'numeric' }) : '—');
++const card = 'rounded-2xl border border-parchment-line bg-parchment p-5';
++const input = 'mt-1 w-full rounded-xl border border-parchment-line bg-white px-3 py-2.5 text-sm text-ink outline-none focus:border-gold-500';
++
++function Chip({ ok, label }: { ok: boolean; label: string }) {
++  return (
++    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold ${ok ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
++      {ok ? <BadgeCheck size={12} /> : <ShieldAlert size={12} />}
++      {label}
++    </span>
++  );
++}
++
++export default function ProfilePage() {
++  const { user, refreshUser } = useAuth();
++  const [summary, setSummary] = useState<FundingSummary | null>(null);
++  const [stats, setStats] = useState<ReferralStats | null>(null);
++  const [summaryFailed, setSummaryFailed] = useState(false);
++  const [editing, setEditing] = useState(false);
++  const [form, setForm] = useState({ full_name: '', email: '', phone: '', pin: '' });
++  const [saving, setSaving] = useState(false);
++  const [notice, setNotice] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
++  const [copied, setCopied] = useState('');
++
++  useEffect(() => {
++    api.get<{ data: FundingSummary }>('/user/profile/summary').then((r) => setSummary(r.data)).catch(() => setSummaryFailed(true));
++    api.get<{ data: ReferralStats }>('/referral/stats').then((r) => setStats(r.data)).catch(() => undefined);
++  }, []);
++
++  if (!user) return <AppShell><p className="text-sm text-ink-600">Loading your profile…</p></AppShell>;
++
++  const referralCode = stats?.referral_code ?? (typeof user.referral_code === 'string' ? user.referral_code : '');
++  const referralLink = referralCode ? `${window.location.origin}/register?ref=${referralCode}` : '';
++  const emailVerified = user.email_verified === true;
++  const phoneVerified = user.phone_verified === true;
++  const walletBalance = typeof user.wallet_balance === 'number' ? user.wallet_balance : 0;
++  const kyc = typeof user.kyc_status === 'string' ? user.kyc_status.replace(/_/g, ' ') : 'unverified';
++  const contactChanged = form.email.trim().toLowerCase() !== user.email.toLowerCase() || form.phone.trim() !== user.phone;
++
++  function startEditing() {
++    setForm({ full_name: user!.full_name, email: user!.email, phone: user!.phone, pin: '' });
++    setNotice(null);
++    setEditing(true);
++  }
++
++  async function save(event: FormEvent) {
++    event.preventDefault();
++    setSaving(true);
++    setNotice(null);
++    try {
++      await api.post('/user/profile/update', {
++        full_name: form.full_name.trim(),
++        email: form.email.trim(),
++        phone: form.phone.trim(),
++        ...(contactChanged ? { pin: form.pin } : {})
++      });
++      await refreshUser();
++      setEditing(false);
++      setNotice({ kind: 'ok', text: contactChanged ? 'Details updated. Please verify your new email/phone number.' : 'Details updated.' });
++    } catch (error) {
++      setNotice({ kind: 'error', text: error instanceof ApiError ? error.message : 'Could not update your details. Please try again.' });
++    } finally {
++      setSaving(false);
++    }
++  }
++
++  async function copy(text: string, what: string) {
++    try {
++      await navigator.clipboard.writeText(text);
++      setCopied(what);
++      setTimeout(() => setCopied(''), 2000);
++    } catch {
++      setNotice({ kind: 'error', text: 'Copy is not available in this browser. Select the text and copy it manually.' });
++    }
++  }
++
++  const shareText = `Join me on K-TECH Solutions for NIN, BVN and other services. Sign up with my link: ${referralLink}`;
++
++  return (
++    <AppShell>
++      <div className="max-w-4xl space-y-5">
++        <div>
++          <h1 className="font-display text-2xl font-bold text-ink">My profile</h1>
++          <p className="mt-1 text-sm text-ink-600">Your account details, wallet funding and referral code.</p>
++        </div>
++
++        {notice && <p className={`rounded-xl border px-4 py-3 text-sm ${notice.kind === 'ok' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-ember-500/40 bg-red-50 text-red-700'}`}>{notice.text}</p>}
++
++        <section className="grid gap-3 sm:grid-cols-3">
++          <div className="rounded-xl border border-parchment-line bg-parchment p-4">
++            <p className="flex items-center gap-1.5 text-xs text-ink-600"><Wallet size={14} />Wallet balance</p>
++            <p className="mt-1 font-display text-xl font-bold text-ink">{naira(walletBalance)}</p>
++          </div>
++          <div className="rounded-xl border border-gold-500/60 bg-gold-50 p-4">
++            <p className="flex items-center gap-1.5 text-xs text-ink-600"><Wallet size={14} />Total funded</p>
++            <p className="mt-1 font-display text-xl font-bold text-ink">{summary ? naira(summary.total_funded) : summaryFailed ? 'Unavailable' : '…'}</p>
++            <p className="mt-0.5 text-[11px] text-ink-600">
++              {summary ? (summary.funding_count > 0 ? `${summary.funding_count} funding${summary.funding_count === 1 ? '' : 's'} · last ${formatDate(summary.last_funded_at)}` : 'No wallet funding yet') : ' '}
++            </p>
++          </div>
++          <div className="rounded-xl border border-parchment-line bg-parchment p-4">
++            <p className="flex items-center gap-1.5 text-xs text-ink-600"><Users size={14} />Referrals</p>
++            <p className="mt-1 font-display text-xl font-bold text-ink">{stats ? stats.total_referrals : '…'}</p>
++            <p className="mt-0.5 text-[11px] text-ink-600">{stats ? `${naira(stats.total_earned)} earned` : ' '}</p>
++          </div>
++        </section>
++
++        <section className={card}>
++          <div className="flex items-start justify-between gap-3">
++            <h2 className="font-display text-lg font-bold text-ink">Account details</h2>
++            {!editing && (
++              <button type="button" onClick={startEditing} className="flex items-center gap-1.5 rounded-lg border border-parchment-line bg-white px-3 py-1.5 text-sm font-semibold text-ink hover:bg-gold-50">
++                <Pencil size={14} />Edit details
++              </button>
++            )}
++          </div>
++
++          {!editing ? (
++            <dl className="mt-4 grid gap-4 text-sm sm:grid-cols-2">
++              <div><dt className="text-xs text-ink-600">Full name</dt><dd className="mt-0.5 font-semibold text-ink">{user.full_name}</dd></div>
++              <div><dt className="text-xs text-ink-600">Member since</dt><dd className="mt-0.5 font-semibold text-ink">{formatDate(typeof user.created_at === 'string' ? user.created_at : null)}</dd></div>
++              <div>
++                <dt className="flex items-center gap-1 text-xs text-ink-600"><Mail size={12} />Email</dt>
++                <dd className="mt-0.5 break-all font-semibold text-ink">{user.email} <Chip ok={emailVerified} label={emailVerified ? 'Verified' : 'Not verified'} /></dd>
++              </div>
++              <div>
++                <dt className="flex items-center gap-1 text-xs text-ink-600"><Phone size={12} />Phone</dt>
++                <dd className="mt-0.5 font-semibold text-ink">{user.phone} <Chip ok={phoneVerified} label={phoneVerified ? 'Verified' : 'Not verified'} /></dd>
++              </div>
++              <div><dt className="text-xs text-ink-600">KYC status</dt><dd className="mt-0.5 font-semibold capitalize text-ink">{kyc}</dd></div>
++              {(!emailVerified || !phoneVerified) && (
++                <div className="flex items-end"><Link to="/verify-account" className="text-sm font-bold text-gold-700 underline">Verify my account</Link></div>
++              )}
++            </dl>
++          ) : (
++            <form onSubmit={save} className="mt-4 grid gap-4 sm:grid-cols-2">
++              <label className="text-sm font-semibold text-ink sm:col-span-2">Full name
++                <input className={input} value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} minLength={2} maxLength={120} required />
++              </label>
++              <label className="text-sm font-semibold text-ink">Email
++                <input className={input} type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required />
++              </label>
++              <label className="text-sm font-semibold text-ink">Phone number
++                <input className={input} type="tel" inputMode="tel" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} minLength={6} maxLength={20} required />
++              </label>
++              {contactChanged && (
++                <label className="text-sm font-semibold text-ink sm:col-span-2">Transaction PIN
++                  <input className={input} type="password" inputMode="numeric" autoComplete="off" maxLength={4} value={form.pin} onChange={(e) => setForm({ ...form, pin: e.target.value.replace(/\D/g, '') })} placeholder="Enter your PIN to confirm" required />
++                  <span className="mt-1 block text-xs font-normal text-ink-600">Changing your email or phone number needs your transaction PIN. The new contact will have to be verified again.</span>
++                </label>
++              )}
++              <div className="flex gap-2 sm:col-span-2">
++                <button type="submit" disabled={saving} className="rounded-xl bg-gold-400 px-5 py-2.5 text-sm font-bold text-ink disabled:opacity-60">{saving ? 'Saving…' : 'Save changes'}</button>
++                <button type="button" onClick={() => setEditing(false)} disabled={saving} className="flex items-center gap-1.5 rounded-xl border border-parchment-line bg-white px-4 py-2.5 text-sm font-semibold text-ink"><X size={14} />Cancel</button>
++              </div>
++            </form>
++          )}
++        </section>
++
++        <section className="rounded-2xl bg-ink p-5 text-cream">
++          <div className="flex items-center gap-3"><Gift className="text-gold-400" /><h2 className="font-display text-lg font-bold">Refer and earn</h2></div>
++          <p className="mt-1 text-sm text-cream/80">Share your code. You earn {((stats?.commission_rate ?? 0.01) * 100).toFixed(2)}% whenever someone you refer completes a purchase.</p>
++          <p className="mt-4 text-xs uppercase tracking-widest text-gold-400">Your referral code</p>
++          <div className="mt-1 flex flex-wrap items-center gap-3">
++            <span className="rounded-lg bg-white/10 px-4 py-2 font-mono text-lg font-bold tracking-wider">{referralCode || '—'}</span>
++            <button type="button" disabled={!referralCode} onClick={() => copy(referralCode, 'code')} className="flex items-center gap-1.5 rounded-lg bg-gold-400 px-3 py-2 text-sm font-bold text-ink disabled:opacity-50"><Copy size={14} />{copied === 'code' ? 'Copied' : 'Copy code'}</button>
++          </div>
++          <p className="mt-4 text-xs uppercase tracking-widest text-gold-400">Your referral link</p>
++          <p className="mt-1 break-all font-mono text-xs text-cream/90">{referralLink || '—'}</p>
++          <div className="mt-3 flex flex-wrap gap-2">
++            <button type="button" disabled={!referralLink} onClick={() => copy(referralLink, 'link')} className="flex items-center gap-1.5 rounded-lg border border-white/30 px-3 py-2 text-sm font-semibold disabled:opacity-50"><Copy size={14} />{copied === 'link' ? 'Copied' : 'Copy link'}</button>
++            <a aria-disabled={!referralLink} href={referralLink ? `https://wa.me/?text=${encodeURIComponent(shareText)}` : undefined} target="_blank" rel="noreferrer" className={`flex items-center gap-1.5 rounded-lg border border-white/30 px-3 py-2 text-sm font-semibold ${referralLink ? '' : 'pointer-events-none opacity-50'}`}><Share2 size={14} />Share on WhatsApp</a>
++            <Link to="/referrals" className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-semibold text-gold-400 underline">Earnings & withdrawals</Link>
++          </div>
++        </section>
++      </div>
++    </AppShell>
++  );
++}
+diff --git a/web/src/pages/VerificationPage.tsx b/web/src/pages/VerificationPage.tsx
+index 91530a2..ce1ca03 100644
+--- a/web/src/pages/VerificationPage.tsx
++++ b/web/src/pages/VerificationPage.tsx
+@@ -173,8 +173,6 @@ function validationServiceKey(validationType?: string) {
+   return VALIDATION_TYPES.find((t) => t.value === (validationType ?? 'nin_validation'))?.serviceKey ?? 'NIN_VALIDATION_GENERAL';
+ }
+ 
+-const money = (amount?: number) =>
+-  amount === undefined ? 'Price loading…' : `₦${amount.toLocaleString('en-NG', { maximumFractionDigits: 2 })}`;
+ 
+ const NIN_SLIP_IMAGES: Record<string, string> = {
+   premium: '/branding/premium slip.jpg',
+@@ -233,6 +231,13 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
+   const [busy, setBusy] = useState(false);
+   const [message, setMessage] = useState('');
+   const [prices, setPrices] = useState<Record<string, number>>({});
++  // "Price loading…" must only show while the list is actually loading. Once it
++  // has loaded (or failed), a missing price says so instead of spinning forever.
++  const [pricesLoaded, setPricesLoaded] = useState(false);
++  const money = (amount?: number) =>
++    amount === undefined
++      ? pricesLoaded ? 'Price unavailable' : 'Price loading…'
++      : `₦${amount.toLocaleString('en-NG', { maximumFractionDigits: 2 })}`;
+   const [activeServices, setActiveServices] = useState<Record<string, boolean> | null>(null);
+   const [slipResult, setSlipResult] = useState<SlipResult | null>(null);
+   const [asyncResult, setAsyncResult] = useState<AsyncResult | null>(null);
+@@ -260,8 +265,12 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
+         const rows = Array.isArray(result) ? result : (result.data ?? []);
+         setPrices(Object.fromEntries(rows.map((row) => [row.service, Number(row.unitPrice)])));
+         setActiveServices(Object.fromEntries(rows.map((row) => [row.service, row.isActive])));
++        setPricesLoaded(true);
+       })
+-      .catch(() => setMessage('Unable to load current prices. Please refresh and try again.'));
++      .catch(() => {
++        setPricesLoaded(true);
++        setMessage('Unable to load current prices. Please refresh and try again.');
++      });
+   }, []);
+ 
+   // A methods-bearing tile (V1/V2) is greyed out on the grid only if an

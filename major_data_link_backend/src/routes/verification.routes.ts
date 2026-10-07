@@ -2,7 +2,7 @@ import { Router, type Request } from 'express';
 import { z } from 'zod';
 import { TransactionStatus, TransactionType } from '@prisma/client';
 import { requireAuth } from '../middleware/auth.js';
-import { GEO_POLITICAL_ZONES, submitBvnLicense } from '../services/bvn-license-onboarding.service.js';
+import { GEO_POLITICAL_ZONES, submitBvnLicense, listBvnLicensePriceForCustomers } from '../services/bvn-license-onboarding.service.js';
 import { pinField, requirePinConfirmation } from '../lib/require-pin.js';
 import { prisma } from '../lib/prisma.js';
 import {
@@ -120,8 +120,8 @@ function slipResponse(result: Awaited<ReturnType<typeof purchaseNinByNin>>) {
 // ── Prices ───────────────────────────────────────────────────────
 
 verificationRoutes.get('/prices', async (_req, res) => {
-  const prices = await listVerificationPrices();
-  res.json({ status: true, data: prices });
+  const [prices, licensePrices] = await Promise.all([listVerificationPrices(), listBvnLicensePriceForCustomers()]);
+  res.json({ status: true, data: [...prices, ...licensePrices] });
 });
 
 verificationRoutes.post('/bvn/license-onboarding', async (req, res) => {

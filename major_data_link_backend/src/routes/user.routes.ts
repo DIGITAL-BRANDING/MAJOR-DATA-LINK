@@ -11,6 +11,7 @@ import { setLoginPin, setLoginPinIfUnset, verifyLoginPin } from '../services/log
 import { tryProvisionInstantVirtualAccount } from '../services/kyc.service.js';
 import { issueAuthTokens } from '../lib/auth-token.js';
 import { sendUserAuthResponse } from '../lib/web-auth-session.js';
+import { getFundingSummary } from '../services/profile.service.js';
 
 export const userRoutes = Router();
 
@@ -42,6 +43,65 @@ userRoutes.get('/profile', async (req, res) => {
   }
 
   res.json(await publicUser(user));
+});
+
+/** Profile page numbers that are not part of the cached user object: lifetime funding. */
+userRoutes.get('/profile/summary', async (req, res) => {
+  res.json({ status: true, data: await getFundingSummary(req.user!.id) });
+});
+
+/**
+ * Self-service edit from the web profile page. The name is freely editable;
+ * the email and phone number are how the account is identified and recovered,
+ * so changing either needs the transaction PIN (or the password for an account
+ * that has no PIN yet) - a stolen session alone must not be able to re-point the
+ * account at someone else's contact details. A changed contact is marked
+ * unverified again, the same as POST /profile/sync.
+ */
+userRoutes.post('/profile/update', async (req, res) => {
+  const body = z
+    .object({
+      full_name: z.string().trim().min(2).max(120),
+      email: z.string().trim().email().transform((value) => value.toLowerCase()),
+      phone: z.string().trim().min(6).max(20),
+      pin: z.string().optional()
+    })
+    .parse(req.body);
+
+  const current = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id } });
+  const emailChanged = body.email !== current.email;
+  const phoneChanged = body.phone !== current.phone;
+
+  if (emailChanged || phoneChanged) {
+    if (!body.pin) {
+      throw new ApiError(422, 'Enter your transaction PIN to change your email or phone number', 'CREDENTIAL_REQUIRED');
+    }
+    await verifyPinOrPassword(current.id, body.pin);
+
+    const conflict = await prisma.user.findFirst({
+      where: {
+        id: { not: current.id },
+        OR: [...(emailChanged ? [{ email: body.email }] : []), ...(phoneChanged ? [{ phone: body.phone }] : [])]
+      },
+      select: { id: true }
+    });
+    if (conflict) {
+      throw new ApiError(409, 'That email or phone is already in use by another account', 'PROFILE_CONFLICT');
+    }
+  }
+
+  const updated = await prisma.user.update({
+    where: { id: current.id },
+    data: {
+      fullName: body.full_name,
+      email: body.email,
+      phone: body.phone,
+      emailVerified: emailChanged ? false : undefined,
+      phoneVerified: phoneChanged ? false : undefined
+    }
+  });
+
+  res.json({ status: true, message: 'Profile updated', data: await publicUser(updated) });
 });
 
 userRoutes.post('/profile/sync', async (req, res) => {

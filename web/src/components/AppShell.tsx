@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
-import { Bell, Fingerprint, GraduationCap, IdCard, LayoutDashboard, LogOut, Menu, MessageCircle, PackageOpen, Smartphone, WalletCards, X, Briefcase, Phone, ShieldCheck, CheckCircle2, MapPin, Search, Unlink, FilePenLine, Baby, Receipt, Newspaper, History, Settings2 } from 'lucide-react';
+import { Bell, Fingerprint, GraduationCap, IdCard, LayoutDashboard, LogOut, Menu, MessageCircle, PackageOpen, Smartphone, WalletCards, X, Briefcase, Phone, ShieldCheck, CheckCircle2, MapPin, Search, Unlink, FilePenLine, Baby, Receipt, Newspaper, History, Settings2, UserRound, Gift } from 'lucide-react';
 import Logo from './Logo';
 import { useAuth } from '../lib/auth';
 import { api } from '../lib/api';
@@ -17,6 +17,8 @@ function Sidebar({ close }: { close?: () => void }) {
     <Link to="/dashboard" onClick={close} className="mb-8 px-3"><Logo dark /></Link>
     <nav className="flex-1 space-y-1 overflow-y-auto">
       <NavLink to="/dashboard" onClick={close} className={navClass}><LayoutDashboard size={17} />Dashboard</NavLink>
+      <NavLink to="/profile" onClick={close} className={navClass}><UserRound size={17} />My Profile</NavLink>
+      <NavLink to="/referrals" onClick={close} className={navClass}><Gift size={17} />Referrals</NavLink>
       {serviceLinks.map(([label, to, Icon]) => <NavLink key={to} to={to} onClick={close} className={navClass}><Icon size={17} />{label}</NavLink>)}
       <NavLink to="/verifications" onClick={close} className={navClass}><History size={17} />Service History</NavLink>
       <NavLink to="/deliveries" onClick={close} className={navClass}><PackageOpen size={17} />My Deliveries</NavLink>
@@ -40,5 +42,5 @@ function NotificationBell() {
 
 export default function AppShell({ children }: { children: ReactNode }) {
   const { user } = useAuth(); const [mobileOpen, setMobileOpen] = useState(false);
-  return <div className="min-h-screen bg-[#f5f7fb]"><div className="fixed inset-y-0 left-0 z-30 hidden lg:block"><Sidebar/></div><header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur lg:ml-72"><div className="flex h-16 items-center justify-between px-4 sm:px-5"><button onClick={() => setMobileOpen(true)} className="rounded-lg p-2 text-brand-700 lg:hidden"><Menu/></button><span className="hidden text-sm text-slate-500 sm:block">Welcome back, {user?.full_name?.split(' ')[0] ?? 'User'}</span><Link to="/dashboard" className="lg:hidden"><Logo/></Link><div className="flex items-center gap-3"><NotificationBell/><span className="flex items-center gap-2 text-sm font-medium text-slate-600"><Smartphone size={17} className="text-brand-600"/><span className="hidden sm:inline">Secure services</span></span></div></div></header>{mobileOpen && <div className="fixed inset-0 z-50 lg:hidden"><button onClick={() => setMobileOpen(false)} className="absolute inset-0 bg-slate-950/35"/><div className="relative h-full"><button onClick={() => setMobileOpen(false)} className="absolute right-3 top-3 z-10 rounded-lg p-2"><X/></button><Sidebar close={() => setMobileOpen(false)}/></div></div>}<main className="px-4 py-6 sm:px-5 sm:py-7 lg:ml-72 lg:px-8">{children}</main></div>;
+  return <div className="min-h-screen bg-[#f5f7fb]"><div className="fixed inset-y-0 left-0 z-30 hidden lg:block"><Sidebar/></div><header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur lg:ml-72"><div className="flex h-16 items-center justify-between px-4 sm:px-5"><button onClick={() => setMobileOpen(true)} className="rounded-lg p-2 text-brand-700 lg:hidden"><Menu/></button><Link to="/profile" className="hidden text-sm text-slate-500 hover:text-brand-700 sm:block" title="Open my profile">Welcome back, {user?.full_name?.split(' ')[0] ?? 'User'}</Link><Link to="/dashboard" className="lg:hidden"><Logo/></Link><div className="flex items-center gap-3"><NotificationBell/><span className="flex items-center gap-2 text-sm font-medium text-slate-600"><Smartphone size={17} className="text-brand-600"/><span className="hidden sm:inline">Secure services</span></span></div></div></header>{mobileOpen && <div className="fixed inset-0 z-50 lg:hidden"><button onClick={() => setMobileOpen(false)} className="absolute inset-0 bg-slate-950/35"/><div className="relative h-full"><button onClick={() => setMobileOpen(false)} className="absolute right-3 top-3 z-10 rounded-lg p-2"><X/></button><Sidebar close={() => setMobileOpen(false)}/></div></div>}<main className="px-4 py-6 sm:px-5 sm:py-7 lg:ml-72 lg:px-8">{children}</main></div>;
 }

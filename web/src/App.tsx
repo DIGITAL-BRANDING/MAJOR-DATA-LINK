@@ -26,6 +26,7 @@ import PaymentCallbackPage from './pages/PaymentCallbackPage';
 import DeliveriesPage from './pages/DeliveriesPage';
 import ReceiptPage from './pages/ReceiptPage';
 import ReferralPage from './pages/ReferralPage';
+import ProfilePage from './pages/ProfilePage';
 import PinSetupPage from './pages/PinSetupPage';
 import PartnerDashboardPage from './pages/PartnerDashboardPage';
 import PartnerApiDocsPage from './pages/PartnerApiDocsPage';
@@ -107,6 +108,7 @@ export default function App() {
           <Route path="/deliveries" element={<ProtectedRoute><DeliveriesPage /></ProtectedRoute>} />
           <Route path="/receipt/:id" element={<ProtectedRoute><ReceiptPage /></ProtectedRoute>} />
           <Route path="/referrals" element={<ProtectedRoute><ReferralPage /></ProtectedRoute>} />
+          <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
           <Route path="/setup-pins" element={<ProtectedRoute><PinSetupPage /></ProtectedRoute>} />
           <Route path="/payment/callback" element={<ProtectedRoute><PaymentCallbackPage /></ProtectedRoute>} />
           <Route path="/set-new-password" element={<ProtectedRoute><SetNewPasswordPage /></ProtectedRoute>} />
