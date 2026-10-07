@@ -15,6 +15,10 @@ const en = {
       dashboard: 'Dashboard',
       logout: 'Log out'
     },
+    notifications: {
+      recent: 'Recent notifications',
+      empty: 'No notifications yet.'
+    },
     auth: {
       login: 'Log in',
       register: 'Register',

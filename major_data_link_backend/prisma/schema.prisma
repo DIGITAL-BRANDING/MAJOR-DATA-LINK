@@ -140,6 +140,17 @@ enum NotificationAudience {
   KYC_VERIFIED_ONLY
 }
 
+/// Mirrors NotificationAudience, for the equivalent "send a message to
+/// partners" admin feature (PartnerNotificationBroadcast below) - a
+/// separate enum because a Partner has no KYC concept, but does have its
+/// own ACTIVE/PENDING_REVIEW/SUSPENDED status (see PartnerStatus) worth
+/// targeting separately.
+enum PartnerNotificationAudience {
+  ALL_PARTNERS
+  ACTIVE_PARTNERS_ONLY
+  SPECIFIC_PARTNERS
+}
+
 model User {
   id                   String         @id
   fullName             String
@@ -261,6 +272,7 @@ model Partner {
   requestUpdates    PartnerRequestUpdate[]
   webhookDeliveries PartnerWebhookDelivery[]
   refreshTokens     PartnerRefreshToken[]
+  notifications     PartnerNotification[]
 
   @@index([status])
 }
@@ -963,6 +975,57 @@ model NotificationBroadcast {
   @@index([createdByAdminId, createdAt])
 }
 
+/// Partner-portal equivalent of Notification above - one row per
+/// (partner, message), independent isRead state per partner, same
+/// broadcast-fan-out shape as the user-facing system. No push: partners
+/// have no DeviceToken-equivalent (the portal is browser-only), so this is
+/// an in-app notification (bell + popup) only - see
+/// PartnerNotificationBell/PartnerNotificationPopup in
+/// PartnerDashboardPage.tsx and fanOutPartnerBroadcast() in
+/// notification.service.ts.
+model PartnerNotification {
+  id          String                        @id @default(uuid())
+  partnerId   String
+  type        NotificationType              @default(SYSTEM)
+  title       String
+  body        String
+  data        Json?
+  isRead      Boolean                       @default(false)
+  readAt      DateTime?
+  broadcastId String?
+  /// Same preset-illustration popup style as Notification.imageKey - see
+  /// PROMO_ILLUSTRATIONS in notification.service.ts.
+  imageKey    String?
+  showAsPopup Boolean                       @default(false)
+  createdAt   DateTime                      @default(now())
+  partner     Partner                       @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  broadcast   PartnerNotificationBroadcast? @relation(fields: [broadcastId], references: [id])
+
+  @@index([partnerId, createdAt])
+  @@index([partnerId, isRead])
+}
+
+/// Partner-portal equivalent of NotificationBroadcast above - the admin
+/// "send a message to partners" send event; its PartnerNotification fan-out
+/// rows link back via broadcastId.
+model PartnerNotificationBroadcast {
+  id               String                      @id @default(uuid())
+  createdByAdminId String
+  createdByAdmin   AdminUser                   @relation(fields: [createdByAdminId], references: [id])
+  type             NotificationType            @default(ADMIN_BROADCAST)
+  title            String
+  body             String
+  audience         PartnerNotificationAudience @default(ALL_PARTNERS)
+  targetPartnerIds Json?
+  imageKey         String?
+  showAsPopup      Boolean                     @default(false)
+  recipientCount   Int                         @default(0)
+  createdAt        DateTime                    @default(now())
+  notifications    PartnerNotification[]
+
+  @@index([createdByAdminId, createdAt])
+}
+
 model AdminUser {
   id           String          @id @default(uuid())
   email        String          @unique
@@ -986,6 +1049,7 @@ model AdminUser {
   updatedAt    DateTime        @updatedAt
   auditLogs    AdminAuditLog[]
   sentBroadcasts NotificationBroadcast[]
+  sentPartnerBroadcasts PartnerNotificationBroadcast[]
   deliveries UserDelivery[]
 }
 

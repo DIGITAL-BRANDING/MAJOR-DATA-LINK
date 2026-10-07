@@ -15,6 +15,10 @@ const ha = {
       dashboard: 'Dashboard',
       logout: 'Fita'
     },
+    notifications: {
+      recent: 'Sanarwa na baya-bayan nan',
+      empty: 'Babu sanarwa tukuna.'
+    },
     auth: {
       login: 'Shiga',
       register: 'Yi rajista',

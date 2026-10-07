@@ -185,6 +185,58 @@ partnerPortalRoutes.get('/me', requirePartnerSession, async (req, res) => {
   res.json({ status: true, data: { ...(await partnerProfile(partner)), webhook } });
 });
 
+// ── Notifications ───────────────────────────────────────────────────
+// Partner-portal counterpart of notification.routes.ts - every query below
+// is scoped to req.partner!.id from the verified session token, never to a
+// body/query param, so one partner can never read or mutate another
+// partner's notifications. See notifyPartner/fanOutPartnerBroadcast in
+// notification.service.ts for how rows land here.
+partnerPortalRoutes.get('/notifications', requirePartnerSession, async (req, res) => {
+  const limit = Math.min(Number(req.query.limit) || 50, 100);
+
+  const notifications = await prisma.partnerNotification.findMany({
+    where: { partnerId: req.partner!.id },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    take: limit
+  });
+
+  res.json({
+    status: true,
+    data: notifications.map((n) => ({
+      id: n.id,
+      title: n.title,
+      body: n.body,
+      type: n.type.toLowerCase(),
+      is_read: n.isRead,
+      broadcast_id: n.broadcastId,
+      is_persistent_broadcast: n.broadcastId !== null,
+      data: n.data,
+      image_key: n.imageKey,
+      show_as_popup: n.showAsPopup,
+      created_at: n.createdAt.toISOString()
+    }))
+  });
+});
+
+partnerPortalRoutes.post('/notifications/read', requirePartnerSession, async (req, res) => {
+  const body = z.object({ ids: z.array(z.string()).optional() }).parse(req.body ?? {});
+
+  await prisma.partnerNotification.updateMany({
+    where: {
+      partnerId: req.partner!.id,
+      // Same reasoning as notification.routes.ts's '/read': an admin
+      // broadcast's "current" status is decided purely by recency on the
+      // client (see PartnerNotificationPopup), not by isRead, so dismissing
+      // one never marks it read here.
+      broadcastId: null,
+      ...(body.ids && body.ids.length > 0 ? { id: { in: body.ids } } : {})
+    },
+    data: { isRead: true, readAt: new Date() }
+  });
+
+  res.json({ status: true, message: 'Notifications marked as read' });
+});
+
 // GET /transactions below (in the "Dashboard" section further down) is a
 // superset of what this used to do - search + more columns - so the
 // dashboard UI calls that instead of a separate "recent" endpoint.

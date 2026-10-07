@@ -1,4 +1,4 @@
-import type { NotificationAudience, NotificationType, Prisma } from '@prisma/client';
+import type { NotificationAudience, NotificationType, PartnerNotificationAudience, Prisma } from '@prisma/client';
 import { nanoid } from 'nanoid';
 import { prisma } from '../lib/prisma.js';
 import { getFirebaseAdmin } from '../lib/firebase.js';
@@ -226,4 +226,120 @@ export async function registerDeviceToken(userId: string, token: string, platfor
 
 export async function unregisterDeviceToken(token: string) {
   await prisma.deviceToken.deleteMany({ where: { token } });
+}
+
+// ── Partner-portal notifications ────────────────────────────────
+//
+// Mirrors everything above (notifyUser/resolveAudienceUserIds/
+// fanOutBroadcast/sendAdminBroadcast), scoped to Partner instead of User.
+// The one structural difference: no pushToTokens() call anywhere here -
+// partners have no DeviceToken-equivalent (the portal is browser-only), so
+// a partner only ever gets the in-app PartnerNotification row; the portal's
+// own bell/popup (PartnerDashboardPage.tsx) is what surfaces it.
+
+async function resolveAudiencePartnerIds(audience: PartnerNotificationAudience, partnerIds?: string[]) {
+  if (audience === 'SPECIFIC_PARTNERS') {
+    const ids = partnerIds ?? [];
+    if (ids.length === 0) {
+      throw new Error('partnerIds is required when audience is SPECIFIC_PARTNERS');
+    }
+    return prisma.partner.findMany({ where: { id: { in: ids } }, select: { id: true } });
+  }
+  if (audience === 'ACTIVE_PARTNERS_ONLY') {
+    return prisma.partner.findMany({ where: { status: 'ACTIVE' }, select: { id: true } });
+  }
+  return prisma.partner.findMany({ select: { id: true } });
+}
+
+/**
+ * Creates a notification for exactly one partner. The only function
+ * transaction/wallet/KYC-equivalent partner code should call to notify a
+ * partner of something that happened to their own account - same role as
+ * notifyUser() above, just with no push step.
+ */
+export async function notifyPartner(params: {
+  partnerId: string;
+  type: NotificationType;
+  title: string;
+  body: string;
+  data?: Prisma.InputJsonValue;
+}) {
+  return prisma.partnerNotification.create({
+    data: {
+      id: nanoid(),
+      partnerId: params.partnerId,
+      type: params.type,
+      title: params.title,
+      body: params.body,
+      data: params.data
+    }
+  });
+}
+
+/**
+ * Fans an ALREADY-CREATED PartnerNotificationBroadcast row out into one
+ * PartnerNotification row per targeted recipient and records the final
+ * recipient count - the partner-portal counterpart to fanOutBroadcast()
+ * above, split out the same way so the AdminJS "new" form (which creates
+ * the PartnerNotificationBroadcast row itself) can trigger the same
+ * fan-out afterward.
+ */
+export async function fanOutPartnerBroadcast(broadcastId: string) {
+  const broadcast = await prisma.partnerNotificationBroadcast.findUniqueOrThrow({ where: { id: broadcastId } });
+  const targetPartnerIds = Array.isArray(broadcast.targetPartnerIds) ? (broadcast.targetPartnerIds as string[]) : undefined;
+  const targetPartners = await resolveAudiencePartnerIds(broadcast.audience, targetPartnerIds);
+
+  if (targetPartners.length > 0) {
+    await prisma.partnerNotification.createMany({
+      data: targetPartners.map((p) => ({
+        id: nanoid(),
+        partnerId: p.id,
+        type: broadcast.type,
+        title: broadcast.title,
+        body: broadcast.body,
+        broadcastId: broadcast.id,
+        imageKey: broadcast.imageKey,
+        showAsPopup: broadcast.showAsPopup
+      }))
+    });
+  }
+
+  return prisma.partnerNotificationBroadcast.update({
+    where: { id: broadcast.id },
+    data: { recipientCount: targetPartners.length }
+  });
+}
+
+/**
+ * Admin-initiated broadcast to partners (price changes, maintenance
+ * notices, new API capability announcements, etc). Resolves the target
+ * audience to a concrete list of partnerIds and fans out one
+ * PartnerNotification row PER recipient - the partner-portal counterpart
+ * to sendAdminBroadcast() above.
+ */
+export async function sendPartnerAdminBroadcast(params: {
+  adminId: string;
+  title: string;
+  body: string;
+  type?: NotificationType;
+  audience: PartnerNotificationAudience;
+  partnerIds?: string[];
+  imageKey?: string;
+  showAsPopup?: boolean;
+}) {
+  const broadcast = await prisma.partnerNotificationBroadcast.create({
+    data: {
+      id: nanoid(),
+      createdByAdminId: params.adminId,
+      type: params.type ?? 'ADMIN_BROADCAST',
+      title: params.title,
+      body: params.body,
+      audience: params.audience,
+      targetPartnerIds: params.audience === 'SPECIFIC_PARTNERS' ? params.partnerIds : undefined,
+      imageKey: params.imageKey,
+      showAsPopup: params.showAsPopup ?? false
+    }
+  });
+
+  return fanOutPartnerBroadcast(broadcast.id);
 }

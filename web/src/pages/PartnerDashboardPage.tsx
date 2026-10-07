@@ -8,6 +8,7 @@ import { removeWebPushSubscription } from '../lib/web-push';
 import {
   Activity,
   AlertTriangle,
+  Bell,
   BookOpen,
   Building2,
   CalendarCheck2,
@@ -32,6 +33,7 @@ import {
   Trash2,
   Wallet as WalletIcon,
   Webhook,
+  X,
   XCircle
 } from 'lucide-react';
 
@@ -131,6 +133,150 @@ async function portalFetch<T>(path: string, options: { method?: string; body?: u
 
   if (!res.ok) throw new Error(payload?.message ?? 'Something went wrong. Please try again.');
   return payload as T;
+}
+
+type PartnerNotice = {
+  id: string;
+  title: string;
+  body: string;
+  is_read?: boolean;
+  broadcast_id?: string | null;
+  is_persistent_broadcast?: boolean;
+  show_as_popup?: boolean;
+  created_at?: string;
+};
+
+/**
+ * Partner-portal counterpart of AppShell.tsx's NotificationBell - same
+ * poll-every-30s/mark-read-on-open behaviour, just talking to
+ * /api/partner-portal/notifications via portalFetch instead of the
+ * customer-app `api` client.
+ */
+function PartnerNotificationBell() {
+  const { t } = useTranslation();
+  const [items, setItems] = useState<PartnerNotice[]>([]);
+  const [open, setOpen] = useState(false);
+  const load = () =>
+    portalFetch<{ data?: PartnerNotice[] }>('/notifications?limit=10')
+      .then((r) => setItems(r.data ?? []))
+      .catch(() => {});
+  useEffect(() => {
+    load();
+    const timer = window.setInterval(load, 30000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const isPersistentBroadcast = (notice: PartnerNotice) => Boolean(notice.is_persistent_broadcast || notice.broadcast_id);
+  const unread = items.filter((n) => !n.is_read && !isPersistentBroadcast(n)).length;
+  async function toggle() {
+    setOpen((v) => !v);
+    if (unread) {
+      const ids = items.filter((n) => !n.is_read && !isPersistentBroadcast(n)).map((n) => n.id);
+      setItems((v) => v.map((n) => (ids.includes(n.id) ? { ...n, is_read: true } : n)));
+      await portalFetch('/notifications/read', { method: 'POST', body: { ids } }).catch(() => {});
+    }
+  }
+  return (
+    <div className="relative">
+      <button
+        onClick={toggle}
+        aria-label="Open notifications"
+        className="relative rounded-lg border border-slate-300 p-2 text-slate-600 hover:bg-slate-50"
+      >
+        <Bell size={16} />
+        {unread > 0 && (
+          <span className="absolute -right-1 -top-1 min-w-4 rounded-full bg-rose-500 px-1 text-center text-[10px] font-bold text-white">
+            {unread > 9 ? '9+' : unread}
+          </span>
+        )}
+      </button>
+      {open && (
+        <section className="absolute right-0 top-12 z-50 w-[min(360px,calc(100vw-32px))] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+          <header className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+            <b className="text-sm text-slate-900">{t('partnerPortal.notifications.recent')}</b>
+            <button onClick={() => setOpen(false)} aria-label="Close notifications">
+              <X size={17} />
+            </button>
+          </header>
+          <div className="max-h-96 overflow-y-auto">
+            {items.length ? (
+              items.map((n) => (
+                <article key={n.id} className="border-b border-slate-100 px-4 py-3 last:border-0">
+                  <p className="text-sm font-bold text-slate-900">{n.title}</p>
+                  <p className="mt-1 text-xs leading-5 text-slate-600">{n.body}</p>
+                  <time className="mt-2 block text-[10px] text-slate-400">{n.created_at ? new Date(n.created_at).toLocaleString() : ''}</time>
+                </article>
+              ))
+            ) : (
+              <p className="p-5 text-center text-sm text-slate-600">{t('partnerPortal.notifications.empty')}</p>
+            )}
+          </div>
+        </section>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Partner-portal counterpart of components/NotificationPopup.tsx - same
+ * newest-broadcast-wins logic (see that file's doc comment for the full
+ * rationale), scoped to the partner session via portalFetch.
+ */
+function PartnerNotificationPopup() {
+  const [notice, setNotice] = useState<PartnerNotice | null>(null);
+  const [hiddenIds, setHiddenIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    const load = () => {
+      portalFetch<{ data?: PartnerNotice[] }>('/notifications?limit=20')
+        .then((response) => {
+          if (!active) return;
+          const items = response.data ?? [];
+          const broadcasts = items
+            .filter((item) => Boolean(item.broadcast_id || item.is_persistent_broadcast))
+            .sort((a, b) => Date.parse(b.created_at ?? '') - Date.parse(a.created_at ?? ''));
+          const newestBroadcast = broadcasts[0];
+
+          const next = newestBroadcast
+            ? (hiddenIds.includes(newestBroadcast.id) ? undefined : newestBroadcast)
+            : items.find((item) => item.show_as_popup && !hiddenIds.includes(item.id));
+          setNotice(next ?? null);
+        })
+        .catch(() => {
+          // Notifications are optional; never block access to the portal.
+        });
+    };
+    load();
+    const timer = window.setInterval(load, 30000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [hiddenIds]);
+
+  const close = () => {
+    if (!notice) return;
+    setHiddenIds((ids) => [...ids, notice.id]);
+    setNotice(null);
+  };
+
+  if (!notice) return null;
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-[2px]" role="dialog" aria-modal="true" aria-labelledby="partner-notification-title">
+      <div className="w-full max-w-md overflow-hidden rounded-2xl border border-brand-200 bg-white shadow-2xl">
+        <div className="flex items-center justify-between bg-brand-700 px-5 py-4 text-white">
+          <div className="flex items-center gap-3">
+            <span className="rounded-full bg-white/15 p-2"><Bell size={20} /></span>
+            <h2 id="partner-notification-title" className="text-base font-bold">{notice.title}</h2>
+          </div>
+          <button onClick={close} aria-label="Close notification" className="rounded-lg p-1.5 text-white/80 hover:bg-white/15 hover:text-white">
+            <X size={19} />
+          </button>
+        </div>
+        <div className="px-5 py-6"><p className="whitespace-pre-wrap text-sm leading-6 text-slate-700">{notice.body}</p></div>
+        <div className="flex justify-end border-t border-slate-100 bg-slate-50 px-5 py-4">
+          <button onClick={close} className="rounded-xl bg-brand-700 px-6 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-brand-800 focus:outline-none focus:ring-2 focus:ring-brand-200">OK / Continue</button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export default function PartnerDashboardPage() {
@@ -237,6 +383,7 @@ export default function PartnerDashboardPage() {
 
   return (
     <main className="min-h-screen bg-slate-50 text-slate-900">
+      <PartnerNotificationPopup />
       <header className="border-b border-slate-200 bg-white">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-4">
           <div className="flex items-center gap-3">
@@ -249,6 +396,7 @@ export default function PartnerDashboardPage() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <PartnerNotificationBell />
             <LanguageSwitcher />
             <Link
               to="/partner-docs"

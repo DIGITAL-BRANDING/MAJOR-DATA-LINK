@@ -54,27 +54,37 @@ export type ServiceItem = {
   statusKey?: string | string[];
 };
 
+// BVN Modification is really 8 field-types × 2 enrollment groups
+// (AGENCY/BANK) = 16 independently-toggleable ServicePricing rows (see
+// bvn-modification.service.ts). Computed here instead of hand-typed to
+// avoid a transcription slip across 16 near-identical strings.
+const BVN_MODIFICATION_TYPES = ['NAME', 'PHONE', 'DOB', 'ADDRESS', 'NAME_DOB', 'NAME_PHONE', 'NAME_ADDRESS', 'DOB_PHONE'];
+const BVN_MODIFICATION_STATUS_KEYS = BVN_MODIFICATION_TYPES.flatMap((t) => [
+  `BVN_MODIFICATION_UPDATE_${t}`,
+  `BVN_MODIFICATION_BANK_UPDATE_${t}`,
+]);
+
 // Mirrors the service list in
 // major_data_link/lib/features/home/presentation/screens/services_screen.dart
 // — same order, same set — so a customer moving between the app and the
 // website sees one consistent menu.
 export const SERVICES: ServiceItem[] = [
   { label: 'NIN Phone Verification', description: 'Verify a NIN using the registered phone number.', icon: IdCard, route: '/nin', tint: 'gold', implemented: true },
-  { label: 'Phone Multiple', description: 'Find identity details using a registered phone number.', icon: Phone, route: '/phone', tint: 'bronze', implemented: true },
-  { label: 'CAC Services', description: 'Request CAC registration or verification and receive completed files.', icon: Briefcase, route: '/cac', tint: 'success', implemented: true },
+  { label: 'Phone Multiple', description: 'Find identity details using a registered phone number.', icon: Phone, route: '/phone', tint: 'bronze', implemented: true, statusKey: ['NIN_PHONE_SLIP_PREMIUM', 'NIN_PHONE_SLIP_STANDARD', 'NIN_PHONE_SLIP_REGULAR', 'NIN_PHONE_PERSONAL_INFO_SLIP'] },
+  { label: 'CAC Services', description: 'Request CAC registration or verification and receive completed files.', icon: Briefcase, route: '/cac', tint: 'success', implemented: true, statusKey: ['CAC_SOLE', 'CAC_PARTNERSHIP', 'CAC_LLC'] },
   { label: 'BVN Verification', description: 'Generate a BVN verification slip.', icon: Fingerprint, route: '/bvn', tint: 'ember', implemented: true },
-  { label: 'IPE Clearance (Instant)', description: 'Submit a tracking ID for instant IPE clearance.', icon: ShieldCheck, route: '/ipe', tint: 'gold', implemented: true },
-  { label: 'Validation', description: 'Submit a NIN record validation request.', icon: ClipboardList, route: '/validation', tint: 'bronze', implemented: true },
-  { label: 'Personalization', description: 'Process a NIN personalization tracking request.', icon: MapPin, route: '/tracking', tint: 'success', implemented: true },
-  { label: 'BVN Retrieval', description: 'Retrieve BVN details using name and registered phone number.', icon: Search, route: '/bvn-ret', tint: 'ember', implemented: true },
-  { label: 'Self Service Unlink', description: 'Submit an identity delinking request.', icon: Unlink, route: '/delink', tint: 'gold', implemented: true },
-  { label: 'NIN Modifications', description: 'Request corrections to NIN records.', icon: FilePenLine, route: '/nin-modification', tint: 'bronze', implemented: true },
+  { label: 'IPE Clearance (Instant)', description: 'Submit a tracking ID for instant IPE clearance.', icon: ShieldCheck, route: '/ipe', tint: 'gold', implemented: true, statusKey: 'IPE_CLEARANCE' },
+  { label: 'Validation', description: 'Submit a NIN record validation request.', icon: ClipboardList, route: '/validation', tint: 'bronze', implemented: true, statusKey: ['NIN_VALIDATION_GENERAL', 'NIN_VALIDATION_NO_RECORD', 'NIN_VALIDATION_SIM', 'NIN_VALIDATION_BANK', 'NIN_VALIDATION_UPDATE_RECORDS', 'NIN_VALIDATION_MODIFICATION', 'NIN_VALIDATION_PHOTO_ERROR', 'NIN_VALIDATION_VNIN'] },
+  { label: 'Personalization', description: 'Process a NIN personalization tracking request.', icon: MapPin, route: '/tracking', tint: 'success', implemented: true, statusKey: 'NIN_PERSONALIZATION' },
+  { label: 'BVN Retrieval', description: 'Retrieve BVN details using name and registered phone number.', icon: Search, route: '/bvn-ret', tint: 'ember', implemented: true, statusKey: 'BVN_RETRIEVAL' },
+  { label: 'Self Service Unlink', description: 'Submit an identity delinking request.', icon: Unlink, route: '/delink', tint: 'gold', implemented: true, statusKey: 'NIN_DELINKING' },
+  { label: 'NIN Modifications', description: 'Request corrections to NIN records.', icon: FilePenLine, route: '/nin-modification', tint: 'bronze', implemented: true, statusKey: ['NIN_MODIFICATION_UPDATE_NAME', 'NIN_MODIFICATION_UPDATE_PHONE', 'NIN_MODIFICATION_UPDATE_DOB', 'NIN_MODIFICATION_UPDATE_ADDRESS', 'NIN_MODIFICATION_UPDATE_NAME_DOB', 'NIN_MODIFICATION_UPDATE_NAME_PHONE'] },
   { label: 'Birth Attestation', description: 'Submit a birth attestation request for manual processing.', icon: Baby, route: '/attestation', tint: 'success', implemented: true, statusKey: 'BIRTH_ATTESTATION' },
   { label: 'TIN Certificate', description: 'Request a TIN certificate and receive it in Deliveries.', icon: Receipt, route: '/tin', tint: 'ember', implemented: true },
   { label: 'Newspaper Publication', description: 'Submit a newspaper publication request.', icon: Newspaper, route: '/newspaper', tint: 'gold', implemented: true, statusKey: 'NEWSPAPER_PUBLICATION' },
-  { label: 'Demographic Search', description: 'Search NIN records using demographic details.', icon: Search, route: '/demo', tint: 'bronze', implemented: true },
-  { label: 'BVN Licence Creation', description: 'Create a BVN licence onboarding request.', icon: Fingerprint, route: '/bvn-license', tint: 'gold', implemented: true },
-  { label: 'BVN Modification', description: 'Submit a BVN modification request for processing.', icon: FilePenLine, route: '/bvn-modification', tint: 'bronze', implemented: true },
+  { label: 'Demographic Search', description: 'Search NIN records using demographic details.', icon: Search, route: '/demo', tint: 'bronze', implemented: true, statusKey: 'NIN_DEMOGRAPHIC' },
+  { label: 'BVN Licence Creation', description: 'Create a BVN licence onboarding request.', icon: Fingerprint, route: '/bvn-license', tint: 'gold', implemented: true, statusKey: 'BVN_LICENSE_ONBOARDING' },
+  { label: 'BVN Modification', description: 'Submit a BVN modification request for processing.', icon: FilePenLine, route: '/bvn-modification', tint: 'bronze', implemented: true, statusKey: BVN_MODIFICATION_STATUS_KEYS },
   { label: 'BVN CRM', description: 'Submit a BVN CRM Ticket ID for follow-up.', icon: Settings2, route: '/bvn-crm', tint: 'gold', implemented: true, statusKey: 'BVN_CRM' },
   {
     label: 'Buy Data',
@@ -125,6 +135,7 @@ export const SERVICES: ServiceItem[] = [
     route: '/result-checkers',
     tint: 'bronze',
     implemented: true,
+    statusKey: ['WAEC_PIN', 'NECO_PIN', 'NABTEB_PIN'],
   },
   {
     label: 'JAMB Services',
