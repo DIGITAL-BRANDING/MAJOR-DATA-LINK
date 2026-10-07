@@ -17,6 +17,7 @@ import {
 import { franceverifiedSlipAdapter } from './franceverified-slip-adapter.service.js';
 import type { IdentitySlipTier } from '../lib/render-identity-slip-pdf.js';
 import { submitNinValidationFV, checkNinValidationFV } from './franceverified-nin-validation-adapter.service.js';
+import { checkIpeClearanceFV, submitIpeClearanceFV } from './franceverified-ipe-adapter.service.js';
 
 /**
  * Which upstream API actually fulfils a given ServicePricing row right now -
@@ -1210,14 +1211,17 @@ export function submitIpeClearance(params: {
     operational: { ipe_type: params.ipeType },
     pii: { tracking_id: params.trackingId },
     idempotencyKey: params.idempotencyKey,
-    callByProvider: { techhub: () => techhubService.submitIpeClearance(params.trackingId, params.ipeType) }
+    callByProvider: {
+      techhub: () => techhubService.submitIpeClearance(params.trackingId, params.ipeType),
+      franceverified: () => submitIpeClearanceFV(params.trackingId, params.ipeType)
+    }
   });
 }
 export function checkIpeClearanceStatus(params: { userId: string; ticketId: string }) {
   return checkAsyncServiceStatus({
     userId: params.userId,
     ticketId: params.ticketId,
-    callByProvider: { techhub: (id) => techhubService.checkIpeClearance(id) }
+    callByProvider: { techhub: (id) => techhubService.checkIpeClearance(id), franceverified: (id) => checkIpeClearanceFV(id) }
   });
 }
 

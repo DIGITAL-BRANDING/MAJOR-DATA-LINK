@@ -39,6 +39,7 @@ const quickLinks: QuickLink[] = [
   { label: 'Customers', description: 'Users, KYC status & profiles', resourceId: 'User', icon: 'Users' },
   { label: 'Ledger', description: 'Transactions, reversals & history', resourceId: 'Transaction', icon: 'List' },
   { label: 'All Manual Requests', description: 'One queue for every customer and Partner API request awaiting processing', href: `${ADMIN_ROOT_PATH}/manual-requests`, icon: 'List' },
+  { label: 'Manual Provider Dispatch', description: 'Choose Techhub or FranceVerified for eligible ticket requests', href: `${ADMIN_ROOT_PATH}/manual-provider-dispatch`, icon: 'Send' },
   { label: 'NIN Services', description: 'Update or complete many pending NIN requests from one processing list', href: `${ADMIN_ROOT_PATH}/manual-verifications?group=NIN`, icon: 'Fingerprint' },
   { label: 'BVN Services', description: 'Update or complete many pending BVN requests from one processing list', href: `${ADMIN_ROOT_PATH}/manual-verifications?group=BVN`, icon: 'CreditCard' },
   { label: 'CAC Services', description: 'All CAC registration and verification requests in one queue', href: `${ADMIN_ROOT_PATH}/manual-requests?group=CAC`, icon: 'Briefcase' },

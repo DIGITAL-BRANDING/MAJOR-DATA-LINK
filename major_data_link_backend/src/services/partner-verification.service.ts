@@ -5,6 +5,7 @@ import { getVerificationPrice, type IpeClearanceType, type VerificationServiceKe
 import { techhubService, type TechhubBvnTier, type TechhubSlipTier } from './techhub.service.js';
 import { franceverifiedSlipAdapter } from './franceverified-slip-adapter.service.js';
 import { submitNinValidationFV, checkNinValidationFV } from './franceverified-nin-validation-adapter.service.js';
+import { checkIpeClearanceFV, submitIpeClearanceFV } from './franceverified-ipe-adapter.service.js';
 import { completePartnerPurchase, debitPartnerWallet, reversePartnerPurchase } from './partner-wallet.service.js';
 import { prisma } from '../lib/prisma.js';
 import { ApiError } from '../middleware/error.js';
@@ -116,7 +117,7 @@ async function checkPartnerAsync(params: {
  */
 export async function reconcilePendingPartnerVerificationTickets(limit = 20) {
   const transactions = await prisma.partnerTransaction.findMany({
-    where: { status: TransactionStatus.PENDING, provider: 'techhub', type: TransactionType.IDENTITY_SERVICE_REQUEST, providerRef: { not: null } },
+    where: { status: TransactionStatus.PENDING, provider: { in: ['techhub', 'franceverified'] }, type: TransactionType.IDENTITY_SERVICE_REQUEST, providerRef: { not: null } },
     orderBy: { updatedAt: 'asc' }, take: limit
   });
   await Promise.allSettled(transactions.map(async (transaction) => {
@@ -126,7 +127,7 @@ export async function reconcilePendingPartnerVerificationTickets(limit = 20) {
     if (service === 'NIN_PERSONALIZATION') {
       await checkPartnerAsync({ partnerId: transaction.partnerId, ticketId, callByProvider: { techhub: (id: string) => techhubService.checkPersonalization(id) } });
     } else if (service === 'IPE_CLEARANCE') {
-      await checkPartnerAsync({ partnerId: transaction.partnerId, ticketId, callByProvider: { techhub: (id: string) => techhubService.checkIpeClearance(id) } });
+      await checkPartnerAsync({ partnerId: transaction.partnerId, ticketId, callByProvider: { techhub: (id: string) => techhubService.checkIpeClearance(id), franceverified: (id: string) => checkIpeClearanceFV(id) } });
     } else if (typeof service === 'string' && service.startsWith('NIN_VALIDATION_')) {
       await checkPartnerAsync({ partnerId: transaction.partnerId, ticketId, callByProvider: { techhub: (id: string) => techhubService.checkNinValidation(id), franceverified: (id: string) => checkNinValidationFV(id) } });
     }
@@ -228,9 +229,9 @@ export const partnerVerification = {
     pii: { tracking_id: trackingId },
     idempotencyKey,
     partnerIpeType: ipeType,
-    callByProvider: { techhub: () => techhubService.submitIpeClearance(trackingId, ipeType) }
+    callByProvider: { techhub: () => techhubService.submitIpeClearance(trackingId, ipeType), franceverified: () => submitIpeClearanceFV(trackingId, ipeType) }
   }),
-  checkIpeClearance: (partnerId: string, ticketId: string) => checkPartnerAsync({ partnerId, ticketId, callByProvider: { techhub: (id) => techhubService.checkIpeClearance(id) } }),
+  checkIpeClearance: (partnerId: string, ticketId: string) => checkPartnerAsync({ partnerId, ticketId, callByProvider: { techhub: (id) => techhubService.checkIpeClearance(id), franceverified: (id) => checkIpeClearanceFV(id) } }),
   submitPersonalization: (partnerId: string, trackingId: string, idempotencyKey: string) => submitPartnerAsync({ partnerId, service: 'NIN_PERSONALIZATION', description: 'NIN personalization request', operational: {}, pii: { tracking_id: trackingId }, idempotencyKey, callByProvider: { techhub: () => techhubService.submitPersonalization(trackingId) } }),
   checkPersonalization: (partnerId: string, ticketId: string) => checkPartnerAsync({ partnerId, ticketId, callByProvider: { techhub: (id) => techhubService.checkPersonalization(id) } })
 };

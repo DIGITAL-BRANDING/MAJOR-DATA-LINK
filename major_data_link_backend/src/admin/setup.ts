@@ -47,6 +47,7 @@ import { registerResultPinStockRoutes } from './result-pin-stock.js';
 import { registerPartnerManualRequestRoutes } from './partner-manual-request.js';
 import { registerManualRequestRoutes } from './manual-requests.js';
 import { registerManualVerificationRoutes } from './manual-verification.js';
+import { registerManualProviderDispatchRoutes } from './manual-provider-dispatch.js';
 import { registerLiveChatRoutes } from './live-chat.js';
 import { registerEmailComposerRoutes } from './email-composer.js';
 import { mobileShell } from './mobile-shell.js';
@@ -253,6 +254,7 @@ export async function buildAdminRouter() {
   registerPartnerManualRequestRoutes(router);
   registerManualRequestRoutes(router);
   registerManualVerificationRoutes(router);
+  registerManualProviderDispatchRoutes(router);
   registerLiveChatRoutes(router);
   registerEmailComposerRoutes(router);
 
