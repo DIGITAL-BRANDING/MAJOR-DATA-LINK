@@ -46,10 +46,15 @@ export default function ProfilePage() {
   const phoneVerified = user.phone_verified === true;
   const walletBalance = typeof user.wallet_balance === 'number' ? user.wallet_balance : 0;
   const kyc = typeof user.kyc_status === 'string' ? user.kyc_status.replace(/_/g, ' ') : 'unverified';
-  const contactChanged = form.email.trim().toLowerCase() !== user.email.toLowerCase() || form.phone.trim() !== user.phone;
+  // Older cached auth payloads can omit contact fields even though current API responses include them.
+  // Normalize them once so the profile route cannot crash while checking whether a PIN is needed.
+  const originalEmail = typeof user.email === 'string' ? user.email : '';
+  const originalPhone = typeof user.phone === 'string' ? user.phone : '';
+  const originalFullName = typeof user.full_name === 'string' ? user.full_name : '';
+  const contactChanged = form.email.trim().toLowerCase() !== originalEmail.trim().toLowerCase() || form.phone.trim() !== originalPhone.trim();
 
   function startEditing() {
-    setForm({ full_name: user!.full_name, email: user!.email, phone: user!.phone, pin: '' });
+    setForm({ full_name: originalFullName, email: originalEmail, phone: originalPhone, pin: '' });
     setNotice(null);
     setEditing(true);
   }
@@ -128,15 +133,15 @@ export default function ProfilePage() {
 
           {!editing ? (
             <dl className="mt-4 grid gap-4 text-sm sm:grid-cols-2">
-              <div><dt className="text-xs text-ink-600">Full name</dt><dd className="mt-0.5 font-semibold text-ink">{user.full_name}</dd></div>
+              <div><dt className="text-xs text-ink-600">Full name</dt><dd className="mt-0.5 font-semibold text-ink">{originalFullName || '—'}</dd></div>
               <div><dt className="text-xs text-ink-600">Member since</dt><dd className="mt-0.5 font-semibold text-ink">{formatDate(typeof user.created_at === 'string' ? user.created_at : null)}</dd></div>
               <div>
                 <dt className="flex items-center gap-1 text-xs text-ink-600"><Mail size={12} />Email</dt>
-                <dd className="mt-0.5 break-all font-semibold text-ink">{user.email} <Chip ok={emailVerified} label={emailVerified ? 'Verified' : 'Not verified'} /></dd>
+                <dd className="mt-0.5 break-all font-semibold text-ink">{originalEmail || '—'} <Chip ok={emailVerified} label={emailVerified ? 'Verified' : 'Not verified'} /></dd>
               </div>
               <div>
                 <dt className="flex items-center gap-1 text-xs text-ink-600"><Phone size={12} />Phone</dt>
-                <dd className="mt-0.5 font-semibold text-ink">{user.phone} <Chip ok={phoneVerified} label={phoneVerified ? 'Verified' : 'Not verified'} /></dd>
+                <dd className="mt-0.5 font-semibold text-ink">{originalPhone || '—'} <Chip ok={phoneVerified} label={phoneVerified ? 'Verified' : 'Not verified'} /></dd>
               </div>
               <div><dt className="text-xs text-ink-600">KYC status</dt><dd className="mt-0.5 font-semibold capitalize text-ink">{kyc}</dd></div>
               {(!emailVerified || !phoneVerified) && (

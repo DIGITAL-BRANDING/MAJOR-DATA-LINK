@@ -14,6 +14,7 @@ import { listBirthAttestationPriceForAdmin } from '../services/birth-attestation
 import { listBvnCrmPriceForAdmin } from '../services/bvn-crm.service.js';
 import { listJambPricesForAdmin } from '../services/jamb-pricing.service.js';
 import { listBvnLicensePriceForAdmin } from '../services/bvn-license-onboarding.service.js';
+import { listSchoolWebsitePricesForAdmin } from '../services/school-website.service.js';
 
 // @adminjs/express stores the logged-in admin as `req.session.adminUser`
 // (see buildAuthenticatedRouter's sessionOptions in setup.ts) but doesn't
@@ -94,7 +95,7 @@ export function registerBulkPricingRoutes(router: Router) {
       // framework, consistent with the rest of this plain-HTML page.
       const selectedNetworkRaw = typeof req.query.dpNetwork === 'string' ? req.query.dpNetwork : '';
       const selectedNetwork = selectedNetworkRaw || networks[0] || '';
-      const [manualDataPlans, resultPinPrices, verificationPrices, cacPrices, bvnModPrices, ninModPrices, newspaperPrices, birthPrices, bvnCrmPrices, jambPrices, bvnLicensePrices] = await Promise.all([
+      const [manualDataPlans, resultPinPrices, verificationPrices, cacPrices, bvnModPrices, ninModPrices, newspaperPrices, birthPrices, bvnCrmPrices, jambPrices, bvnLicensePrices, schoolWebsitePrices] = await Promise.all([
         selectedNetwork ? dataPlanPricingService.getPricingRows(selectedNetwork) : Promise.resolve([]),
         listServicePricesForAdmin(),
         listVerificationPricesForAdmin(),
@@ -105,7 +106,8 @@ export function registerBulkPricingRoutes(router: Router) {
         listBirthAttestationPriceForAdmin(),
         listBvnCrmPriceForAdmin(),
         listJambPricesForAdmin(),
-        listBvnLicensePriceForAdmin()
+        listBvnLicensePriceForAdmin(),
+        listSchoolWebsitePricesForAdmin()
       ]);
       // Every ServicePricing-backed service the app sells, so nothing has to be
       // priced through the raw AdminJS record editor. `group` only drives the
@@ -120,7 +122,8 @@ export function registerBulkPricingRoutes(router: Router) {
         ...birthPrices.map((s) => ({ ...s, group: 'Birth Attestation' })),
         ...bvnCrmPrices.map((s) => ({ ...s, group: 'BVN CRM' })),
         ...jambPrices.map((s) => ({ ...s, group: 'JAMB' })),
-        ...bvnLicensePrices.map((s) => ({ ...s, group: 'BVN' }))
+        ...bvnLicensePrices.map((s) => ({ ...s, group: 'BVN' })),
+        ...schoolWebsitePrices.map((s) => ({ ...s, group: 'School Website' }))
       ];
 
       res.type('html').send(renderPage({

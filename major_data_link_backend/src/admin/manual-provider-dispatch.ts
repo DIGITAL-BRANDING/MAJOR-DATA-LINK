@@ -14,10 +14,17 @@ function field(req: Request, name: string) {
   const value = body?.[name] ?? fields?.[name];
   return typeof value === 'string' ? value.trim() : '';
 }
-function maskedId(pii: Record<string, unknown> | null) {
+function displayIdentifier(pii: Record<string, unknown> | null) {
   if (!pii) return '—';
-  const value = ['nin', 'tracking_id', 'bvn', 'phone_number', 'phone'].map((key) => pii[key]).find((entry) => typeof entry === 'string' && entry.trim()) as string | undefined;
-  return value ? `••••••${value.slice(-4)}` : '—';
+  for (const [key, label] of [['nin', 'NIN'], ['tracking_id', 'Tracking ID']] as const) {
+    const value = pii[key];
+    if (typeof value === 'string' && value.trim()) return `${label}: ${value.trim()}`;
+  }
+  for (const [key, label] of [['bvn', 'BVN'], ['phone_number', 'Phone'], ['phone', 'Phone']] as const) {
+    const value = pii[key];
+    if (typeof value === 'string' && value.trim()) return `${label}: ••••••${value.slice(-4)}`;
+  }
+  return '—';
 }
 function serviceName(metadata: unknown) {
   const value = typeof metadata === 'object' && metadata !== null ? (metadata as Record<string, unknown>).service : undefined;
@@ -52,9 +59,9 @@ export function registerManualProviderDispatchRoutes(router: Router) {
         : `<form method="post" action="/admin/manual-provider-dispatch/${row.kind}/${encodeURIComponent(row.id)}"><select name="provider" required><option value="">Choose provider</option>${providerChoices}</select><button type="submit">Send request</button></form>`;
       const pii = openPII<Record<string, unknown>>(metadata.pii);
       const ipe = typeof metadata.ipe_type === 'string' ? `<small>IPE type: ${escapeHtml(metadata.ipe_type.replace(/_/g, ' '))}</small>` : '';
-      return `<tr><td>${escapeHtml(row.source)}</td><td><strong>${escapeHtml(service.replace(/_/g, ' '))}</strong>${ipe}<small>${escapeHtml(row.reference)}</small></td><td>${escapeHtml(row.owner)}<small>${escapeHtml(row.email)}</small></td><td>${escapeHtml(maskedId(pii))}</td><td>${escapeHtml(row.createdAt.toLocaleString())}</td><td>${form}</td></tr>`;
+      return `<tr><td>${escapeHtml(row.source)}</td><td><strong>${escapeHtml(service.replace(/_/g, ' '))}</strong>${ipe}<small>${escapeHtml(row.reference)}</small></td><td>${escapeHtml(row.owner)}<small>${escapeHtml(row.email)}</small></td><td class="identifier">${escapeHtml(displayIdentifier(pii))}</td><td>${escapeHtml(row.createdAt.toLocaleString())}</td><td>${form}</td></tr>`;
     }).join('') : '<tr><td colspan="6" class="empty">No eligible ticket requests are waiting for provider dispatch.</td></tr>';
-    return res.type('html').send(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Manual Provider Dispatch</title><style>body{font:14px Arial,sans-serif;background:#f5f6f8;color:#18212f;margin:0;padding:28px}a{color:#0756b8;font-weight:600;text-decoration:none}.top{display:flex;justify-content:space-between;align-items:center;gap:16px}.hint{color:#536273}.flash{background:#e6f4ea;color:#155724;padding:12px;border-radius:8px}.notice{background:#fff8df;border:1px solid #e7d28a;padding:12px;border-radius:8px}table{border-collapse:collapse;width:100%;min-width:1000px;background:#fff;box-shadow:0 1px 4px #0001}th,td{text-align:left;padding:12px;border-bottom:1px solid #e7edf4;vertical-align:top}th{background:#0b2f73;color:#fff}small{display:block;color:#5b6878;margin-top:4px}form{display:flex;gap:8px;min-width:240px}select,button{font:inherit;border:1px solid #bdc9d8;border-radius:6px;padding:8px}button{background:#0b2f73;color:white;border:0;font-weight:bold;cursor:pointer}.recovery{color:#9a3412}.empty{text-align:center;padding:30px}</style></head><body><div class="top"><div><h1>Manual Provider Dispatch</h1><p class="hint">Choose a supported provider for customer or Partner API ticket requests configured for manual processing.</p></div><a href="/admin">← Admin Dashboard</a></div>${flash ? `<p class="flash">${flash}</p>` : ''}<p class="notice">Dispatch sends a live request to the selected provider. Requests marked for recovery were accepted upstream or have an uncertain outcome; do not submit them again.</p><div style="overflow-x:auto"><table><thead><tr><th>Source</th><th>Service / reference</th><th>Account</th><th>Identifier</th><th>Submitted</th><th>Provider action</th></tr></thead><tbody>${table}</tbody></table></div></body></html>`);
+    return res.type('html').send(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Manual Provider Dispatch</title><style>body{font:14px Arial,sans-serif;background:#f5f6f8;color:#18212f;margin:0;padding:28px}a{color:#0756b8;font-weight:600;text-decoration:none}.top{display:flex;justify-content:space-between;align-items:center;gap:16px}.hint{color:#536273}.flash{background:#e6f4ea;color:#155724;padding:12px;border-radius:8px}.notice{background:#fff8df;border:1px solid #e7d28a;padding:12px;border-radius:8px}table{border-collapse:collapse;width:100%;min-width:1000px;background:#fff;box-shadow:0 1px 4px #0001}th,td{text-align:left;padding:12px;border-bottom:1px solid #e7edf4;vertical-align:top}th{background:#0b2f73;color:#fff}.identifier{font-weight:700;white-space:nowrap;font-family:monospace}small{display:block;color:#5b6878;margin-top:4px}form{display:flex;gap:8px;min-width:240px}select,button{font:inherit;border:1px solid #bdc9d8;border-radius:6px;padding:8px}button{background:#0b2f73;color:white;border:0;font-weight:bold;cursor:pointer}.recovery{color:#9a3412}.empty{text-align:center;padding:30px}</style></head><body><div class="top"><div><h1>Manual Provider Dispatch</h1><p class="hint">Choose a supported provider for customer or Partner API ticket requests configured for manual processing.</p></div><a href="/admin">← Admin Dashboard</a></div>${flash ? `<p class="flash">${flash}</p>` : ''}<p class="notice">Dispatch sends a live request to the selected provider. Requests marked for recovery were accepted upstream or have an uncertain outcome; do not submit them again.</p><div style="overflow-x:auto"><table><thead><tr><th>Source</th><th>Service / reference</th><th>Account</th><th>Identifier</th><th>Submitted</th><th>Provider action</th></tr></thead><tbody>${table}</tbody></table></div></body></html>`);
   });
 
   router.post('/manual-provider-dispatch/:source/:id', async (req: Request, res) => {

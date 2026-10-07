@@ -5,6 +5,8 @@ import { decryptTransactionPII } from '../../services/verification.service.js';
 import { completeModification } from '../../services/nin-modification.service.js';
 import { completeBvnModification } from '../../services/bvn-modification.service.js';
 import { completeBvnCrm } from '../../services/bvn-crm.service.js';
+import { activateSchoolWebsiteSubscription } from '../../services/school-website.service.js';
+import { openPII } from '../../lib/pii.js';
 import { TransactionStatus, TransactionType } from '@prisma/client';
 import { refundWallet } from '../../services/wallet.service.js';
 import { logAdminAction } from '../audit.js';
@@ -67,7 +69,7 @@ export const transactionResource: ResourceWithOptions = {
           // other transaction type, where PENDING means "still in flight,
           // don't touch it", so this is the one type reverse() also allows
           // from PENDING.
-          if (status === 'PENDING') return ['NIN_MODIFICATION', 'BVN_LICENSE_ONBOARDING', 'JAMB_SERVICE_REQUEST', 'BVN_CRM', 'NEWSPAPER_PUBLICATION', 'BIRTH_ATTESTATION', 'CAC_SERVICE_REQUEST', 'BVN_MODIFICATION'].includes(record?.params?.type as string) || (record?.params?.provider === 'manual' && ['IDENTITY_SERVICE_REQUEST', 'NIN_VERIFICATION', 'BVN_VERIFICATION'].includes(record?.params?.type as string));
+          if (status === 'PENDING') return ['NIN_MODIFICATION', 'BVN_LICENSE_ONBOARDING', 'JAMB_SERVICE_REQUEST', 'BVN_CRM', 'NEWSPAPER_PUBLICATION', 'BIRTH_ATTESTATION', 'CAC_SERVICE_REQUEST', 'BVN_MODIFICATION', 'SCHOOL_WEBSITE_SUBSCRIPTION'].includes(record?.params?.type as string) || (record?.params?.provider === 'manual' && ['IDENTITY_SERVICE_REQUEST', 'NIN_VERIFICATION', 'BVN_VERIFICATION'].includes(record?.params?.type as string));
           return status === 'SUCCESS' || status === 'FAILED';
         },
         handler: async (request, response, context) => {
@@ -121,6 +123,40 @@ export const transactionResource: ResourceWithOptions = {
           await prisma.transaction.update({ where: { id: record.params.id as string }, data: { status: TransactionStatus.SUCCESS } });
           await logAdminAction({ adminId: admin.id, action: 'COMPLETE_MANUAL_VERIFICATION', targetType: 'Transaction', targetId: record.params.id as string, metadata: { reference: record.params.reference } });
           return { record: record.toJSON(currentAdmin), notice: { message: 'Manual verification request marked as completed.', type: 'success' } };
+        }
+      },
+      activateSchoolWebsiteSubscription: {
+        actionType: 'record', icon: 'CheckCircle', component: false,
+        guard: 'Confirm EduTrac setup is complete, then activate this paid subscription?',
+        isAccessible: ({ currentAdmin, record }) => {
+          const admin = currentAdmin as unknown as AdminSessionUser | undefined;
+          return !!admin && admin.role !== 'SUPPORT' && record?.params?.type === 'SCHOOL_WEBSITE_SUBSCRIPTION' && record?.params?.status === 'PENDING';
+        },
+        handler: async (_request, _response, context) => {
+          const { record, currentAdmin } = context;
+          const admin = currentAdmin as unknown as AdminSessionUser | undefined;
+          if (!record || !admin) throw new Error('Missing record or admin context');
+          await activateSchoolWebsiteSubscription(record.params.id as string);
+          await logAdminAction({ adminId: admin.id, action: 'ACTIVATE_SCHOOL_WEBSITE_SUBSCRIPTION', targetType: 'Transaction', targetId: record.params.id as string, metadata: { reference: record.params.reference } });
+          return { record: record.toJSON(currentAdmin), notice: { message: 'EduTrac subscription activated and expiry date recorded.', type: 'success' } };
+        }
+      },
+      viewSchoolWebsiteDetails: {
+        actionType: 'record', icon: 'Eye', component: false,
+        guard: 'Reveal the school name and contact number for this setup request? This access is logged.',
+        isAccessible: ({ currentAdmin, record }) => {
+          const admin = currentAdmin as unknown as AdminSessionUser | undefined;
+          return !!admin && admin.role !== 'SUPPORT' && record?.params?.type === 'SCHOOL_WEBSITE_SUBSCRIPTION';
+        },
+        handler: async (_request, _response, context) => {
+          const { record, currentAdmin } = context;
+          const admin = currentAdmin as unknown as AdminSessionUser | undefined;
+          if (!record || !admin) throw new Error('Missing record or admin context');
+          const fresh = await prisma.transaction.findUnique({ where: { id: record.params.id as string } });
+          const metadata = fresh?.metadata as Record<string, unknown> | null;
+          const details = openPII<Record<string, string>>(metadata?.school_details);
+          await logAdminAction({ adminId: admin.id, action: 'VIEW_SCHOOL_WEBSITE_SUBSCRIPTION_DETAILS', targetType: 'Transaction', targetId: record.params.id as string, metadata: { reference: record.params.reference } });
+          return { record: record.toJSON(currentAdmin), notice: { message: details ? `School: ${details.school_name ?? '—'}; contact: ${details.contact_phone ?? '—'}` : 'School contact details could not be decrypted.', type: details ? 'success' : 'error' } };
         }
       },
       // NIN/BVN/names/phone/generated slip PDFs are encrypted at rest under

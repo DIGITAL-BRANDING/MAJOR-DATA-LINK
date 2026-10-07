@@ -5,6 +5,7 @@ import {
   Tv,
   Zap,
   GraduationCap,
+  Globe2,
   ClipboardList,
   MessageSquare,
   Ticket,
@@ -145,6 +146,15 @@ export const SERVICES: ServiceItem[] = [
     tint: 'ember',
     implemented: true,
     statusKey: 'JAMB_SERVICE_REQUEST',
+  },
+  {
+    label: 'School Website',
+    description: 'Explore EduTrac and subscribe to a school website plan.',
+    icon: Globe2,
+    route: '/school-website',
+    tint: 'success',
+    implemented: true,
+    statusKey: ['SCHOOL_WEBSITE_MONTHLY', 'SCHOOL_WEBSITE_TERMLY', 'SCHOOL_WEBSITE_ANNUAL'],
   },
   {
     label: 'Bulk SMS',

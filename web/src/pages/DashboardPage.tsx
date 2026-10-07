@@ -43,6 +43,7 @@ const SERVICE_IMAGES: Record<string, string> = {
   'BVN CRM': '/branding/BVN CRM.png',
   'Result Checkers': '/branding/results.png',
   'JAMB Services': '/branding/Jamb.jpg',
+  'School Website': '/branding/logo.png',
   'Bulk SMS': '/branding/logo.png',
   'NIN Services': '/branding/Validation.png',
   'BVN Services': '/branding/BVN Verifications.png',

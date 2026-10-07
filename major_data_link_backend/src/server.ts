@@ -61,12 +61,14 @@ async function startServer() {
     try {
       const { listVerificationPricesForAdmin } = await import('./services/verification.service.js');
       const { listServicePricesForAdmin } = await import('./services/result-pin.service.js');
-      const [verificationPrices, resultPinPrices] = await Promise.all([
+      const { listSchoolWebsitePricesForAdmin } = await import('./services/school-website.service.js');
+      const [verificationPrices, resultPinPrices, schoolWebsitePrices] = await Promise.all([
         listVerificationPricesForAdmin(),
-        listServicePricesForAdmin()
+        listServicePricesForAdmin(),
+        listSchoolWebsitePricesForAdmin()
       ]);
       console.log(
-        `[server] Seeded service pricing rows: ${verificationPrices.length} Techhub, ${resultPinPrices.length} Alrahuz`
+        `[server] Seeded service pricing rows: ${verificationPrices.length} Techhub, ${resultPinPrices.length} result pins, ${schoolWebsitePrices.length} School Website plans`
       );
     } catch (error) {
       console.error('[server] Failed to seed service pricing rows (non-fatal):', error);

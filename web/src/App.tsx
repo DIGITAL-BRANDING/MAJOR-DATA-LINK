@@ -36,6 +36,7 @@ import SupportPage from './pages/SupportPage';
 import ManualServiceRequestPage from './pages/ManualServiceRequestPage';
 import ServiceHistoryPage from './pages/ServiceHistoryPage';
 import WalletHistoryPage from './pages/WalletHistoryPage';
+import SchoolWebsitePage from './pages/SchoolWebsitePage';
 import ChatWidget from './components/ChatWidget';
 
 function ProtectedRoute({ children }: { children: ReactNode }) {
@@ -105,6 +106,7 @@ export default function App() {
           <Route path="/terms" element={<PrivacyRedirect page="terms" />} />
           <Route path="/fund-wallet" element={<ProtectedRoute><FundWalletPage /></ProtectedRoute>} />
           <Route path="/wallet-history" element={<ProtectedRoute><WalletHistoryPage /></ProtectedRoute>} />
+          <Route path="/school-website" element={<ProtectedRoute><SchoolWebsitePage /></ProtectedRoute>} />
           <Route path="/deliveries" element={<ProtectedRoute><DeliveriesPage /></ProtectedRoute>} />
           <Route path="/receipt/:id" element={<ProtectedRoute><ReceiptPage /></ProtectedRoute>} />
           <Route path="/referrals" element={<ProtectedRoute><ReferralPage /></ProtectedRoute>} />

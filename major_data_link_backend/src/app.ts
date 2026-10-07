@@ -37,6 +37,7 @@ import { publicRoutes } from './routes/public.routes.js';
 import { transactionRoutes } from './routes/transaction.routes.js';
 import { userRoutes } from './routes/user.routes.js';
 import { verificationRoutes } from './routes/verification.routes.js';
+import { schoolWebsiteRoutes } from './routes/school-website.routes.js';
 import { ninModificationRoutes } from './routes/nin-modification.routes.js';
 import { bvnCrmRoutes } from './routes/bvn-crm.routes.js';
 import { newspaperPublicationRoutes } from './routes/newspaper-publication.routes.js';
@@ -199,6 +200,7 @@ export function createApp() {
   app.use('/api/result', resultRoutes);
   app.use('/api/public', publicRoutes);
   app.use('/api/verification', verificationRoutes);
+  app.use('/api/school-website', schoolWebsiteRoutes);
   app.use('/api/nin-modification', ninModificationRoutes);
   app.use('/api/bvn-crm', bvnCrmRoutes);
   app.use('/api/newspaper-publication', newspaperPublicationRoutes);
