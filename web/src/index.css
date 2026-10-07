@@ -129,3 +129,20 @@ select:focus-visible, textarea:focus-visible {
 .tile-premium-label { color: #fff4c9; }
 .tile-premium-badge { background: rgba(255, 244, 201, .16); color: #ffe9a3; }
 
+@media print {
+  @page { margin: 12mm; }
+  body * { visibility: hidden !important; }
+  .result-pin-print-surface,
+  .result-pin-print-surface * { visibility: visible !important; }
+  .result-pin-print-surface {
+    position: relative !important;
+    width: 90mm;
+    margin: 0 0 8mm !important;
+    break-inside: avoid;
+    border: 1px solid #d9bd83 !important;
+    box-shadow: none !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .result-pin-actions { display: none !important; }
+}

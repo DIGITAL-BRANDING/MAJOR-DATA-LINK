@@ -79,7 +79,9 @@ async function allocateStock(params: { examType: ExamPinType; quantity: number; 
     if (ids.length !== params.quantity) return null;
     const rows = await tx.resultPinInventory.findMany({ where: { id: { in: ids.map((r) => r.id) } } });
     const pins = rows.map((row) => decryptPII(row.pinEncrypted));
-    const serials = rows.map((row) => row.serialEncrypted ? decryptPII(row.serialEncrypted) : '').filter(Boolean);
+    // Preserve one serial slot per PIN so the client can pair each printed
+    // card with its own serial even when some inventory entries omit one.
+    const serials = rows.map((row) => row.serialEncrypted ? decryptPII(row.serialEncrypted) : '');
     const costKobo = rows.reduce((sum, row) => sum + row.purchaseCostKobo, 0n);
     await tx.resultPinInventory.updateMany({ where: { id: { in: ids.map((r) => r.id) }, status: 'AVAILABLE' }, data: { status: 'SOLD', soldToUserId: params.userId, transactionId: params.transactionId, soldAt: new Date() } });
     await tx.transaction.update({ where: { id: params.transactionId }, data: { status: TransactionStatus.SUCCESS, provider: 'inventory', costKobo, metadata: { exam_type: params.examType, quantity: params.quantity, unit_price: params.unitPrice, inventory_ids: ids.map((r) => r.id), pii: sealPII({ pins, serials }) } as Prisma.InputJsonValue } });
