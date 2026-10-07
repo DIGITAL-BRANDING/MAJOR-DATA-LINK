@@ -60,6 +60,11 @@ function payloadFor(tx: PartnerTransaction, eventId: string) {
   // many megabytes) into a webhook queue. This lets the partner react to the
   // completion immediately, then fetch the optional attachment safely.
   const pii = openPII<Record<string, unknown>>((tx.metadata as Record<string, unknown> | null)?.pii) ?? {};
+  const metadata = tx.metadata as Record<string, unknown> | null;
+  // Admin-completed manual identity requests keep their MANUAL-* ticket in
+  // metadata. Older completions cleared providerRef, so fall back to that
+  // saved ticket when building both first deliveries and recovery retries.
+  const ticketId = tx.providerRef ?? (typeof metadata?.ticket_id === 'string' ? metadata.ticket_id : undefined);
   const hasAttachment = typeof pii.delivered_file_base64 === 'string';
   const completion = (hasAttachment || typeof pii.admin_note === 'string') ? {
     note: typeof pii.admin_note === 'string' ? pii.admin_note : null,
@@ -79,7 +84,7 @@ function payloadFor(tx: PartnerTransaction, eventId: string) {
     data: {
       reference: tx.reference,
       // Allows a consuming app to settle the matching pending provider ticket.
-      ...(tx.providerRef ? { ticket_id: tx.providerRef } : {}),
+      ...(ticketId ? { ticket_id: ticketId } : {}),
       status: tx.status.toLowerCase(),
       type: tx.type.toLowerCase(),
       amount: koboToNaira(tx.amountKobo),

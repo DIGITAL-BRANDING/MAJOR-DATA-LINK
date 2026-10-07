@@ -117,7 +117,7 @@ function renderResendPage(params: {
   const actionFor = (transaction: PartnerManualTransaction & { partner: { webhookUrl: string | null } }) => {
     const delivery = params.deliveriesByReference.get(transaction.reference);
     if (!transaction.partner.webhookUrl) return '<button type="submit" disabled title="This partner has no webhook URL">Retry webhook</button>';
-    if (delivery?.status === 'DELIVERED') return '<small>Latest update is already delivered.</small>';
+    if (delivery?.status === 'DELIVERED') return `<form method="post" action="/admin/partner-manual-requests/${encodeURIComponent(transaction.id)}/resend-update"><button type="submit">Resend latest update</button><small>Use after fixing the partner receiver if it acknowledged but did not apply the update.</small></form>`;
     if (delivery && delivery.status !== 'FAILED') return '<small>Automatic retry is pending.</small>';
     const deliveryId = delivery ? `<input type="hidden" name="deliveryId" value="${escapeHtml(delivery.id)}">` : '';
     return `<form method="post" action="/admin/partner-manual-requests/${encodeURIComponent(transaction.id)}/resend-update">${deliveryId}<button type="submit">${delivery ? 'Retry webhook' : 'Send update'}</button></form>`;

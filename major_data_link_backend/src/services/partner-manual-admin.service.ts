@@ -84,7 +84,9 @@ export async function completePartnerManualRequest(params: {
   // Newspaper Publication and Birth Attestation all set it then) so the
   // Provider Ledger still reflects what these requests actually cost,
   // recorded once, here.
-  await completePartnerPurchase(transaction.id, 'manual', undefined, transaction.costKobo ?? undefined);
+  // Retain the MANUAL-* ticket issued at submission so the partner's
+  // completion webhook and subsequent status checks can identify this row.
+  await completePartnerPurchase(transaction.id, 'manual', transaction.providerRef ?? undefined, transaction.costKobo ?? undefined);
   return prisma.partnerTransaction.findUniqueOrThrow({ where: { id: transaction.id } });
 }
 
