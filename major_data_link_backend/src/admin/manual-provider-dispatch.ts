@@ -11,6 +11,7 @@ import { partnerVerification } from '../services/partner-verification.service.js
 import { createPartnerRequestUpdate } from '../services/partner-request-update.service.js';
 import { recoverRefundedFranceVerification } from '../services/partner-verification-recovery.service.js';
 import { koboToNaira } from '../lib/money.js';
+import { resendPartnerTransactionWebhook } from '../services/partner-webhook.service.js';
 
 function escapeHtml(value: string) { return value.replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]!); }
 function field(req: Request, name: string) {
@@ -71,7 +72,7 @@ export function registerManualProviderDispatchRoutes(router: Router) {
         ? `<small>Latest partner update: ${escapeHtml(row.requestUpdates[0].message)}</small>` : '';
       const providerChoices = providersFor(service).map(({ provider, enabled }) => `<option value="${provider}" ${enabled ? '' : 'disabled'}>${provider === 'techhub' ? 'Techhub' : 'FranceVerified'}${enabled ? '' : ' (not configured)'}</option>`).join('');
       const form = dispatched
-        ? `<strong>${escapeHtml(row.provider === 'franceverified' ? 'FranceVerified' : 'Techhub')} · ${escapeHtml(row.status.toLowerCase())}</strong><small>Ticket: ${escapeHtml(row.providerRef ?? String(metadata.ticket_id ?? '—'))}</small>${lastUpdate}${canRecover ? `<form method="post" action="/admin/manual-provider-dispatch/recover/${encodeURIComponent(row.id)}" onsubmit="return confirm('This will debit ₦${koboToNaira(row.amountKobo).toLocaleString('en-NG')} again and resume polling the existing FranceVerified ticket. Continue?')"><button type="submit">Restore request · debit ₦${koboToNaira(row.amountKobo).toLocaleString('en-NG')}</button></form>` : ''}${pending && service === 'IPE_CLEARANCE' ? `<form method="post" action="/admin/manual-provider-dispatch/status/${row.kind}/${encodeURIComponent(row.id)}"><button type="submit">Check status</button></form>` : ''}${pending && row.kind === 'partner' ? `<form method="post" action="/admin/manual-provider-dispatch/update/${encodeURIComponent(row.id)}"><input name="message" required maxlength="1000" placeholder="Update for API partner"><button type="submit">Send update</button></form>` : ''}`
+        ? `<strong>${escapeHtml(row.provider === 'franceverified' ? 'FranceVerified' : 'Techhub')} · ${escapeHtml(row.status.toLowerCase())}</strong><small>Ticket: ${escapeHtml(row.providerRef ?? String(metadata.ticket_id ?? '—'))}</small>${lastUpdate}${canRecover ? `<form method="post" action="/admin/manual-provider-dispatch/recover/${encodeURIComponent(row.id)}" onsubmit="return confirm('This will debit ₦${koboToNaira(row.amountKobo).toLocaleString('en-NG')} again and resume polling the existing FranceVerified ticket. Continue?')"><button type="submit">Restore request · debit ₦${koboToNaira(row.amountKobo).toLocaleString('en-NG')}</button></form>` : ''}${pending && service === 'IPE_CLEARANCE' ? `<form method="post" action="/admin/manual-provider-dispatch/status/${row.kind}/${encodeURIComponent(row.id)}"><button type="submit">Check status</button></form>` : ''}${row.kind === 'partner' && pending ? `<form method="post" action="/admin/manual-provider-dispatch/update/${encodeURIComponent(row.id)}"><input name="message" required maxlength="1000" placeholder="Progress update for API partner"><button type="submit">Send update</button></form>` : ''}${row.kind === 'partner' && row.status === TransactionStatus.SUCCESS ? `<form method="post" action="/admin/manual-provider-dispatch/resend-completion/${encodeURIComponent(row.id)}"><button type="submit">Resend completion to partner</button></form>` : ''}${row.kind === 'partner' && !pending ? `<form method="post" action="/admin/manual-provider-dispatch/update/${encodeURIComponent(row.id)}"><input name="message" required maxlength="1000" placeholder="Completion/update note for API partner"><button type="submit">Send update</button></form>` : ''}`
         : inRecovery
         ? `<strong class="recovery">Provider may have accepted this request. Reconcile it manually; do not resubmit.</strong><small>State: ${escapeHtml(String(dispatch?.status ?? 'unknown'))}</small>${typeof dispatch?.error === 'string' ? `<small>${escapeHtml(dispatch.error)}</small>` : ''}`
         : `<form method="post" action="/admin/manual-provider-dispatch/${row.kind}/${encodeURIComponent(row.id)}"><select name="provider" required><option value="">Choose provider</option>${providerChoices}</select><button type="submit">Send request</button></form>${dispatchError}`;
@@ -140,12 +141,29 @@ export function registerManualProviderDispatchRoutes(router: Router) {
     const id = String(req.params.id); const message = field(req, 'message');
     try {
       const tx = await prisma.partnerTransaction.findUnique({ where: { id } });
-      if (!tx || tx.status !== TransactionStatus.PENDING || !['techhub', 'franceverified'].includes(tx.provider ?? '')) throw new Error('Only an active provider request can receive an update.');
+      if (!tx || !['techhub', 'franceverified'].includes(tx.provider ?? '')) throw new Error('Only a provider request can receive an update.');
       await createPartnerRequestUpdate({ transactionId: id, message });
       await logAdminAction({ adminId: admin.id, action: 'SEND_MANUAL_PROVIDER_PARTNER_UPDATE', targetType: 'PartnerTransaction', targetId: id, metadata: { provider: tx.provider, message } });
       return res.redirect(`/admin/manual-provider-dispatch?flash=${encodeURIComponent(`Update sent to partner for ${tx.reference}.`)}`);
     } catch (error) {
       return res.redirect(`/admin/manual-provider-dispatch?flash=${encodeURIComponent(error instanceof Error ? error.message : 'Could not send partner update.')}`);
+    }
+  });
+
+  router.post('/manual-provider-dispatch/resend-completion/:id', async (req: Request, res) => {
+    const admin = req.session?.adminUser as AdminSessionUser | undefined;
+    if (!admin) return res.redirect('/admin/login');
+    if (admin.role === 'SUPPORT') return res.status(403).send('Only Finance and Super Admin can resend partner completion events.');
+    const id = String(req.params.id);
+    try {
+      const tx = await prisma.partnerTransaction.findUnique({ where: { id } });
+      if (!tx || tx.status !== TransactionStatus.SUCCESS || !['techhub', 'franceverified'].includes(tx.provider ?? '')) throw new Error('Only a completed provider request can resend its completion event.');
+      const delivery = await resendPartnerTransactionWebhook(tx);
+      if (!delivery) throw new Error('The partner has not configured a webhook URL and secret yet.');
+      await logAdminAction({ adminId: admin.id, action: 'RESEND_PROVIDER_COMPLETION_TO_PARTNER', targetType: 'PartnerTransaction', targetId: id, metadata: { provider: tx.provider, deliveryStatus: delivery?.status ?? null } });
+      return res.redirect(`/admin/manual-provider-dispatch?flash=${encodeURIComponent(`Completion event resent to partner for ${tx.reference}.`)}`);
+    } catch (error) {
+      return res.redirect(`/admin/manual-provider-dispatch?flash=${encodeURIComponent(error instanceof Error ? error.message : 'Could not resend partner completion.')}`);
     }
   });
 

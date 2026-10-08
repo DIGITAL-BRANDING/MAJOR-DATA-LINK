@@ -66,7 +66,16 @@ function payloadFor(tx: PartnerTransaction, eventId: string) {
   // saved ticket when building both first deliveries and recovery retries.
   const ticketId = tx.providerRef ?? (typeof metadata?.ticket_id === 'string' ? metadata.ticket_id : undefined);
   const hasAttachment = typeof pii.delivered_file_base64 === 'string';
-  const completion = (hasAttachment || typeof pii.admin_note === 'string') ? {
+  const hasResult = tx.type === TransactionType.IDENTITY_SERVICE_REQUEST && typeof metadata?.service === 'string';
+  const service = typeof metadata?.service === 'string' ? metadata.service : '';
+  const resultEndpoint = ticketId && service === 'IPE_CLEARANCE'
+    ? `/verification/nin/ipe-clearance/${encodeURIComponent(ticketId)}`
+    : ticketId && service.startsWith('NIN_VALIDATION_')
+      ? `/verification/nin/validation/${encodeURIComponent(ticketId)}`
+      : ticketId && service === 'NIN_PERSONALIZATION'
+        ? `/verification/nin/personalization/${encodeURIComponent(ticketId)}`
+        : `/identity/requests/${encodeURIComponent(tx.reference)}`;
+  const completion = (hasAttachment || typeof pii.admin_note === 'string' || hasResult) ? {
     note: typeof pii.admin_note === 'string' ? pii.admin_note : null,
     attachment: hasAttachment ? {
       available: true,
@@ -75,7 +84,7 @@ function payloadFor(tx: PartnerTransaction, eventId: string) {
     } : null,
     // The partner calls GET /identity/requests/:reference with its existing
     // API key to fetch the optional document/result, never a public URL.
-    result_endpoint: `/identity/requests/${encodeURIComponent(tx.reference)}`
+    result_endpoint: resultEndpoint
   } : null;
   return {
     id: eventId,

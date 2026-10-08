@@ -641,7 +641,12 @@ export class TechhubService {
       throw new ApiError(502, publicVerificationMessage(data.message, 'We could not check your request status. Please try again shortly.'), 'TECHHUB_STATUS_FAILED');
     }
 
-    const status: TechhubAsyncStatus = data.status === 'success' || data.status === 'failed' ? data.status : 'pending';
+    const providerStatus = typeof data.status === 'string' ? data.status.trim().toLowerCase() : '';
+    const status: TechhubAsyncStatus = ['success', 'successful', 'complete', 'completed', 'resolved'].includes(providerStatus)
+      ? 'success'
+      : ['failed', 'failure', 'rejected', 'declined', 'cancelled', 'canceled'].includes(providerStatus)
+        ? 'failed'
+        : 'pending';
     return { ticketId: data.ticket_id ?? ticketId, status, response: data.response ?? null, raw: data };
   }
 }

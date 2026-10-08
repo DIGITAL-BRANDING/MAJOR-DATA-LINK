@@ -491,6 +491,12 @@ Idan admin ya aika progress message, ana aika `request.updated` mai `reference`,
 `status`, `update_id`, da `message` da signature iri ɗaya. Idan wannan webhook
 ya gaza, partner ya karanta sakon daga `GET /transactions/{reference}/updates`.
 
+Ga async identity requests kamar IPE da NIN Validation, `transaction.updated`
+na terminal success yana kuma ɗauke da `data.completion.result_endpoint`. Misali,
+IPE yana nuna `/verification/nin/ipe-clearance/{ticket_id}`. Partner ya yi GET
+da API key ɗinsa domin karɓar sakamakon provider; webhook ɗin status notice ne,
+ba ya aika NIN ko cikakken sakamakon sirri a cikin body.
+
 ## Rate limits da operational rules
 
 - Suggested limit: 60 requests/minute/partner; purchase endpoint 30/minute.
