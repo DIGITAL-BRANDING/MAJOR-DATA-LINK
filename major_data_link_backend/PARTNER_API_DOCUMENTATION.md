@@ -295,6 +295,19 @@ riƙa poll status endpoint da ticket ɗin; kada ya sake submit da sabon
 | NIN IPE Clearance | `POST /verification/nin/ipe-clearance` | `GET /verification/nin/ipe-clearance/{ticket_id}` |
 | NIN Personalization | `POST /verification/nin/personalization` | `GET /verification/nin/personalization/{ticket_id}` |
 
+For IPE, an optional `client_reference` (your own unique order ID, max 100
+characters) may be included in the submit body. We echo it unchanged as
+`data.client_reference` in completion webhooks so your receiver can find its
+own pending order. Always save our returned `data.reference` and `data.ticket_id`
+as fallback correlation keys. The webhook `reference` is the MDL transaction
+reference; `ticket_id` is the upstream provider ticket. They are different IDs.
+
+Example IPE request body:
+
+```json
+{ "tracking_id": "01234567890", "ipe_type": "inprocessing_error", "client_reference": "maria-order-1042" }
+```
+
 NIN Validation, IPE Clearance, and NIN Personalization normally complete within **6–72 hours**. Personalization can be instant when our network is stable. If an administrator has routed a service to Manual admin processing, the submit response still returns a `pending` ticket; poll its status endpoint until the administrator completes it or reverses it.
 
 NIN Validation body:

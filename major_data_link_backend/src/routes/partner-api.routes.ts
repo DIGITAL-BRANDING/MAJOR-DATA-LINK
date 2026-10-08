@@ -333,9 +333,12 @@ partnerApiRoutes.get('/verification/nin/validation/:ticketId', async (req, res) 
 partnerApiRoutes.post('/verification/nin/ipe-clearance', async (req, res) => {
   const body = z.object({
     tracking_id: z.string().trim().min(1).max(50),
+    // Partner's own order key, echoed in the completion webhook so its
+    // receiver can correlate the event without guessing from provider IDs.
+    client_reference: z.string().trim().min(1).max(100).optional(),
     ipe_type: z.enum(['get_old_tracking_id', 'inprocessing_error', 'tracking_is_being_processed', 'modification_ipe', 'hit_blocked']).optional()
   }).parse(req.body);
-  const result = await partnerVerification.submitIpeClearance(req.partner!.id, body.tracking_id, body.ipe_type ?? 'inprocessing_error', idempotencyKeyFrom(req));
+  const result = await partnerVerification.submitIpeClearance(req.partner!.id, body.tracking_id, body.ipe_type ?? 'inprocessing_error', idempotencyKeyFrom(req), body.client_reference);
   res.set('Cache-Control', 'no-store');
   res.status(202).json(asyncVerificationResponse(result));
 });

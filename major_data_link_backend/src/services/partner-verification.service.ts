@@ -225,11 +225,11 @@ export const partnerVerification = {
     return submitPartnerAsync({ partnerId, service: services[type] ?? 'NIN_VALIDATION_GENERAL', description: `NIN validation (${type})`, operational: { validation_type: type }, pii: { nin }, idempotencyKey, callByProvider: { techhub: () => techhubService.submitNinValidation(nin, validationType), franceverified: () => submitNinValidationFV(nin, validationType) } });
   },
   checkNinValidation: (partnerId: string, ticketId: string) => checkPartnerAsync({ partnerId, ticketId, callByProvider: { techhub: (id) => techhubService.checkNinValidation(id), franceverified: (id) => checkNinValidationFV(id) } }),
-  submitIpeClearance: (partnerId: string, trackingId: string, ipeType: IpeClearanceType, idempotencyKey: string) => submitPartnerAsync({
+  submitIpeClearance: (partnerId: string, trackingId: string, ipeType: IpeClearanceType, idempotencyKey: string, clientReference?: string) => submitPartnerAsync({
     partnerId,
     service: 'IPE_CLEARANCE',
     description: `IPE clearance request (${ipeType.replace(/_/g, ' ')})`,
-    operational: { ipe_type: ipeType },
+    operational: { ipe_type: ipeType, ...(clientReference ? { client_reference: clientReference } : {}) },
     pii: { tracking_id: trackingId },
     idempotencyKey,
     partnerIpeType: ipeType,

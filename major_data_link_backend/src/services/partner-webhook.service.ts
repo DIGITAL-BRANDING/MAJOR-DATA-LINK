@@ -92,6 +92,9 @@ function payloadFor(tx: PartnerTransaction, eventId: string) {
     created_at: new Date().toISOString(),
     data: {
       reference: tx.reference,
+      // Stable value from the partner's original order lets the receiver map
+      // callbacks to its own row even when it does not index our MDL/provider IDs.
+      ...(typeof metadata?.client_reference === 'string' ? { client_reference: metadata.client_reference } : {}),
       // Allows a consuming app to settle the matching pending provider ticket.
       ...(ticketId ? { ticket_id: ticketId } : {}),
       status: tx.status.toLowerCase(),
