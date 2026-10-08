@@ -17,6 +17,7 @@ import path from 'node:path';
 import cors from 'cors';
 import express from 'express';
 import helmet from 'helmet';
+import { customerAppCspDirectives } from './config/csp.js';
 import rateLimit from 'express-rate-limit';
 import { env } from './config/env.js';
 import { errorHandler } from './middleware/error.js';
@@ -107,18 +108,7 @@ export function createApp() {
     // hash the exact inline scripts from the built HTML.
     return helmet({
       contentSecurityPolicy: {
-        directives: {
-          ...helmet.contentSecurityPolicy.getDefaultDirectives(),
-          'script-src': [
-            "'self'",
-            'data:',
-            ...appInlineScriptHashes
-          ],
-          'connect-src': ["'self'"],
-          // PDFs are fetched with the user's Authorization header and shown
-          // from a short-lived blob URL; allow that same-origin app frame.
-          'frame-src': ["'self'", 'blob:']
-        }
+        directives: customerAppCspDirectives(appInlineScriptHashes)
       }
     })(req, res, next);
   });

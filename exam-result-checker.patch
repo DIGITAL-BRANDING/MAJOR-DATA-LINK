@@ -1,0 +1,295 @@
+diff --git a/major_data_link_backend/src/app.ts b/major_data_link_backend/src/app.ts
+index 6d6e35a..34faa51 100644
+--- a/major_data_link_backend/src/app.ts
++++ b/major_data_link_backend/src/app.ts
+@@ -17,6 +17,7 @@ import path from 'node:path';
+ import cors from 'cors';
+ import express from 'express';
+ import helmet from 'helmet';
++import { customerAppCspDirectives } from './config/csp.js';
+ import rateLimit from 'express-rate-limit';
+ import { env } from './config/env.js';
+ import { errorHandler } from './middleware/error.js';
+@@ -107,18 +108,7 @@ export function createApp() {
+     // hash the exact inline scripts from the built HTML.
+     return helmet({
+       contentSecurityPolicy: {
+-        directives: {
+-          ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+-          'script-src': [
+-            "'self'",
+-            'data:',
+-            ...appInlineScriptHashes
+-          ],
+-          'connect-src': ["'self'"],
+-          // PDFs are fetched with the user's Authorization header and shown
+-          // from a short-lived blob URL; allow that same-origin app frame.
+-          'frame-src': ["'self'", 'blob:']
+-        }
++        directives: customerAppCspDirectives(appInlineScriptHashes)
+       }
+     })(req, res, next);
+   });
+diff --git a/major_data_link_backend/src/config/__tests__/csp.test.ts b/major_data_link_backend/src/config/__tests__/csp.test.ts
+new file mode 100644
+index 0000000..91dc13c
+--- /dev/null
++++ b/major_data_link_backend/src/config/__tests__/csp.test.ts
+@@ -0,0 +1,30 @@
++import { describe, expect, it } from 'vitest';
++import { EXAM_RESULT_FRAME_SOURCES, customerAppCspDirectives } from '../csp.js';
++
++describe('customer app CSP', () => {
++  const directives = customerAppCspDirectives(["'sha256-abc'"]);
++
++  it('lets the app frame the official NECO and WAEC result sites', () => {
++    const frameSrc = directives['frame-src'];
++    for (const origin of ['https://results.neco.gov.ng', 'https://www.waecdirect.org']) {
++      expect(frameSrc).toContain(origin);
++    }
++    // Both hosts redirect between bare and www, and CSP applies to every redirect hop.
++    expect(frameSrc).toEqual(expect.arrayContaining(['https://neco.gov.ng', 'https://waecdirect.org']));
++  });
++
++  it('keeps the existing same-origin and blob: frames (PDF previews)', () => {
++    expect(directives['frame-src']).toEqual(expect.arrayContaining(["'self'", 'blob:']));
++  });
++
++  it('only ever allows https origins, never a bare wildcard or http', () => {
++    expect(EXAM_RESULT_FRAME_SOURCES.every((origin) => origin.startsWith('https://'))).toBe(true);
++    expect(directives['frame-src']).not.toContain('*');
++    expect(directives['frame-src']).not.toContain('https:');
++  });
++
++  it('is unchanged otherwise: scripts stay hash-locked and network access stays same-origin', () => {
++    expect(directives['script-src']).toEqual(["'self'", 'data:', "'sha256-abc'"]);
++    expect(directives['connect-src']).toEqual(["'self'"]);
++  });
++});
+diff --git a/major_data_link_backend/src/config/csp.ts b/major_data_link_backend/src/config/csp.ts
+new file mode 100644
+index 0000000..a9fd08c
+--- /dev/null
++++ b/major_data_link_backend/src/config/csp.ts
+@@ -0,0 +1,34 @@
++import helmet from 'helmet';
++
++/**
++ * Official result-checking sites the customer app may show inside an iframe,
++ * so a customer who has just bought a NECO token / WAEC PIN can check the
++ * result without leaving the app (see web ExamResultChecker). Any other origin
++ * stays blocked by `frame-src`.
++ *
++ * Both the bare and www hosts are listed because these sites redirect between
++ * them and a CSP applies to every hop of a frame navigation. The sites'
++ * OWN framing policy (X-Frame-Options / frame-ancestors) is outside our
++ * control; the web component falls back to "open in a new tab" if they refuse.
++ */
++export const EXAM_RESULT_FRAME_SOURCES = [
++  'https://results.neco.gov.ng',
++  'https://neco.gov.ng',
++  'https://*.neco.gov.ng',
++  'https://www.waecdirect.org',
++  'https://waecdirect.org',
++  'https://*.waecdirect.org'
++] as const;
++
++/** CSP for the customer web app (everything outside /admin). */
++export function customerAppCspDirectives(inlineScriptHashes: string[]) {
++  return {
++    ...helmet.contentSecurityPolicy.getDefaultDirectives(),
++    'script-src': ["'self'", 'data:', ...inlineScriptHashes],
++    'connect-src': ["'self'"],
++    // PDFs are fetched with the user's Authorization header and shown from a
++    // short-lived blob URL (same-origin app frame), plus the official exam
++    // result sites above.
++    'frame-src': ["'self'", 'blob:', ...EXAM_RESULT_FRAME_SOURCES]
++  };
++}
+diff --git a/web/src/components/ExamResultChecker.tsx b/web/src/components/ExamResultChecker.tsx
+new file mode 100644
+index 0000000..257709d
+--- /dev/null
++++ b/web/src/components/ExamResultChecker.tsx
+@@ -0,0 +1,91 @@
++import { useState } from 'react';
++import { Copy, ExternalLink, RefreshCw, ShieldCheck } from 'lucide-react';
++import { EXAM_RESULT_SITES, type CheckableExam } from '../lib/exam-result-sites';
++
++export type ExamCard = { pin: string; serial: string };
++
++/**
++ * The official result portal, framed inside the app, with the customer's own
++ * token/PIN and serial number beside it to copy. Their details are typed into
++ * the exam body's page, not ours - this is a cross-origin frame, so nothing the
++ * customer enters there is visible to us.
++ *
++ * We cannot tell from here whether the exam body's site allows being framed or
++ * keeps its session cookies inside a frame, so "Open in a new tab" is always on
++ * screen as the way out.
++ */
++export default function ExamResultChecker({ exam, cards }: { exam: CheckableExam; cards: ExamCard[] }) {
++  const site = EXAM_RESULT_SITES[exam];
++  const [reloadKey, setReloadKey] = useState(0);
++  const [copied, setCopied] = useState('');
++
++  async function copy(value: string, key: string) {
++    try {
++      await navigator.clipboard.writeText(value);
++      setCopied(key);
++      setTimeout(() => setCopied(''), 1800);
++    } catch {
++      setCopied('');
++    }
++  }
++
++  return (
++    <section aria-label={`Check ${exam} result`} className="space-y-4">
++      {cards.length > 0 ? (
++        <div className="grid gap-2 sm:grid-cols-2">
++          {cards.map((card, index) => (
++            <div key={`${card.pin}-${index}`} className="rounded-xl border border-parchment-line bg-white p-3 text-sm">
++              <p className="text-xs font-semibold uppercase tracking-wide text-ink-600">{cards.length > 1 ? `Card ${index + 1}` : 'Your card'}</p>
++              <p className="mt-1 flex flex-wrap items-center gap-2 font-mono">
++                <span className="font-sans text-xs text-ink-600">{site.credentialLabel}:</span>
++                <strong className="break-all">{card.pin}</strong>
++                <button type="button" aria-label={`Copy ${site.credentialLabel}`} onClick={() => void copy(card.pin, `pin-${index}`)} className="rounded-full bg-parchment p-1.5 text-ink-600 hover:bg-gold-50">
++                  <Copy size={13} />
++                </button>
++                {copied === `pin-${index}` && <span className="font-sans text-xs text-emerald-700">Copied</span>}
++              </p>
++              {card.serial && (
++                <p className="mt-1 flex flex-wrap items-center gap-2 font-mono">
++                  <span className="font-sans text-xs text-ink-600">Serial No:</span>
++                  <strong className="break-all">{card.serial}</strong>
++                  <button type="button" aria-label="Copy serial number" onClick={() => void copy(card.serial, `serial-${index}`)} className="rounded-full bg-parchment p-1.5 text-ink-600 hover:bg-gold-50">
++                    <Copy size={13} />
++                  </button>
++                  {copied === `serial-${index}` && <span className="font-sans text-xs text-emerald-700">Copied</span>}
++                </p>
++              )}
++            </div>
++          ))}
++        </div>
++      ) : (
++        <p className="rounded-xl bg-cream p-3 text-sm text-ink-600">Use the {site.credentialNoun} and serial number from your purchase on the page below.</p>
++      )}
++
++      <div className="overflow-hidden rounded-xl border border-parchment-line bg-white">
++        <iframe
++          key={reloadKey}
++          src={site.url}
++          title={site.name}
++          className="block h-[70vh] min-h-[520px] w-full"
++          // Keeps the exam site's forms, scripts and session working while
++          // stopping it from navigating our whole page away (frame-busting).
++          sandbox="allow-forms allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals"
++          referrerPolicy="strict-origin-when-cross-origin"
++        />
++      </div>
++
++      <div className="flex flex-wrap items-center gap-2 text-sm">
++        <a href={site.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 rounded-xl bg-gold-500 px-4 py-2.5 font-semibold text-ink">
++          <ExternalLink size={15} />Open in a new tab
++        </a>
++        <button type="button" onClick={() => setReloadKey((n) => n + 1)} className="flex items-center gap-1.5 rounded-xl border border-parchment-line bg-white px-4 py-2.5 font-semibold text-ink">
++          <RefreshCw size={15} />Reload
++        </button>
++      </div>
++      <p className="flex items-start gap-1.5 text-xs text-ink-600">
++        <ShieldCheck size={14} className="mt-0.5 shrink-0" />
++        This is the official {site.name}. If the page stays blank or will not accept your details here, your browser or the exam body is blocking it inside another website: use "Open in a new tab" instead.
++      </p>
++    </section>
++  );
++}
+diff --git a/web/src/lib/exam-result-sites.ts b/web/src/lib/exam-result-sites.ts
+new file mode 100644
+index 0000000..5fdad14
+--- /dev/null
++++ b/web/src/lib/exam-result-sites.ts
+@@ -0,0 +1,14 @@
++/**
++ * Official result-checking portals we show inside the app after a customer
++ * buys a token/PIN. The backend CSP (`frame-src`, major_data_link_backend/src/
++ * config/csp.ts) must list the same hosts or the browser blocks the frame.
++ * NABTEB has no portal configured, so it gets no "Check result" tab.
++ */
++export type CheckableExam = 'NECO' | 'WAEC';
++
++export const EXAM_RESULT_SITES: Record<CheckableExam, { url: string; name: string; credentialLabel: string; credentialNoun: string }> = {
++  NECO: { url: 'https://results.neco.gov.ng/', name: 'NECO result portal', credentialLabel: 'Token', credentialNoun: 'token' },
++  WAEC: { url: 'https://www.waecdirect.org/', name: 'WAEC result checker', credentialLabel: 'PIN', credentialNoun: 'PIN' }
++};
++
++export const isCheckableExam = (exam: string): exam is CheckableExam => exam === 'NECO' || exam === 'WAEC';
+diff --git a/web/src/pages/ResultPinPage.tsx b/web/src/pages/ResultPinPage.tsx
+index bb1abf6..d9c27fe 100644
+--- a/web/src/pages/ResultPinPage.tsx
++++ b/web/src/pages/ResultPinPage.tsx
+@@ -4,6 +4,8 @@ import { useNavigate } from 'react-router-dom';
+ import AppShell from '../components/AppShell';
+ import { api } from '../lib/api';
+ import { PinConfirmDialog } from '../components/PinConfirmDialog';
++import ExamResultChecker from '../components/ExamResultChecker';
++import { EXAM_RESULT_SITES, isCheckableExam } from '../lib/exam-result-sites';
+ 
+ type ResultCard = { pin: string; serial: string };
+ 
+@@ -16,6 +18,9 @@ export default function ResultPinPage({ exam }: { exam: 'WAEC' | 'NECO' | 'NABTE
+   const [message, setMessage] = useState('');
+   const [cards, setCards] = useState<ResultCard[]>([]);
+   const [reference, setReference] = useState('');
++  // NECO and WAEC buyers can check their result without leaving the app.
++  const [tab, setTab] = useState<'cards' | 'check'>('cards');
++  const [checkerOpened, setCheckerOpened] = useState(false);
+ 
+   useEffect(() => {
+     api.get<{ data: { unitPrice: number } }>(`/result/${exam.toLowerCase()}/price`)
+@@ -58,12 +63,25 @@ export default function ResultPinPage({ exam }: { exam: 'WAEC' | 'NECO' | 'NABTE
+ 
+   const total = (price ?? 0) * quantity;
+   const neco = exam === 'NECO';
++  const checkableExam = isCheckableExam(exam) ? exam : null;
++
++  function openChecker() {
++    setCheckerOpened(true); // the official page loads only once someone asks for it
++    setTab('check');
++  }
+ 
+   return (
+     <AppShell>
+       <button onClick={() => nav('/result-checkers')} className="text-sm font-semibold text-ink-600">← Result Checkers</button>
+-      <main className="mx-auto mt-5 max-w-lg rounded-2xl border border-parchment-line bg-parchment p-6">
++      <main className={`mx-auto mt-5 ${tab === 'check' ? 'max-w-4xl' : 'max-w-lg'} rounded-2xl border border-parchment-line bg-parchment p-6`}>
+         <h1 className="font-display text-2xl font-bold text-ink">Buy {exam} {neco ? 'Token' : 'PIN'}</h1>
++        {checkableExam && (
++          <div role="tablist" aria-label={`${exam} options`} className="result-pin-actions mt-4 grid grid-cols-2 gap-1 rounded-xl bg-cream p-1 text-sm font-bold">
++            <button type="button" role="tab" aria-selected={tab === 'cards'} onClick={() => setTab('cards')} className={`rounded-lg py-2.5 ${tab === 'cards' ? 'bg-gold-500 text-ink shadow-sm' : 'text-ink-600'}`}>{cards.length > 0 ? 'Cards' : `Buy ${neco ? 'token' : 'PIN'}`}</button>
++            <button type="button" role="tab" aria-selected={tab === 'check'} onClick={openChecker} className={`rounded-lg py-2.5 ${tab === 'check' ? 'bg-gold-500 text-ink shadow-sm' : 'text-ink-600'}`}>Check result</button>
++          </div>
++        )}
++        <div className={tab === 'check' ? 'hidden' : undefined}>
+         <div className="mt-4 rounded-xl bg-cream p-4">
+           <span className="font-body text-xs text-ink-600">Price per {neco ? 'token' : 'PIN'}</span>
+           <p className="font-mono text-xl font-bold text-gold-700">{price === undefined ? 'Loading…' : `₦${price.toLocaleString()}`}</p>
+@@ -95,9 +113,19 @@ export default function ResultPinPage({ exam }: { exam: 'WAEC' | 'NECO' | 'NABTE
+                 {reference && <p className="mt-4 text-[10px] text-ink-600">Purchase ref: {reference}</p>}
+               </article>
+             ))}
++            {checkableExam && (
++              <button type="button" onClick={openChecker} className="result-pin-actions w-full rounded-xl border-2 border-gold-500 bg-white py-3 font-semibold text-ink">Check {exam} result now →</button>
++            )}
+             <button type="button" onClick={() => window.print()} className="result-pin-actions flex w-full items-center justify-center gap-2 rounded-xl bg-gold-500 py-3 font-semibold"><Printer size={17} /> Print {neco ? 'card' : 'PIN'}</button>
+           </section>
+         )}
++        </div>
++        {checkableExam && checkerOpened && (
++          <div className={`mt-5 ${tab === 'check' ? '' : 'hidden'}`}>
++            <p className="mb-3 text-sm text-ink-600">Enter your exam details on the official {EXAM_RESULT_SITES[checkableExam].name} below, using the {EXAM_RESULT_SITES[checkableExam].credentialNoun} and serial number you bought.</p>
++            <ExamResultChecker exam={checkableExam} cards={cards} />
++          </div>
++        )}
+       </main>
+       <PinConfirmDialog open={showPin} onClose={() => setShowPin(false)} onVerified={purchase} />
+     </AppShell>

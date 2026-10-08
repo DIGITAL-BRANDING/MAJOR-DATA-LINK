@@ -4,6 +4,8 @@ import { useNavigate } from 'react-router-dom';
 import AppShell from '../components/AppShell';
 import { api } from '../lib/api';
 import { PinConfirmDialog } from '../components/PinConfirmDialog';
+import ExamResultChecker from '../components/ExamResultChecker';
+import { EXAM_RESULT_SITES, isCheckableExam } from '../lib/exam-result-sites';
 
 type ResultCard = { pin: string; serial: string };
 
@@ -16,6 +18,9 @@ export default function ResultPinPage({ exam }: { exam: 'WAEC' | 'NECO' | 'NABTE
   const [message, setMessage] = useState('');
   const [cards, setCards] = useState<ResultCard[]>([]);
   const [reference, setReference] = useState('');
+  // NECO and WAEC buyers can check their result without leaving the app.
+  const [tab, setTab] = useState<'cards' | 'check'>('cards');
+  const [checkerOpened, setCheckerOpened] = useState(false);
 
   useEffect(() => {
     api.get<{ data: { unitPrice: number } }>(`/result/${exam.toLowerCase()}/price`)
@@ -58,12 +63,25 @@ export default function ResultPinPage({ exam }: { exam: 'WAEC' | 'NECO' | 'NABTE
 
   const total = (price ?? 0) * quantity;
   const neco = exam === 'NECO';
+  const checkableExam = isCheckableExam(exam) ? exam : null;
+
+  function openChecker() {
+    setCheckerOpened(true); // the official page loads only once someone asks for it
+    setTab('check');
+  }
 
   return (
     <AppShell>
       <button onClick={() => nav('/result-checkers')} className="text-sm font-semibold text-ink-600">← Result Checkers</button>
-      <main className="mx-auto mt-5 max-w-lg rounded-2xl border border-parchment-line bg-parchment p-6">
+      <main className={`mx-auto mt-5 ${tab === 'check' ? 'max-w-4xl' : 'max-w-lg'} rounded-2xl border border-parchment-line bg-parchment p-6`}>
         <h1 className="font-display text-2xl font-bold text-ink">Buy {exam} {neco ? 'Token' : 'PIN'}</h1>
+        {checkableExam && (
+          <div role="tablist" aria-label={`${exam} options`} className="result-pin-actions mt-4 grid grid-cols-2 gap-1 rounded-xl bg-cream p-1 text-sm font-bold">
+            <button type="button" role="tab" aria-selected={tab === 'cards'} onClick={() => setTab('cards')} className={`rounded-lg py-2.5 ${tab === 'cards' ? 'bg-gold-500 text-ink shadow-sm' : 'text-ink-600'}`}>{cards.length > 0 ? 'Cards' : `Buy ${neco ? 'token' : 'PIN'}`}</button>
+            <button type="button" role="tab" aria-selected={tab === 'check'} onClick={openChecker} className={`rounded-lg py-2.5 ${tab === 'check' ? 'bg-gold-500 text-ink shadow-sm' : 'text-ink-600'}`}>Check result</button>
+          </div>
+        )}
+        <div className={tab === 'check' ? 'hidden' : undefined}>
         <div className="mt-4 rounded-xl bg-cream p-4">
           <span className="font-body text-xs text-ink-600">Price per {neco ? 'token' : 'PIN'}</span>
           <p className="font-mono text-xl font-bold text-gold-700">{price === undefined ? 'Loading…' : `₦${price.toLocaleString()}`}</p>
@@ -95,8 +113,18 @@ export default function ResultPinPage({ exam }: { exam: 'WAEC' | 'NECO' | 'NABTE
                 {reference && <p className="mt-4 text-[10px] text-ink-600">Purchase ref: {reference}</p>}
               </article>
             ))}
+            {checkableExam && (
+              <button type="button" onClick={openChecker} className="result-pin-actions w-full rounded-xl border-2 border-gold-500 bg-white py-3 font-semibold text-ink">Check {exam} result now →</button>
+            )}
             <button type="button" onClick={() => window.print()} className="result-pin-actions flex w-full items-center justify-center gap-2 rounded-xl bg-gold-500 py-3 font-semibold"><Printer size={17} /> Print {neco ? 'card' : 'PIN'}</button>
           </section>
+        )}
+        </div>
+        {checkableExam && checkerOpened && (
+          <div className={`mt-5 ${tab === 'check' ? '' : 'hidden'}`}>
+            <p className="mb-3 text-sm text-ink-600">Enter your exam details on the official {EXAM_RESULT_SITES[checkableExam].name} below, using the {EXAM_RESULT_SITES[checkableExam].credentialNoun} and serial number you bought.</p>
+            <ExamResultChecker exam={checkableExam} cards={cards} />
+          </div>
         )}
       </main>
       <PinConfirmDialog open={showPin} onClose={() => setShowPin(false)} onVerified={purchase} />
