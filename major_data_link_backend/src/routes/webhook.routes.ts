@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { Router } from 'express';
+import { TransactionStatus, TransactionType } from '@prisma/client';
 import { env } from '../config/env.js';
 import { prisma } from '../lib/prisma.js';
 import {
@@ -12,6 +13,8 @@ import { paystackService } from '../services/paystack.service.js';
 import { katpayService } from '../services/katpay.service.js';
 import { creditPartnerDirectDeposit, creditPartnerFundingByReference } from '../services/partner-funding.service.js';
 import { advanceSession } from '../services/whatsapp-session.service.js';
+import { partnerVerification } from '../services/partner-verification.service.js';
+import { checkIpeClearanceStatus, checkNinValidationStatus } from '../services/verification.service.js';
 
 function normalizeKatpayStatus(value: unknown): string | undefined {
   if (typeof value === 'string' || typeof value === 'number') return String(value).trim().toUpperCase();
@@ -58,6 +61,85 @@ function zenithValue(payload: Record<string, any>, keys: string[]) {
 function zenithSuccessful(value: unknown) {
   return value === true || ['success', 'successful', 'completed', 'paid', '00'].includes(String(value ?? '').trim().toLowerCase());
 }
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function nestedValue(record: Record<string, unknown>, keys: string[]): string {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'string' || typeof value === 'number') {
+      const text = String(value).trim();
+      if (text) return text;
+    }
+  }
+  return '';
+}
+
+function webhookStatus(value: unknown, depth = 0): string {
+  if (depth > 3) return '';
+  const record = asRecord(value);
+  if (!record) return '';
+  const status = nestedValue(record, ['status', 'event']);
+  if (status) return status.toLowerCase();
+  for (const key of ['data', 'transaction', 'result']) {
+    const child = webhookStatus(record[key], depth + 1);
+    if (child) return child;
+  }
+  return '';
+}
+
+/**
+ * FranceVerified webhook. Its documented form does not support a signature
+ * header, so authenticate with a long random token in this URL path and then
+ * re-check each ticket directly with FranceVerified before updating status.
+ */
+webhookRoutes.post('/franceverified/:secret', async (req, res) => {
+  const configuredSecret = env.FRANCEVERIFIED_WEBHOOK_SECRET;
+  const suppliedSecret = String(req.params.secret ?? '');
+  const suppliedBytes = Buffer.from(suppliedSecret);
+  const configuredBytes = Buffer.from(configuredSecret ?? '');
+  if (!configuredSecret || suppliedBytes.length !== configuredBytes.length || !crypto.timingSafeEqual(suppliedBytes, configuredBytes)) {
+    return res.status(401).json({ status: false, message: 'Invalid webhook authentication' });
+  }
+  const rawBody = req.body as Buffer;
+  if (!Buffer.isBuffer(rawBody)) return res.status(400).json({ status: false, message: 'JSON webhook body is required' });
+  let payload: Record<string, unknown> | null;
+  try { payload = asRecord(JSON.parse(rawBody.toString('utf8'))); } catch { payload = null; }
+  if (!payload) return res.status(400).json({ status: false, message: 'Malformed webhook JSON' });
+
+  const data = asRecord(payload.data) ?? asRecord(payload.transaction) ?? payload;
+  const reference = nestedValue(data, ['reference', 'ticket_id', 'tracking_id', 'transaction_id']) || nestedValue(payload, ['reference', 'ticket_id', 'tracking_id', 'transaction_id']);
+  const status = webhookStatus(payload);
+  const event = nestedValue(payload, ['event', 'type']).toLowerCase();
+  if (!reference) return res.status(400).json({ status: false, message: 'Webhook reference is required' });
+  const terminal = ['success', 'successful', 'completed', 'transaction.success', 'failed', 'failure', 'transaction.failed', 'rejected', 'declined'];
+  if (!terminal.includes(status) && !terminal.includes(event)) {
+    return res.status(200).json({ status: true, received: true, outcome: 'non_terminal_ignored' });
+  }
+
+  const [partnerRows, customerRows] = await Promise.all([
+    prisma.partnerTransaction.findMany({ where: { provider: 'franceverified', providerRef: reference, status: TransactionStatus.PENDING, type: TransactionType.IDENTITY_SERVICE_REQUEST }, take: 10 }),
+    prisma.transaction.findMany({ where: { provider: 'franceverified', providerRef: reference, status: TransactionStatus.PENDING, type: TransactionType.IDENTITY_SERVICE_REQUEST }, take: 10 })
+  ]);
+  let checked = 0;
+  for (const row of partnerRows) {
+    const service = (row.metadata as Record<string, unknown> | null)?.service;
+    if (service === 'IPE_CLEARANCE') await partnerVerification.checkIpeClearance(row.partnerId, reference);
+    else if (typeof service === 'string' && service.startsWith('NIN_VALIDATION_')) await partnerVerification.checkNinValidation(row.partnerId, reference);
+    else continue;
+    checked += 1;
+  }
+  for (const row of customerRows) {
+    const service = (row.metadata as Record<string, unknown> | null)?.service;
+    if (service === 'IPE_CLEARANCE') await checkIpeClearanceStatus({ userId: row.userId, ticketId: reference });
+    else if (typeof service === 'string' && service.startsWith('NIN_VALIDATION_')) await checkNinValidationStatus({ userId: row.userId, ticketId: reference });
+    else continue;
+    checked += 1;
+  }
+  return res.status(200).json({ status: true, received: true, checked, outcome: checked ? 'reconciled' : 'no_pending_ticket' });
+});
 
 // Public, non-sensitive connectivity check for KatPay's dashboard setup.
 // KatPay only POSTs signed events; this GET makes it possible to verify the

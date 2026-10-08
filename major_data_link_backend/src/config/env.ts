@@ -95,6 +95,9 @@ const EnvSchema = z.object({
   // fail outright - fixed.
   FRANCEVERIFIED_BASE_URL: z.string().url().default('https://franceverified.com/api/v1'),
   FRANCEVERIFIED_API_KEY: z.string().optional(),
+  // Shared bearer token placed in the FranceVerified webhook URL path.
+  // Generate a long random value and use the same value in their dashboard.
+  FRANCEVERIFIED_WEBHOOK_SECRET: z.preprocess((value) => value === '' ? undefined : value, z.string().min(32).optional()),
   // Same reasoning as ALRAHUZ_LOW_BALANCE_THRESHOLD above — YOUR balance at
   // Techhub, reported back on every async-service submit call (see
   // TechhubAsyncSubmitResponse.balance in techhub.service.ts). Techhub's
