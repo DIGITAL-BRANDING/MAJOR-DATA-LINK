@@ -118,11 +118,13 @@ async function claimManualDispatch(params: { source: 'customer' | 'partner'; id:
     const result = await submitToProvider(service, params.provider, metadata, pii);
     if (!result.ok || !result.ticketId) throw new ApiError(502, result.message || 'The provider did not accept this request.', 'MANUAL_PROVIDER_SUBMIT_FAILED');
     accepted = true;
+    const history = Array.isArray(metadata.manual_dispatch_history) ? metadata.manual_dispatch_history : [];
     const updatedMetadata = {
       ...metadata,
       ticket_id: result.ticketId,
       manual_processing: false,
       manual_dispatch: { provider: params.provider, status: 'submitted', started_at: startedAt, submitted_at: new Date().toISOString() },
+      manual_dispatch_history: [...history, { provider: params.provider, status: 'submitted', ticket_id: result.ticketId, started_at: startedAt, submitted_at: new Date().toISOString() }],
       pii: mergeSealedPII(metadata.pii, { submit_raw: result.raw })
     } as Prisma.InputJsonValue;
     if (isPartner) {

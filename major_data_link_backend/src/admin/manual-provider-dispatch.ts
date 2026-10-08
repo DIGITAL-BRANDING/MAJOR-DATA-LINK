@@ -6,6 +6,9 @@ import { dispatchManualCustomerRequest, dispatchManualPartnerRequest, manualDisp
 import type { ManualDispatchProvider } from '../services/manual-provider-dispatch.service.js';
 import { logAdminAction } from './audit.js';
 import type { AdminSessionUser } from './auth.js';
+import { checkIpeClearanceStatus } from '../services/verification.service.js';
+import { partnerVerification } from '../services/partner-verification.service.js';
+import { createPartnerRequestUpdate } from '../services/partner-request-update.service.js';
 
 function escapeHtml(value: string) { return value.replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]!); }
 function field(req: Request, name: string) {
@@ -39,22 +42,33 @@ export function registerManualProviderDispatchRoutes(router: Router) {
     const admin = req.session?.adminUser as AdminSessionUser | undefined;
     if (!admin) return res.redirect('/admin/login');
     const where = { status: TransactionStatus.PENDING, type: TransactionType.IDENTITY_SERVICE_REQUEST, provider: { in: ['manual', 'manual_dispatching'] } };
-    const [customers, partners] = await Promise.all([
-      prisma.transaction.findMany({ where, include: { user: { select: { fullName: true, email: true } } }, orderBy: { createdAt: 'asc' } }),
-      prisma.partnerTransaction.findMany({ where, include: { partner: { select: { businessName: true, email: true } } }, orderBy: { createdAt: 'asc' } })
+    const recentWhere = { type: TransactionType.IDENTITY_SERVICE_REQUEST, provider: { in: ['techhub', 'franceverified'] }, createdAt: { gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } };
+    const [customers, partners, recentCustomers, recentPartners] = await Promise.all([
+      prisma.transaction.findMany({ where, include: { user: { select: { fullName: true, email: true } } }, orderBy: { createdAt: 'desc' }, take: 50 }),
+      prisma.partnerTransaction.findMany({ where, include: { partner: { select: { businessName: true, email: true } } }, orderBy: { createdAt: 'desc' }, take: 50 }),
+      prisma.transaction.findMany({ where: recentWhere, include: { user: { select: { fullName: true, email: true } } }, orderBy: { createdAt: 'desc' }, take: 50 }),
+      prisma.partnerTransaction.findMany({ where: recentWhere, include: { partner: { select: { businessName: true, email: true } }, requestUpdates: { orderBy: { createdAt: 'desc' }, take: 3 } }, orderBy: { createdAt: 'desc' }, take: 50 })
     ]);
     const rows = [
       ...customers.map((row) => ({ ...row, source: 'Customer', owner: row.user.fullName, email: row.user.email, kind: 'customer' as const })),
-      ...partners.map((row) => ({ ...row, source: 'Partner API', owner: row.partner.businessName, email: row.partner.email, kind: 'partner' as const }))
-    ].filter((row) => providersFor(serviceName(row.metadata)).length > 0);
+      ...partners.map((row) => ({ ...row, source: 'Partner API', owner: row.partner.businessName, email: row.partner.email, kind: 'partner' as const })),
+      ...recentCustomers.map((row) => ({ ...row, source: 'Customer', owner: row.user.fullName, email: row.user.email, kind: 'customer' as const })),
+      ...recentPartners.map((row) => ({ ...row, source: 'Partner API', owner: row.partner.businessName, email: row.partner.email, kind: 'partner' as const }))
+    ].filter((row, index, all) => providersFor(serviceName(row.metadata)).length > 0 && all.findIndex((candidate) => candidate.id === row.id && candidate.kind === row.kind) === index).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
     const flash = typeof req.query.flash === 'string' ? escapeHtml(req.query.flash) : '';
     const table = rows.length ? rows.map((row) => {
       const metadata = (row.metadata as Record<string, unknown> | null) ?? {};
       const service = serviceName(metadata);
       const dispatch = metadata.manual_dispatch as Record<string, unknown> | undefined;
       const inRecovery = row.provider === 'manual_dispatching';
+      const dispatched = row.provider === 'techhub' || row.provider === 'franceverified';
+      const pending = row.status === TransactionStatus.PENDING;
+      const lastUpdate = row.kind === 'partner' && 'requestUpdates' in row && Array.isArray(row.requestUpdates) && row.requestUpdates[0]
+        ? `<small>Latest partner update: ${escapeHtml(row.requestUpdates[0].message)}</small>` : '';
       const providerChoices = providersFor(service).map(({ provider, enabled }) => `<option value="${provider}" ${enabled ? '' : 'disabled'}>${provider === 'techhub' ? 'Techhub' : 'FranceVerified'}${enabled ? '' : ' (not configured)'}</option>`).join('');
-      const form = inRecovery
+      const form = dispatched
+        ? `<strong>${escapeHtml(row.provider === 'franceverified' ? 'FranceVerified' : 'Techhub')} · ${escapeHtml(row.status.toLowerCase())}</strong><small>Ticket: ${escapeHtml(row.providerRef ?? String(metadata.ticket_id ?? '—'))}</small>${lastUpdate}${pending && service === 'IPE_CLEARANCE' ? `<form method="post" action="/admin/manual-provider-dispatch/status/${row.kind}/${encodeURIComponent(row.id)}"><button type="submit">Check status</button></form>` : ''}${pending && row.kind === 'partner' ? `<form method="post" action="/admin/manual-provider-dispatch/update/${encodeURIComponent(row.id)}"><input name="message" required maxlength="1000" placeholder="Update for API partner"><button type="submit">Send update</button></form>` : ''}`
+        : inRecovery
         ? `<strong class="recovery">Provider may have accepted this request. Reconcile it manually; do not resubmit.</strong><small>State: ${escapeHtml(String(dispatch?.status ?? 'unknown'))}</small>`
         : `<form method="post" action="/admin/manual-provider-dispatch/${row.kind}/${encodeURIComponent(row.id)}"><select name="provider" required><option value="">Choose provider</option>${providerChoices}</select><button type="submit">Send request</button></form>`;
       const pii = openPII<Record<string, unknown>>(metadata.pii);
@@ -86,6 +100,48 @@ export function registerManualProviderDispatchRoutes(router: Router) {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Could not dispatch this request.';
       return res.redirect(`/admin/manual-provider-dispatch?flash=${encodeURIComponent(message)}`);
+    }
+  });
+
+  router.post('/manual-provider-dispatch/status/:source/:id', async (req: Request, res) => {
+    const admin = req.session?.adminUser as AdminSessionUser | undefined;
+    if (!admin) return res.redirect('/admin/login');
+    if (admin.role === 'SUPPORT') return res.status(403).send('Only Finance and Super Admin can check provider status.');
+    const source = String(req.params.source); const id = String(req.params.id);
+    try {
+      if (source === 'partner') {
+        const tx = await prisma.partnerTransaction.findUnique({ where: { id } });
+        if (!tx || tx.status !== TransactionStatus.PENDING || !['techhub', 'franceverified'].includes(tx.provider ?? '') || serviceName(tx.metadata) !== 'IPE_CLEARANCE') throw new Error('Request is not an active IPE provider ticket.');
+        const result = await partnerVerification.checkIpeClearance(tx.partnerId, tx.providerRef ?? '');
+        await logAdminAction({ adminId: admin.id, action: 'CHECK_MANUAL_PROVIDER_STATUS', targetType: 'PartnerTransaction', targetId: id, metadata: { provider: tx.provider, status: result.status } });
+        return res.redirect(`/admin/manual-provider-dispatch?flash=${encodeURIComponent(`Provider status for ${tx.reference}: ${result.status}`)}`);
+      }
+      if (source === 'customer') {
+        const tx = await prisma.transaction.findUnique({ where: { id } });
+        if (!tx || tx.status !== TransactionStatus.PENDING || !['techhub', 'franceverified'].includes(tx.provider ?? '') || serviceName(tx.metadata) !== 'IPE_CLEARANCE') throw new Error('Request is not an active IPE provider ticket.');
+        const result = await checkIpeClearanceStatus({ userId: tx.userId, ticketId: tx.providerRef ?? '' });
+        await logAdminAction({ adminId: admin.id, action: 'CHECK_MANUAL_PROVIDER_STATUS', targetType: 'Transaction', targetId: id, metadata: { provider: tx.provider, status: result.status } });
+        return res.redirect(`/admin/manual-provider-dispatch?flash=${encodeURIComponent(`Provider status for ${tx.reference}: ${result.status}`)}`);
+      }
+      return res.status(400).send('Invalid request source.');
+    } catch (error) {
+      return res.redirect(`/admin/manual-provider-dispatch?flash=${encodeURIComponent(error instanceof Error ? error.message : 'Could not check provider status.')}`);
+    }
+  });
+
+  router.post('/manual-provider-dispatch/update/:id', async (req: Request, res) => {
+    const admin = req.session?.adminUser as AdminSessionUser | undefined;
+    if (!admin) return res.redirect('/admin/login');
+    if (admin.role === 'SUPPORT') return res.status(403).send('Only Finance and Super Admin can send partner updates.');
+    const id = String(req.params.id); const message = field(req, 'message');
+    try {
+      const tx = await prisma.partnerTransaction.findUnique({ where: { id } });
+      if (!tx || tx.status !== TransactionStatus.PENDING || !['techhub', 'franceverified'].includes(tx.provider ?? '')) throw new Error('Only an active provider request can receive an update.');
+      await createPartnerRequestUpdate({ transactionId: id, message });
+      await logAdminAction({ adminId: admin.id, action: 'SEND_MANUAL_PROVIDER_PARTNER_UPDATE', targetType: 'PartnerTransaction', targetId: id, metadata: { provider: tx.provider, message } });
+      return res.redirect(`/admin/manual-provider-dispatch?flash=${encodeURIComponent(`Update sent to partner for ${tx.reference}.`)}`);
+    } catch (error) {
+      return res.redirect(`/admin/manual-provider-dispatch?flash=${encodeURIComponent(error instanceof Error ? error.message : 'Could not send partner update.')}`);
     }
   });
 }
