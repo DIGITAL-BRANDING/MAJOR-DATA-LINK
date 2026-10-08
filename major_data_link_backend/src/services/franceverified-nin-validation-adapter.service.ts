@@ -48,6 +48,17 @@ function pickString(record: Record<string, unknown>, keys: string[]): string | u
   return undefined;
 }
 
+function statusFrom(value: unknown, depth = 0): string {
+  if (depth > 3 || typeof value !== 'object' || value === null || Array.isArray(value)) return '';
+  const record = value as Record<string, unknown>;
+  if (typeof record.status === 'string') return record.status.toLowerCase().trim();
+  for (const key of ['data', 'response', 'result']) {
+    const nested = statusFrom(record[key], depth + 1);
+    if (nested) return nested;
+  }
+  return '';
+}
+
 export async function submitNinValidationFV(nin: string, validationType?: string): Promise<TechhubAsyncSubmitResult> {
   const key = validationType ?? 'nin_validation';
   const fvType = TYPE_MAP[key];
@@ -71,7 +82,7 @@ export async function submitNinValidationFV(nin: string, validationType?: string
   // reference on /nin/check's own query param).
   const ticketId = pickString(data, ['reference', 'trackingId', 'tracking_id', 'ticketId', 'ticket_id', 'id']);
   if (!ticketId) {
-    return { ok: false, message: 'FranceVerified accepted the request but did not return a tracking reference to poll', raw: result.raw };
+    return { ok: false, accepted: true, message: 'FranceVerified accepted the request but did not return a tracking reference to poll', raw: result.raw };
   }
 
   return { ok: true, ticketId, message: result.message, raw: result.raw };
@@ -87,19 +98,18 @@ export async function checkNinValidationFV(reference: string): Promise<TechhubAs
   // pending/success here - the actual status text has to be read back out
   // of the response body itself.
   const data = (result.data ?? {}) as Record<string, unknown>;
-  const statusText = typeof data.status === 'string' ? data.status.toLowerCase() : '';
-
-  if (!result.ok) {
-    return { ticketId: reference, status: 'failed', response: Object.keys(data).length ? data : null, raw: result.raw };
-  }
-  if (statusText === 'pending' || statusText === 'processing' || statusText === 'in_progress') {
-    return { ticketId: reference, status: 'pending', response: null, raw: result.raw };
-  }
+  const statusText = statusFrom(result.data) || statusFrom(result.raw);
+  // A status-check transport/envelope error says nothing definitive about
+  // the submitted validation. Keep it pending for the next poll instead of
+  // reversing/refunding a request FranceVerified may still be processing.
   if (statusText === 'failed' || statusText === 'rejected' || statusText === 'declined') {
     return { ticketId: reference, status: 'failed', response: data, raw: result.raw };
   }
-  // ok:true with a status that isn't recognizably pending/failed (e.g.
-  // "success", "successful", "completed", or no status field at all) is
-  // treated as done.
-  return { ticketId: reference, status: 'success', response: data, raw: result.raw };
+  if (['pending', 'processing', 'in_progress', 'queued', 'submitted'].includes(statusText) || !result.ok || !statusText) {
+    return { ticketId: reference, status: 'pending', response: null, raw: result.raw };
+  }
+  if (['success', 'successful', 'complete', 'completed'].includes(statusText)) {
+    return { ticketId: reference, status: 'success', response: data, raw: result.raw };
+  }
+  return { ticketId: reference, status: 'pending', response: null, raw: result.raw };
 }

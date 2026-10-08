@@ -158,6 +158,8 @@ function hasPersonalInfoFields(fields: IdentitySlipField[]) {
 
 export type TechhubAsyncSubmitResult = {
   ok: boolean;
+  /** The provider accepted the paid request but did not return a pollable ticket. */
+  accepted?: boolean;
   ticketId?: string;
   message: string;
   raw: unknown;

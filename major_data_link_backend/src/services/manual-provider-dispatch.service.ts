@@ -116,8 +116,8 @@ async function claimManualDispatch(params: { source: 'customer' | 'partner'; id:
   let accepted = false;
   try {
     const result = await submitToProvider(service, params.provider, metadata, pii);
+    accepted = result.ok || result.accepted === true;
     if (!result.ok || !result.ticketId) throw new ApiError(502, result.message || 'The provider did not accept this request.', 'MANUAL_PROVIDER_SUBMIT_FAILED');
-    accepted = true;
     const history = Array.isArray(metadata.manual_dispatch_history) ? metadata.manual_dispatch_history : [];
     const updatedMetadata = {
       ...metadata,

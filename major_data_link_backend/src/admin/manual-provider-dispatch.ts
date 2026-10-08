@@ -9,6 +9,8 @@ import type { AdminSessionUser } from './auth.js';
 import { checkIpeClearanceStatus } from '../services/verification.service.js';
 import { partnerVerification } from '../services/partner-verification.service.js';
 import { createPartnerRequestUpdate } from '../services/partner-request-update.service.js';
+import { recoverRefundedFranceVerification } from '../services/partner-verification-recovery.service.js';
+import { koboToNaira } from '../lib/money.js';
 
 function escapeHtml(value: string) { return value.replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]!); }
 function field(req: Request, name: string) {
@@ -63,14 +65,16 @@ export function registerManualProviderDispatchRoutes(router: Router) {
       const inRecovery = row.provider === 'manual_dispatching';
       const dispatched = row.provider === 'techhub' || row.provider === 'franceverified';
       const pending = row.status === TransactionStatus.PENDING;
+      const canRecover = row.kind === 'partner' && row.provider === 'franceverified' && row.status === TransactionStatus.REVERSED && (service.startsWith('NIN_VALIDATION_') || service === 'IPE_CLEARANCE');
+      const dispatchError = typeof dispatch?.error === 'string' ? `<small class="recovery">Last dispatch failed: ${escapeHtml(dispatch.error)}</small>` : '';
       const lastUpdate = row.kind === 'partner' && 'requestUpdates' in row && Array.isArray(row.requestUpdates) && row.requestUpdates[0]
         ? `<small>Latest partner update: ${escapeHtml(row.requestUpdates[0].message)}</small>` : '';
       const providerChoices = providersFor(service).map(({ provider, enabled }) => `<option value="${provider}" ${enabled ? '' : 'disabled'}>${provider === 'techhub' ? 'Techhub' : 'FranceVerified'}${enabled ? '' : ' (not configured)'}</option>`).join('');
       const form = dispatched
-        ? `<strong>${escapeHtml(row.provider === 'franceverified' ? 'FranceVerified' : 'Techhub')} · ${escapeHtml(row.status.toLowerCase())}</strong><small>Ticket: ${escapeHtml(row.providerRef ?? String(metadata.ticket_id ?? '—'))}</small>${lastUpdate}${pending && service === 'IPE_CLEARANCE' ? `<form method="post" action="/admin/manual-provider-dispatch/status/${row.kind}/${encodeURIComponent(row.id)}"><button type="submit">Check status</button></form>` : ''}${pending && row.kind === 'partner' ? `<form method="post" action="/admin/manual-provider-dispatch/update/${encodeURIComponent(row.id)}"><input name="message" required maxlength="1000" placeholder="Update for API partner"><button type="submit">Send update</button></form>` : ''}`
+        ? `<strong>${escapeHtml(row.provider === 'franceverified' ? 'FranceVerified' : 'Techhub')} · ${escapeHtml(row.status.toLowerCase())}</strong><small>Ticket: ${escapeHtml(row.providerRef ?? String(metadata.ticket_id ?? '—'))}</small>${lastUpdate}${canRecover ? `<form method="post" action="/admin/manual-provider-dispatch/recover/${encodeURIComponent(row.id)}" onsubmit="return confirm('This will debit ₦${koboToNaira(row.amountKobo).toLocaleString('en-NG')} again and resume polling the existing FranceVerified ticket. Continue?')"><button type="submit">Restore request · debit ₦${koboToNaira(row.amountKobo).toLocaleString('en-NG')}</button></form>` : ''}${pending && service === 'IPE_CLEARANCE' ? `<form method="post" action="/admin/manual-provider-dispatch/status/${row.kind}/${encodeURIComponent(row.id)}"><button type="submit">Check status</button></form>` : ''}${pending && row.kind === 'partner' ? `<form method="post" action="/admin/manual-provider-dispatch/update/${encodeURIComponent(row.id)}"><input name="message" required maxlength="1000" placeholder="Update for API partner"><button type="submit">Send update</button></form>` : ''}`
         : inRecovery
-        ? `<strong class="recovery">Provider may have accepted this request. Reconcile it manually; do not resubmit.</strong><small>State: ${escapeHtml(String(dispatch?.status ?? 'unknown'))}</small>`
-        : `<form method="post" action="/admin/manual-provider-dispatch/${row.kind}/${encodeURIComponent(row.id)}"><select name="provider" required><option value="">Choose provider</option>${providerChoices}</select><button type="submit">Send request</button></form>`;
+        ? `<strong class="recovery">Provider may have accepted this request. Reconcile it manually; do not resubmit.</strong><small>State: ${escapeHtml(String(dispatch?.status ?? 'unknown'))}</small>${typeof dispatch?.error === 'string' ? `<small>${escapeHtml(dispatch.error)}</small>` : ''}`
+        : `<form method="post" action="/admin/manual-provider-dispatch/${row.kind}/${encodeURIComponent(row.id)}"><select name="provider" required><option value="">Choose provider</option>${providerChoices}</select><button type="submit">Send request</button></form>${dispatchError}`;
       const pii = openPII<Record<string, unknown>>(metadata.pii);
       const ipe = typeof metadata.ipe_type === 'string' ? `<small>IPE type: ${escapeHtml(metadata.ipe_type.replace(/_/g, ' '))}</small>` : '';
       return `<tr><td>${escapeHtml(row.source)}</td><td><strong>${escapeHtml(service.replace(/_/g, ' '))}</strong>${ipe}<small>${escapeHtml(row.reference)}</small></td><td>${escapeHtml(row.owner)}<small>${escapeHtml(row.email)}</small></td><td class="identifier">${escapeHtml(displayIdentifier(pii))}</td><td>${escapeHtml(row.createdAt.toLocaleString())}</td><td>${form}</td></tr>`;
@@ -142,6 +146,23 @@ export function registerManualProviderDispatchRoutes(router: Router) {
       return res.redirect(`/admin/manual-provider-dispatch?flash=${encodeURIComponent(`Update sent to partner for ${tx.reference}.`)}`);
     } catch (error) {
       return res.redirect(`/admin/manual-provider-dispatch?flash=${encodeURIComponent(error instanceof Error ? error.message : 'Could not send partner update.')}`);
+    }
+  });
+
+  router.post('/manual-provider-dispatch/recover/:id', async (req: Request, res) => {
+    const admin = req.session?.adminUser as AdminSessionUser | undefined;
+    if (!admin) return res.redirect('/admin/login');
+    if (admin.role === 'SUPPORT') return res.status(403).send('Only Finance and Super Admin can restore a refunded request.');
+    const id = String(req.params.id);
+    try {
+      const result = await recoverRefundedFranceVerification(id);
+      if (!result.alreadyRecovered) {
+        await logAdminAction({ adminId: admin.id, action: 'RECOVER_REFUNDED_FRANCE_VERIFICATION', targetType: 'PartnerTransaction', targetId: id, metadata: { recoveredTransactionId: result.transaction.id, ticketId: result.transaction.providerRef } });
+        await createPartnerRequestUpdate({ transactionId: result.transaction.id, message: `Request restored after an erroneous refund. FranceVerified ticket ${result.transaction.providerRef} is still being checked.` }).catch((error) => console.error('[manual-provider-dispatch] recovered request but could not notify partner', error));
+      }
+      return res.redirect(`/admin/manual-provider-dispatch?flash=${encodeURIComponent(`FranceVerified ticket ${result.transaction.providerRef} restored as pending. Partner wallet debited for this request.`)}`);
+    } catch (error) {
+      return res.redirect(`/admin/manual-provider-dispatch?flash=${encodeURIComponent(error instanceof Error ? error.message : 'Could not restore this request.')}`);
     }
   });
 }

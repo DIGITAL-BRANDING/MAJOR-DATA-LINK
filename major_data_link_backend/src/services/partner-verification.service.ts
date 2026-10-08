@@ -82,7 +82,11 @@ async function checkPartnerAsync(params: {
   partnerId: string; ticketId: string;
   callByProvider: Partial<Record<VerificationProvider, (ticketId: string) => ReturnType<typeof techhubService.checkNinValidation>>>;
 }): Promise<PartnerAsyncStatusResult> {
-  const transaction = await prisma.partnerTransaction.findFirst({ where: { partnerId: params.partnerId, providerRef: params.ticketId } });
+  // A ticket can have a later, audited recovery request after an erroneous
+  // refund. Prefer its active pending ledger row, then return the newest
+  // terminal row once no active recovery remains.
+  const transaction = await prisma.partnerTransaction.findFirst({ where: { partnerId: params.partnerId, providerRef: params.ticketId, status: TransactionStatus.PENDING }, orderBy: { createdAt: 'desc' } })
+    ?? await prisma.partnerTransaction.findFirst({ where: { partnerId: params.partnerId, providerRef: params.ticketId }, orderBy: { createdAt: 'desc' } });
   if (!transaction) throw new ApiError(404, 'Unknown ticket_id', 'TICKET_NOT_FOUND');
   const metadata = (transaction.metadata as Record<string, unknown> | null) ?? {};
   const stored = openPII<{ response?: Record<string, unknown> | null }>(metadata.pii);
