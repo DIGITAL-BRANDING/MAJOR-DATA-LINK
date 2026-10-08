@@ -1,0 +1,8 @@
+{
+  "name": "major-data-link-deployment",
+  "private": true,
+  "scripts": {
+    "build": "cd major_data_link_backend && npm ci --include=dev --cache /tmp/.npm --no-audit --no-fund && npm run prisma:generate && npm run build && cd ../web && npm ci --include=dev --cache /tmp/.npm --no-audit --no-fund && npm run build && rm -rf ../major_data_link_backend/public/app && mkdir -p ../major_data_link_backend/public/app && cp -r dist/. ../major_data_link_backend/public/app/",
+    "start": "cd major_data_link_backend && npm run start:prod"
+  }
+}
