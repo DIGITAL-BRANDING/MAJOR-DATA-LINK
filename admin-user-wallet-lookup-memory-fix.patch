@@ -1,0 +1,35 @@
+diff --git a/major_data_link_backend/src/services/wallet.service.ts b/major_data_link_backend/src/services/wallet.service.ts
+index 0ea90ec..3284375 100644
+--- a/major_data_link_backend/src/services/wallet.service.ts
++++ b/major_data_link_backend/src/services/wallet.service.ts
+@@ -769,13 +769,28 @@ export async function manualWalletAdjustment(params: {
+  * Pending requests count as debits because they have already reserved money.
+  */
+ export async function getWalletLedgerReconciliation(userId: string) {
+-  const [user, rows] = await Promise.all([
++  // Only two transaction types need `metadata` to be counted (see
++  // ledgerBalanceKobo: MANUAL_ADJUSTMENT's direction/reason and a referral
++  // WITHDRAWAL flag). Every other row is decided by type, status and amount.
++  // Loading metadata for ALL rows was the bug: slip purchases store the full
++  // slip PDF (pdf_base64) inside metadata.pii, so a customer with many slip
++  // purchases made this lookup pull megabytes per row into memory, which
++  // crashed the admin page (502) for exactly those wallets. So fetch the
++  // metadata separately, and only for the rows that need it.
++  const METADATA_TYPES = [TransactionType.MANUAL_ADJUSTMENT, TransactionType.REFERRAL_COMMISSION];
++  const [user, slimRows, metaRows] = await Promise.all([
+     prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { walletBalanceKobo: true } }),
+     prisma.transaction.findMany({
+       where: { userId }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+-      select: { type: true, status: true, amountKobo: true, balanceBeforeKobo: true, metadata: true }
++      select: { id: true, type: true, status: true, amountKobo: true, balanceBeforeKobo: true }
++    }),
++    prisma.transaction.findMany({
++      where: { userId, type: { in: METADATA_TYPES } },
++      select: { id: true, metadata: true }
+     })
+   ]);
++  const metaById = new Map(metaRows.map((row) => [row.id, row.metadata]));
++  const rows = slimRows.map((row) => ({ ...row, metadata: metaById.get(row.id) ?? null }));
+   const expected = ledgerBalanceKobo(rows);
+   return { currentKobo: user.walletBalanceKobo, expectedKobo: expected, differenceKobo: expected - user.walletBalanceKobo, matches: expected === user.walletBalanceKobo };
+ }
