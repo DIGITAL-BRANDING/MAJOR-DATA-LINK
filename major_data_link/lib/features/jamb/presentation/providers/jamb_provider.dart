@@ -1,108 +1,81 @@
 import 'package:dio/dio.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/config/app_endpoints.dart';
-import '../../../../core/constants/app_colors.dart';
-import '../../../../core/constants/app_dimensions.dart';
-import '../../../../core/constants/app_strings.dart';
 import '../../../../core/di/injection.dart';
 import '../../../../core/error/error_handler.dart';
-import '../../../../core/utils/extensions.dart';
-import '../../../../core/utils/formatters.dart';
-import '../../../../core/utils/validators.dart';
-import '../../../../shared/widgets/kd_button.dart';
-import '../../../../shared/widgets/kd_card.dart';
-import '../../../../shared/widgets/kd_text_field.dart';
-import '../../../../shared/widgets/pin_confirmation_sheet.dart';
-import '../../../../shared/widgets/purchase_success_view.dart';
 
-// ── JAMB service types ─────────────────────────────────────
-enum JambServiceType { pin, result, profileCode }
+/// One JAMB service as offered by the backend (GET /jamb/services).
+/// The list is live: services and prices are managed by admins, so nothing
+/// about them is hardcoded here.
+class JambService {
+  const JambService({required this.id, required this.label, required this.price});
 
-extension JambServiceTypeX on JambServiceType {
-  String get label {
-    switch (this) {
-      case JambServiceType.pin:
-        return 'JAMB PIN';
-      case JambServiceType.result:
-        return 'Check Result';
-      case JambServiceType.profileCode:
-        return 'Profile Code';
-    }
-  }
+  final String id;
+  final String label;
+  final double price;
 
-  double get price {
-    switch (this) {
-      case JambServiceType.pin:
-        return 3500;
-      case JambServiceType.result:
-        return 1000;
-      case JambServiceType.profileCode:
-        return 700;
-    }
+  factory JambService.fromJson(Map<String, dynamic> json) {
+    final price = json['price'];
+    return JambService(
+      id: json['id']?.toString() ?? '',
+      label: json['label']?.toString() ?? '',
+      price: price is num ? price.toDouble() : double.tryParse(price?.toString() ?? '') ?? 0,
+    );
   }
 }
 
-// ── Remote data source ─────────────────────────────────────
-final jambRemoteProvider = Provider((ref) {
-  return _JambRemote(ref.read(dioClientProvider));
+/// Services currently open to customers. Auto-disposes, so every visit gets
+/// a fresh list (an admin may have just priced or switched a service on).
+final jambServicesProvider = FutureProvider.autoDispose<List<JambService>>((ref) async {
+  final dio = ref.read(dioClientProvider);
+  try {
+    final response = await dio.get(AppEndpoints.jambServices);
+    final data = (response.data['data'] as List? ?? const []);
+    return data
+        .map((e) => JambService.fromJson(Map<String, dynamic>.from(e as Map)))
+        .toList();
+  } on DioException catch (e) {
+    throw ErrorHandler.handleException(e);
+  }
 });
 
-class _JambRemote {
-  const _JambRemote(this._dio);
-  final Dio _dio;
-
-  Future<Map<String, dynamic>> purchaseService({
-    required JambServiceType serviceType,
-    required String regNumber,
-  }) async {
-    try {
-      final endpoint = switch (serviceType) {
-        JambServiceType.pin => AppEndpoints.jambPin,
-        JambServiceType.result => AppEndpoints.jambResult,
-        JambServiceType.profileCode => AppEndpoints.jambProfile,
-      };
-      final response = await _dio.post(
-        endpoint,
-        data: {
-          'service_type': serviceType.name,
-          'reg_number': regNumber,
-          'amount': serviceType.price,
-        },
-      );
-      return response.data as Map<String, dynamic>;
-    } on DioException catch (e) {
-      throw ErrorHandler.handleException(e);
-    }
-  }
-}
-
-// ── State ──────────────────────────────────────────────────
 class JambState {
   const JambState({
-    this.serviceType = JambServiceType.pin,
-    this.regNumber = '',
+    this.selectedId,
+    this.registrationNumber = '',
+    this.candidateName = '',
+    this.examYear = '',
     this.isProcessing = false,
     this.errorMessage,
   });
 
-  final JambServiceType serviceType;
-  final String regNumber;
+  final String? selectedId;
+  final String registrationNumber;
+  final String candidateName;
+  final String examYear;
   final bool isProcessing;
   final String? errorMessage;
 
-  bool get canProceed => regNumber.length >= 10;
+  bool get canProceed =>
+      selectedId != null &&
+      registrationNumber.trim().length >= 4 &&
+      candidateName.trim().length >= 3 &&
+      RegExp(r'^\d{4}$').hasMatch(examYear.trim());
 
   JambState copyWith({
-    JambServiceType? serviceType,
-    String? regNumber,
+    String? selectedId,
+    String? registrationNumber,
+    String? candidateName,
+    String? examYear,
     bool? isProcessing,
     String? errorMessage,
     bool clearError = false,
   }) {
     return JambState(
-      serviceType: serviceType ?? this.serviceType,
-      regNumber: regNumber ?? this.regNumber,
+      selectedId: selectedId ?? this.selectedId,
+      registrationNumber: registrationNumber ?? this.registrationNumber,
+      candidateName: candidateName ?? this.candidateName,
+      examYear: examYear ?? this.examYear,
       isProcessing: isProcessing ?? this.isProcessing,
       errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
     );
@@ -113,28 +86,48 @@ class JambNotifier extends StateNotifier<JambState> {
   JambNotifier(this._ref) : super(const JambState());
   final Ref _ref;
 
-  void setServiceType(JambServiceType type) =>
-      state = state.copyWith(serviceType: type, regNumber: '', clearError: true);
+  void selectService(String id) =>
+      state = state.copyWith(selectedId: id, clearError: true);
 
-  void setRegNumber(String v) =>
-      state = state.copyWith(regNumber: v, clearError: true);
+  void setRegistrationNumber(String v) =>
+      state = state.copyWith(registrationNumber: v, clearError: true);
 
-  Future<Map<String, dynamic>?> purchase() async {
+  void setCandidateName(String v) =>
+      state = state.copyWith(candidateName: v, clearError: true);
+
+  void setExamYear(String v) =>
+      state = state.copyWith(examYear: v, clearError: true);
+
+  /// Sends the request with the transaction PIN the user just confirmed.
+  /// The backend debits the wallet only after checking that PIN.
+  Future<Map<String, dynamic>?> purchase({
+    required String pin,
+    required JambService service,
+  }) async {
     if (!state.canProceed) return null;
     state = state.copyWith(isProcessing: true, clearError: true);
     try {
-      final ds = _ref.read(jambRemoteProvider);
-      final result = await ds.purchaseService(
-        serviceType: state.serviceType,
-        regNumber: state.regNumber,
+      final dio = _ref.read(dioClientProvider);
+      final response = await dio.post(
+        AppEndpoints.jambRequests,
+        data: {
+          'service': service.id,
+          'registration_number': state.registrationNumber.trim(),
+          'candidate_full_name': state.candidateName.trim(),
+          'exam_year': int.parse(state.examYear.trim()),
+          'pin': pin,
+        },
       );
-      if (result['status'] == true) {
-        await _ref.read(hiveStorageProvider).remove('wallet_balance');
-      }
       state = state.copyWith(isProcessing: false);
-      return result;
-    } catch (e) {
-      state = state.copyWith(isProcessing: false, errorMessage: e.toString());
+      // The debit changed the balance; drop the cached wallet figure so the
+      // home/wallet screens refetch it (same behaviour as before this rewrite).
+      await _ref.read(hiveStorageProvider).remove('wallet_balance');
+      return Map<String, dynamic>.from(response.data as Map);
+    } on DioException catch (e) {
+      state = state.copyWith(
+        isProcessing: false,
+        errorMessage: ErrorHandler.handleException(e).message,
+      );
       return null;
     }
   }
@@ -146,3 +139,4 @@ final jambNotifierProvider =
     StateNotifierProvider.autoDispose<JambNotifier, JambState>((ref) {
   return JambNotifier(ref);
 });
+

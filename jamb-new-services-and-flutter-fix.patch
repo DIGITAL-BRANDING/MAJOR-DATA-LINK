@@ -1,0 +1,670 @@
+diff --git a/major_data_link/lib/core/config/app_endpoints.dart b/major_data_link/lib/core/config/app_endpoints.dart
+index 30932f0..2e817ec 100644
+--- a/major_data_link/lib/core/config/app_endpoints.dart
++++ b/major_data_link/lib/core/config/app_endpoints.dart
+@@ -78,8 +78,8 @@ class AppEndpoints {
+   static String get nabtebPin => '$_base/result/nabteb/pin';
+ 
+   // JAMB
+-  static String get jambProfile => '$_base/jamb/profile';
+-  static String get jambResult => '$_base/jamb/result';
++  static String get jambServices => '$_base/jamb/services';
++  static String get jambRequests => '$_base/jamb/requests';
+ 
+   // Verification (Techhubltd — NIN / BVN)
+   static String get verificationPrices => '$_base/verification/prices';
+@@ -111,7 +111,6 @@ class AppEndpoints {
+   static String get ipeClearance => '$_base/verification/ipe-clearance';
+   static String ipeClearanceStatus(String ticketId) =>
+       '$_base/verification/ipe-clearance/$ticketId';
+-  static String get jambPin => '$_base/jamb/pin';
+   static String get jambChange => '$_base/jamb/change-institution';
+   static String get deliveryList => '$_base/deliveries';
+   static String deliveryDownload(String id) => '$_base/deliveries/$id/download';
+diff --git a/major_data_link/lib/features/jamb/presentation/providers/jamb_provider.dart b/major_data_link/lib/features/jamb/presentation/providers/jamb_provider.dart
+index 53e0b5e..e48b899 100644
+--- a/major_data_link/lib/features/jamb/presentation/providers/jamb_provider.dart
++++ b/major_data_link/lib/features/jamb/presentation/providers/jamb_provider.dart
+@@ -1,108 +1,81 @@
+ import 'package:dio/dio.dart';
+-import 'package:flutter/material.dart';
+ import 'package:flutter_riverpod/flutter_riverpod.dart';
+ import '../../../../core/config/app_endpoints.dart';
+-import '../../../../core/constants/app_colors.dart';
+-import '../../../../core/constants/app_dimensions.dart';
+-import '../../../../core/constants/app_strings.dart';
+ import '../../../../core/di/injection.dart';
+ import '../../../../core/error/error_handler.dart';
+-import '../../../../core/utils/extensions.dart';
+-import '../../../../core/utils/formatters.dart';
+-import '../../../../core/utils/validators.dart';
+-import '../../../../shared/widgets/kd_button.dart';
+-import '../../../../shared/widgets/kd_card.dart';
+-import '../../../../shared/widgets/kd_text_field.dart';
+-import '../../../../shared/widgets/pin_confirmation_sheet.dart';
+-import '../../../../shared/widgets/purchase_success_view.dart';
+-
+-// ── JAMB service types ─────────────────────────────────────
+-enum JambServiceType { pin, result, profileCode }
+-
+-extension JambServiceTypeX on JambServiceType {
+-  String get label {
+-    switch (this) {
+-      case JambServiceType.pin:
+-        return 'JAMB PIN';
+-      case JambServiceType.result:
+-        return 'Check Result';
+-      case JambServiceType.profileCode:
+-        return 'Profile Code';
+-    }
+-  }
+ 
+-  double get price {
+-    switch (this) {
+-      case JambServiceType.pin:
+-        return 3500;
+-      case JambServiceType.result:
+-        return 1000;
+-      case JambServiceType.profileCode:
+-        return 700;
+-    }
++/// One JAMB service as offered by the backend (GET /jamb/services).
++/// The list is live: services and prices are managed by admins, so nothing
++/// about them is hardcoded here.
++class JambService {
++  const JambService({required this.id, required this.label, required this.price});
++
++  final String id;
++  final String label;
++  final double price;
++
++  factory JambService.fromJson(Map<String, dynamic> json) {
++    final price = json['price'];
++    return JambService(
++      id: json['id']?.toString() ?? '',
++      label: json['label']?.toString() ?? '',
++      price: price is num ? price.toDouble() : double.tryParse(price?.toString() ?? '') ?? 0,
++    );
+   }
+ }
+ 
+-// ── Remote data source ─────────────────────────────────────
+-final jambRemoteProvider = Provider((ref) {
+-  return _JambRemote(ref.read(dioClientProvider));
+-});
+-
+-class _JambRemote {
+-  const _JambRemote(this._dio);
+-  final Dio _dio;
+-
+-  Future<Map<String, dynamic>> purchaseService({
+-    required JambServiceType serviceType,
+-    required String regNumber,
+-  }) async {
+-    try {
+-      final endpoint = switch (serviceType) {
+-        JambServiceType.pin => AppEndpoints.jambPin,
+-        JambServiceType.result => AppEndpoints.jambResult,
+-        JambServiceType.profileCode => AppEndpoints.jambProfile,
+-      };
+-      final response = await _dio.post(
+-        endpoint,
+-        data: {
+-          'service_type': serviceType.name,
+-          'reg_number': regNumber,
+-          'amount': serviceType.price,
+-        },
+-      );
+-      return response.data as Map<String, dynamic>;
+-    } on DioException catch (e) {
+-      throw ErrorHandler.handleException(e);
+-    }
++/// Services currently open to customers. Auto-disposes, so every visit gets
++/// a fresh list (an admin may have just priced or switched a service on).
++final jambServicesProvider = FutureProvider.autoDispose<List<JambService>>((ref) async {
++  final dio = ref.read(dioClientProvider);
++  try {
++    final response = await dio.get(AppEndpoints.jambServices);
++    final data = (response.data['data'] as List? ?? const []);
++    return data
++        .map((e) => JambService.fromJson(Map<String, dynamic>.from(e as Map)))
++        .toList();
++  } on DioException catch (e) {
++    throw ErrorHandler.handleException(e);
+   }
+-}
++});
+ 
+-// ── State ──────────────────────────────────────────────────
+ class JambState {
+   const JambState({
+-    this.serviceType = JambServiceType.pin,
+-    this.regNumber = '',
++    this.selectedId,
++    this.registrationNumber = '',
++    this.candidateName = '',
++    this.examYear = '',
+     this.isProcessing = false,
+     this.errorMessage,
+   });
+ 
+-  final JambServiceType serviceType;
+-  final String regNumber;
++  final String? selectedId;
++  final String registrationNumber;
++  final String candidateName;
++  final String examYear;
+   final bool isProcessing;
+   final String? errorMessage;
+ 
+-  bool get canProceed => regNumber.length >= 10;
++  bool get canProceed =>
++      selectedId != null &&
++      registrationNumber.trim().length >= 4 &&
++      candidateName.trim().length >= 3 &&
++      RegExp(r'^\d{4}$').hasMatch(examYear.trim());
+ 
+   JambState copyWith({
+-    JambServiceType? serviceType,
+-    String? regNumber,
++    String? selectedId,
++    String? registrationNumber,
++    String? candidateName,
++    String? examYear,
+     bool? isProcessing,
+     String? errorMessage,
+     bool clearError = false,
+   }) {
+     return JambState(
+-      serviceType: serviceType ?? this.serviceType,
+-      regNumber: regNumber ?? this.regNumber,
++      selectedId: selectedId ?? this.selectedId,
++      registrationNumber: registrationNumber ?? this.registrationNumber,
++      candidateName: candidateName ?? this.candidateName,
++      examYear: examYear ?? this.examYear,
+       isProcessing: isProcessing ?? this.isProcessing,
+       errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
+     );
+@@ -113,28 +86,48 @@ class JambNotifier extends StateNotifier<JambState> {
+   JambNotifier(this._ref) : super(const JambState());
+   final Ref _ref;
+ 
+-  void setServiceType(JambServiceType type) =>
+-      state = state.copyWith(serviceType: type, regNumber: '', clearError: true);
++  void selectService(String id) =>
++      state = state.copyWith(selectedId: id, clearError: true);
++
++  void setRegistrationNumber(String v) =>
++      state = state.copyWith(registrationNumber: v, clearError: true);
++
++  void setCandidateName(String v) =>
++      state = state.copyWith(candidateName: v, clearError: true);
+ 
+-  void setRegNumber(String v) =>
+-      state = state.copyWith(regNumber: v, clearError: true);
++  void setExamYear(String v) =>
++      state = state.copyWith(examYear: v, clearError: true);
+ 
+-  Future<Map<String, dynamic>?> purchase() async {
++  /// Sends the request with the transaction PIN the user just confirmed.
++  /// The backend debits the wallet only after checking that PIN.
++  Future<Map<String, dynamic>?> purchase({
++    required String pin,
++    required JambService service,
++  }) async {
+     if (!state.canProceed) return null;
+     state = state.copyWith(isProcessing: true, clearError: true);
+     try {
+-      final ds = _ref.read(jambRemoteProvider);
+-      final result = await ds.purchaseService(
+-        serviceType: state.serviceType,
+-        regNumber: state.regNumber,
++      final dio = _ref.read(dioClientProvider);
++      final response = await dio.post(
++        AppEndpoints.jambRequests,
++        data: {
++          'service': service.id,
++          'registration_number': state.registrationNumber.trim(),
++          'candidate_full_name': state.candidateName.trim(),
++          'exam_year': int.parse(state.examYear.trim()),
++          'pin': pin,
++        },
+       );
+-      if (result['status'] == true) {
+-        await _ref.read(hiveStorageProvider).remove('wallet_balance');
+-      }
+       state = state.copyWith(isProcessing: false);
+-      return result;
+-    } catch (e) {
+-      state = state.copyWith(isProcessing: false, errorMessage: e.toString());
++      // The debit changed the balance; drop the cached wallet figure so the
++      // home/wallet screens refetch it (same behaviour as before this rewrite).
++      await _ref.read(hiveStorageProvider).remove('wallet_balance');
++      return Map<String, dynamic>.from(response.data as Map);
++    } on DioException catch (e) {
++      state = state.copyWith(
++        isProcessing: false,
++        errorMessage: ErrorHandler.handleException(e).message,
++      );
+       return null;
+     }
+   }
+@@ -146,3 +139,4 @@ final jambNotifierProvider =
+     StateNotifierProvider.autoDispose<JambNotifier, JambState>((ref) {
+   return JambNotifier(ref);
+ });
++
+diff --git a/major_data_link/lib/features/jamb/presentation/screens/jamb_screen.dart b/major_data_link/lib/features/jamb/presentation/screens/jamb_screen.dart
+index 6239d4a..b98b651 100644
+--- a/major_data_link/lib/features/jamb/presentation/screens/jamb_screen.dart
++++ b/major_data_link/lib/features/jamb/presentation/screens/jamb_screen.dart
+@@ -12,6 +12,9 @@ import '../../../../shared/widgets/pin_confirmation_sheet.dart';
+ import '../../../../shared/widgets/purchase_success_view.dart';
+ import '../providers/jamb_provider.dart';
+ 
++/// JAMB services. The service list comes from the backend, so admin can add,
++/// price or switch services without an app release. Every request is paid,
++/// then fulfilled manually and delivered to the customer's Deliveries inbox.
+ class JambScreen extends ConsumerStatefulWidget {
+   const JambScreen({super.key});
+ 
+@@ -19,68 +22,75 @@ class JambScreen extends ConsumerStatefulWidget {
+   ConsumerState<JambScreen> createState() => _JambScreenState();
+ }
+ 
+-class _JambScreenState extends ConsumerState<JambScreen>
+-    with SingleTickerProviderStateMixin {
+-  late final TabController _tabController;
++class _JambScreenState extends ConsumerState<JambScreen> {
+   final _regController = TextEditingController();
++  final _nameController = TextEditingController();
++  final _yearController = TextEditingController(
++      text: DateTime.now().year.toString());
+ 
+   @override
+   void initState() {
+     super.initState();
+-    _tabController = TabController(
+-      length: JambServiceType.values.length,
+-      vsync: this,
+-    );
+-    _tabController.addListener(() {
+-      if (!_tabController.indexIsChanging) {
+-        final type = JambServiceType.values[_tabController.index];
+-        ref.read(jambNotifierProvider.notifier).setServiceType(type);
+-        _regController.clear();
++    // The year field starts pre-filled, so the notifier must know that value
++    // too - otherwise the Pay button stays disabled until the user retypes it.
++    WidgetsBinding.instance.addPostFrameCallback((_) {
++      if (mounted) {
++        ref.read(jambNotifierProvider.notifier).setExamYear(_yearController.text);
+       }
+     });
+   }
+ 
+   @override
+   void dispose() {
+-    _tabController.dispose();
+     _regController.dispose();
++    _nameController.dispose();
++    _yearController.dispose();
+     super.dispose();
+   }
+ 
+-  Future<void> _handlePurchase() async {
+-    context.hideKeyboard();
+-    final state = ref.read(jambNotifierProvider);
++  JambService? _selected(List<JambService> services, String? id) {
++    for (final s in services) {
++      if (s.id == id) return s;
++    }
++    return null;
++  }
+ 
++  Future<void> _handlePurchase(JambService service) async {
++    context.hideKeyboard();
+     final pin = await showPinConfirmationSheet(
+       context: context,
+       ref: ref,
+       subtitle:
+-          'Confirm ${state.serviceType.label} — ${AppFormatters.formatAmount(state.serviceType.price)}',
++          'Confirm ${service.label} — ${AppFormatters.formatAmount(service.price)}',
+     );
+     if (pin == null || !mounted) return;
+ 
+-    final result = await ref.read(jambNotifierProvider.notifier).purchase();
++    final result = await ref
++        .read(jambNotifierProvider.notifier)
++        .purchase(pin: pin, service: service);
+     if (!mounted) return;
+ 
+     if (result != null && result['status'] == true) {
+       final data = result['data'] as Map<String, dynamic>? ?? {};
++      final state = ref.read(jambNotifierProvider);
+       Navigator.of(context).push(
+         MaterialPageRoute(
+           builder: (_) => PurchaseSuccessView(
+-            title: 'JAMB ${state.serviceType.label}',
+-            amount: state.serviceType.price,
++            title: service.label,
++            amount: service.price,
+             reference: data['reference']?.toString() ?? '',
++            balanceAfter: (data['balance_after'] as num?)?.toDouble(),
+             details: [
+-              MapEntry('Service', state.serviceType.label),
+-              MapEntry('Reg. number', state.regNumber),
+-              if (data['pin'] != null) MapEntry('PIN', data['pin'].toString()),
+-              if (data['profile_code'] != null)
+-                MapEntry('Profile code', data['profile_code'].toString()),
++              MapEntry('Service', service.label),
++              MapEntry('Reg. number', state.registrationNumber.trim()),
++              MapEntry('Candidate', state.candidateName.trim()),
++              MapEntry('Exam year', state.examYear.trim()),
+             ],
+             onBuyAgain: () {
+               Navigator.of(context).pop();
+               ref.read(jambNotifierProvider.notifier).reset();
+               _regController.clear();
++              _nameController.clear();
+             },
+           ),
+         ),
+@@ -96,83 +106,138 @@ class _JambScreenState extends ConsumerState<JambScreen>
+   @override
+   Widget build(BuildContext context) {
+     final state = ref.watch(jambNotifierProvider);
++    final servicesAsync = ref.watch(jambServicesProvider);
+ 
+     return Scaffold(
+-      appBar: AppBar(
+-        title: const Text('JAMB Services'),
+-        bottom: TabBar(
+-          controller: _tabController,
+-          tabs: JambServiceType.values
+-              .map((t) => Tab(text: t.label))
+-              .toList(),
+-          labelStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+-        ),
+-      ),
++      appBar: AppBar(title: const Text('JAMB Services')),
+       body: SafeArea(
+         top: false,
+-        child: Padding(
+-          padding: const EdgeInsets.all(AppDimensions.screenPaddingH),
+-          child: Column(
+-            crossAxisAlignment: CrossAxisAlignment.start,
+-            children: [
+-              const SizedBox(height: 16),
+-
+-              KDCard(
+-                backgroundColor: AppColors.primary50,
+-                border: Border.all(color: AppColors.primary100),
+-                child: Row(
+-                  children: [
+-                    Icon(Icons.assignment_rounded,
+-                        color: context.colors.primary),
+-                    const SizedBox(width: 12),
+-                    Expanded(
+-                      child: Column(
+-                        crossAxisAlignment: CrossAxisAlignment.start,
+-                        children: [
+-                          Text(
+-                            state.serviceType.label,
++        child: servicesAsync.when(
++          loading: () => const Center(child: CircularProgressIndicator()),
++          error: (e, _) => Center(
++            child: Padding(
++              padding: const EdgeInsets.all(AppDimensions.screenPaddingH),
++              child: Column(
++                mainAxisSize: MainAxisSize.min,
++                children: [
++                  Text(e.toString(), textAlign: TextAlign.center),
++                  const SizedBox(height: 12),
++                  OutlinedButton(
++                    onPressed: () => ref.invalidate(jambServicesProvider),
++                    child: const Text('Retry'),
++                  ),
++                ],
++              ),
++            ),
++          ),
++          data: (services) {
++            if (services.isEmpty) {
++              return const Center(
++                child: Text('No JAMB services are available right now.'),
++              );
++            }
++            final selected = _selected(services, state.selectedId);
++            return ListView(
++              padding: const EdgeInsets.all(AppDimensions.screenPaddingH),
++              children: [
++                const SizedBox(height: 8),
++                DropdownButtonFormField<String>(
++                  value: selected?.id,
++                  isExpanded: true,
++                  decoration: const InputDecoration(labelText: 'Select service'),
++                  items: services
++                      .map((s) => DropdownMenuItem<String>(
++                            value: s.id,
++                            child: Text(
++                              '${s.label} — ${AppFormatters.formatAmount(s.price)}',
++                              overflow: TextOverflow.ellipsis,
++                            ),
++                          ))
++                      .toList(),
++                  onChanged: (id) {
++                    if (id == null) return;
++                    ref.read(jambNotifierProvider.notifier).selectService(id);
++                  },
++                ),
++                if (selected != null) ...[
++                  const SizedBox(height: 16),
++                  KDCard(
++                    backgroundColor: AppColors.primary50,
++                    border: Border.all(color: AppColors.primary100),
++                    child: Row(
++                      children: [
++                        Icon(Icons.assignment_rounded,
++                            color: context.colors.primary),
++                        const SizedBox(width: 12),
++                        Expanded(
++                          child: Text(
++                            selected.label,
+                             style: TextStyle(
+                               fontWeight: FontWeight.w700,
+                               color: context.colors.primary,
+                             ),
+                           ),
+-                          Text(
+-                            AppFormatters.formatAmount(state.serviceType.price),
+-                            style: const TextStyle(
+-                                fontSize: 13, color: AppColors.neutral500),
+-                          ),
+-                        ],
+-                      ),
++                        ),
++                        Text(
++                          AppFormatters.formatAmount(selected.price),
++                          style: const TextStyle(
++                              fontSize: 13, color: AppColors.neutral500),
++                        ),
++                      ],
+                     ),
+-                  ],
+-                ),
+-              ),
+-
+-              const SizedBox(height: 24),
+-              Text('JAMB registration number',
+-                  style: context.textTheme.titleSmall),
+-              const SizedBox(height: 10),
+-              KDTextField(
+-                controller: _regController,
+-                hint: 'e.g. 12AB34567890',
+-                prefixIcon: Icons.badge_outlined,
+-                textCapitalization: TextCapitalization.characters,
+-                onChanged: (v) =>
+-                    ref.read(jambNotifierProvider.notifier).setRegNumber(v),
+-                validator: AppValidators.jambRegNumber,
+-              ),
+-
+-              const Spacer(),
+-
+-              KDButton(
+-                label:
+-                    'Pay ${AppFormatters.formatAmount(state.serviceType.price)}',
+-                onPressed: state.canProceed ? _handlePurchase : null,
+-                isLoading: state.isProcessing,
+-                gradient: AppColors.primaryGradient,
+-              ),
+-            ],
+-          ),
++                  ),
++                  const SizedBox(height: 20),
++                  Text('JAMB registration number',
++                      style: context.textTheme.titleSmall),
++                  const SizedBox(height: 10),
++                  KDTextField(
++                    controller: _regController,
++                    hint: 'e.g. 12AB34567890',
++                    prefixIcon: Icons.badge_outlined,
++                    textCapitalization: TextCapitalization.characters,
++                    onChanged: (v) => ref
++                        .read(jambNotifierProvider.notifier)
++                        .setRegistrationNumber(v),
++                    validator: AppValidators.jambRegNumber,
++                  ),
++                  const SizedBox(height: 16),
++                  Text('Candidate full name',
++                      style: context.textTheme.titleSmall),
++                  const SizedBox(height: 10),
++                  KDTextField(
++                    controller: _nameController,
++                    hint: 'As it appears on your JAMB record',
++                    prefixIcon: Icons.person_outline,
++                    onChanged: (v) => ref
++                        .read(jambNotifierProvider.notifier)
++                        .setCandidateName(v),
++                  ),
++                  const SizedBox(height: 16),
++                  Text('Exam year', style: context.textTheme.titleSmall),
++                  const SizedBox(height: 10),
++                  KDTextField(
++                    controller: _yearController,
++                    hint: 'e.g. 2026',
++                    prefixIcon: Icons.calendar_today_outlined,
++                    keyboardType: TextInputType.number,
++                    onChanged: (v) => ref
++                        .read(jambNotifierProvider.notifier)
++                        .setExamYear(v),
++                  ),
++                  const SizedBox(height: 28),
++                  KDButton(
++                    label:
++                        'Pay ${AppFormatters.formatAmount(selected.price)}',
++                    onPressed: state.canProceed && !state.isProcessing
++                        ? () => _handlePurchase(selected)
++                        : null,
++                    isLoading: state.isProcessing,
++                    gradient: AppColors.primaryGradient,
++                  ),
++                ],
++              ],
++            );
++          },
+         ),
+       ),
+     );
+diff --git a/major_data_link_backend/src/services/jamb-pricing.service.ts b/major_data_link_backend/src/services/jamb-pricing.service.ts
+index 2ed5285..f8a04f6 100644
+--- a/major_data_link_backend/src/services/jamb-pricing.service.ts
++++ b/major_data_link_backend/src/services/jamb-pricing.service.ts
+@@ -3,12 +3,27 @@ import { koboToNaira } from '../lib/money.js';
+ import { prisma } from '../lib/prisma.js';
+ import { ApiError } from '../middleware/error.js';
+ 
++// `unpriced: true` means the price was not confirmed when the service was
++// added. Such a service is created INACTIVE: it is hidden from customers and
++// partners until an admin sets its price on the Bulk Pricing page and turns
++// it on. This avoids charging a guessed amount.
+ export const JAMB_SERVICE_DEFAULTS = {
+   cbt_practice_software: { label: 'JAMB CBT Practice Software', price: 5000 },
+   original_result: { label: 'JAMB Original Result', price: 2500 },
+   admission_letter: { label: 'JAMB Admission Letter', price: 2000 },
+   exam_slip: { label: 'JAMB Exam Slip', price: 500 },
+   result_slip: { label: 'JAMB Result Slip', price: 800 },
++  // Re-prints / other services - N500 each (JAMB "RE-Prints / Other JAMB Services" card)
++  admission_status: { label: 'JAMB Admission Status', price: 500 },
++  reprint_registration_slip: { label: 'JAMB Reprint Registration Slip', price: 500 },
++  reprint_change_of_course_slip: { label: 'JAMB Reprint Change of Course Slip', price: 500 },
++  reprint_original_result_slip: { label: 'JAMB Reprint Original Result Slip', price: 500 },
++  caps_score_screenshot: { label: 'JAMB Caps Score Screenshot', price: 500 },
++  // Price not shown in the source price list - admin must confirm before these go live.
++  retrieve_jamb_email: { label: 'Retrieve 2026 JAMB Email', price: 0, unpriced: true },
++  check_olevel_upload: { label: "Check O'Level Upload", price: 0, unpriced: true },
++  reprint_indemnity_form: { label: 'JAMB Reprint Indemnity Form', price: 0, unpriced: true },
++  check_transfer_approval: { label: 'Check JAMB Transfer Approval', price: 0, unpriced: true },
+ } as const;
+ 
+ export type JambServiceId = keyof typeof JAMB_SERVICE_DEFAULTS;
+@@ -28,7 +43,13 @@ async function getOrCreateJambPrice(id: JambServiceId) {
+   if (existing) return existing;
+   try {
+     return await prisma.servicePricing.create({
+-      data: { service, label: defaults.label, provider: 'manual', providerCostKobo: priceToKobo(defaults.price) },
++      data: {
++        service,
++        label: defaults.label,
++        provider: 'manual',
++        providerCostKobo: priceToKobo(defaults.price),
++        isActive: !('unpriced' in defaults && defaults.unpriced),
++      },
+     });
+   } catch (error) {
+     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+@@ -47,11 +68,13 @@ export async function getJambServicePrice(id: JambServiceId, options: { forPartn
+   return { service: row.service, label: row.label, unitPrice: koboToNaira(unitKobo), providerCostKobo: row.providerCostKobo };
+ }
+ 
++// Only services that are currently active are offered to customers - so a
++// newly added, not-yet-priced service never appears with a wrong price.
+ export async function listJambServices() {
+-  return Promise.all((Object.keys(JAMB_SERVICE_DEFAULTS) as JambServiceId[]).map(async (id) => {
+-    const price = await getJambServicePrice(id);
+-    return { id, label: price.label, price: price.unitPrice };
+-  }));
++  const rows = await Promise.all((Object.keys(JAMB_SERVICE_DEFAULTS) as JambServiceId[]).map(async (id) => ({ id, row: await getOrCreateJambPrice(id) })));
++  return rows
++    .filter(({ row }) => row.isActive)
++    .map(({ id, row }) => ({ id, label: row.label, price: koboToNaira(row.sellingPriceKobo ?? row.providerCostKobo) }));
+ }
+ 
+ export async function listJambPricesForAdmin() {
+diff --git a/web/src/pages/JambServicesPage.tsx b/web/src/pages/JambServicesPage.tsx
+index 20eb43a..f1997f5 100644
+--- a/web/src/pages/JambServicesPage.tsx
++++ b/web/src/pages/JambServicesPage.tsx
+@@ -4,6 +4,8 @@ import AppShell from '../components/AppShell';
+ import { PinConfirmDialog } from '../components/PinConfirmDialog';
+ import { api } from '../lib/api';
+ 
++// Fallback shown only if the catalogue request fails. The live list from
++// /jamb/services is authoritative, so new services appear without a web release.
+ const defaultServices = [
+   { id: 'cbt_practice_software', label: 'JAMB CBT Practice Software', price: 5000 },
+   { id: 'original_result', label: 'JAMB Original Result', price: 2500 },
+@@ -31,7 +33,13 @@ export default function JambServicesPage() {
+   useEffect(() => {
+     let active = true;
+     api.get<{ status: boolean; data: Array<{ id: string; label: string; price: number }> }>('/jamb/services')
+-      .then(({ data }) => { if (active) { const live = new Map(data.map((row) => [row.id, row])); setServices(defaultServices.map((fallback) => { const row = live.get(fallback.id); return row ? { id: row.id, label: row.label, price: row.price } : fallback; })); } })
++      .then(({ data }) => {
++        // Use the live catalogue as-is. The old code kept only the five
++        // hardcoded ids and silently dropped any service added on the backend.
++        if (!active || data.length === 0) return;
++        setServices(data);
++        setServiceId((current) => (data.some((row) => row.id === current) ? current : data[0].id));
++      })
+       .catch(() => undefined);
+     return () => { active = false; };
+   }, []);

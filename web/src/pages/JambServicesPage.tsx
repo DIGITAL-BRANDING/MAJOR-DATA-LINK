@@ -4,6 +4,8 @@ import AppShell from '../components/AppShell';
 import { PinConfirmDialog } from '../components/PinConfirmDialog';
 import { api } from '../lib/api';
 
+// Fallback shown only if the catalogue request fails. The live list from
+// /jamb/services is authoritative, so new services appear without a web release.
 const defaultServices = [
   { id: 'cbt_practice_software', label: 'JAMB CBT Practice Software', price: 5000 },
   { id: 'original_result', label: 'JAMB Original Result', price: 2500 },
@@ -31,7 +33,13 @@ export default function JambServicesPage() {
   useEffect(() => {
     let active = true;
     api.get<{ status: boolean; data: Array<{ id: string; label: string; price: number }> }>('/jamb/services')
-      .then(({ data }) => { if (active) { const live = new Map(data.map((row) => [row.id, row])); setServices(defaultServices.map((fallback) => { const row = live.get(fallback.id); return row ? { id: row.id, label: row.label, price: row.price } : fallback; })); } })
+      .then(({ data }) => {
+        // Use the live catalogue as-is. The old code kept only the five
+        // hardcoded ids and silently dropped any service added on the backend.
+        if (!active || data.length === 0) return;
+        setServices(data);
+        setServiceId((current) => (data.some((row) => row.id === current) ? current : data[0].id));
+      })
       .catch(() => undefined);
     return () => { active = false; };
   }, []);

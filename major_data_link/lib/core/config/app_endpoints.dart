@@ -78,8 +78,8 @@ class AppEndpoints {
   static String get nabtebPin => '$_base/result/nabteb/pin';
 
   // JAMB
-  static String get jambProfile => '$_base/jamb/profile';
-  static String get jambResult => '$_base/jamb/result';
+  static String get jambServices => '$_base/jamb/services';
+  static String get jambRequests => '$_base/jamb/requests';
 
   // Verification (Techhubltd — NIN / BVN)
   static String get verificationPrices => '$_base/verification/prices';
@@ -111,7 +111,6 @@ class AppEndpoints {
   static String get ipeClearance => '$_base/verification/ipe-clearance';
   static String ipeClearanceStatus(String ticketId) =>
       '$_base/verification/ipe-clearance/$ticketId';
-  static String get jambPin => '$_base/jamb/pin';
   static String get jambChange => '$_base/jamb/change-institution';
   static String get deliveryList => '$_base/deliveries';
   static String deliveryDownload(String id) => '$_base/deliveries/$id/download';
