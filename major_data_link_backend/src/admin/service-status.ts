@@ -3,6 +3,12 @@ import type { AdminSessionUser } from './auth.js';
 import { logAdminAction } from './audit.js';
 import { updateServicePrice } from '../services/result-pin.service.js';
 import { listAllServiceStatuses, type ServiceStatusRow } from '../lib/service-status.js';
+import { prisma } from '../lib/prisma.js';
+import { JAMB_SERVICE_DEFAULTS, jambServiceKey } from '../services/jamb-pricing.service.js';
+
+// Individual JAMB items that must not be switched on while still unpriced -
+// otherwise a customer would be debited N0 for a manual request.
+const JAMB_ITEM_KEYS = new Set(Object.keys(JAMB_SERVICE_DEFAULTS).map((id) => jambServiceKey(id as keyof typeof JAMB_SERVICE_DEFAULTS)));
 
 declare module 'express-session' { interface SessionData { adminUser?: AdminSessionUser; } }
 type FormidableFields = Record<string, string | string[] | undefined>;
@@ -39,12 +45,25 @@ export function registerServiceStatusRoutes(router: Router) {
     if (!requested.length) return res.redirect('/admin/service-status?flash=' + flash('error', 'Ba a sami service da za a adana ba.'));
     let updated = 0;
     const failed: string[] = [];
+    const unpriced: string[] = [];
     for (const item of requested) {
-      try { await updateServicePrice(item.service, { isActive: item.active }); updated += 1; }
+      try {
+        if (item.active && JAMB_ITEM_KEYS.has(item.service)) {
+          const row = await prisma.servicePricing.findUnique({ where: { service: item.service } });
+          const effectiveKobo = row?.sellingPriceKobo ?? row?.providerCostKobo ?? 0n;
+          if (effectiveKobo <= 0n) { unpriced.push(row?.label ?? item.service); continue; }
+        }
+        await updateServicePrice(item.service, { isActive: item.active });
+        updated += 1;
+      }
       catch (error) { console.warn(`[service-status] skipped ${item.service}:`, error); failed.push(item.service); }
     }
     await logAdminAction({ adminId: admin.id, action: 'UPDATE_SERVICE_ACTIVATION_STATUS', targetType: 'ServicePricing', metadata: { requested, updated, failed } });
-    return res.redirect('/admin/service-status?flash=' + flash('success', `An adana status na services ${updated}.${failed.length ? ` ${failed.length} sun kasa adanawa.` : ''}`));
+    const notes = [
+      failed.length ? `${failed.length} sun kasa adanawa.` : '',
+      unpriced.length ? `Ba a kunna ba saboda ba a saka farashi tukuna: ${unpriced.join(', ')}. Ku saka farashi a Bulk Pricing da farko.` : ''
+    ].filter(Boolean).join(' ');
+    return res.redirect('/admin/service-status?flash=' + flash(unpriced.length || failed.length ? 'error' : 'success', `An adana status na services ${updated}. ${notes}`.trim()));
   });
 }
 

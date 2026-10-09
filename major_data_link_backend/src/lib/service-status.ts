@@ -98,7 +98,8 @@ export async function listAllServiceStatuses(): Promise<ServiceStatusRow[]> {
     { listBvnModificationPricesForAdmin },
     { listBirthAttestationPriceForAdmin },
     { listNewspaperPublicationPriceForAdmin },
-    { listBvnCrmPriceForAdmin }
+    { listBvnCrmPriceForAdmin },
+    { listJambPricesForAdmin }
   ] = await Promise.all([
     import('../services/result-pin.service.js'),
     import('../services/verification.service.js'),
@@ -107,10 +108,11 @@ export async function listAllServiceStatuses(): Promise<ServiceStatusRow[]> {
     import('../services/bvn-modification.service.js'),
     import('../services/birth-attestation.service.js'),
     import('../services/newspaper-publication.service.js'),
-    import('../services/bvn-crm.service.js')
+    import('../services/bvn-crm.service.js'),
+    import('../services/jamb-pricing.service.js')
   ]);
 
-  const [pins, verification, cac, ninMod, bvnMod, birthAttestation, newspaper, bvnCrm, toggleOnly] = await Promise.all([
+  const [pins, verification, cac, ninMod, bvnMod, birthAttestation, newspaper, bvnCrm, jamb, toggleOnly] = await Promise.all([
     listServicePricesForAdmin(),
     listVerificationPricesForAdmin(),
     listCacPricesForAdmin(),
@@ -119,6 +121,7 @@ export async function listAllServiceStatuses(): Promise<ServiceStatusRow[]> {
     listBirthAttestationPriceForAdmin(),
     listNewspaperPublicationPriceForAdmin(),
     listBvnCrmPriceForAdmin(),
+    listJambPricesForAdmin(),
     listToggleOnlyServicesForAdmin(TOGGLE_ONLY_SERVICES)
   ]);
 
@@ -131,6 +134,9 @@ export async function listAllServiceStatuses(): Promise<ServiceStatusRow[]> {
     ...bvnCrm.map((row) => ({ ...row, category: 'BVN CRM' })),
     ...cac.map((row) => ({ ...row, category: 'CAC Registration' })),
     ...birthAttestation.map((row) => ({ ...row, category: 'Birth Attestation' })),
-    ...newspaper.map((row) => ({ ...row, category: 'Newspaper Publication' }))
+    ...newspaper.map((row) => ({ ...row, category: 'Newspaper Publication' })),
+    // One row per individual JAMB item (each has its own price and on/off).
+    // The JAMB_SERVICE_REQUEST toggle above is the umbrella switch for all of them.
+    ...jamb.map((row) => ({ ...row, category: 'JAMB Services' }))
   ];
 }

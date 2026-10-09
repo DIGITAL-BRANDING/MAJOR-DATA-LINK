@@ -65,6 +65,7 @@ export async function getJambServicePrice(id: JambServiceId, options: { forPartn
   const unitKobo = options.forPartner
     ? row.partnerSellingPriceKobo ?? row.sellingPriceKobo ?? row.providerCostKobo
     : row.sellingPriceKobo ?? row.providerCostKobo;
+  if (unitKobo <= 0n) throw new ApiError(422, `${row.label} is not priced yet`, 'SERVICE_UNPRICED');
   return { service: row.service, label: row.label, unitPrice: koboToNaira(unitKobo), providerCostKobo: row.providerCostKobo };
 }
 
@@ -73,7 +74,7 @@ export async function getJambServicePrice(id: JambServiceId, options: { forPartn
 export async function listJambServices() {
   const rows = await Promise.all((Object.keys(JAMB_SERVICE_DEFAULTS) as JambServiceId[]).map(async (id) => ({ id, row: await getOrCreateJambPrice(id) })));
   return rows
-    .filter(({ row }) => row.isActive)
+    .filter(({ row }) => row.isActive && (row.sellingPriceKobo ?? row.providerCostKobo) > 0n)
     .map(({ id, row }) => ({ id, label: row.label, price: koboToNaira(row.sellingPriceKobo ?? row.providerCostKobo) }));
 }
 

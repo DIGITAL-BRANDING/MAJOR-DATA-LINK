@@ -1,0 +1,113 @@
+diff --git a/major_data_link_backend/src/admin/service-status.ts b/major_data_link_backend/src/admin/service-status.ts
+index 85a0ae3..dea5c63 100644
+--- a/major_data_link_backend/src/admin/service-status.ts
++++ b/major_data_link_backend/src/admin/service-status.ts
+@@ -3,6 +3,12 @@ import type { AdminSessionUser } from './auth.js';
+ import { logAdminAction } from './audit.js';
+ import { updateServicePrice } from '../services/result-pin.service.js';
+ import { listAllServiceStatuses, type ServiceStatusRow } from '../lib/service-status.js';
++import { prisma } from '../lib/prisma.js';
++import { JAMB_SERVICE_DEFAULTS, jambServiceKey } from '../services/jamb-pricing.service.js';
++
++// Individual JAMB items that must not be switched on while still unpriced -
++// otherwise a customer would be debited N0 for a manual request.
++const JAMB_ITEM_KEYS = new Set(Object.keys(JAMB_SERVICE_DEFAULTS).map((id) => jambServiceKey(id as keyof typeof JAMB_SERVICE_DEFAULTS)));
+ 
+ declare module 'express-session' { interface SessionData { adminUser?: AdminSessionUser; } }
+ type FormidableFields = Record<string, string | string[] | undefined>;
+@@ -39,12 +45,25 @@ export function registerServiceStatusRoutes(router: Router) {
+     if (!requested.length) return res.redirect('/admin/service-status?flash=' + flash('error', 'Ba a sami service da za a adana ba.'));
+     let updated = 0;
+     const failed: string[] = [];
++    const unpriced: string[] = [];
+     for (const item of requested) {
+-      try { await updateServicePrice(item.service, { isActive: item.active }); updated += 1; }
++      try {
++        if (item.active && JAMB_ITEM_KEYS.has(item.service)) {
++          const row = await prisma.servicePricing.findUnique({ where: { service: item.service } });
++          const effectiveKobo = row?.sellingPriceKobo ?? row?.providerCostKobo ?? 0n;
++          if (effectiveKobo <= 0n) { unpriced.push(row?.label ?? item.service); continue; }
++        }
++        await updateServicePrice(item.service, { isActive: item.active });
++        updated += 1;
++      }
+       catch (error) { console.warn(`[service-status] skipped ${item.service}:`, error); failed.push(item.service); }
+     }
+     await logAdminAction({ adminId: admin.id, action: 'UPDATE_SERVICE_ACTIVATION_STATUS', targetType: 'ServicePricing', metadata: { requested, updated, failed } });
+-    return res.redirect('/admin/service-status?flash=' + flash('success', `An adana status na services ${updated}.${failed.length ? ` ${failed.length} sun kasa adanawa.` : ''}`));
++    const notes = [
++      failed.length ? `${failed.length} sun kasa adanawa.` : '',
++      unpriced.length ? `Ba a kunna ba saboda ba a saka farashi tukuna: ${unpriced.join(', ')}. Ku saka farashi a Bulk Pricing da farko.` : ''
++    ].filter(Boolean).join(' ');
++    return res.redirect('/admin/service-status?flash=' + flash(unpriced.length || failed.length ? 'error' : 'success', `An adana status na services ${updated}. ${notes}`.trim()));
+   });
+ }
+ 
+diff --git a/major_data_link_backend/src/lib/service-status.ts b/major_data_link_backend/src/lib/service-status.ts
+index ffcc0b7..acfc419 100644
+--- a/major_data_link_backend/src/lib/service-status.ts
++++ b/major_data_link_backend/src/lib/service-status.ts
+@@ -98,7 +98,8 @@ export async function listAllServiceStatuses(): Promise<ServiceStatusRow[]> {
+     { listBvnModificationPricesForAdmin },
+     { listBirthAttestationPriceForAdmin },
+     { listNewspaperPublicationPriceForAdmin },
+-    { listBvnCrmPriceForAdmin }
++    { listBvnCrmPriceForAdmin },
++    { listJambPricesForAdmin }
+   ] = await Promise.all([
+     import('../services/result-pin.service.js'),
+     import('../services/verification.service.js'),
+@@ -107,10 +108,11 @@ export async function listAllServiceStatuses(): Promise<ServiceStatusRow[]> {
+     import('../services/bvn-modification.service.js'),
+     import('../services/birth-attestation.service.js'),
+     import('../services/newspaper-publication.service.js'),
+-    import('../services/bvn-crm.service.js')
++    import('../services/bvn-crm.service.js'),
++    import('../services/jamb-pricing.service.js')
+   ]);
+ 
+-  const [pins, verification, cac, ninMod, bvnMod, birthAttestation, newspaper, bvnCrm, toggleOnly] = await Promise.all([
++  const [pins, verification, cac, ninMod, bvnMod, birthAttestation, newspaper, bvnCrm, jamb, toggleOnly] = await Promise.all([
+     listServicePricesForAdmin(),
+     listVerificationPricesForAdmin(),
+     listCacPricesForAdmin(),
+@@ -119,6 +121,7 @@ export async function listAllServiceStatuses(): Promise<ServiceStatusRow[]> {
+     listBirthAttestationPriceForAdmin(),
+     listNewspaperPublicationPriceForAdmin(),
+     listBvnCrmPriceForAdmin(),
++    listJambPricesForAdmin(),
+     listToggleOnlyServicesForAdmin(TOGGLE_ONLY_SERVICES)
+   ]);
+ 
+@@ -131,6 +134,9 @@ export async function listAllServiceStatuses(): Promise<ServiceStatusRow[]> {
+     ...bvnCrm.map((row) => ({ ...row, category: 'BVN CRM' })),
+     ...cac.map((row) => ({ ...row, category: 'CAC Registration' })),
+     ...birthAttestation.map((row) => ({ ...row, category: 'Birth Attestation' })),
+-    ...newspaper.map((row) => ({ ...row, category: 'Newspaper Publication' }))
++    ...newspaper.map((row) => ({ ...row, category: 'Newspaper Publication' })),
++    // One row per individual JAMB item (each has its own price and on/off).
++    // The JAMB_SERVICE_REQUEST toggle above is the umbrella switch for all of them.
++    ...jamb.map((row) => ({ ...row, category: 'JAMB Services' }))
+   ];
+ }
+diff --git a/major_data_link_backend/src/services/jamb-pricing.service.ts b/major_data_link_backend/src/services/jamb-pricing.service.ts
+index f8a04f6..140eeec 100644
+--- a/major_data_link_backend/src/services/jamb-pricing.service.ts
++++ b/major_data_link_backend/src/services/jamb-pricing.service.ts
+@@ -65,6 +65,7 @@ export async function getJambServicePrice(id: JambServiceId, options: { forPartn
+   const unitKobo = options.forPartner
+     ? row.partnerSellingPriceKobo ?? row.sellingPriceKobo ?? row.providerCostKobo
+     : row.sellingPriceKobo ?? row.providerCostKobo;
++  if (unitKobo <= 0n) throw new ApiError(422, `${row.label} is not priced yet`, 'SERVICE_UNPRICED');
+   return { service: row.service, label: row.label, unitPrice: koboToNaira(unitKobo), providerCostKobo: row.providerCostKobo };
+ }
+ 
+@@ -73,7 +74,7 @@ export async function getJambServicePrice(id: JambServiceId, options: { forPartn
+ export async function listJambServices() {
+   const rows = await Promise.all((Object.keys(JAMB_SERVICE_DEFAULTS) as JambServiceId[]).map(async (id) => ({ id, row: await getOrCreateJambPrice(id) })));
+   return rows
+-    .filter(({ row }) => row.isActive)
++    .filter(({ row }) => row.isActive && (row.sellingPriceKobo ?? row.providerCostKobo) > 0n)
+     .map(({ id, row }) => ({ id, label: row.label, price: koboToNaira(row.sellingPriceKobo ?? row.providerCostKobo) }));
+ }
+ 
