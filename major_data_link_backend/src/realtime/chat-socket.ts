@@ -9,6 +9,7 @@ import { adminSessionStore, ADMIN_SESSION_COOKIE_NAME } from '../admin/setup.js'
 import type { AdminSessionUser } from '../admin/auth.js';
 import { pushToTokens } from '../services/notification.service.js';
 import { sendWebPushToOwner } from '../services/web-push.service.js';
+import { resolveGuestToken } from '../services/guest-chat.service.js';
 
 /**
  * Socket.IO transport for customer, partner, and AdminJS live chat.
@@ -16,7 +17,7 @@ import { sendWebPushToOwner } from '../services/web-push.service.js';
  * session. Open conversations and unread counters back the admin queue.
  */
 
-type OwnerKind = 'USER' | 'PARTNER';
+type OwnerKind = 'USER' | 'PARTNER' | 'GUEST';
 
 type ChatActor =
   | { kind: 'owner'; ownerType: OwnerKind; id: string; name: string }
@@ -50,6 +51,19 @@ function conversationRoom(conversationId: string) {
   return `chat-conv:${conversationId}`;
 }
 const ADMIN_ROOM = 'chat-admins';
+
+// Guests are anonymous, so each connection gets a tighter message budget.
+const GUEST_MESSAGES_PER_MINUTE = 15;
+function allowGuestMessage(socket: Socket): boolean {
+  const data = socket.data as { guestWindowStart?: number; guestCount?: number };
+  const now = Date.now();
+  if (!data.guestWindowStart || now - data.guestWindowStart > 60_000) {
+    data.guestWindowStart = now;
+    data.guestCount = 0;
+  }
+  data.guestCount = (data.guestCount ?? 0) + 1;
+  return data.guestCount <= GUEST_MESSAGES_PER_MINUTE;
+}
 
 // Handle asynchronous socket tasks so transient failures do not escape as
 // unhandled rejections and terminate the API process.
@@ -124,23 +138,41 @@ async function buildQueueSnapshot() {
   const userById = new Map(users.map((u: MiniUser) => [u.id, u] as const));
   const partnerById = new Map(partners.map((p: MiniPartner) => [p.id, p] as const));
 
+  const guestIds = [
+    ...new Set(conversations.filter((c: OpenConversation) => c.ownerType === 'GUEST').map((c: OpenConversation) => c.ownerId))
+  ];
+  const guests = guestIds.length
+    ? await prisma.chatGuest.findMany({ where: { id: { in: guestIds } }, select: { id: true, displayName: true, contact: true } })
+    : [];
+  const guestById = new Map(guests.map((g) => [g.id, g] as const));
+
   return conversations.map((conversation: OpenConversation) => {
+    const guest = conversation.ownerType === 'GUEST' ? guestById.get(conversation.ownerId) : undefined;
     const owner =
-      conversation.ownerType === 'USER' ? userById.get(conversation.ownerId) : partnerById.get(conversation.ownerId);
-    const ownerName = owner
-      ? 'fullName' in owner
-        ? owner.fullName
-        : owner.businessName
-      : conversation.ownerType === 'USER'
-        ? 'Unknown customer'
-        : 'Unknown partner';
+      conversation.ownerType === 'USER'
+        ? userById.get(conversation.ownerId)
+        : conversation.ownerType === 'PARTNER'
+          ? partnerById.get(conversation.ownerId)
+          : undefined;
+    const guestContactIsEmail = guest ? guest.contact.includes('@') : false;
+    const ownerName = guest
+      ? guest.displayName
+      : owner
+        ? 'fullName' in owner
+          ? owner.fullName
+          : owner.businessName
+        : conversation.ownerType === 'USER'
+          ? 'Unknown customer'
+          : conversation.ownerType === 'GUEST'
+            ? 'Unknown guest'
+            : 'Unknown partner';
     return {
       id: conversation.id,
       owner_type: conversation.ownerType,
       owner_id: conversation.ownerId,
       owner_name: ownerName,
-      owner_email: owner?.email ?? null,
-      owner_phone: owner?.phone ?? null,
+      owner_email: owner?.email ?? (guest && guestContactIsEmail ? guest.contact : null),
+      owner_phone: owner?.phone ?? (guest && !guestContactIsEmail ? guest.contact : null),
       assigned_admin_id: conversation.assignedAdminId,
       last_message_at: conversation.lastMessageAt.toISOString(),
       last_message_preview: conversation.lastMessagePreview,
@@ -210,6 +242,8 @@ function pushChatReplyToOwner(conversation: { ownerType: OwnerKind; ownerId: str
 
 /** Send a web push to subscribed customer or partner browsers. */
 function pushWebChatReplyToOwner(conversation: { ownerType: OwnerKind; ownerId: string }, body: string) {
+  // Guests never install browser push, so there is nothing to notify.
+  if (conversation.ownerType === 'GUEST') return;
   runChatTask('web push chat reply', async () => {
     await sendWebPushToOwner(
       { ownerType: conversation.ownerType, ownerId: conversation.ownerId },
@@ -258,6 +292,7 @@ function registerOwnerHandlers(io: SocketIOServer, socket: Socket, actor: Extrac
   socket.on('chat:send', (payload: { body?: unknown; reply_to_id?: unknown }) => {
     const body = typeof payload?.body === 'string' ? payload.body.trim() : '';
     if (!body || body.length > 4000) return;
+    if (actor.ownerType === 'GUEST' && !allowGuestMessage(socket)) return;
     const replyToRaw = typeof payload?.reply_to_id === 'string' ? payload.reply_to_id : '';
 
     runChatTask('send owner message', async () => {
@@ -454,6 +489,25 @@ export function attachChatSocket(httpServer: HttpServer) {
 
   io.use((socket, next) => {
     const token = typeof socket.handshake.auth?.token === 'string' ? socket.handshake.auth.token : '';
+
+    if (token.startsWith('gst_')) {
+      void (async () => {
+        try {
+          const guest = await resolveGuestToken(token);
+          if (!guest) return next(new Error('unauthorized'));
+          (socket.data as { actor?: ChatActor }).actor = {
+            kind: 'owner',
+            ownerType: 'GUEST',
+            id: guest.id,
+            name: guest.displayName
+          };
+          next();
+        } catch {
+          next(new Error('unauthorized'));
+        }
+      })();
+      return;
+    }
 
     if (token) {
       void (async () => {

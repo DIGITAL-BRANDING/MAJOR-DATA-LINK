@@ -1,0 +1,588 @@
+diff --git a/major_data_link_backend/prisma/migrations/20261015100000_add_guest_livechat/migration.sql b/major_data_link_backend/prisma/migrations/20261015100000_add_guest_livechat/migration.sql
+new file mode 100644
+index 0000000..6eb82d7
+--- /dev/null
++++ b/major_data_link_backend/prisma/migrations/20261015100000_add_guest_livechat/migration.sql
+@@ -0,0 +1,16 @@
++-- Anonymous live chat for visitors who have not signed up.
++ALTER TYPE "ChatOwnerType" ADD VALUE IF NOT EXISTS 'GUEST';
++
++CREATE TABLE "ChatGuest" (
++    "id" TEXT NOT NULL,
++    "displayName" TEXT NOT NULL,
++    "contact" TEXT NOT NULL,
++    "tokenHash" TEXT NOT NULL,
++    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
++    "lastSeenAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
++
++    CONSTRAINT "ChatGuest_pkey" PRIMARY KEY ("id")
++);
++
++CREATE UNIQUE INDEX "ChatGuest_tokenHash_key" ON "ChatGuest"("tokenHash");
++CREATE INDEX "ChatGuest_lastSeenAt_idx" ON "ChatGuest"("lastSeenAt");
+diff --git a/major_data_link_backend/prisma/schema.prisma b/major_data_link_backend/prisma/schema.prisma
+index f2dc599..9ed35ac 100644
+--- a/major_data_link_backend/prisma/schema.prisma
++++ b/major_data_link_backend/prisma/schema.prisma
+@@ -650,6 +650,8 @@ enum ChatConversationStatus {
+ enum ChatOwnerType {
+   USER
+   PARTNER
++  /// Anonymous visitor from the public site, identified by a ChatGuest row.
++  GUEST
+ }
+ 
+ /// Self-hosted real-time support chat (K-Tech Live Chat), replacing the
+@@ -1085,3 +1087,16 @@ model AdminRecoveryCode {
+   @@unique([adminId, codeHash])
+   @@index([adminId])
+ }
++
++/// Anonymous live-chat visitor (no account). Owns ChatConversations with
++/// ownerType GUEST. Only the SHA-256 hash of the token is stored.
++model ChatGuest {
++  id          String   @id @default(uuid())
++  displayName String
++  contact     String
++  tokenHash   String   @unique
++  createdAt   DateTime @default(now())
++  lastSeenAt  DateTime @default(now())
++
++  @@index([lastSeenAt])
++}
+diff --git a/major_data_link_backend/src/app.ts b/major_data_link_backend/src/app.ts
+index ae1547f..2a3b3d4 100644
+--- a/major_data_link_backend/src/app.ts
++++ b/major_data_link_backend/src/app.ts
+@@ -45,6 +45,7 @@ import { newspaperPublicationRoutes } from './routes/newspaper-publication.route
+ import { birthAttestationRoutes } from './routes/birth-attestation.routes.js';
+ import { cacRoutes } from './routes/cac.routes.js';
+ import { tinRoutes } from './routes/tin.routes.js';
++import { guestChatRoutes } from './routes/guest-chat.routes.js';
+ import { bvnModificationRoutes } from './routes/bvn-modification.routes.js';
+ import { jambRoutes } from './routes/jamb.routes.js';
+ import { vtuRoutes } from './routes/vtu.routes.js';
+@@ -172,6 +173,7 @@ export function createApp() {
+   // CAC submissions can include multiple base64 documents and need a larger limit.
+   app.use('/api/cac', express.json({ limit: '25mb' }), cacRoutes);
+   app.use('/api/tin', express.json({ limit: '25mb' }), tinRoutes);
++  app.use('/api/chat/guest', express.json({ limit: '10kb' }), guestChatRoutes);
+ 
+   // Support the largest validated base64 document/photo payloads.
+   app.use(express.json({ limit: '8mb' }));
+diff --git a/major_data_link_backend/src/realtime/chat-socket.ts b/major_data_link_backend/src/realtime/chat-socket.ts
+index 6242fe4..fd29700 100644
+--- a/major_data_link_backend/src/realtime/chat-socket.ts
++++ b/major_data_link_backend/src/realtime/chat-socket.ts
+@@ -9,6 +9,7 @@ import { adminSessionStore, ADMIN_SESSION_COOKIE_NAME } from '../admin/setup.js'
+ import type { AdminSessionUser } from '../admin/auth.js';
+ import { pushToTokens } from '../services/notification.service.js';
+ import { sendWebPushToOwner } from '../services/web-push.service.js';
++import { resolveGuestToken } from '../services/guest-chat.service.js';
+ 
+ /**
+  * Socket.IO transport for customer, partner, and AdminJS live chat.
+@@ -16,7 +17,7 @@ import { sendWebPushToOwner } from '../services/web-push.service.js';
+  * session. Open conversations and unread counters back the admin queue.
+  */
+ 
+-type OwnerKind = 'USER' | 'PARTNER';
++type OwnerKind = 'USER' | 'PARTNER' | 'GUEST';
+ 
+ type ChatActor =
+   | { kind: 'owner'; ownerType: OwnerKind; id: string; name: string }
+@@ -51,6 +52,19 @@ function conversationRoom(conversationId: string) {
+ }
+ const ADMIN_ROOM = 'chat-admins';
+ 
++// Guests are anonymous, so each connection gets a tighter message budget.
++const GUEST_MESSAGES_PER_MINUTE = 15;
++function allowGuestMessage(socket: Socket): boolean {
++  const data = socket.data as { guestWindowStart?: number; guestCount?: number };
++  const now = Date.now();
++  if (!data.guestWindowStart || now - data.guestWindowStart > 60_000) {
++    data.guestWindowStart = now;
++    data.guestCount = 0;
++  }
++  data.guestCount = (data.guestCount ?? 0) + 1;
++  return data.guestCount <= GUEST_MESSAGES_PER_MINUTE;
++}
++
+ // Handle asynchronous socket tasks so transient failures do not escape as
+ // unhandled rejections and terminate the API process.
+ function runChatTask(label: string, task: () => Promise<void>) {
+@@ -124,23 +138,41 @@ async function buildQueueSnapshot() {
+   const userById = new Map(users.map((u: MiniUser) => [u.id, u] as const));
+   const partnerById = new Map(partners.map((p: MiniPartner) => [p.id, p] as const));
+ 
++  const guestIds = [
++    ...new Set(conversations.filter((c: OpenConversation) => c.ownerType === 'GUEST').map((c: OpenConversation) => c.ownerId))
++  ];
++  const guests = guestIds.length
++    ? await prisma.chatGuest.findMany({ where: { id: { in: guestIds } }, select: { id: true, displayName: true, contact: true } })
++    : [];
++  const guestById = new Map(guests.map((g) => [g.id, g] as const));
++
+   return conversations.map((conversation: OpenConversation) => {
++    const guest = conversation.ownerType === 'GUEST' ? guestById.get(conversation.ownerId) : undefined;
+     const owner =
+-      conversation.ownerType === 'USER' ? userById.get(conversation.ownerId) : partnerById.get(conversation.ownerId);
+-    const ownerName = owner
+-      ? 'fullName' in owner
+-        ? owner.fullName
+-        : owner.businessName
+-      : conversation.ownerType === 'USER'
+-        ? 'Unknown customer'
+-        : 'Unknown partner';
++      conversation.ownerType === 'USER'
++        ? userById.get(conversation.ownerId)
++        : conversation.ownerType === 'PARTNER'
++          ? partnerById.get(conversation.ownerId)
++          : undefined;
++    const guestContactIsEmail = guest ? guest.contact.includes('@') : false;
++    const ownerName = guest
++      ? guest.displayName
++      : owner
++        ? 'fullName' in owner
++          ? owner.fullName
++          : owner.businessName
++        : conversation.ownerType === 'USER'
++          ? 'Unknown customer'
++          : conversation.ownerType === 'GUEST'
++            ? 'Unknown guest'
++            : 'Unknown partner';
+     return {
+       id: conversation.id,
+       owner_type: conversation.ownerType,
+       owner_id: conversation.ownerId,
+       owner_name: ownerName,
+-      owner_email: owner?.email ?? null,
+-      owner_phone: owner?.phone ?? null,
++      owner_email: owner?.email ?? (guest && guestContactIsEmail ? guest.contact : null),
++      owner_phone: owner?.phone ?? (guest && !guestContactIsEmail ? guest.contact : null),
+       assigned_admin_id: conversation.assignedAdminId,
+       last_message_at: conversation.lastMessageAt.toISOString(),
+       last_message_preview: conversation.lastMessagePreview,
+@@ -210,6 +242,8 @@ function pushChatReplyToOwner(conversation: { ownerType: OwnerKind; ownerId: str
+ 
+ /** Send a web push to subscribed customer or partner browsers. */
+ function pushWebChatReplyToOwner(conversation: { ownerType: OwnerKind; ownerId: string }, body: string) {
++  // Guests never install browser push, so there is nothing to notify.
++  if (conversation.ownerType === 'GUEST') return;
+   runChatTask('web push chat reply', async () => {
+     await sendWebPushToOwner(
+       { ownerType: conversation.ownerType, ownerId: conversation.ownerId },
+@@ -258,6 +292,7 @@ function registerOwnerHandlers(io: SocketIOServer, socket: Socket, actor: Extrac
+   socket.on('chat:send', (payload: { body?: unknown; reply_to_id?: unknown }) => {
+     const body = typeof payload?.body === 'string' ? payload.body.trim() : '';
+     if (!body || body.length > 4000) return;
++    if (actor.ownerType === 'GUEST' && !allowGuestMessage(socket)) return;
+     const replyToRaw = typeof payload?.reply_to_id === 'string' ? payload.reply_to_id : '';
+ 
+     runChatTask('send owner message', async () => {
+@@ -455,6 +490,25 @@ export function attachChatSocket(httpServer: HttpServer) {
+   io.use((socket, next) => {
+     const token = typeof socket.handshake.auth?.token === 'string' ? socket.handshake.auth.token : '';
+ 
++    if (token.startsWith('gst_')) {
++      void (async () => {
++        try {
++          const guest = await resolveGuestToken(token);
++          if (!guest) return next(new Error('unauthorized'));
++          (socket.data as { actor?: ChatActor }).actor = {
++            kind: 'owner',
++            ownerType: 'GUEST',
++            id: guest.id,
++            name: guest.displayName
++          };
++          next();
++        } catch {
++          next(new Error('unauthorized'));
++        }
++      })();
++      return;
++    }
++
+     if (token) {
+       void (async () => {
+         try {
+diff --git a/major_data_link_backend/src/routes/guest-chat.routes.ts b/major_data_link_backend/src/routes/guest-chat.routes.ts
+new file mode 100644
+index 0000000..19d6efb
+--- /dev/null
++++ b/major_data_link_backend/src/routes/guest-chat.routes.ts
+@@ -0,0 +1,39 @@
++import { Router } from 'express';
++import rateLimit from 'express-rate-limit';
++import { z } from 'zod';
++import { createGuestSession } from '../services/guest-chat.service.js';
++
++export const guestChatRoutes = Router();
++
++// Starting a chat creates a row, so bound it per network. Chat itself is
++// limited per connection in chat-socket.ts.
++const startLimiter = rateLimit({
++  windowMs: 60 * 60_000,
++  limit: 10,
++  standardHeaders: 'draft-7',
++  legacyHeaders: false,
++  message: { status: false, message: 'Too many chat requests from this network. Please try again later.' },
++});
++
++const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
++const PHONE = /^\+?[0-9 ]{7,20}$/;
++
++const startSchema = z.object({
++  name: z.string().trim().min(2).max(60),
++  contact: z
++    .string()
++    .trim()
++    .min(5)
++    .max(120)
++    .refine((value) => (value.includes('@') ? EMAIL.test(value) : PHONE.test(value)), 'Enter a valid email or phone number'),
++});
++
++guestChatRoutes.post('/session', startLimiter, async (req, res) => {
++  const body = startSchema.parse(req.body);
++  const session = await createGuestSession({ displayName: body.name, contact: body.contact });
++  res.set('Cache-Control', 'no-store');
++  res.json({
++    status: true,
++    data: { guest_token: session.token, guest_id: session.guestId, display_name: session.displayName },
++  });
++});
+diff --git a/major_data_link_backend/src/services/guest-chat.service.ts b/major_data_link_backend/src/services/guest-chat.service.ts
+new file mode 100644
+index 0000000..97da2c5
+--- /dev/null
++++ b/major_data_link_backend/src/services/guest-chat.service.ts
+@@ -0,0 +1,24 @@
++import { createHash, randomBytes } from 'node:crypto';
++import { prisma } from '../lib/prisma.js';
++
++export const GUEST_TOKEN_PREFIX = 'gst_';
++
++const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
++
++/** Creates an anonymous chat identity. The raw token is returned once and never stored. */
++export async function createGuestSession(input: { displayName: string; contact: string }) {
++  const token = GUEST_TOKEN_PREFIX + randomBytes(32).toString('base64url');
++  const guest = await prisma.chatGuest.create({
++    data: { displayName: input.displayName, contact: input.contact, tokenHash: sha256(token) },
++  });
++  return { token, guestId: guest.id, displayName: guest.displayName };
++}
++
++/** Resolves a guest socket token to its ChatGuest row, or null if unknown. */
++export async function resolveGuestToken(token: string) {
++  if (!token.startsWith(GUEST_TOKEN_PREFIX)) return null;
++  const guest = await prisma.chatGuest.findUnique({ where: { tokenHash: sha256(token) } });
++  if (!guest) return null;
++  await prisma.chatGuest.update({ where: { id: guest.id }, data: { lastSeenAt: new Date() } });
++  return guest;
++}
+diff --git a/web/src/components/ChatWidget.tsx b/web/src/components/ChatWidget.tsx
+index 0b94fb7..89b50e4 100644
+--- a/web/src/components/ChatWidget.tsx
++++ b/web/src/components/ChatWidget.tsx
+@@ -1,9 +1,14 @@
+ import { getAccessToken } from '../lib/api';
+ import { useAuth } from '../lib/auth';
+ import LiveChatWidget from './LiveChatWidget';
++import GuestChatWidget from './GuestChatWidget';
+ 
+-/** Mounted once near the root of the customer app (see App.tsx). Renders nothing until signed in. */
++/**
++ * Mounted once near the root of the app (see App.tsx). Signed-in customers get
++ * the full live chat; visitors get the guest chat, which needs no account.
++ */
+ export default function ChatWidget() {
+   const { user } = useAuth();
++  if (!user) return <GuestChatWidget />;
+   return <LiveChatWidget active={!!user} token={user ? getAccessToken() : null} ownerKey={user?.id ?? ''} />;
+ }
+diff --git a/web/src/components/GuestChatWidget.css b/web/src/components/GuestChatWidget.css
+new file mode 100644
+index 0000000..fc57408
+--- /dev/null
++++ b/web/src/components/GuestChatWidget.css
+@@ -0,0 +1,23 @@
++.gc-launcher {
++  position: fixed; right: 20px; bottom: 20px; z-index: 60;
++  width: 56px; height: 56px; border-radius: 50%; border: 0; cursor: pointer;
++  background: #15100a; color: #fff; display: flex; align-items: center; justify-content: center;
++  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.25);
++}
++.gc-launcher:focus-visible { outline: 3px solid #e11d2e; outline-offset: 3px; }
++.gc-panel {
++  position: fixed; right: 20px; bottom: 88px; z-index: 61; width: min(340px, 92vw);
++  background: #fff; border-radius: 16px; box-shadow: 0 18px 40px rgba(0, 0, 0, 0.22); overflow: hidden;
++  font-family: 'Poppins', sans-serif;
++}
++.gc-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; background: #15100a; color: #fff; }
++.gc-head p { margin: 0; font-weight: 600; font-size: 0.95rem; }
++.gc-head button { background: none; border: 0; color: #fff; cursor: pointer; }
++.gc-form { padding: 16px; display: grid; gap: 12px; }
++.gc-form label { display: grid; gap: 4px; font-size: 0.85rem; color: #15100a; font-weight: 600; }
++.gc-form input { border: 1px solid #d6cdb8; border-radius: 10px; padding: 10px 12px; font: inherit; font-weight: 400; }
++.gc-form input:focus { outline: 2px solid #c9a227; outline-offset: 1px; }
++.gc-note { margin: 0; font-size: 0.78rem; color: #5b5346; }
++.gc-error { margin: 0; font-size: 0.85rem; color: #b91c1c; }
++.gc-submit { border: 0; border-radius: 10px; padding: 12px; background: #e11d2e; color: #fff; font-weight: 700; cursor: pointer; }
++.gc-submit:disabled { opacity: 0.6; cursor: default; }
+diff --git a/web/src/components/GuestChatWidget.tsx b/web/src/components/GuestChatWidget.tsx
+new file mode 100644
+index 0000000..d1dd278
+--- /dev/null
++++ b/web/src/components/GuestChatWidget.tsx
+@@ -0,0 +1,120 @@
++import { useEffect, useState, type FormEvent } from 'react';
++import { useLocation } from 'react-router-dom';
++import { MessageCircle, X } from 'lucide-react';
++import { api, ApiError } from '../lib/api';
++import { OPEN_LIVECHAT_EVENT } from '../lib/live-chat-events';
++import LiveChatWidget from './LiveChatWidget';
++import './GuestChatWidget.css';
++
++const STORAGE_KEY = 'mdl_guest_chat';
++
++type GuestSession = { token: string; guestId: string; displayName: string };
++
++function readSession(): GuestSession | null {
++  try {
++    const raw = window.localStorage.getItem(STORAGE_KEY);
++    return raw ? (JSON.parse(raw) as GuestSession) : null;
++  } catch {
++    return null;
++  }
++}
++
++/**
++ * Live chat for visitors who are not signed in. The first time, the visitor
++ * gives a name and an email or phone so the team can follow up. After that the
++ * chat session is remembered on this device and opens straight away.
++ */
++export default function GuestChatWidget() {
++  const { pathname } = useLocation();
++  const [session, setSession] = useState<GuestSession | null>(readSession);
++  const [formOpen, setFormOpen] = useState(false);
++  const [name, setName] = useState('');
++  const [contact, setContact] = useState('');
++  const [busy, setBusy] = useState(false);
++  const [error, setError] = useState('');
++
++  useEffect(() => {
++    const open = () => setFormOpen(true);
++    window.addEventListener(OPEN_LIVECHAT_EVENT, open);
++    return () => window.removeEventListener(OPEN_LIVECHAT_EVENT, open);
++  }, []);
++
++  // Partner pages have their own live chat with their own token.
++  if (pathname.startsWith('/partner')) return null;
++
++  if (session) {
++    return (
++      <LiveChatWidget
++        active
++        token={session.token}
++        ownerKey={session.guestId}
++        headerLabel="K-Tech Live Chat"
++        pushEnabled={false}
++      />
++    );
++  }
++
++  async function start(event: FormEvent) {
++    event.preventDefault();
++    setError('');
++    setBusy(true);
++    try {
++      const result = await api.post<{ data: { guest_token: string; guest_id: string; display_name: string } }>(
++        '/chat/guest/session',
++        { name: name.trim(), contact: contact.trim() },
++        false,
++      );
++      const next: GuestSession = {
++        token: result.data.guest_token,
++        guestId: result.data.guest_id,
++        displayName: result.data.display_name,
++      };
++      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
++      setSession(next);
++      setFormOpen(false);
++    } catch (err) {
++      setError(err instanceof ApiError ? err.message : 'Could not start the chat. Please try again.');
++    } finally {
++      setBusy(false);
++    }
++  }
++
++  return (
++    <>
++      <button type="button" className="gc-launcher" aria-label="Open live chat" onClick={() => setFormOpen(true)}>
++        <MessageCircle size={22} aria-hidden="true" />
++      </button>
++      {formOpen && (
++        <div className="gc-panel" role="dialog" aria-label="Start a live chat">
++          <div className="gc-head">
++            <p>Chat with K-Tech support</p>
++            <button type="button" aria-label="Close" onClick={() => setFormOpen(false)}>
++              <X size={18} aria-hidden="true" />
++            </button>
++          </div>
++          <form className="gc-form" onSubmit={start}>
++            <label>
++              Your name
++              <input required minLength={2} maxLength={60} value={name} onChange={(e) => setName(e.target.value)} />
++            </label>
++            <label>
++              Email or phone
++              <input
++                required
++                maxLength={120}
++                value={contact}
++                onChange={(e) => setContact(e.target.value)}
++                placeholder="So our team can follow up"
++              />
++            </label>
++            <p className="gc-note">We only use these details to follow up on your chat.</p>
++            {error && <p className="gc-error" role="alert">{error}</p>}
++            <button type="submit" className="gc-submit" disabled={busy}>
++              {busy ? 'Starting…' : 'Start chat'}
++            </button>
++          </form>
++        </div>
++      )}
++    </>
++  );
++}
+diff --git a/web/src/components/LiveChatButton.tsx b/web/src/components/LiveChatButton.tsx
+index 3126192..3db2c23 100644
+--- a/web/src/components/LiveChatButton.tsx
++++ b/web/src/components/LiveChatButton.tsx
+@@ -1,35 +1,13 @@
+-import type { ReactNode } from 'react';
+-import { Link } from 'react-router-dom';
+ import { MessageCircle } from 'lucide-react';
+-import { useAuth } from '../lib/auth';
+ import { openLiveChat } from '../lib/live-chat-events';
+ 
+-type Props = {
+-  /** Shown to signed-in users, who can open the live chat straight away. */
+-  label: string;
+-  /** Shown to visitors. Live chat is only available once signed in. */
+-  signupLabel: string;
+-  className?: string;
+-  children?: ReactNode;
+-};
++type Props = { label: string; className?: string };
+ 
+-/**
+- * Support entry point that replaces WhatsApp on the landing page. Signed-in
+- * users open the in-app live chat; visitors are sent to sign up first,
+- * because the live chat service only accepts authenticated customers.
+- */
+-export default function LiveChatButton({ label, signupLabel, className }: Props) {
+-  const { user } = useAuth();
+-  if (user) {
+-    return (
+-      <button type="button" className={className} onClick={() => openLiveChat()}>
+-        <MessageCircle size={15} aria-hidden="true" /> {label}
+-      </button>
+-    );
+-  }
++/** Opens live chat for everyone: signed-in users use their account, visitors start a guest chat. */
++export default function LiveChatButton({ label, className }: Props) {
+   return (
+-    <Link to="/register" className={className}>
+-      <MessageCircle size={15} aria-hidden="true" /> {signupLabel}
+-    </Link>
++    <button type="button" className={className} onClick={() => openLiveChat()}>
++      <MessageCircle size={15} aria-hidden="true" /> {label}
++    </button>
+   );
+ }
+diff --git a/web/src/components/LiveChatWidget.tsx b/web/src/components/LiveChatWidget.tsx
+index 46768bb..bf359b9 100644
+--- a/web/src/components/LiveChatWidget.tsx
++++ b/web/src/components/LiveChatWidget.tsx
+@@ -25,6 +25,8 @@ type LiveChatWidgetProps = {
+   /** Changing this (e.g. a customer id or partner id) forces a fresh socket connection. */
+   ownerKey: string;
+   headerLabel?: string;
++  /** Browser push is for signed-in customers and partners. Guests never register for it. */
++  pushEnabled?: boolean;
+ };
+ 
+ // Browser desktop alert for a support reply, on top of the in-tab sound
+@@ -73,7 +75,7 @@ function promptForPush(
+  * backend resolves which table the token belongs to itself (see
+  * resolveOwnerToken() in chat-socket.ts).
+  */
+-export default function LiveChatWidget({ active, token, ownerKey, headerLabel }: LiveChatWidgetProps) {
++export default function LiveChatWidget({ active, token, ownerKey, headerLabel, pushEnabled = true }: LiveChatWidgetProps) {
+   const [open, setOpen] = useState(false);
+   const [connected, setConnected] = useState(false);
+   const [messages, setMessages] = useState<ChatMessage[]>([]);
+@@ -109,7 +111,7 @@ export default function LiveChatWidget({ active, token, ownerKey, headerLabel }:
+ 
+     const handleOpen = () => {
+       setOpen(true);
+-      promptForPush(token, setNotifPermission);
++      if (pushEnabled) promptForPush(token, setNotifPermission);
+     };
+     window.addEventListener(OPEN_LIVECHAT_EVENT, handleOpen);
+ 
+@@ -126,7 +128,7 @@ export default function LiveChatWidget({ active, token, ownerKey, headerLabel }:
+       window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`);
+     }
+ 
+-    void syncWebPush(token, { prompt: false });
++    if (pushEnabled) void syncWebPush(token, { prompt: false });
+ 
+     return () => {
+       window.removeEventListener(OPEN_LIVECHAT_EVENT, handleOpen);
+@@ -227,13 +229,13 @@ export default function LiveChatWidget({ active, token, ownerKey, headerLabel }:
+     if (typeof Notification === 'undefined') return;
+     void Notification.requestPermission().then((p) => {
+       setNotifPermission(p);
+-      if (p === 'granted' && token) void syncWebPush(token, { prompt: false });
++      if (p === 'granted' && token && pushEnabled) void syncWebPush(token, { prompt: false });
+     });
+   }
+ 
+   function openPanel() {
+     setOpen(true);
+-    if (token) promptForPush(token, setNotifPermission);
++    if (token && pushEnabled) promptForPush(token, setNotifPermission);
+   }
+ 
+   function send() {
+diff --git a/web/src/pages/LandingPage.tsx b/web/src/pages/LandingPage.tsx
+index 52eaf53..80a28a9 100644
+--- a/web/src/pages/LandingPage.tsx
++++ b/web/src/pages/LandingPage.tsx
+@@ -70,7 +70,6 @@ const TXT = {
+     trustTx: 'Ma\'amaloli masu nasara',
+     trustPartners: 'Abokan hulda masu aiki (API)',
+     footerLiveChat: 'Tallafi Ta Livechat',
+-    footerLiveChatSignup: 'Yi rijista don yin chat',
+     heroSlides: [
+       { dark: 'SAKAMAKO', accent: 'JARRABAWA', desc: 'Sayi PIN din sakamakon WAEC, NECO da NABTEB, JAMB e-PIN, Takardar Shiga Jami\'a da Sake-buga Sakamakon JAMB, kuma a same shi cikin mintoci.' },
+       { dark: 'NIN & BVN', accent: 'AYYUKA', desc: 'Tabbatar da NIN da BVN, samo slip, rajistar CAC da TIN Certificate — da sauri, lafiya, daga wallet dinka.' },
+@@ -165,7 +164,6 @@ const TXT = {
+     trustTx: 'Successful transactions',
+     trustPartners: 'Active API partners',
+     footerLiveChat: 'Live Chat Support',
+-    footerLiveChatSignup: 'Sign up to chat',
+     heroSlides: [
+       { dark: 'RESULT', accent: 'CHECKERS', desc: 'Buy WAEC, NECO and NABTEB result PINs, JAMB e-PIN, JAMB Admission Letter and JAMB Reprint services, delivered in minutes.' },
+       { dark: 'NIN & BVN', accent: 'SERVICES', desc: 'Verify NIN and BVN, generate slips, and request CAC registration or a TIN certificate. Fast, secure, paid from your wallet.' },
+@@ -607,7 +605,6 @@ export default function LandingPage() {
+             <LiveChatButton
+               className="lc-footer-link"
+               label={L.footerLiveChat}
+-              signupLabel={L.footerLiveChatSignup}
+             />
+             <a href={CONTACT.whatsappChannelUrl} target="_blank" rel="noreferrer">
+               <Radio size={15} /> {L.footerChannel}

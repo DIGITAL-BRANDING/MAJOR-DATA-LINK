@@ -25,6 +25,8 @@ type LiveChatWidgetProps = {
   /** Changing this (e.g. a customer id or partner id) forces a fresh socket connection. */
   ownerKey: string;
   headerLabel?: string;
+  /** Browser push is for signed-in customers and partners. Guests never register for it. */
+  pushEnabled?: boolean;
 };
 
 // Browser desktop alert for a support reply, on top of the in-tab sound
@@ -73,7 +75,7 @@ function promptForPush(
  * backend resolves which table the token belongs to itself (see
  * resolveOwnerToken() in chat-socket.ts).
  */
-export default function LiveChatWidget({ active, token, ownerKey, headerLabel }: LiveChatWidgetProps) {
+export default function LiveChatWidget({ active, token, ownerKey, headerLabel, pushEnabled = true }: LiveChatWidgetProps) {
   const [open, setOpen] = useState(false);
   const [connected, setConnected] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -109,7 +111,7 @@ export default function LiveChatWidget({ active, token, ownerKey, headerLabel }:
 
     const handleOpen = () => {
       setOpen(true);
-      promptForPush(token, setNotifPermission);
+      if (pushEnabled) promptForPush(token, setNotifPermission);
     };
     window.addEventListener(OPEN_LIVECHAT_EVENT, handleOpen);
 
@@ -126,7 +128,7 @@ export default function LiveChatWidget({ active, token, ownerKey, headerLabel }:
       window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`);
     }
 
-    void syncWebPush(token, { prompt: false });
+    if (pushEnabled) void syncWebPush(token, { prompt: false });
 
     return () => {
       window.removeEventListener(OPEN_LIVECHAT_EVENT, handleOpen);
@@ -227,13 +229,13 @@ export default function LiveChatWidget({ active, token, ownerKey, headerLabel }:
     if (typeof Notification === 'undefined') return;
     void Notification.requestPermission().then((p) => {
       setNotifPermission(p);
-      if (p === 'granted' && token) void syncWebPush(token, { prompt: false });
+      if (p === 'granted' && token && pushEnabled) void syncWebPush(token, { prompt: false });
     });
   }
 
   function openPanel() {
     setOpen(true);
-    if (token) promptForPush(token, setNotifPermission);
+    if (token && pushEnabled) promptForPush(token, setNotifPermission);
   }
 
   function send() {

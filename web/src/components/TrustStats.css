@@ -1,0 +1,12 @@
+.ts { background: #fffdf6; border-top: 1px solid #efe6cf; border-bottom: 1px solid #efe6cf; }
+.ts .ts-inner { max-width: 1200px; margin: 0 auto; padding: 44px 5% 40px; }
+.ts .ts-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 20px; margin-bottom: 22px; }
+.ts .ts-heading { margin: 0; font-family: 'Poppins', sans-serif; font-weight: 800; font-size: clamp(1.25rem, 2.4vw, 1.6rem); color: #15100a; }
+.ts .ts-asof { margin: 0; font-family: 'Poppins', sans-serif; font-size: 0.85rem; color: #5b5346; }
+.ts .ts-grid { margin: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.ts .ts-card { margin: 0; padding: 22px 20px; border-radius: 16px; background: #fff; border: 1px solid #efe6cf; box-shadow: 0 6px 18px rgba(60, 40, 0, 0.06); }
+.ts .ts-label { order: 2; margin-top: 6px; font-family: 'Poppins', sans-serif; font-size: 0.92rem; color: #5b5346; }
+.ts .ts-card { display: flex; flex-direction: column; }
+.ts .ts-value { margin: 0; order: 1; font-family: 'Poppins', sans-serif; font-weight: 800; font-size: clamp(1.7rem, 3.4vw, 2.4rem); color: #15100a; line-height: 1.1; }
+.ts .ts-suffix { color: #c9a227; margin-left: 2px; }
+@media (max-width: 760px) { .ts .ts-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

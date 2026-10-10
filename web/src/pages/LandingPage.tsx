@@ -23,9 +23,11 @@ import {
 import './LandingPage.css';
 import { useAuth } from '../lib/auth';
 import { api } from '../lib/api';
-import { CONTACT, whatsappLink, ANDROID_APK_URL } from '../lib/contact';
-import WhatsAppIcon from '../components/WhatsAppIcon';
+import { CONTACT, ANDROID_APK_URL } from '../lib/contact';
 import HeroSlider, { type HeroSlide } from '../components/HeroSlider';
+import TrustStats from '../components/TrustStats';
+import LiveChatButton from '../components/LiveChatButton';
+import { LANDING_STATS } from '../lib/landing-stats';
 
 // This page's own contact details — see the note by the footer section
 // below for why these are kept separate from lib/contact.ts.
@@ -61,6 +63,13 @@ const TXT = {
     heroDashboard: 'Zuwa Dashboard',
     heroPrev: 'Baya',
     heroNext: 'Gaba',
+    trustHeading: 'K-Tech a lambobi',
+    trustAsOf: 'Bayanai har zuwa',
+    trustUsers: 'Masu rajista',
+    trustActive: 'Masu amfani (kwanaki 30)',
+    trustTx: 'Ma\'amaloli masu nasara',
+    trustPartners: 'Abokan hulda masu aiki (API)',
+    footerLiveChat: 'Tallafi Ta Livechat',
     heroSlides: [
       { dark: 'SAKAMAKO', accent: 'JARRABAWA', desc: 'Sayi PIN din sakamakon WAEC, NECO da NABTEB, JAMB e-PIN, Takardar Shiga Jami\'a da Sake-buga Sakamakon JAMB, kuma a same shi cikin mintoci.' },
       { dark: 'NIN & BVN', accent: 'AYYUKA', desc: 'Tabbatar da NIN da BVN, samo slip, rajistar CAC da TIN Certificate — da sauri, lafiya, daga wallet dinka.' },
@@ -73,7 +82,7 @@ const TXT = {
     about: [
       { key: 'secure', title: 'Amintacce', desc: "Muna adana bayanan NIN/BVN dinka a boye, ba tare da bayyana su ba." },
       { key: 'fast', title: 'Sauri', desc: "Ana kammala mu'amaloli nan take, babu jira ko izinin hannu." },
-      { key: 'support', title: 'Tallafi na Gaske', desc: 'Ka samu tallafi kai tsaye a WhatsApp daga mutum, ba tashar sako-sako ba.' },
+      { key: 'support', title: 'Tallafi na Gaske', desc: 'Yi chat kai tsaye da mutum na gaske, ba tare da jerin ticket ba.' },
       { key: 'bank', title: 'Biyan Kudi Amintacce', desc: 'Ana cika walat dinka ta hanyar kamfanin biyan kudi mai lasisi.' },
     ],
     howTitle: 'Yadda Yake Aiki',
@@ -148,6 +157,13 @@ const TXT = {
     heroDashboard: 'Go to Dashboard',
     heroPrev: 'Previous slide',
     heroNext: 'Next slide',
+    trustHeading: 'K-Tech in numbers',
+    trustAsOf: 'Figures as of',
+    trustUsers: 'Registered users',
+    trustActive: 'Active users (30 days)',
+    trustTx: 'Successful transactions',
+    trustPartners: 'Active API partners',
+    footerLiveChat: 'Live Chat Support',
     heroSlides: [
       { dark: 'RESULT', accent: 'CHECKERS', desc: 'Buy WAEC, NECO and NABTEB result PINs, JAMB e-PIN, JAMB Admission Letter and JAMB Reprint services, delivered in minutes.' },
       { dark: 'NIN & BVN', accent: 'SERVICES', desc: 'Verify NIN and BVN, generate slips, and request CAC registration or a TIN certificate. Fast, secure, paid from your wallet.' },
@@ -160,7 +176,7 @@ const TXT = {
     about: [
       { key: 'secure', title: 'Encrypted', desc: 'Your NIN/BVN data is encrypted at rest, never stored in plain text.' },
       { key: 'fast', title: 'Instant', desc: 'Transactions complete immediately — no waiting, no manual approval.' },
-      { key: 'support', title: 'Real Support', desc: 'Reach an actual person on WhatsApp — no ticket queues.' },
+      { key: 'support', title: 'Real Support', desc: 'Chat live with a real person, no ticket queues.' },
       { key: 'bank', title: 'Bank-Backed Funding', desc: 'Your wallet is funded through a licensed payment processor.' },
     ],
     howTitle: 'How it Works',
@@ -345,6 +361,18 @@ export default function LandingPage() {
         prevLabel={L.heroPrev}
         nextLabel={L.heroNext}
         ariaLabel={L.heroTitle}
+      />
+
+      <TrustStats
+        heading={L.trustHeading}
+        asOfLabel={L.trustAsOf}
+        asOf={LANDING_STATS.asOf}
+        stats={[
+          { value: LANDING_STATS.registeredUsers, label: L.trustUsers },
+          { value: LANDING_STATS.activeUsers30d, label: L.trustActive },
+          { value: LANDING_STATS.successfulTransactions, suffix: '+', label: L.trustTx },
+          { value: LANDING_STATS.activeApiPartners, label: L.trustPartners },
+        ]}
       />
 
       {/* Services */}
@@ -574,9 +602,10 @@ export default function LandingPage() {
           </div>
           <div>
             <h4>{L.footerContactHeading}</h4>
-            <a href={whatsappLink('Hello K-Tech Solutions, I need help')} target="_blank" rel="noreferrer">
-              <WhatsAppIcon size={15} /> {L.footerWhatsappSupport}
-            </a>
+            <LiveChatButton
+              className="lc-footer-link"
+              label={L.footerLiveChat}
+            />
             <a href={CONTACT.whatsappChannelUrl} target="_blank" rel="noreferrer">
               <Radio size={15} /> {L.footerChannel}
             </a>

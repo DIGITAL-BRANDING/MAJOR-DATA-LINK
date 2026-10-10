@@ -650,6 +650,8 @@ enum ChatConversationStatus {
 enum ChatOwnerType {
   USER
   PARTNER
+  /// Anonymous visitor from the public site, identified by a ChatGuest row.
+  GUEST
 }
 
 /// Self-hosted real-time support chat (K-Tech Live Chat), replacing the
@@ -1084,4 +1086,17 @@ model AdminRecoveryCode {
 
   @@unique([adminId, codeHash])
   @@index([adminId])
+}
+
+/// Anonymous live-chat visitor (no account). Owns ChatConversations with
+/// ownerType GUEST. Only the SHA-256 hash of the token is stored.
+model ChatGuest {
+  id          String   @id @default(uuid())
+  displayName String
+  contact     String
+  tokenHash   String   @unique
+  createdAt   DateTime @default(now())
+  lastSeenAt  DateTime @default(now())
+
+  @@index([lastSeenAt])
 }

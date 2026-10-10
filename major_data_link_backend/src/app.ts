@@ -45,6 +45,7 @@ import { newspaperPublicationRoutes } from './routes/newspaper-publication.route
 import { birthAttestationRoutes } from './routes/birth-attestation.routes.js';
 import { cacRoutes } from './routes/cac.routes.js';
 import { tinRoutes } from './routes/tin.routes.js';
+import { guestChatRoutes } from './routes/guest-chat.routes.js';
 import { bvnModificationRoutes } from './routes/bvn-modification.routes.js';
 import { jambRoutes } from './routes/jamb.routes.js';
 import { vtuRoutes } from './routes/vtu.routes.js';
@@ -172,6 +173,7 @@ export function createApp() {
   // CAC submissions can include multiple base64 documents and need a larger limit.
   app.use('/api/cac', express.json({ limit: '25mb' }), cacRoutes);
   app.use('/api/tin', express.json({ limit: '25mb' }), tinRoutes);
+  app.use('/api/chat/guest', express.json({ limit: '10kb' }), guestChatRoutes);
 
   // Support the largest validated base64 document/photo payloads.
   app.use(express.json({ limit: '8mb' }));
