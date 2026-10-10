@@ -37,6 +37,14 @@ export const PROMO_ILLUSTRATIONS = [
  * distinction WhatsApp itself makes between a chat push and its (nonexistent)
  * notification center.
  */
+/**
+ * Android channel the Flutter app creates at startup (see
+ * notification_provider.dart). It must match AndroidManifest's
+ * default_notification_channel_id, otherwise a push delivered while the app
+ * is closed falls back to FCM's silent default channel - no sound, no pop-up.
+ */
+export const ANDROID_NOTIFICATION_CHANNEL_ID = 'major_datalink_notifications';
+
 export async function pushToTokens(tokens: string[], title: string, body: string, data?: Record<string, string>) {
   if (tokens.length === 0) return;
   if (!env.FIREBASE_SERVICE_ACCOUNT_BASE64) return; // push not configured — DB row still saved
@@ -50,7 +58,23 @@ export async function pushToTokens(tokens: string[], title: string, body: string
       const result = await admin.messaging().sendEachForMulticast({
         tokens: chunk,
         notification: { title, body },
-        data
+        data,
+        android: {
+          // High priority lets the message wake a dozing device (Doze / battery
+          // savers) and show while the app is closed. ttl: a day, after which
+          // a stale alert is useless and is dropped instead of arriving late.
+          priority: 'high',
+          ttl: 24 * 60 * 60 * 1000,
+          notification: {
+            channelId: ANDROID_NOTIFICATION_CHANNEL_ID,
+            sound: 'default',
+            defaultVibrateTimings: true
+          }
+        },
+        apns: {
+          headers: { 'apns-priority': '10' },
+          payload: { aps: { alert: { title, body }, sound: 'default' } }
+        }
       });
 
       // Prune tokens FCM reports as dead (uninstalled app, expired token, etc.) so they
