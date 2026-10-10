@@ -1,0 +1,40 @@
+diff --git a/web/src/pages/LandingPage.tsx b/web/src/pages/LandingPage.tsx
+index 80a28a9..21e3e34 100644
+--- a/web/src/pages/LandingPage.tsx
++++ b/web/src/pages/LandingPage.tsx
+@@ -74,6 +74,9 @@ const TXT = {
+       { dark: 'SAKAMAKO', accent: 'JARRABAWA', desc: 'Sayi PIN din sakamakon WAEC, NECO da NABTEB, JAMB e-PIN, Takardar Shiga Jami\'a da Sake-buga Sakamakon JAMB, kuma a same shi cikin mintoci.' },
+       { dark: 'NIN & BVN', accent: 'AYYUKA', desc: 'Tabbatar da NIN da BVN, samo slip, rajistar CAC da TIN Certificate — da sauri, lafiya, daga wallet dinka.' },
+       { dark: 'DATA & AIRTIME', accent: 'CIKI', desc: 'Airtime nan take da arha data ga dukkan networks. Cika wallet dinka ta bank transfer a kowane lokaci.' },
++      { dark: 'CAC', accent: 'AYYUKA', desc: 'Yi rajistar sunan kasuwancinka da CAC daga wallet dinka. Rajistar sole proprietorship da partnership, ana kammala ta kuma ana aika ta zuwa Deliveries.' },
++      { dark: 'TIN', accent: 'AYYUKA', desc: 'Samu TIN Certificate na kamfani ko na mutum. Turo bayanai sau daya, biya daga wallet, certificate zai shiga Deliveries.' },
++      { dark: 'BIRTH ATTESTATION', accent: 'DA DA YAWA', desc: 'Birth attestation, BVN CRM, newspaper publication, school website da sauran ayyuka. Wallet daya, ayyuka duka a wuri daya.' },
+     ],
+     servicesTitle: 'Ayyukan Mu (Our Services)',
+     servicesSubtitle: 'Zabi sabis din da kake bukata, ka fara amfani da shi yanzu — kai tsaye daga account dinka.',
+@@ -168,6 +171,9 @@ const TXT = {
+       { dark: 'RESULT', accent: 'CHECKERS', desc: 'Buy WAEC, NECO and NABTEB result PINs, JAMB e-PIN, JAMB Admission Letter and JAMB Reprint services, delivered in minutes.' },
+       { dark: 'NIN & BVN', accent: 'SERVICES', desc: 'Verify NIN and BVN, generate slips, and request CAC registration or a TIN certificate. Fast, secure, paid from your wallet.' },
+       { dark: 'DATA & AIRTIME', accent: 'TOPUP', desc: 'Instant airtime topup and cheap data for all networks. Fund your wallet by bank transfer, any time.' },
++      { dark: 'CAC', accent: 'SERVICES', desc: 'Register your business name with the CAC from your wallet. Sole proprietorship and partnership registrations, completed by our team and delivered to your Deliveries.' },
++      { dark: 'TIN', accent: 'SERVICES', desc: 'Get a company or individual NRS/FIRS TIN certificate. Submit your details once, pay from your wallet, and receive the certificate in Deliveries.' },
++      { dark: 'BIRTH ATTESTATION', accent: '& MANY MORE', desc: 'Birth attestation, BVN CRM, newspaper publication, school website and more. One wallet, every service in one place.' },
+     ],
+     servicesTitle: 'Our Services',
+     servicesSubtitle: 'Pick the service you need and get started right away — straight from your account.',
+@@ -241,7 +247,14 @@ export default function LandingPage() {
+   const [resultPrices, setResultPrices] = useState<PriceRow[]>([]);
+   const [verificationPrices, setVerificationPrices] = useState<Record<string, number>>({});
+   const L = TXT[lang];
+-  const heroImages = ['/branding/results.png', '/branding/NIN_Phone_Verification.png', '/branding/Jamb.jpg'];
++  const heroImages = [
++    '/branding/results.png',
++    '/branding/NIN_Phone_Verification.png',
++    '/branding/Jamb.jpg',
++    '/branding/CAC%20Registration.png',
++    '/branding/TIN%20Certificate.png',
++    '/branding/Birth%20Attestation.png',
++  ];
+   const heroSlides: HeroSlide[] = L.heroSlides.map((slide, i) => ({
+     ...slide,
+     image: heroImages[i],
