@@ -32,6 +32,7 @@ import PartnerDashboardPage from './pages/PartnerDashboardPage';
 import PartnerApiDocsPage from './pages/PartnerApiDocsPage';
 import JambServicesPage from './pages/JambServicesPage';
 import CacServicesPage from './pages/CacServicesPage';
+import TinServicesPage from './pages/TinServicesPage';
 import SupportPage from './pages/SupportPage';
 import ManualServiceRequestPage from './pages/ManualServiceRequestPage';
 import ServiceHistoryPage from './pages/ServiceHistoryPage';
@@ -92,7 +93,7 @@ export default function App() {
           <Route path="/bvn-crm" element={<ProtectedRoute><BvnCrmPage /></ProtectedRoute>} />
           <Route path="/verify-account" element={<ProtectedRoute><VerifyAccountPage /></ProtectedRoute>} />
           <Route path="/attestation" element={<ProtectedRoute><BirthAttestationPage /></ProtectedRoute>} />
-          <Route path="/tin" element={<ProtectedRoute><ManualServiceRequestPage title="TIN Certificate" prompt="Submit the information needed for your TIN certificate request." /></ProtectedRoute>} />
+          <Route path="/tin" element={<ProtectedRoute><TinServicesPage /></ProtectedRoute>} />
           <Route path="/newspaper" element={<ProtectedRoute><NewspaperPublicationPage /></ProtectedRoute>} />
           <Route path="/jamb-services" element={<ProtectedRoute><JambServicesPage /></ProtectedRoute>} />
           <Route path="/cac-registration" element={<ProtectedRoute><CacServicesPage /></ProtectedRoute>} />

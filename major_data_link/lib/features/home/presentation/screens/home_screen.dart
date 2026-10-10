@@ -350,7 +350,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       icon: Icons.receipt_long_outlined,
                       backgroundColor: AppColors.warning700,
                       iconColor: Colors.white,
-                      onTap: () => context.push(RouteNames.tinServices),
+                      onTap: () => context.push(RouteNames.tinCertificate),
                     ),
                     QuickAction(
                       label: 'More',

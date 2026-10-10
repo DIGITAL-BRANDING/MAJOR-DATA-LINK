@@ -9,6 +9,7 @@ import { PROMO_ILLUSTRATIONS, sendAdminBroadcast } from '../services/notificatio
 import { listServicePricesForAdmin, updateServicePrice } from '../services/result-pin.service.js';
 import { listVerificationPricesForAdmin } from '../services/verification.service.js';
 import { listCacPricesForAdmin } from '../services/cac.service.js';
+import { listTinPricesForAdmin } from '../services/tin.service.js';
 import { listBvnModificationPricesForAdmin } from '../services/bvn-modification.service.js';
 import { listModificationPricesForAdmin } from '../services/nin-modification.service.js';
 import { listNewspaperPublicationPriceForAdmin } from '../services/newspaper-publication.service.js';
@@ -207,10 +208,11 @@ adminApiRoutes.get('/service-prices', requireFinanceAdmin, async (_req, res) => 
   // set the web Bulk Pricing / Partner Pricing pages now show). PATCH below
   // is generic (keyed by `service`), so it works unchanged for every row.
   // `group` only exists so the app can section a long list.
-  const [resultPinRows, verificationRows, cac, bvnMod, ninMod, newspaper, birth, bvnCrm, jamb, bvnLicense] = await Promise.all([
+  const [resultPinRows, verificationRows, cac, tin, bvnMod, ninMod, newspaper, birth, bvnCrm, jamb, bvnLicense] = await Promise.all([
     listServicePricesForAdmin(),
     listVerificationPricesForAdmin(),
     listCacPricesForAdmin(),
+    listTinPricesForAdmin(),
     listBvnModificationPricesForAdmin(),
     listModificationPricesForAdmin(),
     listNewspaperPublicationPriceForAdmin(),
@@ -226,6 +228,7 @@ adminApiRoutes.get('/service-prices', requireFinanceAdmin, async (_req, res) => 
       ...tag(resultPinRows, 'Result Pin'),
       ...tag(verificationRows, 'NIN/BVN'),
       ...tag(cac, 'CAC'),
+      ...tag(tin, 'TIN'),
       ...tag(bvnMod, 'BVN Modification'),
       ...tag(ninMod, 'NIN Modification'),
       ...tag(newspaper, 'Newspaper'),

@@ -70,6 +70,9 @@ import '../../features/verification/presentation/screens/bvn_modification_screen
 import '../../features/verification/presentation/screens/nin_modification_screen.dart';
 import '../../features/deliveries/presentation/screens/deliveries_screen.dart';
 import '../../features/manual_services/presentation/screens/manual_service_request_screen.dart';
+import '../../features/manual_services/presentation/screens/cac_registration_screen.dart';
+import '../../features/manual_services/presentation/screens/birth_attestation_screen.dart';
+import '../../features/manual_services/presentation/screens/school_website_screen.dart';
 import '../../features/manual_services/presentation/screens/bvn_crm_screen.dart';
 import '../../features/manual_services/presentation/screens/newspaper_publication_screen.dart';
 import '../di/injection.dart';
@@ -306,12 +309,7 @@ final routerProvider = Provider<GoRouter>((ref) {
                   ),
                   GoRoute(
                     path: 'cac',
-                    builder: (_, __) => const ManualServiceRequestScreen(
-                      title: 'CAC Services',
-                      prompt:
-                          'Send your CAC request here. Our team processes it and securely uploads the completed document to Deliveries.',
-                      cac: true,
-                    ),
+                    builder: (_, __) => const CacRegistrationScreen(),
                   ),
                   GoRoute(
                     path: 'bvn-crm',
@@ -327,13 +325,15 @@ final routerProvider = Provider<GoRouter>((ref) {
                   ),
                   GoRoute(
                     path: 'birth-attestation',
-                    builder: (_, __) => const ManualServiceRequestScreen(
-                      title: 'Birth Attestation',
-                      prompt:
-                          'Submit the information needed for a birth attestation request.',
-                    ),
+                    builder: (_, __) => const BirthAttestationScreen(),
                   ),
                   GoRoute(
+
+                    path: 'school-website',
+                    builder: (_, __) => const SchoolWebsiteScreen(),
+                  ),
+                  GoRoute(
+
                     path: 'tin-certificate',
                     builder: (_, __) => const ManualServiceRequestScreen(
                       title: 'TIN Certificate',
@@ -350,17 +350,6 @@ final routerProvider = Provider<GoRouter>((ref) {
                       description:
                           'SCUML registration services are coming soon to '
                           'K-TECH SOLUTIONS.',
-                    ),
-                  ),
-                  GoRoute(
-                    path: 'tin',
-                    builder: (_, __) => const ComingSoonScreen(
-                      title: 'TIN Registration',
-                      icon: Icons.receipt_long_outlined,
-                      color: AppColors.warning600,
-                      description:
-                          'Tax Identification Number (TIN) registration is '
-                          'coming soon to K-TECH SOLUTIONS.',
                     ),
                   ),
                 ],

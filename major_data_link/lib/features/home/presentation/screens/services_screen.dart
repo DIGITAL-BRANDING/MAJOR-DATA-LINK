@@ -137,6 +137,12 @@ const _services = [
     route: RouteNames.birthAttestation,
   ),
   _ServiceItem(
+    label: 'School Website',
+    icon: Icons.school_outlined,
+    color: AppColors.primary600,
+    route: RouteNames.schoolWebsite,
+  ),
+  _ServiceItem(
     label: 'TIN Certificate',
     icon: Icons.receipt_long_outlined,
     color: AppColors.warning700,
@@ -147,12 +153,6 @@ const _services = [
     icon: Icons.verified_user_outlined,
     color: AppColors.success600,
     route: RouteNames.scumlServices,
-  ),
-  _ServiceItem(
-    label: 'TIN Registration',
-    icon: Icons.receipt_long_outlined,
-    color: AppColors.warning700,
-    route: RouteNames.tinServices,
   ),
 ];
 

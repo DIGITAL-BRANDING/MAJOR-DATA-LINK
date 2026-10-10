@@ -112,6 +112,16 @@ class AppEndpoints {
   static String ipeClearanceStatus(String ticketId) =>
       '$_base/verification/ipe-clearance/$ticketId';
   static String get jambChange => '$_base/jamb/change-institution';
+  static String get cacPrices => '$_base/cac/prices';
+  static String get cacHistory => '$_base/cac/history';
+  static String get cacSubmit => '$_base/cac/submit';
+  static String get birthFields => '$_base/birth-attestation/fields';
+  static String get birthPrice => '$_base/birth-attestation/price';
+  static String get birthHistory => '$_base/birth-attestation/history';
+  static String get birthSubmit => '$_base/birth-attestation/submit';
+  static String get schoolPlans => '$_base/school-website/plans';
+  static String get schoolSubscriptions => '$_base/school-website/subscriptions';
+  static String get schoolSubscribe => '$_base/school-website/subscribe';
   static String get deliveryList => '$_base/deliveries';
   static String deliveryDownload(String id) => '$_base/deliveries/$id/download';
   static String get ninModificationTypes => '$_base/nin-modification/types';

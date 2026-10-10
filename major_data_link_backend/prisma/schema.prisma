@@ -110,6 +110,8 @@ enum TransactionType {
   JAMB_SERVICE_REQUEST
   /// A wallet-funded EduTrac school website subscription request, fulfilled by an admin.
   SCHOOL_WEBSITE_SUBSCRIPTION
+  /// A TIN Certificate request (company or individual), fulfilled manually by an admin.
+  TIN_SERVICE_REQUEST
   /// The credit-back entry refundWallet() creates - distinct from the
   /// original debit's own type (e.g. a reversed DATA_PURCHASE gets a REFUND
   /// entry, not a second DATA_PURCHASE). See relatedTransactionId above.

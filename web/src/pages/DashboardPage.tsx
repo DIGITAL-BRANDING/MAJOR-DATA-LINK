@@ -48,7 +48,6 @@ const SERVICE_IMAGES: Record<string, string> = {
   'NIN Services': '/branding/Validation.png',
   'BVN Services': '/branding/BVN Verifications.png',
   'SCUML Registration': '/branding/CAC Services.png',
-  'TIN Registration': '/branding/TIN Certificate.png',
 };
 
 type WalletBalance = {

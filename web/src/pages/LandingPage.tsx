@@ -25,6 +25,7 @@ import { useAuth } from '../lib/auth';
 import { api } from '../lib/api';
 import { CONTACT, whatsappLink, ANDROID_APK_URL } from '../lib/contact';
 import WhatsAppIcon from '../components/WhatsAppIcon';
+import HeroSlider, { type HeroSlide } from '../components/HeroSlider';
 
 // This page's own contact details — see the note by the footer section
 // below for why these are kept separate from lib/contact.ts.
@@ -55,6 +56,16 @@ const TXT = {
       "Muna samar da ingantattun ayyukan fasahar zamani cikin sauki da hanzari — Data, Airtime, BVN/NIN, da Sakamakon Jarrabawa. Tuntube mu domin samun cikakken taimako akan duk wani sabis na online.",
     heroWhatsapp: 'Tuntube Mu A WhatsApp',
     heroGetStarted: 'Fara Yanzu',
+    heroSignup: 'Rijista',
+    heroLogin: 'Shiga',
+    heroDashboard: 'Zuwa Dashboard',
+    heroPrev: 'Baya',
+    heroNext: 'Gaba',
+    heroSlides: [
+      { dark: 'SAKAMAKO', accent: 'JARRABAWA', desc: 'Sayi PIN din sakamakon WAEC, NECO da NABTEB, JAMB e-PIN, Takardar Shiga Jami\'a da Sake-buga Sakamakon JAMB, kuma a same shi cikin mintoci.' },
+      { dark: 'NIN & BVN', accent: 'AYYUKA', desc: 'Tabbatar da NIN da BVN, samo slip, rajistar CAC da TIN Certificate — da sauri, lafiya, daga wallet dinka.' },
+      { dark: 'DATA & AIRTIME', accent: 'CIKI', desc: 'Airtime nan take da arha data ga dukkan networks. Cika wallet dinka ta bank transfer a kowane lokaci.' },
+    ],
     servicesTitle: 'Ayyukan Mu (Our Services)',
     servicesSubtitle: 'Zabi sabis din da kake bukata, ka fara amfani da shi yanzu — kai tsaye daga account dinka.',
     aboutTitle: 'Game da Mu (About Us)',
@@ -132,6 +143,16 @@ const TXT = {
       'We offer reliable and fast digital solutions — Data, Airtime, BVN/NIN verification, and WAEC/NECO/NABTEB result checking. Contact us today for seamless online service delivery.',
     heroWhatsapp: 'Contact Us On WhatsApp',
     heroGetStarted: 'Get Started',
+    heroSignup: 'Sign Up',
+    heroLogin: 'Login',
+    heroDashboard: 'Go to Dashboard',
+    heroPrev: 'Previous slide',
+    heroNext: 'Next slide',
+    heroSlides: [
+      { dark: 'RESULT', accent: 'CHECKERS', desc: 'Buy WAEC, NECO and NABTEB result PINs, JAMB e-PIN, JAMB Admission Letter and JAMB Reprint services, delivered in minutes.' },
+      { dark: 'NIN & BVN', accent: 'SERVICES', desc: 'Verify NIN and BVN, generate slips, and request CAC registration or a TIN certificate. Fast, secure, paid from your wallet.' },
+      { dark: 'DATA & AIRTIME', accent: 'TOPUP', desc: 'Instant airtime topup and cheap data for all networks. Fund your wallet by bank transfer, any time.' },
+    ],
     servicesTitle: 'Our Services',
     servicesSubtitle: 'Pick the service you need and get started right away — straight from your account.',
     aboutTitle: 'About Us',
@@ -204,6 +225,12 @@ export default function LandingPage() {
   const [resultPrices, setResultPrices] = useState<PriceRow[]>([]);
   const [verificationPrices, setVerificationPrices] = useState<Record<string, number>>({});
   const L = TXT[lang];
+  const heroImages = ['/branding/results.png', '/branding/NIN_Phone_Verification.png', '/branding/Jamb.jpg'];
+  const heroSlides: HeroSlide[] = L.heroSlides.map((slide, i) => ({
+    ...slide,
+    image: heroImages[i],
+    alt: `${slide.dark} ${slide.accent}`,
+  }));
 
   // Live backend prices, shown on the Result Checking / BVN cards so the
   // buttons on this page reflect real data from the API, not static copy.
@@ -309,23 +336,16 @@ export default function LandingPage() {
       </header>
 
       {/* Hero */}
-      <section className="hero">
-        <h1>{L.heroTitle}</h1>
-        <p>{L.heroDesc}</p>
-        <div className="hero-buttons">
-          <a
-            href={whatsappLink('Sannu K-Tech Solutions, ina bukatan taimako')}
-            target="_blank"
-            rel="noreferrer"
-            className="btn-hero"
-          >
-            <WhatsAppIcon size={18} /> {L.heroWhatsapp}
-          </a>
-          <Link to={user ? '/dashboard' : '/register'} className="btn-hero-outline">
-            {L.heroGetStarted}
-          </Link>
-        </div>
-      </section>
+      <HeroSlider
+        slides={heroSlides}
+        primaryLabel={user ? L.heroDashboard : L.heroSignup}
+        primaryTo={user ? '/dashboard' : '/register'}
+        secondaryLabel={user ? L.heroGetStarted : L.heroLogin}
+        secondaryTo={user ? '/dashboard' : '/login'}
+        prevLabel={L.heroPrev}
+        nextLabel={L.heroNext}
+        ariaLabel={L.heroTitle}
+      />
 
       {/* Services */}
       <div className="container" id="services">

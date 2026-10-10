@@ -7,6 +7,7 @@ import { getPricingSettings, updatePricingSettings } from '../services/pricing-s
 import { listServicePricesForAdmin, updateServicePrice } from '../services/result-pin.service.js';
 import { listVerificationPricesForAdmin } from '../services/verification.service.js';
 import { listCacPricesForAdmin } from '../services/cac.service.js';
+import { listTinPricesForAdmin } from '../services/tin.service.js';
 import { listBvnModificationPricesForAdmin } from '../services/bvn-modification.service.js';
 import { listModificationPricesForAdmin } from '../services/nin-modification.service.js';
 import { listNewspaperPublicationPriceForAdmin } from '../services/newspaper-publication.service.js';
@@ -95,11 +96,12 @@ export function registerBulkPricingRoutes(router: Router) {
       // framework, consistent with the rest of this plain-HTML page.
       const selectedNetworkRaw = typeof req.query.dpNetwork === 'string' ? req.query.dpNetwork : '';
       const selectedNetwork = selectedNetworkRaw || networks[0] || '';
-      const [manualDataPlans, resultPinPrices, verificationPrices, cacPrices, bvnModPrices, ninModPrices, newspaperPrices, birthPrices, bvnCrmPrices, jambPrices, bvnLicensePrices, schoolWebsitePrices] = await Promise.all([
+      const [manualDataPlans, resultPinPrices, verificationPrices, cacPrices, tinPrices, bvnModPrices, ninModPrices, newspaperPrices, birthPrices, bvnCrmPrices, jambPrices, bvnLicensePrices, schoolWebsitePrices] = await Promise.all([
         selectedNetwork ? dataPlanPricingService.getPricingRows(selectedNetwork) : Promise.resolve([]),
         listServicePricesForAdmin(),
         listVerificationPricesForAdmin(),
         listCacPricesForAdmin(),
+        listTinPricesForAdmin(),
         listBvnModificationPricesForAdmin(),
         listModificationPricesForAdmin(),
         listNewspaperPublicationPriceForAdmin(),
@@ -116,6 +118,7 @@ export function registerBulkPricingRoutes(router: Router) {
         ...resultPinPrices.map((s) => ({ ...s, group: 'Result Pin' })),
         ...verificationPrices.map((s) => ({ ...s, group: 'NIN/BVN' })),
         ...cacPrices.map((s) => ({ ...s, group: 'CAC' })),
+        ...tinPrices.map((s) => ({ ...s, group: 'TIN' })),
         ...bvnModPrices.map((s) => ({ ...s, group: 'BVN Modification' })),
         ...ninModPrices.map((s) => ({ ...s, group: 'NIN Modification' })),
         ...newspaperPrices.map((s) => ({ ...s, group: 'Newspaper' })),

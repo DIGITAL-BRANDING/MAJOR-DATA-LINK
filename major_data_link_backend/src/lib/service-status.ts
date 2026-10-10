@@ -99,7 +99,8 @@ export async function listAllServiceStatuses(): Promise<ServiceStatusRow[]> {
     { listBirthAttestationPriceForAdmin },
     { listNewspaperPublicationPriceForAdmin },
     { listBvnCrmPriceForAdmin },
-    { listJambPricesForAdmin }
+    { listJambPricesForAdmin },
+    { listTinPricesForAdmin }
   ] = await Promise.all([
     import('../services/result-pin.service.js'),
     import('../services/verification.service.js'),
@@ -109,10 +110,11 @@ export async function listAllServiceStatuses(): Promise<ServiceStatusRow[]> {
     import('../services/birth-attestation.service.js'),
     import('../services/newspaper-publication.service.js'),
     import('../services/bvn-crm.service.js'),
-    import('../services/jamb-pricing.service.js')
+    import('../services/jamb-pricing.service.js'),
+    import('../services/tin.service.js')
   ]);
 
-  const [pins, verification, cac, ninMod, bvnMod, birthAttestation, newspaper, bvnCrm, jamb, toggleOnly] = await Promise.all([
+  const [pins, verification, cac, ninMod, bvnMod, birthAttestation, newspaper, bvnCrm, jamb, tin, toggleOnly] = await Promise.all([
     listServicePricesForAdmin(),
     listVerificationPricesForAdmin(),
     listCacPricesForAdmin(),
@@ -122,6 +124,7 @@ export async function listAllServiceStatuses(): Promise<ServiceStatusRow[]> {
     listNewspaperPublicationPriceForAdmin(),
     listBvnCrmPriceForAdmin(),
     listJambPricesForAdmin(),
+    listTinPricesForAdmin(),
     listToggleOnlyServicesForAdmin(TOGGLE_ONLY_SERVICES)
   ]);
 
@@ -137,6 +140,7 @@ export async function listAllServiceStatuses(): Promise<ServiceStatusRow[]> {
     ...newspaper.map((row) => ({ ...row, category: 'Newspaper Publication' })),
     // One row per individual JAMB item (each has its own price and on/off).
     // The JAMB_SERVICE_REQUEST toggle above is the umbrella switch for all of them.
-    ...jamb.map((row) => ({ ...row, category: 'JAMB Services' }))
+    ...jamb.map((row) => ({ ...row, category: 'JAMB Services' })),
+    ...tin.map((row) => ({ ...row, category: 'TIN Services' }))
   ];
 }

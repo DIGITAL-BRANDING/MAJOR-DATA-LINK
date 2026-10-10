@@ -3,7 +3,7 @@ import { TransactionStatus, TransactionType } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import type { AdminSessionUser } from './auth.js';
 
-type QueueGroup = 'NIN' | 'BVN' | 'CAC' | 'JAMB' | 'SCHOOL' | 'TIN_OTHER';
+type QueueGroup = 'NIN' | 'BVN' | 'CAC' | 'JAMB' | 'SCHOOL' | 'TIN' | 'TIN_OTHER';
 
 export const MANUAL_TRANSACTION_TYPES: TransactionType[] = [
   TransactionType.NIN_MODIFICATION,
@@ -14,7 +14,8 @@ export const MANUAL_TRANSACTION_TYPES: TransactionType[] = [
   TransactionType.BIRTH_ATTESTATION,
   TransactionType.CAC_SERVICE_REQUEST,
   TransactionType.JAMB_SERVICE_REQUEST,
-  TransactionType.SCHOOL_WEBSITE_SUBSCRIPTION
+  TransactionType.SCHOOL_WEBSITE_SUBSCRIPTION,
+  TransactionType.TIN_SERVICE_REQUEST
 ];
 
 export const MANUAL_VERIFICATION_TRANSACTION_TYPES: TransactionType[] = [
@@ -29,6 +30,7 @@ export const QUEUE_GROUPS: Array<{ id: QueueGroup; label: string }> = [
   { id: 'CAC', label: 'CAC Services' },
   { id: 'JAMB', label: 'JAMB Services' },
   { id: 'SCHOOL', label: 'School Website' },
+  { id: 'TIN', label: 'TIN Services' },
   { id: 'TIN_OTHER', label: 'TIN & Other Services' }
 ];
 
@@ -39,6 +41,7 @@ export function groupFor(type: TransactionType, metadata: unknown): QueueGroup {
   if (type === TransactionType.CAC_SERVICE_REQUEST) return 'CAC';
   if (type === TransactionType.JAMB_SERVICE_REQUEST) return 'JAMB';
   if (type === TransactionType.SCHOOL_WEBSITE_SUBSCRIPTION) return 'SCHOOL';
+  if (type === TransactionType.TIN_SERVICE_REQUEST) return 'TIN';
   if (type === TransactionType.BVN_MODIFICATION || type === TransactionType.BVN_CRM || type === TransactionType.BVN_LICENSE_ONBOARDING || service.startsWith('BVN_')) return 'BVN';
   if (type === TransactionType.NIN_MODIFICATION || service.startsWith('NIN_') || service === 'IPE_CLEARANCE') return 'NIN';
   // TIN is reserved here for the upcoming TIN workflow; until then this tile

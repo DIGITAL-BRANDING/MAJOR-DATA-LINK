@@ -81,7 +81,7 @@ export const SERVICES: ServiceItem[] = [
   { label: 'Self Service Unlink', description: 'Submit an identity delinking request.', icon: Unlink, route: '/delink', tint: 'gold', implemented: true, statusKey: 'NIN_DELINKING' },
   { label: 'NIN Modifications', description: 'Request corrections to NIN records.', icon: FilePenLine, route: '/nin-modification', tint: 'bronze', implemented: true, statusKey: ['NIN_MODIFICATION_UPDATE_NAME', 'NIN_MODIFICATION_UPDATE_PHONE', 'NIN_MODIFICATION_UPDATE_DOB', 'NIN_MODIFICATION_UPDATE_ADDRESS', 'NIN_MODIFICATION_UPDATE_NAME_DOB', 'NIN_MODIFICATION_UPDATE_NAME_PHONE'] },
   { label: 'Birth Attestation', description: 'Submit a birth attestation request for manual processing.', icon: Baby, route: '/attestation', tint: 'success', implemented: true, statusKey: 'BIRTH_ATTESTATION' },
-  { label: 'TIN Certificate', description: 'Request a TIN certificate and receive it in Deliveries.', icon: Receipt, route: '/tin', tint: 'ember', implemented: true },
+  { label: 'TIN Certificate', description: 'Request a company or individual TIN. Our team files it and delivers the certificate to Deliveries.', icon: Receipt, route: '/tin', tint: 'ember', implemented: true },
   { label: 'Newspaper Publication', description: 'Submit a newspaper publication request.', icon: Newspaper, route: '/newspaper', tint: 'gold', implemented: true, statusKey: 'NEWSPAPER_PUBLICATION' },
   { label: 'Demographic Search', description: 'Search NIN records using demographic details.', icon: Search, route: '/demo', tint: 'bronze', implemented: true, statusKey: 'NIN_DEMOGRAPHIC' },
   { label: 'BVN Licence Creation', description: 'Create a BVN licence onboarding request.', icon: Fingerprint, route: '/bvn-license', tint: 'gold', implemented: true, statusKey: 'BVN_LICENSE_ONBOARDING' },
@@ -202,14 +202,6 @@ export const SERVICES: ServiceItem[] = [
     icon: ShieldCheck,
     route: '/scuml-registration',
     tint: 'gold',
-    implemented: false,
-  },
-  {
-    label: 'TIN Registration',
-    description: 'Tax Identification Number registration.',
-    icon: Receipt,
-    route: '/tin-registration',
-    tint: 'bronze',
     implemented: false,
   },
 ];

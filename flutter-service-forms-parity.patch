@@ -1,0 +1,1216 @@
+diff --git a/major_data_link/lib/core/config/app_endpoints.dart b/major_data_link/lib/core/config/app_endpoints.dart
+index 2e817ec..0cadb45 100644
+--- a/major_data_link/lib/core/config/app_endpoints.dart
++++ b/major_data_link/lib/core/config/app_endpoints.dart
+@@ -112,6 +112,16 @@ class AppEndpoints {
+   static String ipeClearanceStatus(String ticketId) =>
+       '$_base/verification/ipe-clearance/$ticketId';
+   static String get jambChange => '$_base/jamb/change-institution';
++  static String get cacPrices => '$_base/cac/prices';
++  static String get cacHistory => '$_base/cac/history';
++  static String get cacSubmit => '$_base/cac/submit';
++  static String get birthFields => '$_base/birth-attestation/fields';
++  static String get birthPrice => '$_base/birth-attestation/price';
++  static String get birthHistory => '$_base/birth-attestation/history';
++  static String get birthSubmit => '$_base/birth-attestation/submit';
++  static String get schoolPlans => '$_base/school-website/plans';
++  static String get schoolSubscriptions => '$_base/school-website/subscriptions';
++  static String get schoolSubscribe => '$_base/school-website/subscribe';
+   static String get deliveryList => '$_base/deliveries';
+   static String deliveryDownload(String id) => '$_base/deliveries/$id/download';
+   static String get ninModificationTypes => '$_base/nin-modification/types';
+diff --git a/major_data_link/lib/core/router/app_router.dart b/major_data_link/lib/core/router/app_router.dart
+index 7e08139..3353993 100644
+--- a/major_data_link/lib/core/router/app_router.dart
++++ b/major_data_link/lib/core/router/app_router.dart
+@@ -70,6 +70,9 @@ import '../../features/verification/presentation/screens/bvn_modification_screen
+ import '../../features/verification/presentation/screens/nin_modification_screen.dart';
+ import '../../features/deliveries/presentation/screens/deliveries_screen.dart';
+ import '../../features/manual_services/presentation/screens/manual_service_request_screen.dart';
++import '../../features/manual_services/presentation/screens/cac_registration_screen.dart';
++import '../../features/manual_services/presentation/screens/birth_attestation_screen.dart';
++import '../../features/manual_services/presentation/screens/school_website_screen.dart';
+ import '../../features/manual_services/presentation/screens/bvn_crm_screen.dart';
+ import '../../features/manual_services/presentation/screens/newspaper_publication_screen.dart';
+ import '../di/injection.dart';
+@@ -306,12 +309,7 @@ final routerProvider = Provider<GoRouter>((ref) {
+                   ),
+                   GoRoute(
+                     path: 'cac',
+-                    builder: (_, __) => const ManualServiceRequestScreen(
+-                      title: 'CAC Services',
+-                      prompt:
+-                          'Send your CAC request here. Our team processes it and securely uploads the completed document to Deliveries.',
+-                      cac: true,
+-                    ),
++                    builder: (_, __) => const CacRegistrationScreen(),
+                   ),
+                   GoRoute(
+                     path: 'bvn-crm',
+@@ -327,13 +325,15 @@ final routerProvider = Provider<GoRouter>((ref) {
+                   ),
+                   GoRoute(
+                     path: 'birth-attestation',
+-                    builder: (_, __) => const ManualServiceRequestScreen(
+-                      title: 'Birth Attestation',
+-                      prompt:
+-                          'Submit the information needed for a birth attestation request.',
+-                    ),
++                    builder: (_, __) => const BirthAttestationScreen(),
+                   ),
+                   GoRoute(
++
++                    path: 'school-website',
++                    builder: (_, __) => const SchoolWebsiteScreen(),
++                  ),
++                  GoRoute(
++
+                     path: 'tin-certificate',
+                     builder: (_, __) => const ManualServiceRequestScreen(
+                       title: 'TIN Certificate',
+diff --git a/major_data_link/lib/core/router/route_names.dart b/major_data_link/lib/core/router/route_names.dart
+index 3927829..7f285f8 100644
+--- a/major_data_link/lib/core/router/route_names.dart
++++ b/major_data_link/lib/core/router/route_names.dart
+@@ -67,6 +67,7 @@ abstract class RouteNames {
+   static const newspaperPublication = '/home/services/newspaper-publication';
+   static const bvnModification = '/home/services/bvn-modification';
+   static const birthAttestation = '/home/services/birth-attestation';
++  static const schoolWebsite = '/home/services/school-website';
+   static const tinCertificate = '/home/services/tin-certificate';
+ 
+   // ── Wallet ────────────────────────────────────────────────
+diff --git a/major_data_link/lib/features/home/presentation/screens/services_screen.dart b/major_data_link/lib/features/home/presentation/screens/services_screen.dart
+index b1c9ed0..d8d4034 100644
+--- a/major_data_link/lib/features/home/presentation/screens/services_screen.dart
++++ b/major_data_link/lib/features/home/presentation/screens/services_screen.dart
+@@ -136,6 +136,12 @@ const _services = [
+     color: AppColors.success600,
+     route: RouteNames.birthAttestation,
+   ),
++  _ServiceItem(
++    label: 'School Website',
++    icon: Icons.school_outlined,
++    color: AppColors.primary600,
++    route: RouteNames.schoolWebsite,
++  ),
+   _ServiceItem(
+     label: 'TIN Certificate',
+     icon: Icons.receipt_long_outlined,
+diff --git a/major_data_link/lib/features/manual_services/presentation/screens/birth_attestation_screen.dart b/major_data_link/lib/features/manual_services/presentation/screens/birth_attestation_screen.dart
+new file mode 100644
+index 0000000..eeec8f1
+--- /dev/null
++++ b/major_data_link/lib/features/manual_services/presentation/screens/birth_attestation_screen.dart
+@@ -0,0 +1,375 @@
++import 'dart:convert';
++import 'package:file_picker/file_picker.dart';
++import 'package:flutter/material.dart';
++import 'package:flutter/services.dart';
++import 'package:flutter_riverpod/flutter_riverpod.dart';
++import 'package:dio/dio.dart';
++import 'package:uuid/uuid.dart';
++import '../../../../core/config/app_endpoints.dart';
++import '../../../../core/constants/app_colors.dart';
++import '../../../../core/constants/app_dimensions.dart';
++import '../../../../core/di/injection.dart';
++import '../../../../core/utils/extensions.dart';
++import '../../../../core/utils/formatters.dart';
++import '../../../../shared/widgets/kd_button.dart';
++import '../../../../shared/widgets/kd_card.dart';
++import '../../../../shared/widgets/kd_text_field.dart';
++import '../../../../shared/widgets/pin_confirmation_sheet.dart';
++
++/// Birth attestation with the same dynamic form as the web app: the field list
++/// (labels, sections, required flags, input types, select options) comes from
++/// GET /birth-attestation/fields, so the app never drifts from the backend.
++class BirthAttestationScreen extends ConsumerStatefulWidget {
++  const BirthAttestationScreen({super.key});
++
++  @override
++  ConsumerState<BirthAttestationScreen> createState() =>
++      _BirthAttestationScreenState();
++}
++
++class _BirthField {
++  _BirthField.fromJson(Map<String, dynamic> j)
++      : key = j['key']?.toString() ?? '',
++        label = j['label']?.toString() ?? '',
++        isRequired = j['required'] == true,
++        input = j['input']?.toString() ?? 'text',
++        options = ((j['options'] as List?) ?? const [])
++            .map((e) => e.toString())
++            .toList(),
++        section = j['section']?.toString() ?? 'Details';
++
++  final String key;
++  final String label;
++  final bool isRequired;
++  final String input; // text | date | nin | select | image
++  final List<String> options;
++  final String section;
++}
++
++class _BirthAttestationScreenState
++    extends ConsumerState<BirthAttestationScreen> {
++  final _formKey = GlobalKey<FormState>();
++  final Map<String, TextEditingController> _text = {};
++  final Map<String, String?> _select = {};
++  final Map<String, String?> _images = {}; // key -> data URL
++  final Map<String, String?> _imageNames = {};
++  List<_BirthField> _fields = const [];
++  double? _price;
++  List<Map<String, dynamic>> _history = const [];
++  bool _loading = true;
++  bool _busy = false;
++  bool _consent = false;
++  String? _error;
++
++  @override
++  void initState() {
++    super.initState();
++    _load();
++  }
++
++  @override
++  void dispose() {
++    for (final c in _text.values) {
++      c.dispose();
++    }
++    super.dispose();
++  }
++
++  Future<void> _load() async {
++    final dio = ref.read(dioClientProvider);
++    try {
++      final results = await Future.wait([
++        dio.get(AppEndpoints.birthFields),
++        dio.get(AppEndpoints.birthPrice),
++        dio.get(AppEndpoints.birthHistory),
++      ]);
++      if (!mounted) return;
++      final fields = (results[0].data['data'] as List? ?? const [])
++          .map((e) => _BirthField.fromJson(Map<String, dynamic>.from(e as Map)))
++          .toList();
++      for (final f in fields) {
++        if (f.input == 'select') continue;
++        if (f.input == 'image') continue;
++        _text.putIfAbsent(f.key, () => TextEditingController());
++      }
++      setState(() {
++        _fields = fields;
++        _price = ((results[1].data['data'] as Map?)?['unit_price'] as num?)?.toDouble();
++        _history = (results[2].data['data'] as List? ?? const [])
++            .map((e) => Map<String, dynamic>.from(e as Map))
++            .toList();
++        _loading = false;
++      });
++    } catch (_) {
++      if (mounted) setState(() { _loading = false; _error = 'Could not load the form. Pull to retry.'; });
++    }
++  }
++
++  Future<void> _pickDate(String key) async {
++    final now = DateTime.now();
++    final picked = await showDatePicker(
++      context: context,
++      initialDate: DateTime(now.year - 20),
++      firstDate: DateTime(1900),
++      lastDate: now,
++    );
++    if (picked == null) return;
++    _text.putIfAbsent(key, () => TextEditingController()).text =
++        '${picked.year.toString().padLeft(4, '0')}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}';
++    setState(() {});
++  }
++
++  Future<void> _pickImage(String key) async {
++    final picked = await FilePicker.pickFiles(
++      type: FileType.image,
++      withData: true,
++    );
++    final file = picked?.files.single;
++    final bytes = file?.bytes;
++    if (file == null || bytes == null) return;
++    if (bytes.length > 4 * 1024 * 1024) {
++      setState(() => _error = 'Photo must be under 4MB.');
++      return;
++    }
++    final ext = (file.extension ?? 'jpeg').toLowerCase();
++    final mime = ext == 'png' ? 'png' : ext == 'webp' ? 'webp' : 'jpeg';
++    setState(() {
++      _error = null;
++      _images[key] = 'data:image/$mime;base64,${base64Encode(bytes)}';
++      _imageNames[key] = file.name;
++    });
++  }
++
++  String? _valueOf(_BirthField f) {
++    switch (f.input) {
++      case 'select':
++        return _select[f.key];
++      case 'image':
++        return _images[f.key];
++      default:
++        final t = _text[f.key]?.text.trim() ?? '';
++        return t.isEmpty ? null : t;
++    }
++  }
++
++  Future<void> _submit() async {
++    setState(() => _error = null);
++    if (!(_formKey.currentState?.validate() ?? false)) return;
++    for (final f in _fields.where((f) => f.isRequired)) {
++      if (_valueOf(f) == null) {
++        setState(() => _error = '${f.label} is required.');
++        return;
++      }
++    }
++    if (!_consent) {
++      setState(() => _error = 'Please tick the consent box before continuing.');
++      return;
++    }
++    context.hideKeyboard();
++    final pin = await showPinConfirmationSheet(
++      context: context,
++      ref: ref,
++      title: 'Confirm Birth Attestation',
++      subtitle: _price == null
++          ? 'Confirm this request'
++          : 'Confirm ${AppFormatters.formatAmount(_price!)}',
++    );
++    if (pin == null || !mounted) return;
++
++    setState(() => _busy = true);
++    try {
++      // Optional fields are sent as '' when empty - the backend accepts that
++      // for every optional input type, and it is what the web app sends.
++      final body = <String, dynamic>{
++        for (final f in _fields) f.key: _valueOf(f) ?? '',
++        'pin': pin,
++      };
++      final r = await ref.read(dioClientProvider).post(
++            AppEndpoints.birthSubmit,
++            data: body,
++            options: Options(headers: {'Idempotency-Key': const Uuid().v4()}),
++          );
++      if (!mounted) return;
++      final reference = (r.data['data'] as Map?)?['reference']?.toString();
++      final message = r.data['message']?.toString() ?? 'Request submitted.';
++      for (final c in _text.values) {
++        c.clear();
++      }
++      setState(() {
++        _select.clear();
++        _images.clear();
++        _imageNames.clear();
++        _consent = false;
++      });
++      context.showSnackBar(reference == null ? message : '$message Ref: $reference');
++      _load();
++    } on DioException catch (e) {
++      final data = e.response?.data;
++      setState(() => _error = data is Map && data['message'] != null
++          ? data['message'].toString()
++          : 'Request failed. Please try again.');
++    } finally {
++      if (mounted) setState(() => _busy = false);
++    }
++  }
++
++  Widget _field(_BirthField f) {
++    switch (f.input) {
++      case 'select':
++        return DropdownButtonFormField<String>(
++          value: _select[f.key],
++          decoration: InputDecoration(labelText: f.label + (f.isRequired ? ' *' : '')),
++          items: f.options
++              .map((o) => DropdownMenuItem(value: o, child: Text(o)))
++              .toList(),
++          validator: (v) => f.isRequired && v == null ? 'Required' : null,
++          onChanged: (v) => setState(() => _select[f.key] = v),
++        );
++      case 'image':
++        return KDCard(
++          onTap: _busy ? null : () => _pickImage(f.key),
++          child: Row(
++            children: [
++              Expanded(
++                child: Text(
++                  '${f.label}${f.isRequired ? ' *' : ''}\n'
++                  '${_imageNames[f.key] ?? 'Tap to choose a photo (PNG, JPEG or WEBP)'}',
++                  style: const TextStyle(fontSize: 13),
++                ),
++              ),
++              Icon(
++                _images[f.key] == null
++                    ? Icons.add_photo_alternate_outlined
++                    : Icons.check_circle_rounded,
++                color: _images[f.key] == null
++                    ? AppColors.neutral500
++                    : AppColors.success600,
++              ),
++            ],
++          ),
++        );
++      case 'date':
++        final c = _text.putIfAbsent(f.key, () => TextEditingController());
++        return KDTextField(
++          controller: c,
++          hint: '${f.label}${f.isRequired ? ' *' : ''} (YYYY-MM-DD)',
++          readOnly: true,
++          onTap: () => _pickDate(f.key),
++          suffixIcon: Icons.calendar_today_outlined,
++          validator: (v) => f.isRequired && (v == null || v.trim().isEmpty) ? 'Required' : null,
++        );
++      case 'nin':
++        return KDTextField(
++          controller: _text[f.key],
++          hint: '${f.label}${f.isRequired ? ' *' : ''} (11 digits)',
++          keyboardType: TextInputType.number,
++          inputFormatters: [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(11)],
++          validator: (v) {
++            final t = v?.trim() ?? '';
++            if (t.isEmpty && !f.isRequired) return null;
++            return t.length == 11 ? null : 'Must be 11 digits';
++          },
++        );
++      default:
++        return KDTextField(
++          controller: _text[f.key],
++          hint: '${f.label}${f.isRequired ? ' *' : ''}',
++          validator: (v) {
++            final t = v?.trim() ?? '';
++            if (t.isEmpty && f.isRequired) return 'Required';
++            return null;
++          },
++        );
++    }
++  }
++
++  @override
++  Widget build(BuildContext context) {
++    // Group fields by their backend section, preserving the backend's order.
++    final sections = <String, List<_BirthField>>{};
++    for (final f in _fields) {
++      sections.putIfAbsent(f.section, () => []).add(f);
++    }
++
++    return Scaffold(
++      appBar: AppBar(title: const Text('Birth Attestation')),
++      body: SafeArea(
++        top: false,
++        child: _loading
++            ? const Center(child: CircularProgressIndicator())
++            : Form(
++                key: _formKey,
++                child: ListView(
++                  padding: const EdgeInsets.all(AppDimensions.screenPaddingH),
++                  children: [
++                    Text(
++                      _price == null
++                          ? 'Submit the details below for your birth attestation.'
++                          : 'Service cost: ${AppFormatters.formatAmount(_price!)}',
++                      style: context.textTheme.bodyMedium
++                          ?.copyWith(color: AppColors.neutral500),
++                    ),
++                    for (final entry in sections.entries) ...[
++                      Padding(
++                        padding: const EdgeInsets.only(top: 22, bottom: 10),
++                        child: Text(entry.key, style: context.textTheme.titleSmall),
++                      ),
++                      for (final f in entry.value)
++                        Padding(
++                          padding: const EdgeInsets.only(bottom: 12),
++                          child: _field(f),
++                        ),
++                    ],
++                    const SizedBox(height: 8),
++                    CheckboxListTile(
++                      contentPadding: EdgeInsets.zero,
++                      controlAffinity: ListTileControlAffinity.leading,
++                      value: _consent,
++                      onChanged: (v) => setState(() => _consent = v ?? false),
++                      title: const Text(
++                        'I confirm the details above are accurate and I authorize MAJOR DATA-LINK to submit this Birth Attestation request to NPC on my behalf.',
++                        style: TextStyle(fontSize: 12),
++                      ),
++                    ),
++                    if (_error != null) ...[
++                      const SizedBox(height: 8),
++                      Text(_error!, style: const TextStyle(color: AppColors.error600)),
++                    ],
++                    const SizedBox(height: 16),
++                    KDButton(
++                      label: 'Continue to PIN confirmation',
++                      onPressed: _busy ? null : _submit,
++                      isLoading: _busy,
++                      gradient: AppColors.primaryGradient,
++                    ),
++                    const SizedBox(height: 24),
++                    Text('My requests', style: context.textTheme.titleSmall),
++                    const SizedBox(height: 8),
++                    if (_history.isEmpty)
++                      const Text('No birth attestation requests yet.',
++                          style: TextStyle(color: AppColors.neutral500))
++                    else
++                      for (final h in _history)
++                        Padding(
++                          padding: const EdgeInsets.only(bottom: 8),
++                          child: KDCard(
++                            child: Row(
++                              children: [
++                                Expanded(
++                                  child: Text(h['reference']?.toString() ?? '',
++                                      style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),
++                                ),
++                                Text(h['status']?.toString() ?? '',
++                                    style: const TextStyle(fontWeight: FontWeight.w700)),
++                              ],
++                            ),
++                          ),
++                        ),
++                    const SizedBox(height: 24),
++                  ],
++                ),
++              ),
++      ),
++    );
++  }
++}
+diff --git a/major_data_link/lib/features/manual_services/presentation/screens/cac_registration_screen.dart b/major_data_link/lib/features/manual_services/presentation/screens/cac_registration_screen.dart
+new file mode 100644
+index 0000000..e6750b2
+--- /dev/null
++++ b/major_data_link/lib/features/manual_services/presentation/screens/cac_registration_screen.dart
+@@ -0,0 +1,468 @@
++import 'dart:convert';
++import 'package:file_picker/file_picker.dart';
++import 'package:flutter/material.dart';
++import 'package:flutter/services.dart';
++import 'package:flutter_riverpod/flutter_riverpod.dart';
++import 'package:dio/dio.dart';
++import 'package:uuid/uuid.dart';
++import '../../../../core/config/app_endpoints.dart';
++import '../../../../core/constants/app_colors.dart';
++import '../../../../core/constants/app_dimensions.dart';
++import '../../../../core/di/injection.dart';
++import '../../../../core/utils/extensions.dart';
++import '../../../../core/utils/formatters.dart';
++import '../../../../shared/widgets/kd_button.dart';
++import '../../../../shared/widgets/kd_card.dart';
++import '../../../../shared/widgets/kd_text_field.dart';
++import '../../../../shared/widgets/pin_confirmation_sheet.dart';
++
++/// Business name registration with the CAC. Mirrors the web CacServicesPage:
++/// same endpoints (/cac/prices, /cac/history, /cac/submit), same fields, same
++/// four document slots, same 4 MB limit and the same consent wording.
++/// LLC is intentionally not offered - the web app says it is quote-on-request.
++class CacRegistrationScreen extends ConsumerStatefulWidget {
++  const CacRegistrationScreen({super.key});
++
++  @override
++  ConsumerState<CacRegistrationScreen> createState() =>
++      _CacRegistrationScreenState();
++}
++
++const _cacDocumentLabels = <String>[
++  'Valid ID document(s)',
++  'Passport photograph(s)',
++  'Proof of address',
++  'Signature specimen(s)',
++];
++
++class _CacDocument {
++  const _CacDocument({
++    required this.label,
++    required this.name,
++    required this.mimeType,
++    required this.base64,
++  });
++  final String label;
++  final String name;
++  final String mimeType;
++  final String base64;
++}
++
++class _CacRegistrationScreenState extends ConsumerState<CacRegistrationScreen> {
++  final _formKey = GlobalKey<FormState>();
++  final _name1 = TextEditingController();
++  final _name2 = TextEditingController();
++  final _nature = TextEditingController();
++  final _businessAddress = TextEditingController();
++  final _fullName = TextEditingController();
++  final _phone = TextEditingController();
++  final _email = TextEditingController();
++  final _residentialAddress = TextEditingController();
++  final _dob = TextEditingController();
++  final _nin = TextEditingController();
++
++  String _service = 'sole';
++  String? _gender;
++  bool _consent = false;
++  bool _busy = false;
++  bool _loadingHistory = true;
++  String? _error;
++  final Map<String, _CacDocument> _documents = {};
++  final Map<String, double> _prices = {};
++  List<Map<String, dynamic>> _history = const [];
++
++  @override
++  void initState() {
++    super.initState();
++    _loadPrices();
++    _loadHistory();
++  }
++
++  @override
++  void dispose() {
++    for (final c in [
++      _name1, _name2, _nature, _businessAddress, _fullName, _phone, _email,
++      _residentialAddress, _dob, _nin,
++    ]) {
++      c.dispose();
++    }
++    super.dispose();
++  }
++
++  double? get _price => _prices[_service];
++
++  Future<void> _loadPrices() async {
++    try {
++      final r = await ref.read(dioClientProvider).get(AppEndpoints.cacPrices);
++      final rows = (r.data['data'] as List? ?? const []);
++      if (!mounted) return;
++      setState(() {
++        for (final row in rows) {
++          final m = Map<String, dynamic>.from(row as Map);
++          final type = m['type']?.toString();
++          final price = m['unitPrice'] ?? m['unit_price'];
++          if (type != null && price is num) _prices[type] = price.toDouble();
++        }
++      });
++    } catch (_) {/* price stays hidden; submit still goes through the backend */}
++  }
++
++  Future<void> _loadHistory() async {
++    try {
++      final r = await ref.read(dioClientProvider).get(AppEndpoints.cacHistory);
++      if (!mounted) return;
++      setState(() {
++        _history = (r.data['data'] as List? ?? const [])
++            .map((e) => Map<String, dynamic>.from(e as Map))
++            .toList();
++      });
++    } catch (_) {
++    } finally {
++      if (mounted) setState(() => _loadingHistory = false);
++    }
++  }
++
++  Future<void> _pickDob() async {
++    final now = DateTime.now();
++    final picked = await showDatePicker(
++      context: context,
++      initialDate: DateTime(now.year - 30),
++      firstDate: DateTime(1900),
++      lastDate: now,
++    );
++    if (picked == null) return;
++    _dob.text =
++        '${picked.year.toString().padLeft(4, '0')}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}';
++  }
++
++  Future<void> _pickDocument(String label) async {
++    final picked = await FilePicker.pickFiles(
++      type: FileType.custom,
++      allowedExtensions: const ['pdf', 'jpg', 'jpeg', 'png'],
++      withData: true,
++    );
++    final file = picked?.files.single;
++    final bytes = file?.bytes;
++    if (file == null || bytes == null) return;
++    if (bytes.length > 4 * 1024 * 1024) {
++      setState(() => _error = 'Each document must be under 4MB.');
++      return;
++    }
++    final ext = (file.extension ?? '').toLowerCase();
++    final mime = ext == 'pdf'
++        ? 'application/pdf'
++        : ext == 'png'
++            ? 'image/png'
++            : 'image/jpeg';
++    setState(() {
++      _error = null;
++      _documents[label] = _CacDocument(
++        label: label,
++        name: file.name,
++        mimeType: mime,
++        base64: base64Encode(bytes),
++      );
++    });
++  }
++
++  String? _required(String? v, {int min = 1, int? exact}) {
++    final t = v?.trim() ?? '';
++    if (t.isEmpty) return 'Required';
++    if (exact != null && t.length != exact) return 'Must be $exact digits';
++    if (t.length < min) return 'Too short';
++    return null;
++  }
++
++  Future<void> _submit() async {
++    setState(() => _error = null);
++    if (!(_formKey.currentState?.validate() ?? false)) return;
++    if (_gender == null || _dob.text.isEmpty) {
++      setState(() => _error = 'Select your date of birth and gender.');
++      return;
++    }
++    if (!_consent) {
++      setState(() => _error = 'Please tick the consent box before continuing.');
++      return;
++    }
++    context.hideKeyboard();
++    final pin = await showPinConfirmationSheet(
++      context: context,
++      ref: ref,
++      title: 'Confirm CAC registration',
++      subtitle: _price == null
++          ? 'Confirm this request'
++          : 'Confirm ${AppFormatters.formatAmount(_price!)}',
++    );
++    if (pin == null || !mounted) return;
++
++    setState(() => _busy = true);
++    try {
++      final body = <String, dynamic>{
++        'cac_type': _service,
++        'proposed_name_1': _name1.text.trim(),
++        if (_name2.text.trim().isNotEmpty) 'proposed_name_2': _name2.text.trim(),
++        'business_nature': _nature.text.trim(),
++        'business_address': _businessAddress.text.trim(),
++        'proprietor_full_name': _fullName.text.trim(),
++        'proprietor_phone': _phone.text.trim(),
++        'proprietor_email': _email.text.trim(),
++        'proprietor_residential_address': _residentialAddress.text.trim(),
++        'proprietor_date_of_birth': _dob.text.trim(),
++        'proprietor_gender': _gender,
++        'proprietor_nin': _nin.text.trim(),
++        if (_documents.isNotEmpty)
++          'supporting_documents': _documents.values
++              .map((d) => {
++                    'label': d.label,
++                    'name': d.name,
++                    'mime_type': d.mimeType,
++                    'base64': d.base64,
++                  })
++              .toList(),
++        'pin': pin,
++      };
++      final r = await ref.read(dioClientProvider).post(
++            AppEndpoints.cacSubmit,
++            data: body,
++            options: Options(headers: {'Idempotency-Key': const Uuid().v4()}),
++          );
++      if (!mounted) return;
++      final message = r.data['message']?.toString() ?? 'Request submitted.';
++      final reference = (r.data['data'] as Map?)?['reference']?.toString();
++      _resetForm();
++      context.showSnackBar(reference == null ? message : '$message Ref: $reference');
++      _loadHistory();
++    } on DioException catch (e) {
++      final data = e.response?.data;
++      setState(() => _error = data is Map && data['message'] != null
++          ? data['message'].toString()
++          : 'Request failed. Please try again.');
++    } finally {
++      if (mounted) setState(() => _busy = false);
++    }
++  }
++
++  void _resetForm() {
++    for (final c in [
++      _name1, _name2, _nature, _businessAddress, _fullName, _phone, _email,
++      _residentialAddress, _dob, _nin,
++    ]) {
++      c.clear();
++    }
++    setState(() {
++      _service = 'sole';
++      _gender = null;
++      _consent = false;
++      _documents.clear();
++    });
++  }
++
++  Widget _sectionTitle(String t) => Padding(
++        padding: const EdgeInsets.only(top: 22, bottom: 10),
++        child: Text(t, style: context.textTheme.titleSmall),
++      );
++
++  @override
++  Widget build(BuildContext context) {
++    return Scaffold(
++      appBar: AppBar(title: const Text('CAC Services')),
++      body: SafeArea(
++        top: false,
++        child: Form(
++          key: _formKey,
++          child: ListView(
++            padding: const EdgeInsets.all(AppDimensions.screenPaddingH),
++            children: [
++              Text('Business name registration',
++                  style: context.textTheme.titleMedium
++                      ?.copyWith(fontWeight: FontWeight.w800)),
++              const SizedBox(height: 4),
++              Text(
++                _price == null
++                    ? 'Service cost: loading…'
++                    : 'Service cost: ${AppFormatters.formatAmount(_price!)}',
++                style: const TextStyle(color: AppColors.neutral500),
++              ),
++              _sectionTitle('Registration type'),
++              Wrap(
++                spacing: 8,
++                children: [
++                  ChoiceChip(
++                    label: const Text('Sole proprietorship'),
++                    selected: _service == 'sole',
++                    onSelected: (_) => setState(() => _service = 'sole'),
++                  ),
++                  ChoiceChip(
++                    label: const Text('Partnership'),
++                    selected: _service == 'partnership',
++                    onSelected: (_) => setState(() => _service = 'partnership'),
++                  ),
++                ],
++              ),
++              _sectionTitle('Business names'),
++              KDTextField(
++                controller: _name1,
++                hint: 'Option 1, e.g. Amana Traders',
++                validator: (v) => _required(v, min: 2),
++              ),
++              const SizedBox(height: 10),
++              KDTextField(
++                controller: _name2,
++                hint: 'Option 2 (optional)',
++              ),
++              _sectionTitle('Business details'),
++              KDTextField(
++                controller: _nature,
++                hint: 'Nature of business, e.g. Retail of electronics',
++                validator: (v) => _required(v, min: 2),
++              ),
++              const SizedBox(height: 10),
++              KDTextField(
++                controller: _businessAddress,
++                hint: 'Business address',
++                validator: (v) => _required(v, min: 3),
++              ),
++              _sectionTitle('Proprietor'),
++              KDTextField(
++                controller: _fullName,
++                hint: 'Full name',
++                validator: (v) => _required(v, min: 2),
++              ),
++              const SizedBox(height: 10),
++              KDTextField(
++                controller: _phone,
++                hint: 'Phone (11 digits)',
++                keyboardType: TextInputType.number,
++                inputFormatters: [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(11)],
++                validator: (v) => _required(v, exact: 11),
++              ),
++              const SizedBox(height: 10),
++              KDTextField(
++                controller: _email,
++                hint: 'Email',
++                keyboardType: TextInputType.emailAddress,
++                validator: (v) => (v != null && v.contains('@') && v.contains('.')) ? null : 'Enter a valid email',
++              ),
++              const SizedBox(height: 10),
++              KDTextField(
++                controller: _residentialAddress,
++                hint: 'Residential address',
++                validator: (v) => _required(v, min: 3),
++              ),
++              const SizedBox(height: 10),
++              KDTextField(
++                controller: _dob,
++                hint: 'Date of birth',
++                readOnly: true,
++                onTap: _pickDob,
++                suffixIcon: Icons.calendar_today_outlined,
++                validator: (v) => _required(v),
++              ),
++              const SizedBox(height: 10),
++              DropdownButtonFormField<String>(
++                value: _gender,
++                decoration: const InputDecoration(labelText: 'Gender'),
++                items: const [
++                  DropdownMenuItem(value: 'Male', child: Text('Male')),
++                  DropdownMenuItem(value: 'Female', child: Text('Female')),
++                ],
++                onChanged: (v) => setState(() => _gender = v),
++              ),
++              const SizedBox(height: 10),
++              KDTextField(
++                controller: _nin,
++                hint: 'NIN (11 digits)',
++                keyboardType: TextInputType.number,
++                inputFormatters: [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(11)],
++                validator: (v) => _required(v, exact: 11),
++              ),
++              _sectionTitle('Supporting documents'),
++              Text('PDF, JPG or PNG, up to 4MB each. Available to the CAC admin only.',
++                  style: context.textTheme.bodySmall
++                      ?.copyWith(color: AppColors.neutral500)),
++              const SizedBox(height: 10),
++              for (final label in _cacDocumentLabels)
++                Padding(
++                  padding: const EdgeInsets.only(bottom: 8),
++                  child: KDCard(
++                    onTap: _busy ? null : () => _pickDocument(label),
++                    child: Row(
++                      children: [
++                        Expanded(
++                          child: Column(
++                            crossAxisAlignment: CrossAxisAlignment.start,
++                            children: [
++                              Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
++                              const SizedBox(height: 2),
++                              Text(
++                                _documents[label]?.name ?? 'Tap to choose a file',
++                                style: const TextStyle(fontSize: 12, color: AppColors.neutral500),
++                              ),
++                            ],
++                          ),
++                        ),
++                        Icon(
++                          _documents[label] == null
++                              ? Icons.upload_file_outlined
++                              : Icons.check_circle_rounded,
++                          color: _documents[label] == null
++                              ? AppColors.neutral500
++                              : AppColors.success600,
++                        ),
++                      ],
++                    ),
++                  ),
++                ),
++              const SizedBox(height: 8),
++              CheckboxListTile(
++                contentPadding: EdgeInsets.zero,
++                controlAffinity: ListTileControlAffinity.leading,
++                value: _consent,
++                onChanged: (v) => setState(() => _consent = v ?? false),
++                title: const Text(
++                  'I confirm the details above are accurate and I authorize MAJOR DATA-LINK to file this registration with the Corporate Affairs Commission on my behalf.',
++                  style: TextStyle(fontSize: 12),
++                ),
++              ),
++              if (_error != null) ...[
++                const SizedBox(height: 8),
++                Text(_error!, style: const TextStyle(color: AppColors.error600)),
++              ],
++              const SizedBox(height: 16),
++              KDButton(
++                label: 'Continue to PIN confirmation',
++                onPressed: _busy ? null : _submit,
++                isLoading: _busy,
++                gradient: AppColors.primaryGradient,
++              ),
++              _sectionTitle('My CAC requests'),
++              if (_loadingHistory)
++                const Center(child: CircularProgressIndicator())
++              else if (_history.isEmpty)
++                const Text('No CAC requests yet.',
++                    style: TextStyle(color: AppColors.neutral500))
++              else
++                for (final h in _history)
++                  Padding(
++                    padding: const EdgeInsets.only(bottom: 8),
++                    child: KDCard(
++                      child: Row(
++                        children: [
++                          Expanded(
++                            child: Text(h['reference']?.toString() ?? '',
++                                style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),
++                          ),
++                          Text(h['status']?.toString() ?? '',
++                              style: const TextStyle(fontWeight: FontWeight.w700)),
++                        ],
++                      ),
++                    ),
++                  ),
++              const SizedBox(height: 24),
++            ],
++          ),
++        ),
++      ),
++    );
++  }
++}
+diff --git a/major_data_link/lib/features/manual_services/presentation/screens/school_website_screen.dart b/major_data_link/lib/features/manual_services/presentation/screens/school_website_screen.dart
+new file mode 100644
+index 0000000..c7a278e
+--- /dev/null
++++ b/major_data_link/lib/features/manual_services/presentation/screens/school_website_screen.dart
+@@ -0,0 +1,256 @@
++import 'package:dio/dio.dart';
++import 'package:flutter/material.dart';
++import 'package:flutter/services.dart';
++import 'package:flutter_riverpod/flutter_riverpod.dart';
++import 'package:url_launcher/url_launcher.dart';
++import 'package:uuid/uuid.dart';
++import '../../../../core/config/app_endpoints.dart';
++import '../../../../core/constants/app_colors.dart';
++import '../../../../core/constants/app_dimensions.dart';
++import '../../../../core/di/injection.dart';
++import '../../../../core/utils/extensions.dart';
++import '../../../../core/utils/formatters.dart';
++import '../../../../shared/widgets/kd_button.dart';
++import '../../../../shared/widgets/kd_card.dart';
++import '../../../../shared/widgets/kd_text_field.dart';
++import '../../../../shared/widgets/pin_confirmation_sheet.dart';
++
++/// School website (EduTrac) subscriptions - same endpoints and rules as the
++/// web SchoolWebsitePage: plans come from /school-website/plans, purchase goes
++/// to /school-website/subscribe with the PIN and an idempotency key.
++class SchoolWebsiteScreen extends ConsumerStatefulWidget {
++  const SchoolWebsiteScreen({super.key});
++
++  @override
++  ConsumerState<SchoolWebsiteScreen> createState() =>
++      _SchoolWebsiteScreenState();
++}
++
++const _demoUrl = 'https://edutracng.netlify.app/';
++
++class _Plan {
++  const _Plan({required this.plan, required this.label, required this.price, required this.active});
++  final String plan;
++  final String label;
++  final double price;
++  final bool active;
++
++  factory _Plan.fromJson(Map<String, dynamic> j) => _Plan(
++        plan: j['plan']?.toString() ?? '',
++        label: j['label']?.toString() ?? '',
++        price: (j['unit_price'] as num?)?.toDouble() ?? 0,
++        active: j['is_active'] == true,
++      );
++}
++
++class _SchoolWebsiteScreenState extends ConsumerState<SchoolWebsiteScreen> {
++  final _formKey = GlobalKey<FormState>();
++  final _schoolName = TextEditingController();
++  final _contactPhone = TextEditingController();
++  List<_Plan> _plans = const [];
++  List<Map<String, dynamic>> _subscriptions = const [];
++  String _selected = 'TERMLY';
++  bool _loading = true;
++  bool _busy = false;
++  String? _error;
++
++  @override
++  void initState() {
++    super.initState();
++    _load();
++  }
++
++  @override
++  void dispose() {
++    _schoolName.dispose();
++    _contactPhone.dispose();
++    super.dispose();
++  }
++
++  Future<void> _load() async {
++    final dio = ref.read(dioClientProvider);
++    try {
++      final r = await Future.wait([
++        dio.get(AppEndpoints.schoolPlans),
++        dio.get(AppEndpoints.schoolSubscriptions),
++      ]);
++      if (!mounted) return;
++      setState(() {
++        _plans = (r[0].data['data'] as List? ?? const [])
++            .map((e) => _Plan.fromJson(Map<String, dynamic>.from(e as Map)))
++            .toList();
++        _subscriptions = (r[1].data['data'] as List? ?? const [])
++            .map((e) => Map<String, dynamic>.from(e as Map))
++            .toList();
++        _loading = false;
++      });
++    } catch (_) {
++      if (mounted) setState(() { _loading = false; _error = 'Unable to load school website plans. Pull to retry.'; });
++    }
++  }
++
++  Future<void> _openDemo() async {
++    final ok = await launchUrl(Uri.parse(_demoUrl), mode: LaunchMode.externalApplication);
++    if (!ok && mounted) context.showSnackBar('Could not open the sample.', isError: true);
++  }
++
++  Future<void> _purchase() async {
++    setState(() => _error = null);
++    if (!(_formKey.currentState?.validate() ?? false)) return;
++    context.hideKeyboard();
++    final matches = _plans.where((p) => p.plan == _selected);
++    final plan = matches.isEmpty ? null : matches.first;
++    final pin = await showPinConfirmationSheet(
++      context: context,
++      ref: ref,
++      title: 'Confirm school website',
++      subtitle: plan == null ? 'Confirm this subscription' : 'Confirm ${AppFormatters.formatAmount(plan.price)}',
++    );
++    if (pin == null || !mounted) return;
++
++    setState(() => _busy = true);
++    try {
++      final r = await ref.read(dioClientProvider).post(
++            AppEndpoints.schoolSubscribe,
++            data: {
++              'plan': _selected,
++              'school_name': _schoolName.text.trim(),
++              'contact_phone': _contactPhone.text.trim(),
++              'pin': pin,
++            },
++            options: Options(headers: {'Idempotency-Key': const Uuid().v4()}),
++          );
++      if (!mounted) return;
++      _schoolName.clear();
++      _contactPhone.clear();
++      context.showSnackBar(r.data['message']?.toString() ?? 'Subscription request placed.');
++      _load();
++    } on DioException catch (e) {
++      final data = e.response?.data;
++      setState(() => _error = data is Map && data['message'] != null
++          ? data['message'].toString()
++          : 'Could not place this subscription request. Try again.');
++    } finally {
++      if (mounted) setState(() => _busy = false);
++    }
++  }
++
++  @override
++  Widget build(BuildContext context) {
++    return Scaffold(
++      appBar: AppBar(title: const Text('School Website')),
++      body: SafeArea(
++        top: false,
++        child: _loading
++            ? const Center(child: CircularProgressIndicator())
++            : Form(
++                key: _formKey,
++                child: ListView(
++                  padding: const EdgeInsets.all(AppDimensions.screenPaddingH),
++                  children: [
++                    KDCard(
++                      backgroundColor: AppColors.primary50,
++                      child: Column(
++                        crossAxisAlignment: CrossAxisAlignment.start,
++                        children: [
++                          Text('EduTrac School Management System',
++                              style: context.textTheme.titleMedium
++                                  ?.copyWith(fontWeight: FontWeight.w800)),
++                          const SizedBox(height: 6),
++                          const Text(
++                              'Explore the live sample, then request a subscription for your school.'),
++                          const SizedBox(height: 12),
++                          OutlinedButton.icon(
++                            onPressed: _openDemo,
++                            icon: const Icon(Icons.open_in_new_rounded, size: 18),
++                            label: const Text('Open EduTrac sample'),
++                          ),
++                        ],
++                      ),
++                    ),
++                    const SizedBox(height: 20),
++                    Text('Choose a subscription', style: context.textTheme.titleSmall),
++                    const SizedBox(height: 10),
++                    Wrap(
++                      spacing: 8,
++                      runSpacing: 8,
++                      children: [
++                        for (final p in _plans)
++                          ChoiceChip(
++                            label: Text('${p.label} · ${AppFormatters.formatAmount(p.price)}'),
++                            selected: _selected == p.plan,
++                            onSelected: p.active ? (_) => setState(() => _selected = p.plan) : null,
++                          ),
++                      ],
++                    ),
++                    const SizedBox(height: 16),
++                    KDTextField(
++                      controller: _schoolName,
++                      hint: 'School name',
++                      maxLength: 120,
++                      validator: (v) => (v == null || v.trim().length < 2) ? 'Enter the school name' : null,
++                    ),
++                    const SizedBox(height: 10),
++                    KDTextField(
++                      controller: _contactPhone,
++                      hint: 'Contact phone',
++                      keyboardType: TextInputType.phone,
++                      maxLength: 24,
++                      inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9+\- ]'))],
++                      validator: (v) => (v == null || v.trim().length < 7) ? 'Enter a valid phone number' : null,
++                    ),
++                    if (_error != null) ...[
++                      const SizedBox(height: 10),
++                      Text(_error!, style: const TextStyle(color: AppColors.error600)),
++                    ],
++                    const SizedBox(height: 16),
++                    KDButton(
++                      label: 'Continue to PIN confirmation',
++                      onPressed: _busy || !_plans.any((p) => p.plan == _selected && p.active)
++                          ? null
++                          : _purchase,
++                      isLoading: _busy,
++                      gradient: AppColors.primaryGradient,
++                    ),
++                    const SizedBox(height: 24),
++                    Text('My subscriptions', style: context.textTheme.titleSmall),
++                    const SizedBox(height: 8),
++                    if (_subscriptions.isEmpty)
++                      const Text('No subscriptions yet.',
++                          style: TextStyle(color: AppColors.neutral500))
++                    else
++                      for (final s in _subscriptions)
++                        Padding(
++                          padding: const EdgeInsets.only(bottom: 8),
++                          child: KDCard(
++                            child: Column(
++                              crossAxisAlignment: CrossAxisAlignment.start,
++                              children: [
++                                Row(
++                                  children: [
++                                    Expanded(
++                                      child: Text(s['plan']?.toString() ?? '',
++                                          style: const TextStyle(fontWeight: FontWeight.w700)),
++                                    ),
++                                    Text(s['status']?.toString() ?? '',
++                                        style: const TextStyle(fontWeight: FontWeight.w700)),
++                                  ],
++                                ),
++                                const SizedBox(height: 4),
++                                Text(s['reference']?.toString() ?? '',
++                                    style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),
++                                if (s['expires_at'] != null)
++                                  Text('Expires: ${s['expires_at']}',
++                                      style: const TextStyle(fontSize: 12, color: AppColors.neutral500)),
++                              ],
++                            ),
++                          ),
++                        ),
++                    const SizedBox(height: 24),
++                  ],
++                ),
++              ),
++      ),
++    );
++  }
++}
