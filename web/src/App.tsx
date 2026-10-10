@@ -34,7 +34,6 @@ import JambServicesPage from './pages/JambServicesPage';
 import CacServicesPage from './pages/CacServicesPage';
 import TinServicesPage from './pages/TinServicesPage';
 import SupportPage from './pages/SupportPage';
-import ManualServiceRequestPage from './pages/ManualServiceRequestPage';
 import ServiceHistoryPage from './pages/ServiceHistoryPage';
 import WalletHistoryPage from './pages/WalletHistoryPage';
 import SchoolWebsitePage from './pages/SchoolWebsitePage';
