@@ -82,7 +82,9 @@ export const partnerNotificationBroadcastResource: ResourceWithOptions = {
           if (!admin?.id) throw new Error('Missing admin session');
 
           if (request.payload) {
-            request.payload.createdByAdminId = admin.id;
+            // Relation field, same as notification-broadcast.resource.ts. Setting the
+            // scalar createdByAdminId left createdByAdmin empty and Prisma rejected the create.
+            request.payload.createdByAdmin = admin.id;
 
             // Same comma-separated-string -> JSON-array conversion as
             // notification-broadcast.resource.ts's targetUserIds.
