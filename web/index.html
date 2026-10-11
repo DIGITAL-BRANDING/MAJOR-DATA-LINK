@@ -77,6 +77,20 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700;800&family=Poppins:wght@300;400;600;700&display=swap" rel="stylesheet" />
+    <script>
+      // Browsers that cannot read color-mix() (Chrome/Android WebView before 111,
+      // Safari before 16.2, Firefox before 113) also cannot read cascade layers,
+      // so they drop the modern stylesheet entirely. Give them the flattened copy.
+      (function () {
+        var supported = !!(window.CSS && CSS.supports && CSS.supports('color', 'color-mix(in srgb, red 50%, blue)'));
+        if (!supported) {
+          var link = document.createElement('link');
+          link.rel = 'stylesheet';
+          link.href = '__LEGACY_CSS_HREF__';
+          document.head.appendChild(link);
+        }
+      }());
+    </script>
   </head>
   <body>
     <div id="root"></div>

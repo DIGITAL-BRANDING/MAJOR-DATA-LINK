@@ -6,6 +6,7 @@ import { prisma } from '../lib/prisma.js';
 import { ApiError } from '../middleware/error.js';
 import { katpayService } from './katpay.service.js';
 import { paystackService } from './paystack.service.js';
+import { notifyPartnerSafely } from './notification.service.js';
 import { createDynamicFundingAccount, verifyDynamicFunding } from './payment-provider.service.js';
 
 function splitName(name: string) {
@@ -134,6 +135,14 @@ export async function creditPartnerDirectDeposit(params: { reference: string; am
   void import('./partner-webhook.service.js').then(({ enqueuePartnerTransactionWebhook, deliverDuePartnerWebhooks }) =>
     enqueuePartnerTransactionWebhook(transaction).then(() => deliverDuePartnerWebhooks(1)).catch((error) => console.error('[partner-webhooks] could not queue direct-deposit event', error))
   );
+  const amountNaira = (Number(params.amountKobo) / 100).toLocaleString('en-NG', { minimumFractionDigits: 2 });
+  notifyPartnerSafely({
+    partnerId: params.partnerId,
+    type: 'WALLET',
+    title: 'Wallet funded',
+    body: `NGN${amountNaira} has been credited to your wallet.`,
+    data: { reference: transaction.reference }
+  });
   return transaction;
 }
 

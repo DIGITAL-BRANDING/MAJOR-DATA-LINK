@@ -4,7 +4,7 @@ import { Trans, useTranslation } from 'react-i18next';
 import LanguageSwitcher from '../components/LanguageSwitcher';
 import LiveChatWidget from '../components/LiveChatWidget';
 import { API_BASE } from '../lib/api';
-import { removeWebPushSubscription } from '../lib/web-push';
+import { isWebPushSupported, removeWebPushSubscription, syncWebPush } from '../lib/web-push';
 import {
   Activity,
   AlertTriangle,
@@ -145,6 +145,54 @@ type PartnerNotice = {
   show_as_popup?: boolean;
   created_at?: string;
 };
+
+/**
+ * Lets a partner turn on browser alerts. The browser only shows its permission
+ * prompt after this click, which browsers (Safari especially) require.
+ */
+function PartnerPushToggle() {
+  const [state, setState] = useState<'checking' | 'on' | 'off' | 'unsupported'>('checking');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!isWebPushSupported()) {
+      setState('unsupported');
+      return;
+    }
+    const { access } = getTokens();
+    if (!access || Notification.permission !== 'granted') {
+      setState('off');
+      return;
+    }
+    // Permission already granted: re-sync quietly so the subscription stays current.
+    void syncWebPush(access, { prompt: false }).then((ok) => setState(ok ? 'on' : 'off'));
+  }, []);
+
+  if (state === 'checking' || state === 'unsupported') return null;
+  if (state === 'on') {
+    return <span className="text-xs font-semibold text-emerald-600">Alerts on</span>;
+  }
+
+  async function enable() {
+    const { access } = getTokens();
+    if (!access) return;
+    setBusy(true);
+    const ok = await syncWebPush(access, { prompt: true });
+    setBusy(false);
+    setState(ok ? 'on' : 'off');
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={enable}
+      disabled={busy}
+      className="rounded-lg border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+    >
+      {busy ? 'Enabling…' : 'Turn on alerts'}
+    </button>
+  );
+}
 
 /**
  * Partner-portal counterpart of AppShell.tsx's NotificationBell - same
@@ -396,6 +444,7 @@ export default function PartnerDashboardPage() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <PartnerPushToggle />
             <PartnerNotificationBell />
             <LanguageSwitcher />
             <Link

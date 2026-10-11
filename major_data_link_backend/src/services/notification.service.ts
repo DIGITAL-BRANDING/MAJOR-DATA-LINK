@@ -3,6 +3,32 @@ import { nanoid } from 'nanoid';
 import { prisma } from '../lib/prisma.js';
 import { getFirebaseAdmin } from '../lib/firebase.js';
 import { env } from '../config/env.js';
+import { sendWebPushToOwner, type WebPushPayload } from './web-push.service.js';
+
+/** Where a partner lands when they tap a browser alert. */
+const PARTNER_PORTAL_PATH = '/partner-dashboard';
+const PARTNER_PUSH_BATCH_SIZE = 20;
+const PARTNER_PUSH_BODY_MAX = 180;
+
+/**
+ * Browser push to partners who turned on alerts in the portal. Fire-and-forget:
+ * the in-app PartnerNotification row is already saved, so a slow or failed push
+ * never blocks the caller or fails the notification. Partners who never
+ * subscribed are skipped by sendWebPushToOwner itself.
+ */
+function pushToPartners(partnerIds: string[], payload: WebPushPayload) {
+  const message = { ...payload, body: payload.body.slice(0, PARTNER_PUSH_BODY_MAX) };
+  void (async () => {
+    for (let i = 0; i < partnerIds.length; i += PARTNER_PUSH_BATCH_SIZE) {
+      const batch = partnerIds.slice(i, i + PARTNER_PUSH_BATCH_SIZE);
+      await Promise.all(
+        batch.map((ownerId) =>
+          sendWebPushToOwner({ ownerType: 'PARTNER', ownerId }, message).catch(() => undefined)
+        )
+      );
+    }
+  })().catch(() => undefined);
+}
 
 /**
  * Preset illustrations a promotional popup notification can use (see the
@@ -288,7 +314,7 @@ export async function notifyPartner(params: {
   body: string;
   data?: Prisma.InputJsonValue;
 }) {
-  return prisma.partnerNotification.create({
+  const row = await prisma.partnerNotification.create({
     data: {
       id: nanoid(),
       partnerId: params.partnerId,
@@ -298,6 +324,21 @@ export async function notifyPartner(params: {
       data: params.data
     }
   });
+  pushToPartners([params.partnerId], {
+    title: params.title,
+    body: params.body,
+    url: PARTNER_PORTAL_PATH,
+    tag: 'partner-notification'
+  });
+  return row;
+}
+
+/**
+ * notifyPartner() for call sites where a failed notification must never break
+ * the business action it reports (a completed request, a credited deposit).
+ */
+export function notifyPartnerSafely(params: Parameters<typeof notifyPartner>[0]) {
+  void notifyPartner(params).catch((error) => console.error('[partner-notify] could not notify partner', error));
 }
 
 /**
@@ -326,6 +367,10 @@ export async function fanOutPartnerBroadcast(broadcastId: string) {
         showAsPopup: broadcast.showAsPopup
       }))
     });
+    pushToPartners(
+      targetPartners.map((p) => p.id),
+      { title: broadcast.title, body: broadcast.body, url: PARTNER_PORTAL_PATH, tag: `partner-broadcast-${broadcast.id}` }
+    );
   }
 
   return prisma.partnerNotificationBroadcast.update({

@@ -1,0 +1,176 @@
+diff --git a/web/index.html b/web/index.html
+index 4fef4b0..e0ba583 100644
+--- a/web/index.html
++++ b/web/index.html
+@@ -77,6 +77,20 @@
+     <link rel="preconnect" href="https://fonts.googleapis.com" />
+     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700;800&family=Poppins:wght@300;400;600;700&display=swap" rel="stylesheet" />
++    <script>
++      // Browsers that cannot read color-mix() (Chrome/Android WebView before 111,
++      // Safari before 16.2, Firefox before 113) also cannot read cascade layers,
++      // so they drop the modern stylesheet entirely. Give them the flattened copy.
++      (function () {
++        var supported = !!(window.CSS && CSS.supports && CSS.supports('color', 'color-mix(in srgb, red 50%, blue)'));
++        if (!supported) {
++          var link = document.createElement('link');
++          link.rel = 'stylesheet';
++          link.href = '__LEGACY_CSS_HREF__';
++          document.head.appendChild(link);
++        }
++      }());
++    </script>
+   </head>
+   <body>
+     <div id="root"></div>
+diff --git a/web/package-lock.json b/web/package-lock.json
+index 77fa219..2365b71 100644
+--- a/web/package-lock.json
++++ b/web/package-lock.json
+@@ -23,6 +23,7 @@
+         "@types/react-dom": "^19.2.3",
+         "@vitejs/plugin-legacy": "^8.2.3",
+         "@vitejs/plugin-react": "^6.0.4",
++        "lightningcss": "^1.32.0",
+         "oxlint": "^1.75.0",
+         "tailwindcss": "^4.3.3",
+         "terser": "^5.51.2",
+diff --git a/web/package.json b/web/package.json
+index fa33c35..f22e67f 100644
+--- a/web/package.json
++++ b/web/package.json
+@@ -25,6 +25,7 @@
+     "@types/react-dom": "^19.2.3",
+     "@vitejs/plugin-legacy": "^8.2.3",
+     "@vitejs/plugin-react": "^6.0.4",
++    "lightningcss": "^1.32.0",
+     "oxlint": "^1.75.0",
+     "tailwindcss": "^4.3.3",
+     "terser": "^5.51.2",
+diff --git a/web/plugins/legacy-css.ts b/web/plugins/legacy-css.ts
+new file mode 100644
+index 0000000..323e4a9
+--- /dev/null
++++ b/web/plugins/legacy-css.ts
+@@ -0,0 +1,91 @@
++import { createHash } from 'node:crypto'
++import { readFileSync, writeFileSync } from 'node:fs'
++import path from 'node:path'
++import type { Plugin } from 'vite'
++import { transform } from 'lightningcss'
++
++/** Placeholder in index.html, replaced at build time with the legacy stylesheet URL. */
++const LEGACY_HREF_PLACEHOLDER = '__LEGACY_CSS_HREF__'
++
++/**
++ * Lowering targets for the legacy stylesheet only. Used for browsers that
++ * cannot read `color-mix()` (Chrome/Android WebView before 111). Encoding: major << 16.
++ */
++const LEGACY_CSS_TARGETS = {
++  chrome: 60 << 16,
++  android: 60 << 16,
++  firefox: 60 << 16,
++  safari: 12 << 16,
++  ios_saf: 12 << 16,
++}
++
++/**
++ * Removes cascade-layer wrappers (`@layer x { ... }`) and layer ordering
++ * statements (`@layer a, b;`) while keeping every rule in its source order.
++ * Browsers without cascade layers drop the whole block, which is why the
++ * modern stylesheet renders unstyled there.
++ */
++export function flattenCascadeLayers(css: string): string {
++  let out = css.replace(/@layer\s+[^{};]+;/g, '')
++  const opener = /@layer(?:\s+[\w-]+)?\s*\{/
++  let match: RegExpExecArray | null
++  while ((match = opener.exec(out))) {
++    const braceStart = match.index + match[0].length - 1
++    let depth = 0
++    let end = -1
++    for (let i = braceStart; i < out.length; i++) {
++      if (out[i] === '{') depth++
++      else if (out[i] === '}') {
++        depth--
++        if (depth === 0) {
++          end = i
++          break
++        }
++      }
++    }
++    if (end < 0) throw new Error('legacy css: unbalanced @layer block')
++    out = out.slice(0, match.index) + out.slice(braceStart + 1, end) + out.slice(end + 1)
++  }
++  return out
++}
++
++/**
++ * Writes a flattened copy of the main stylesheet for old browsers. Runs in
++ * closeBundle, after Vite has written every file, so the main stylesheet is
++ * on disk. It finds that stylesheet from the built index.html, then patches
++ * the placeholder with the legacy file. The modern stylesheet is not touched.
++ */
++function legacyCssPlugin(): Plugin {
++  let outDir = 'dist'
++  return {
++    name: 'k-tech-legacy-css',
++    apply: 'build',
++    configResolved(config) {
++      outDir = path.resolve(config.root, config.build.outDir)
++    },
++    closeBundle() {
++      const htmlPath = path.join(outDir, 'index.html')
++      const htmlSource = readFileSync(htmlPath, 'utf8')
++      if (!htmlSource.includes(LEGACY_HREF_PLACEHOLDER)) {
++        throw new Error('legacy css: placeholder missing from index.html')
++      }
++      const mainHref = htmlSource.match(/href="\/(assets\/index-[^"]+\.css)"/)?.[1]
++      if (!mainHref) throw new Error('legacy css: main stylesheet link not found in index.html')
++      const mainSource = readFileSync(path.join(outDir, mainHref), 'utf8')
++
++      const { code } = transform({
++        filename: 'legacy.css',
++        code: Buffer.from(flattenCascadeLayers(mainSource)),
++        minify: true,
++        targets: LEGACY_CSS_TARGETS,
++      })
++      const legacyCss = code.toString()
++      const hash = createHash('sha256').update(legacyCss).digest('hex').slice(0, 8)
++      const fileName = `assets/legacy-${hash}.css`
++      writeFileSync(path.join(outDir, fileName), legacyCss)
++      writeFileSync(htmlPath, htmlSource.replace(LEGACY_HREF_PLACEHOLDER, `/${fileName}`))
++    },
++  }
++}
++
++export { legacyCssPlugin }
+diff --git a/web/tsconfig.node.json b/web/tsconfig.node.json
+index 8455dcb..89b1e4d 100644
+--- a/web/tsconfig.node.json
++++ b/web/tsconfig.node.json
+@@ -19,5 +19,5 @@
+     "erasableSyntaxOnly": true,
+     "noFallthroughCasesInSwitch": true
+   },
+-  "include": ["vite.config.ts"]
++  "include": ["vite.config.ts", "plugins/legacy-css.ts"]
+ }
+diff --git a/web/vite.config.ts b/web/vite.config.ts
+index 662df2f..daa653a 100644
+--- a/web/vite.config.ts
++++ b/web/vite.config.ts
+@@ -2,11 +2,14 @@ import { defineConfig } from 'vite'
+ import react from '@vitejs/plugin-react'
+ import tailwindcss from '@tailwindcss/vite'
+ import legacy from '@vitejs/plugin-legacy'
++import { legacyCssPlugin } from './plugins/legacy-css.js'
++
+ 
+ // https://vite.dev/config/
+ export default defineConfig({
+   plugins: [
+     react(),
++    legacyCssPlugin(),
+     tailwindcss(),
+     // Without this, index.html only ships a `<script type="module">` -
+     // nothing else. Any browser that predates ES modules (Safari <11,

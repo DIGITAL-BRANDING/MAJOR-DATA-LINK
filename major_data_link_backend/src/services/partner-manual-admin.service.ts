@@ -1,4 +1,5 @@
 import { Prisma, TransactionStatus, TransactionType } from '@prisma/client';
+import { notifyPartnerSafely } from './notification.service.js';
 import { prisma } from '../lib/prisma.js';
 import { openPII, mergeSealedPII } from '../lib/pii.js';
 import { ApiError } from '../middleware/error.js';
@@ -87,6 +88,13 @@ export async function completePartnerManualRequest(params: {
   // Retain the MANUAL-* ticket issued at submission so the partner's
   // completion webhook and subsequent status checks can identify this row.
   await completePartnerPurchase(transaction.id, 'manual', transaction.providerRef ?? undefined, transaction.costKobo ?? undefined);
+  notifyPartnerSafely({
+    partnerId: transaction.partnerId,
+    type: 'TRANSACTION',
+    title: 'Request completed',
+    body: `${transaction.description} (${transaction.reference}) is complete. Open your portal to view the result.`,
+    data: { reference: transaction.reference }
+  });
   return prisma.partnerTransaction.findUniqueOrThrow({ where: { id: transaction.id } });
 }
 
@@ -100,5 +108,12 @@ export async function declinePartnerManualRequest(params: { transactionId: strin
     throw new ApiError(422, 'Only a pending request can be declined', 'INVALID_STATUS');
   }
   await reversePartnerPurchase(transaction.id, params.reason);
+  notifyPartnerSafely({
+    partnerId: transaction.partnerId,
+    type: 'TRANSACTION',
+    title: 'Request declined and refunded',
+    body: `${transaction.description} (${transaction.reference}) was declined: ${params.reason}. The amount has been refunded to your wallet.`,
+    data: { reference: transaction.reference }
+  });
   return prisma.partnerTransaction.findUniqueOrThrow({ where: { id: transaction.id } });
 }

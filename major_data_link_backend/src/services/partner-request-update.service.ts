@@ -1,5 +1,6 @@
 import { TransactionStatus } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
+import { notifyPartnerSafely } from './notification.service.js';
 import { ApiError } from '../middleware/error.js';
 import { enqueuePartnerRequestUpdateWebhook, deliverDuePartnerWebhooks } from './partner-webhook.service.js';
 
@@ -30,5 +31,12 @@ export async function createPartnerRequestUpdate(params: {
   void deliverDuePartnerWebhooks(1).catch((error) =>
     console.error('[partner-webhooks] could not deliver request update', error)
   );
+  notifyPartnerSafely({
+    partnerId: transaction.partnerId,
+    type: 'SYSTEM',
+    title: `Update on ${transaction.reference}`,
+    body: update.message.slice(0, 180),
+    data: { reference: transaction.reference }
+  });
   return update;
 }
