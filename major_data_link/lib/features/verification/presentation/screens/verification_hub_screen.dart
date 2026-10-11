@@ -6,6 +6,7 @@ import '../../../../core/constants/app_dimensions.dart';
 import '../../../../core/router/route_names.dart';
 import '../../../../core/utils/extensions.dart';
 import '../../../../shared/widgets/kd_card.dart';
+import '../providers/verification_provider.dart';
 
 class VerificationHubItem {
   const VerificationHubItem({

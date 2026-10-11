@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
+import PromoIllustrationBadge, { isPromoIllustrationKey } from '../components/PromoIllustration';
 import { Link } from 'react-router-dom';
 import { Trans, useTranslation } from 'react-i18next';
 import LanguageSwitcher from '../components/LanguageSwitcher';
@@ -144,6 +145,7 @@ type PartnerNotice = {
   is_persistent_broadcast?: boolean;
   show_as_popup?: boolean;
   created_at?: string;
+  image_key?: string | null;
 };
 
 /**
@@ -306,22 +308,22 @@ function PartnerNotificationPopup() {
   };
 
   if (!notice) return null;
+  // Same design as the app's PromoPopupDialog (see components/NotificationPopup.tsx).
+  const illustration = isPromoIllustrationKey(notice.image_key) ? notice.image_key : null;
   return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-[2px]" role="dialog" aria-modal="true" aria-labelledby="partner-notification-title">
-      <div className="w-full max-w-md overflow-hidden rounded-2xl border border-brand-200 bg-white shadow-2xl">
-        <div className="flex items-center justify-between bg-brand-700 px-5 py-4 text-white">
-          <div className="flex items-center gap-3">
-            <span className="rounded-full bg-white/15 p-2"><Bell size={20} /></span>
-            <h2 id="partner-notification-title" className="text-base font-bold">{notice.title}</h2>
-          </div>
-          <button onClick={close} aria-label="Close notification" className="rounded-lg p-1.5 text-white/80 hover:bg-white/15 hover:text-white">
-            <X size={19} />
-          </button>
-        </div>
-        <div className="px-5 py-6"><p className="whitespace-pre-wrap text-sm leading-6 text-slate-700">{notice.body}</p></div>
-        <div className="flex justify-end border-t border-slate-100 bg-slate-50 px-5 py-4">
-          <button onClick={close} className="rounded-xl bg-brand-700 px-6 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-brand-800 focus:outline-none focus:ring-2 focus:ring-brand-200">OK / Continue</button>
-        </div>
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-[#1C1C1E]/60 p-7" role="dialog" aria-modal="true" aria-labelledby="partner-notification-title">
+      <div className="w-full max-w-md rounded-2xl bg-white px-6 pb-6 pt-8 text-center shadow-2xl">
+        {illustration && (
+          <>
+            <PromoIllustrationBadge illustration={illustration} />
+            <div className="h-5" />
+          </>
+        )}
+        <h2 id="partner-notification-title" className="text-[19px] font-extrabold leading-tight text-[#1C1C1E]">{notice.title}</h2>
+        <p className="mt-2.5 whitespace-pre-wrap text-sm leading-6 text-[#636366]">{notice.body}</p>
+        <button type="button" onClick={close} className="mt-6 w-full rounded-xl bg-[#D4AF37] py-3 text-sm font-bold text-white shadow-sm hover:brightness-95 focus:outline-none focus:ring-2 focus:ring-[#F7C948]">
+          Okay
+        </button>
       </div>
     </div>
   );
