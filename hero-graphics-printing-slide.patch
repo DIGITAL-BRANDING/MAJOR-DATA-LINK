@@ -1,0 +1,28 @@
+diff --git a/web/src/pages/LandingPage.tsx b/web/src/pages/LandingPage.tsx
+index 21e3e34..6eedd91 100644
+--- a/web/src/pages/LandingPage.tsx
++++ b/web/src/pages/LandingPage.tsx
+@@ -77,6 +77,7 @@ const TXT = {
+       { dark: 'CAC', accent: 'AYYUKA', desc: 'Yi rajistar sunan kasuwancinka da CAC daga wallet dinka. Rajistar sole proprietorship da partnership, ana kammala ta kuma ana aika ta zuwa Deliveries.' },
+       { dark: 'TIN', accent: 'AYYUKA', desc: 'Samu TIN Certificate na kamfani ko na mutum. Turo bayanai sau daya, biya daga wallet, certificate zai shiga Deliveries.' },
+       { dark: 'BIRTH ATTESTATION', accent: 'DA DA YAWA', desc: 'Birth attestation, BVN CRM, newspaper publication, school website da sauran ayyuka. Wallet daya, ayyuka duka a wuri daya.' },
++      { dark: 'GRAPHICS & BRANDING', accent: 'PRINTING', desc: 'Tsara da buga flyers, posters, katin kasuwanci, sticker da kayan talla. Samu zane da buga shi ta K-Tech.' },
+     ],
+     servicesTitle: 'Ayyukan Mu (Our Services)',
+     servicesSubtitle: 'Zabi sabis din da kake bukata, ka fara amfani da shi yanzu — kai tsaye daga account dinka.',
+@@ -174,6 +175,7 @@ const TXT = {
+       { dark: 'CAC', accent: 'SERVICES', desc: 'Register your business name with the CAC from your wallet. Sole proprietorship and partnership registrations, completed by our team and delivered to your Deliveries.' },
+       { dark: 'TIN', accent: 'SERVICES', desc: 'Get a company or individual NRS/FIRS TIN certificate. Submit your details once, pay from your wallet, and receive the certificate in Deliveries.' },
+       { dark: 'BIRTH ATTESTATION', accent: '& MANY MORE', desc: 'Birth attestation, BVN CRM, newspaper publication, school website and more. One wallet, every service in one place.' },
++      { dark: 'GRAPHICS & BRANDING', accent: 'PRINTING SERVICES', desc: 'Design and print flyers, posters, business cards, stickers and branding materials. Get your design done and printed through K-Tech.' },
+     ],
+     servicesTitle: 'Our Services',
+     servicesSubtitle: 'Pick the service you need and get started right away — straight from your account.',
+@@ -254,6 +256,7 @@ export default function LandingPage() {
+     '/branding/CAC%20Registration.png',
+     '/branding/TIN%20Certificate.png',
+     '/branding/Birth%20Attestation.png',
++    '/branding/K-Tech%20Design%20%26%20Prints%20Promotional%20Sticker.png',
+   ];
+   const heroSlides: HeroSlide[] = L.heroSlides.map((slide, i) => ({
+     ...slide,
