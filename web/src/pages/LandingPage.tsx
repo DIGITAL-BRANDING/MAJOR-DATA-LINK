@@ -252,7 +252,7 @@ export default function LandingPage() {
   const heroImages = [
     '/branding/results.png',
     '/branding/NIN_Phone_Verification.png',
-    '/branding/Jamb.jpg',
+    '/branding/airtime-data.jpeg',
     '/branding/CAC%20Registration.png',
     '/branding/TIN%20Certificate.png',
     '/branding/Birth%20Attestation.png',
