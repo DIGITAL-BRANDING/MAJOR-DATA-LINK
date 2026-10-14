@@ -40,9 +40,9 @@ adminApiRoutes.post('/emails/send', requireFinanceAdmin, async (req, res) => {
   if (!recipients.length) return res.status(422).json({ status: false, message: 'No recipients found' });
   if (recipients.length > 100) return res.status(422).json({ status: false, message: 'Please use the admin email composer for audiences larger than 100 recipients' });
   const result = await sendAdminEmail({ recipients, subject: body.subject, message: body.message });
-  await logAdminAction({ adminId: req.admin!.id, action: 'SEND_ADMIN_EMAIL', targetType: body.audience, metadata: { audience: body.audience, recipientMode: body.recipient_mode, recipientCount: recipients.length, subject: body.subject, sent: result.sent } });
+  await logAdminAction({ adminId: req.admin!.id, action: 'SEND_ADMIN_EMAIL', targetType: body.audience, metadata: { audience: body.audience, recipientMode: body.recipient_mode, recipientCount: recipients.length, delivered: result.delivered, failed: result.failed, subject: body.subject, sent: result.sent } });
   if (!result.sent) return res.status(502).json({ status: false, message: result.error ?? 'Email delivery failed' });
-  res.json({ status: true, data: { recipient_count: recipients.length } });
+  res.json({ status: true, data: { recipient_count: recipients.length, delivered: result.delivered ?? recipients.length, failed: result.failed ?? 0 } });
 });
 
 adminApiRoutes.post('/user-deliveries', requireFinanceAdmin, async (req, res) => {

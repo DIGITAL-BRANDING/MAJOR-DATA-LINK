@@ -118,17 +118,18 @@ const EnvSchema = z.object({
   ACCESS_TOKEN_TTL_SECONDS: z.coerce.number().int().positive().default(86_400),
   REFRESH_TOKEN_TTL_SECONDS: z.coerce.number().int().positive().default(2_592_000),
 
-  // Resend — sends the 6-digit "forgot password" code (see
-  // src/lib/email.ts / src/routes/password.routes.ts). No SMTP/other
-  // provider is configured anywhere in this codebase, so leaving
-  // RESEND_API_KEY unset makes /password/forgot fail closed with a clear
-  // 500 rather than silently pretending to send an email nobody gets.
-  // RESEND_FROM_EMAIL defaults to Resend's own shared testing address,
-  // which works immediately with zero domain setup - swap it for
-  // something like 'MAJOR DATA-LINK <no-reply@yourdomain.com>' once a
-  // sending domain is verified in the Resend dashboard.
+  // Resend — sends the welcome email, the 6-digit "forgot password" code and
+  // admin announcements (see src/lib/email.ts). No other email provider is
+  // configured anywhere in this codebase, so leaving RESEND_API_KEY unset
+  // makes sends fail closed with a clear error rather than silently pretending
+  // to send an email nobody gets.
   RESEND_API_KEY: z.string().optional(),
-  RESEND_FROM_EMAIL: z.string().default('MAJOR DATA-LINK <onboarding@resend.dev>'),
+  // The sender must be on a domain verified in the Resend dashboard
+  // (k-tech.com.ng). Resend's shared onboarding@resend.dev address only ever
+  // delivers to the account owner, so it cannot be used for real customers.
+  RESEND_FROM_EMAIL: z.string().default('K-TECH SOLUTIONS COMPANY <support@k-tech.com.ng>'),
+  // Public address of the customer web app, used for links inside emails.
+  PUBLIC_WEB_URL: z.string().url().default('https://k-tech.com.ng'),
   // NOTE: z.coerce.boolean() would parse the STRING "false" as true (JS's
   // Boolean("false") === true Ã¢â‚¬â€ any non-empty string is truthy). This explicit
   // string comparison is what actually respects MOCK_PROVIDER=false in .env.

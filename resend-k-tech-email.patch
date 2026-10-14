@@ -1,0 +1,504 @@
+diff --git a/major_data_link_backend/.env.example b/major_data_link_backend/.env.example
+index 65a29b6..7accf8a 100644
+--- a/major_data_link_backend/.env.example
++++ b/major_data_link_backend/.env.example
+@@ -131,3 +131,9 @@ WHATSAPP_TOKEN=
+ WHATSAPP_PHONE_NUMBER_ID=
+ WHATSAPP_VERIFY_TOKEN=
+ WHATSAPP_APP_SECRET=
++
++# Email (Resend). The sender's domain must be verified in the Resend dashboard.
++RESEND_API_KEY=
++RESEND_FROM_EMAIL="K-TECH SOLUTIONS COMPANY <support@k-tech.com.ng>"
++# Public web address used for links inside emails (e.g. the welcome email's dashboard button).
++PUBLIC_WEB_URL=https://k-tech.com.ng
+diff --git a/major_data_link_backend/src/admin/email-composer.ts b/major_data_link_backend/src/admin/email-composer.ts
+index 8c300f7..cf188aa 100644
+--- a/major_data_link_backend/src/admin/email-composer.ts
++++ b/major_data_link_backend/src/admin/email-composer.ts
+@@ -14,5 +14,5 @@ function page(users:Array<{id:string;fullName:string;email:string}>,partners:Arr
+ }
+ export function registerEmailComposerRoutes(router:Router) {
+  router.get('/email-composer',async(req,res)=>{const admin=req.session?.adminUser;if(!admin)return res.redirect('/admin/login');if(admin.role==='SUPPORT')return res.status(403).type('html').send('<p>Finance or Super Admin access required.</p>');const [users,partners]=await Promise.all([prisma.user.findMany({where:{accountStatus:'ACTIVE'},select:{id:true,fullName:true,email:true},orderBy:{fullName:'asc'},take:2000}),prisma.partner.findMany({select:{id:true,businessName:true,email:true},orderBy:{businessName:'asc'},take:2000})]);res.type('html').send(page(users,partners,typeof req.query.flash==='string'?req.query.flash:''));});
+- router.post('/email-composer',async(req,res)=>{const admin=req.session?.adminUser;if(!admin)return res.redirect('/admin/login');if(admin.role==='SUPPORT')return res.status(403).type('html').send('<p>Finance or Super Admin access required.</p>');try{const audience=field(req,'audience'),mode=field(req,'recipient_mode'),id=field(req,'recipient_id'),subject=field(req,'subject'),message=field(req,'message');if(!['CUSTOMERS','PARTNERS'].includes(audience)||!['ALL','ONE'].includes(mode)||subject.length<3||subject.length>200||message.length<2||message.length>10000||(mode==='ONE'&&!id))throw new Error('Check the audience, recipient, subject and message.');const rows=audience==='CUSTOMERS'?await prisma.user.findMany({where:{accountStatus:'ACTIVE',...(mode==='ONE'?{id}:{})},select:{email:true},take:mode==='ONE'?1:10000}):await prisma.partner.findMany({where:mode==='ONE'?{id}:{},select:{email:true},take:mode==='ONE'?1:10000});if(!rows.length)throw new Error('No recipients were found.');const result=await sendAdminEmail({recipients:rows.map(x=>x.email),subject,message});await logAdminAction({adminId:admin.id,action:'SEND_ADMIN_EMAIL',targetType:audience,metadata:{audience,recipientMode:mode,recipientCount:rows.length,subject,sent:result.sent}});if(!result.sent)throw new Error(result.error??'Email delivery failed.');res.redirect('/admin/email-composer?flash='+encodeURIComponent(`Email sent to ${rows.length} recipient${rows.length===1?'':'s'}.`));}catch(e){res.redirect('/admin/email-composer?flash='+encodeURIComponent(e instanceof Error?e.message:'Could not send email.'));}});
++ router.post('/email-composer',async(req,res)=>{const admin=req.session?.adminUser;if(!admin)return res.redirect('/admin/login');if(admin.role==='SUPPORT')return res.status(403).type('html').send('<p>Finance or Super Admin access required.</p>');try{const audience=field(req,'audience'),mode=field(req,'recipient_mode'),id=field(req,'recipient_id'),subject=field(req,'subject'),message=field(req,'message');if(!['CUSTOMERS','PARTNERS'].includes(audience)||!['ALL','ONE'].includes(mode)||subject.length<3||subject.length>200||message.length<2||message.length>10000||(mode==='ONE'&&!id))throw new Error('Check the audience, recipient, subject and message.');const rows=audience==='CUSTOMERS'?await prisma.user.findMany({where:{accountStatus:'ACTIVE',...(mode==='ONE'?{id}:{})},select:{email:true},take:mode==='ONE'?1:10000}):await prisma.partner.findMany({where:mode==='ONE'?{id}:{},select:{email:true},take:mode==='ONE'?1:10000});if(!rows.length)throw new Error('No recipients were found.');const result=await sendAdminEmail({recipients:rows.map(x=>x.email),subject,message});await logAdminAction({adminId:admin.id,action:'SEND_ADMIN_EMAIL',targetType:audience,metadata:{audience,recipientMode:mode,recipientCount:rows.length,delivered:result.delivered,failed:result.failed,subject,sent:result.sent}});if(!result.sent)throw new Error(result.error??'Email delivery failed.');const delivered=result.delivered??rows.length,failed=result.failed??0;res.redirect('/admin/email-composer?flash='+encodeURIComponent(failed>0?`Email sent to ${delivered} of ${rows.length} recipients; ${failed} could not be delivered (see server logs).`:`Email sent to ${delivered} recipient${delivered===1?'':'s'}.`));}catch(e){res.redirect('/admin/email-composer?flash='+encodeURIComponent(e instanceof Error?e.message:'Could not send email.'));}});
+ }
+\ No newline at end of file
+diff --git a/major_data_link_backend/src/config/env.ts b/major_data_link_backend/src/config/env.ts
+index 988521b..5b3d1d7 100644
+--- a/major_data_link_backend/src/config/env.ts
++++ b/major_data_link_backend/src/config/env.ts
+@@ -118,17 +118,18 @@ const EnvSchema = z.object({
+   ACCESS_TOKEN_TTL_SECONDS: z.coerce.number().int().positive().default(86_400),
+   REFRESH_TOKEN_TTL_SECONDS: z.coerce.number().int().positive().default(2_592_000),
+ 
+-  // Resend — sends the 6-digit "forgot password" code (see
+-  // src/lib/email.ts / src/routes/password.routes.ts). No SMTP/other
+-  // provider is configured anywhere in this codebase, so leaving
+-  // RESEND_API_KEY unset makes /password/forgot fail closed with a clear
+-  // 500 rather than silently pretending to send an email nobody gets.
+-  // RESEND_FROM_EMAIL defaults to Resend's own shared testing address,
+-  // which works immediately with zero domain setup - swap it for
+-  // something like 'MAJOR DATA-LINK <no-reply@yourdomain.com>' once a
+-  // sending domain is verified in the Resend dashboard.
++  // Resend — sends the welcome email, the 6-digit "forgot password" code and
++  // admin announcements (see src/lib/email.ts). No other email provider is
++  // configured anywhere in this codebase, so leaving RESEND_API_KEY unset
++  // makes sends fail closed with a clear error rather than silently pretending
++  // to send an email nobody gets.
+   RESEND_API_KEY: z.string().optional(),
+-  RESEND_FROM_EMAIL: z.string().default('MAJOR DATA-LINK <onboarding@resend.dev>'),
++  // The sender must be on a domain verified in the Resend dashboard
++  // (k-tech.com.ng). Resend's shared onboarding@resend.dev address only ever
++  // delivers to the account owner, so it cannot be used for real customers.
++  RESEND_FROM_EMAIL: z.string().default('K-TECH SOLUTIONS COMPANY <support@k-tech.com.ng>'),
++  // Public address of the customer web app, used for links inside emails.
++  PUBLIC_WEB_URL: z.string().url().default('https://k-tech.com.ng'),
+   // NOTE: z.coerce.boolean() would parse the STRING "false" as true (JS's
+   // Boolean("false") === true Ã¢â‚¬â€ any non-empty string is truthy). This explicit
+   // string comparison is what actually respects MOCK_PROVIDER=false in .env.
+diff --git a/major_data_link_backend/src/lib/__tests__/email.test.ts b/major_data_link_backend/src/lib/__tests__/email.test.ts
+new file mode 100644
+index 0000000..53c7843
+--- /dev/null
++++ b/major_data_link_backend/src/lib/__tests__/email.test.ts
+@@ -0,0 +1,185 @@
++import { beforeEach, describe, expect, it, vi } from 'vitest';
++
++const { sendMock, batchMock, mockEnv } = vi.hoisted(() => ({
++  sendMock: vi.fn(),
++  batchMock: vi.fn(),
++  mockEnv: {
++    RESEND_API_KEY: 're_test_key',
++    RESEND_FROM_EMAIL: 'K-TECH SOLUTIONS COMPANY <support@k-tech.com.ng>',
++    PUBLIC_WEB_URL: 'https://k-tech.com.ng'
++  } as Record<string, string | undefined>
++}));
++
++vi.mock('resend', () => ({
++  Resend: class {
++    emails = { send: sendMock };
++    batch = { send: batchMock };
++  }
++}));
++vi.mock('../../config/env.js', () => ({ env: mockEnv }));
++
++const load = async () => {
++  vi.resetModules();
++  return import('../email.js');
++};
++
++const okBatch = (count: number, errors: { index: number; message: string }[] = []) => ({
++  data: { data: Array.from({ length: count - errors.length }, (_v, i) => ({ id: `id-${i}` })), errors },
++  error: null
++});
++
++beforeEach(() => {
++  vi.clearAllMocks();
++  mockEnv.RESEND_API_KEY = 're_test_key';
++  sendMock.mockResolvedValue({ data: { id: 'email-1' }, error: null });
++  batchMock.mockImplementation(async (payload: unknown[]) => okBatch(payload.length));
++  vi.spyOn(console, 'error').mockImplementation(() => undefined);
++});
++
++describe('welcome email', () => {
++  it('goes out from the K-TECH sender with the agreed subject and both html and text bodies', async () => {
++    const { sendWelcomeEmail } = await load();
++    const result = await sendWelcomeEmail({ email: 'new.user@example.com', fullName: 'SUNUSI USAMA' });
++
++    expect(result.sent).toBe(true);
++    const payload = sendMock.mock.calls[0][0];
++    expect(payload.from).toBe('K-TECH SOLUTIONS COMPANY <support@k-tech.com.ng>');
++    expect(payload.to).toEqual(['new.user@example.com']);
++    expect(payload.subject).toBe('Welcome to K-TECH SOLUTIONS');
++    expect(payload.html).toContain('Welcome, Sunusi!');
++    expect(payload.text).toContain('Hello Sunusi,');
++    expect(payload.html.length).toBeGreaterThan(500);
++    expect(payload.text.length).toBeGreaterThan(200);
++  });
++
++  it('advertises the real services and links to the dashboard in both versions', async () => {
++    const { buildWelcomeEmail } = await load();
++    const { html, text } = buildWelcomeEmail({ fullName: 'Ada Obi', webUrl: 'https://k-tech.com.ng/' });
++    for (const body of [html, text]) {
++      for (const phrase of ['NIN verification', 'BVN verification', 'CAC registration', 'JAMB services', 'Mobile data, airtime', 'result checker PINs']) {
++        expect(body).toContain(phrase);
++      }
++      expect(body).toContain('https://k-tech.com.ng/dashboard');
++    }
++    expect(html).toContain('href="https://k-tech.com.ng/dashboard"');
++  });
++
++  it('is fully K-TECH branded (no leftover MAJOR DATA-LINK name)', async () => {
++    const { buildWelcomeEmail } = await load();
++    const { html, text, subject } = buildWelcomeEmail({ fullName: 'Ada Obi', webUrl: 'https://k-tech.com.ng' });
++    for (const body of [html, text, subject]) expect(body).not.toMatch(/MAJOR DATA-LINK/i);
++    expect(html).toContain('K-TECH SOLUTIONS');
++  });
++
++  it('keeps a properly capitalised name as typed and escapes HTML in names', async () => {
++    const { buildWelcomeEmail } = await load();
++    expect(buildWelcomeEmail({ fullName: 'McDonald Eze', webUrl: 'https://k-tech.com.ng' }).text).toContain('Hello McDonald,');
++    const evil = buildWelcomeEmail({ fullName: '<script>alert(1)</script> Bob', webUrl: 'https://k-tech.com.ng' });
++    expect(evil.html).not.toContain('<script>');
++    expect(evil.html).toContain('&lt;script&gt;');
++  });
++
++  it('falls back to a neutral greeting when the name is empty', async () => {
++    const { buildWelcomeEmail } = await load();
++    expect(buildWelcomeEmail({ fullName: '   ', webUrl: 'https://k-tech.com.ng' }).text).toContain('Hello there,');
++  });
++});
++
++describe('single sends fail safely', () => {
++  it('does nothing (and says why) when RESEND_API_KEY is not set', async () => {
++    mockEnv.RESEND_API_KEY = undefined;
++    const { sendWelcomeEmail } = await load();
++    expect(await sendWelcomeEmail({ email: 'a@b.co', fullName: 'A B' })).toEqual({ sent: false, error: 'RESEND_API_KEY is not configured' });
++    expect(sendMock).not.toHaveBeenCalled();
++  });
++
++  it('reports a Resend rejection (e.g. unverified sender domain) instead of pretending it was sent', async () => {
++    sendMock.mockResolvedValue({ data: null, error: { name: 'invalid_from_address', message: 'The domain is not verified' } });
++    const { sendWelcomeEmail } = await load();
++    expect(await sendWelcomeEmail({ email: 'a@b.co', fullName: 'A B' })).toEqual({ sent: false, error: 'The domain is not verified' });
++  });
++
++  it('survives a thrown network error', async () => {
++    sendMock.mockRejectedValue(new Error('socket hang up'));
++    const { sendWelcomeEmail } = await load();
++    expect((await sendWelcomeEmail({ email: 'a@b.co', fullName: 'A B' })).sent).toBe(false);
++  });
++});
++
++describe('bulk / admin announcements', () => {
++  it('sends every recipient their OWN email - addresses are never shared in one "to" list', async () => {
++    const { sendAdminEmail } = await load();
++    const recipients = ['one@example.com', 'two@example.com', 'three@example.com'];
++    const result = await sendAdminEmail({ recipients, subject: '  Maintenance tonight ', message: 'Hello <b>all</b>\nSee you' });
++
++    expect(result).toMatchObject({ sent: true, delivered: 3, failed: 0 });
++    const payload = batchMock.mock.calls[0][0] as { from: string; to: string[]; subject: string; html: string; text: string }[];
++    expect(payload).toHaveLength(3);
++    expect(payload.map((m) => m.to)).toEqual([['one@example.com'], ['two@example.com'], ['three@example.com']]);
++    expect(payload.every((m) => m.from === 'K-TECH SOLUTIONS COMPANY <support@k-tech.com.ng>')).toBe(true);
++    expect(payload[0].subject).toBe('Maintenance tonight');
++    expect(payload[0].text).toBe('Hello <b>all</b>\nSee you');
++    expect(payload[0].html).toContain('Hello &lt;b&gt;all&lt;/b&gt;<br>See you');
++    expect(batchMock.mock.calls[0][1]).toEqual({ batchValidation: 'permissive' });
++    expect(sendMock).not.toHaveBeenCalled();
++  });
++
++  it('splits large audiences into batches of 100 and removes duplicate addresses', async () => {
++    const { sendBulkEmail } = await load();
++    const recipients = [...Array.from({ length: 250 }, (_v, i) => `user${i}@example.com`), 'USER0@example.com'];
++    const result = await sendBulkEmail(recipients, { subject: 's', text: 't', html: 'h' }, { pauseMs: 0 });
++    expect(batchMock.mock.calls.map((c) => (c[0] as unknown[]).length)).toEqual([100, 100, 50]);
++    expect(result).toMatchObject({ sent: true, delivered: 250, failed: 0 });
++  });
++
++  it('one bad address fails only itself', async () => {
++    batchMock.mockResolvedValue(okBatch(100, [{ index: 3, message: 'Invalid `to` field' }]));
++    const { sendBulkEmail } = await load();
++    const result = await sendBulkEmail(Array.from({ length: 100 }, (_v, i) => `u${i}@example.com`), { subject: 's', text: 't', html: 'h' }, { pauseMs: 0 });
++    expect(result).toMatchObject({ sent: true, delivered: 99, failed: 1 });
++  });
++
++  it('waits and retries when Resend answers "rate limit"', async () => {
++    batchMock
++      .mockResolvedValueOnce({ data: null, error: { name: 'rate_limit_exceeded', message: 'Too many requests' } })
++      .mockImplementation(async (payload: unknown[]) => okBatch(payload.length));
++    const { sendBulkEmail } = await load();
++    const result = await sendBulkEmail(['a@example.com', 'b@example.com'], { subject: 's', text: 't', html: 'h' }, { pauseMs: 0 });
++    expect(batchMock).toHaveBeenCalledTimes(2);
++    expect(result).toMatchObject({ sent: true, delivered: 2, failed: 0 });
++  });
++
++  it('stops at once on an error that would repeat for everyone (bad key / unverified sender)', async () => {
++    batchMock.mockResolvedValue({ data: null, error: { name: 'invalid_from_address', message: 'Sender domain not verified' } });
++    const { sendBulkEmail } = await load();
++    const result = await sendBulkEmail(Array.from({ length: 250 }, (_v, i) => `u${i}@example.com`), { subject: 's', text: 't', html: 'h' }, { pauseMs: 0 });
++    expect(batchMock).toHaveBeenCalledTimes(1);
++    expect(result).toEqual({ sent: false, error: 'Sender domain not verified', delivered: 0, failed: 250 });
++  });
++
++  it('does nothing without an API key', async () => {
++    mockEnv.RESEND_API_KEY = undefined;
++    const { sendAdminEmail } = await load();
++    expect((await sendAdminEmail({ recipients: ['a@example.com'], subject: 's', message: 'm' })).sent).toBe(false);
++    expect(batchMock).not.toHaveBeenCalled();
++  });
++});
++
++describe('password reset email', () => {
++  it('uses the K-TECH sender and brand, with html and text', async () => {
++    const { sendPasswordResetEmail } = await load();
++    expect(await sendPasswordResetEmail('user@example.com', '482913')).toEqual({ sent: true });
++    const payload = sendMock.mock.calls[0][0];
++    expect(payload.from).toBe('K-TECH SOLUTIONS COMPANY <support@k-tech.com.ng>');
++    expect(payload.to).toEqual(['user@example.com']);
++    expect(payload.subject).toBe('482913 is your K-TECH SOLUTIONS password reset code');
++    expect(payload.text).toContain('482913');
++    expect(payload.html).toContain('482913');
++  });
++
++  it('reports not-sent when Resend rejects it', async () => {
++    sendMock.mockResolvedValue({ data: null, error: { name: 'validation_error', message: 'bad' } });
++    const { sendPasswordResetEmail } = await load();
++    expect(await sendPasswordResetEmail('user@example.com', '482913')).toEqual({ sent: false });
++  });
++});
+diff --git a/major_data_link_backend/src/lib/email.ts b/major_data_link_backend/src/lib/email.ts
+index d6a2272..a927003 100644
+--- a/major_data_link_backend/src/lib/email.ts
++++ b/major_data_link_backend/src/lib/email.ts
+@@ -1,38 +1,205 @@
+ import { Resend } from 'resend';
+ import { env } from '../config/env.js';
++
++/**
++ * All outgoing email goes through Resend. The sender is RESEND_FROM_EMAIL
++ * (default "K-TECH SOLUTIONS COMPANY <support@k-tech.com.ng>"); that domain
++ * must be verified in the Resend dashboard or Resend refuses every send.
++ * Every message carries both an html and a plain-text body.
++ */
++
++export type SendResult = { sent: boolean; error?: string; delivered?: number; failed?: number };
++export type EmailMessage = { subject: string; text: string; html: string };
++
++const BRAND = 'K-TECH SOLUTIONS';
++const BATCH_SIZE = 100; // Resend's per-call maximum for batch.send
++// Resend allows ~2 API requests a second per team; stay under it when sending in bulk.
++const BULK_PAUSE_MS = 600;
++// Errors that will repeat for every recipient - no point trying the remaining batches.
++const FATAL_ERRORS = new Set(['missing_api_key', 'invalid_api_key', 'restricted_api_key', 'invalid_from_address', 'daily_quota_exceeded', 'monthly_quota_exceeded', 'security_error']);
++
+ let client: Resend | null = null;
+-function getClient() { if (!env.RESEND_API_KEY) return null; if (!client) client = new Resend(env.RESEND_API_KEY); return client; }
+-function escapeHtml(value: string) { return value.replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]!); }
+-async function sendEmail(params: { to: string | string[]; subject: string; text: string; html: string }) {
++function getClient(): Resend | null {
++  if (!env.RESEND_API_KEY) return null;
++  if (!client) client = new Resend(env.RESEND_API_KEY);
++  return client;
++}
++
++export function escapeHtml(value: string): string {
++  return value.replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]!);
++}
++
++const pause = (ms: number) => (ms > 0 ? new Promise<void>((resolve) => setTimeout(resolve, ms)) : Promise.resolve());
++
++/** One message to one person: `{ from, to: [address], subject, html, text }`. */
++async function sendEmail(to: string, message: EmailMessage): Promise<SendResult> {
+   const resend = getClient();
+-  if (!resend) { console.error('[email] RESEND_API_KEY is not set - cannot send email'); return { sent: false, error: 'RESEND_API_KEY is not configured' }; }
++  if (!resend) {
++    console.error('[email] RESEND_API_KEY is not set - cannot send email');
++    return { sent: false, error: 'RESEND_API_KEY is not configured' };
++  }
+   try {
+-    const recipients = Array.isArray(params.to) ? params.to : [params.to];
+-    for (let index = 0; index < recipients.length; index += 100) {
+-      const batch = recipients.slice(index, index + 100);
+-      const { error } = await resend.emails.send({ from: env.RESEND_FROM_EMAIL, ...params, to: batch });
+-      if (error) { console.error('[email] Resend rejected email', error); return { sent: false, error: error.message ?? 'Resend rejected the email' }; }
++    const { error } = await resend.emails.send({ from: env.RESEND_FROM_EMAIL, to: [to], subject: message.subject, html: message.html, text: message.text });
++    if (error) {
++      console.error('[email] Resend rejected email', error);
++      return { sent: false, error: error.message ?? 'Resend rejected the email' };
+     }
+     return { sent: true };
+-  } catch (error) { console.error('[email] Failed to send email', error); return { sent: false, error: 'Email delivery failed' }; }
++  } catch (error) {
++    console.error('[email] Failed to send email', error);
++    return { sent: false, error: 'Email delivery failed' };
++  }
++}
++
++/**
++ * The same message to many people, each as THEIR OWN email. (It used to put up
++ * to 100 addresses in a single `to` list, so every recipient could read every
++ * other recipient's address.) Uses Resend's batch API in "permissive" mode so
++ * one bad address fails only itself, paced to Resend's rate limit, with a
++ * retry when it answers "rate limit".
++ */
++export async function sendBulkEmail(recipients: string[], message: EmailMessage, options: { pauseMs?: number } = {}): Promise<SendResult> {
++  const resend = getClient();
++  if (!resend) {
++    console.error('[email] RESEND_API_KEY is not set - cannot send email');
++    return { sent: false, error: 'RESEND_API_KEY is not configured' };
++  }
++  const pauseMs = options.pauseMs ?? BULK_PAUSE_MS;
++  const unique = [...new Map(recipients.map((address) => [address.trim().toLowerCase(), address.trim()])).values()].filter(Boolean);
++
++  let delivered = 0;
++  let failed = 0;
++  let firstError: string | undefined;
++
++  for (let start = 0; start < unique.length; start += BATCH_SIZE) {
++    const chunk = unique.slice(start, start + BATCH_SIZE);
++    if (start > 0) await pause(pauseMs);
++
++    let chunkDone = false;
++    for (let attempt = 0; attempt < 3 && !chunkDone; attempt += 1) {
++      try {
++        const { data, error } = await resend.batch.send(
++          chunk.map((address) => ({ from: env.RESEND_FROM_EMAIL, to: [address], subject: message.subject, html: message.html, text: message.text })),
++          { batchValidation: 'permissive' as const }
++        );
++        if (error) {
++          if (error.name === 'rate_limit_exceeded' && attempt < 2) {
++            await pause(pauseMs === 0 ? 0 : Math.max(pauseMs, 1200) * (attempt + 1));
++            continue;
++          }
++          console.error('[email] Resend rejected a bulk batch', error);
++          firstError ??= error.message ?? 'Resend rejected the email';
++          failed += chunk.length;
++          chunkDone = true;
++          if (FATAL_ERRORS.has(error.name)) return { sent: delivered > 0, error: delivered > 0 ? undefined : firstError, delivered, failed: failed + (unique.length - start - chunk.length) };
++          continue;
++        }
++        const rejected = data?.errors ?? [];
++        delivered += data?.data.length ?? 0;
++        failed += rejected.length;
++        for (const item of rejected) console.error(`[email] Resend rejected recipient #${start + item.index} in a bulk send:`, item.message);
++        if (rejected.length) firstError ??= rejected[0].message;
++        chunkDone = true;
++      } catch (error) {
++        console.error('[email] Failed to send a bulk batch', error);
++        firstError ??= 'Email delivery failed';
++        failed += chunk.length;
++        chunkDone = true;
++      }
++    }
++  }
++  return { sent: delivered > 0, error: delivered > 0 ? undefined : (firstError ?? 'Email delivery failed'), delivered, failed };
++}
++
++// ── Welcome email ────────────────────────────────────────────────────────
++
++// Grouped to match what the app actually offers (see web/src/lib/services.ts).
++const WELCOME_SERVICE_GROUPS: { title: string; items: string[] }[] = [
++  { title: 'Identity & verification', items: ['NIN verification and slips (by NIN or phone number)', 'BVN verification, retrieval, modification and licence services', 'IPE clearance, NIN validation, personalization and modifications'] },
++  { title: 'Business & documents', items: ['CAC registration and verification', 'TIN certificate and SCUML registration', 'Newspaper publication and birth attestation'] },
++  { title: 'Everyday payments', items: ['Mobile data, airtime and airtime-to-cash', 'Cable TV and electricity bills', 'Bulk SMS'] },
++  { title: 'Education', items: ['JAMB services', 'WAEC, NECO and NABTEB result checker PINs'] }
++];
++
++/** "SUNUSI" / "sunusi" -> "Sunusi"; a mixed-case name is left exactly as typed. */
++function friendlyFirstName(fullName: string): string {
++  const first = fullName.trim().split(/\s+/)[0] ?? '';
++  if (!first) return 'there';
++  return first === first.toUpperCase() || first === first.toLowerCase() ? first.charAt(0).toUpperCase() + first.slice(1).toLowerCase() : first;
+ }
+-const WELCOME_SERVICES = ['Mobile data and airtime', 'JAMB services and CBT practice software', 'NIN and BVN verification services', 'CAC business registration support', 'Utility bill payments', 'Secure wallet funding and transaction history'];
+-export async function sendWelcomeEmail(params: { email: string; fullName: string }) {
+-  const serviceItems = WELCOME_SERVICES.map((item) => `<li style="margin:8px 0">${escapeHtml(item)}</li>`).join('');
+-  const servicesText = WELCOME_SERVICES.map((item) => `- ${item}`).join('\n');
+-  return sendEmail({ to: params.email, subject: 'Welcome to MAJOR DATA-LINK', text: `Hello ${params.fullName},\n\nWelcome to MAJOR DATA-LINK! Your account is ready. We make essential digital services convenient, secure, and easy to access, with clear pricing and reliable request tracking.\n\nOur services include:\n${servicesText}\n\nSign in to explore services, fund your wallet, and track requests. Our support team is here if you need help.\n\nThank you for choosing us,\nMAJOR DATA-LINK Support`, html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:28px;color:#201708"><h1 style="color:#0b2f73">Welcome to MAJOR DATA-LINK</h1><p>Hello ${escapeHtml(params.fullName)},</p><p>Your account is ready. We make essential digital services convenient, secure, and easy to access, with clear pricing and reliable request tracking.</p><h2 style="font-size:18px">Services available to you</h2><ul style="padding-left:22px">${serviceItems}</ul><p>Sign in to your dashboard to explore services, fund your wallet, and track your requests. Our support team is here if you need help.</p><p>Thank you for choosing us,<br><strong>MAJOR DATA-LINK Support</strong></p></div>` });
++
++export function buildWelcomeEmail(params: { fullName: string; webUrl: string }): EmailMessage {
++  const name = friendlyFirstName(params.fullName);
++  const base = params.webUrl.replace(/\/+$/, '');
++  const dashboardUrl = `${base}/dashboard`;
++
++  const text = [
++    `Hello ${name},`,
++    '',
++    `Welcome to ${BRAND}! Your account is ready.`,
++    '',
++    'Here is what you can do with us:',
++    '',
++    ...WELCOME_SERVICE_GROUPS.flatMap((group) => [`${group.title}`, ...group.items.map((item) => `  - ${item}`), '']),
++    'Getting started: fund your wallet from your dashboard, pick a service, and track every request from Service History.',
++    'Share your referral code (My Profile) with friends and earn when they buy.',
++    '',
++    `Open your dashboard: ${dashboardUrl}`,
++    '',
++    'Need help? Just reply to this email or open Complaints & Support in the app.',
++    '',
++    `Thank you for choosing us,`,
++    `${BRAND} COMPANY Support`
++  ].join('\n');
++
++  const groups = WELCOME_SERVICE_GROUPS.map(
++    (group) =>
++      `<tr><td style="padding:14px 0 0"><p style="margin:0 0 6px;font-size:13px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#8a6a12">${escapeHtml(group.title)}</p>` +
++      `<ul style="margin:0;padding-left:20px;color:#201708;font-size:15px;line-height:1.6">${group.items.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul></td></tr>`
++  ).join('');
++
++  const html =
++    `<div style="display:none;max-height:0;overflow:hidden;opacity:0">Your ${BRAND} account is ready - here is what you can do.</div>` +
++    `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f4f1ea;padding:24px 12px;font-family:Arial,Helvetica,sans-serif"><tr><td align="center">` +
++    `<table role="presentation" width="600" cellspacing="0" cellpadding="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:14px;overflow:hidden">` +
++    `<tr><td style="background:#0b2f73;padding:22px 28px"><span style="font-size:20px;font-weight:700;letter-spacing:.04em;color:#f6d36b">${BRAND}</span></td></tr>` +
++    `<tr><td style="padding:28px">` +
++    `<h1 style="margin:0 0 12px;font-size:24px;color:#0b2f73">Welcome, ${escapeHtml(name)}!</h1>` +
++    `<p style="margin:0 0 6px;font-size:15px;line-height:1.6;color:#201708">Your account is ready. Here is what you can do with ${BRAND}:</p>` +
++    `<table role="presentation" width="100%" cellspacing="0" cellpadding="0">${groups}</table>` +
++    `<p style="margin:22px 0 0;font-size:15px;line-height:1.6;color:#201708"><strong>Getting started:</strong> fund your wallet from your dashboard, pick a service, and track every request from Service History. Share your referral code (My Profile) with friends and earn when they buy.</p>` +
++    `<p style="margin:24px 0"><a href="${escapeHtml(dashboardUrl)}" style="display:inline-block;background:#d4af37;color:#0b2f73;font-weight:700;text-decoration:none;padding:13px 26px;border-radius:10px">Open my dashboard</a></p>` +
++    `<p style="margin:0;font-size:14px;line-height:1.6;color:#4a4438">Need help? Just reply to this email or open <strong>Complaints &amp; Support</strong> in the app.</p>` +
++    `<p style="margin:20px 0 0;font-size:14px;color:#4a4438">Thank you for choosing us,<br><strong>${BRAND} COMPANY Support</strong></p>` +
++    `</td></tr>` +
++    `<tr><td style="background:#f4f1ea;padding:14px 28px;font-size:12px;color:#7a7364">You received this email because an account was created with this address on ${escapeHtml(base.replace(/^https?:\/\//, ''))}.</td></tr>` +
++    `</table></td></tr></table>`;
++
++  return { subject: `Welcome to ${BRAND}`, text, html };
+ }
+-export async function sendAdminEmail(params: { recipients: string[]; subject: string; message: string }) {
+-  const safeMessage = escapeHtml(params.message.trim()).replace(/\r?\n/g, '<br>');
+-  return sendEmail({ to: params.recipients, subject: params.subject.trim(), text: params.message.trim(), html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:28px;color:#201708;line-height:1.6"><h2 style="color:#0b2f73">MAJOR DATA-LINK</h2><div>${safeMessage}</div><p style="margin-top:28px;color:#666">MAJOR DATA-LINK Team</p></div>` });
++
++export async function sendWelcomeEmail(params: { email: string; fullName: string }): Promise<SendResult> {
++  return sendEmail(params.email, buildWelcomeEmail({ fullName: params.fullName, webUrl: env.PUBLIC_WEB_URL }));
+ }
+-export async function sendPasswordResetEmail(email: string, code: string) {
++
++// ── Admin announcements & password reset ─────────────────────────────────
++
++export async function sendAdminEmail(params: { recipients: string[]; subject: string; message: string }): Promise<SendResult> {
++  const message = params.message.trim();
++  const safeMessage = escapeHtml(message).replace(/\r?\n/g, '<br>');
++  return sendBulkEmail(params.recipients, {
++    subject: params.subject.trim(),
++    text: message,
++    html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:28px;color:#201708;line-height:1.6"><h2 style="color:#0b2f73">${BRAND}</h2><div>${safeMessage}</div><p style="margin-top:28px;color:#666">${BRAND} Team</p></div>`
++  });
++}
++
++export async function sendPasswordResetEmail(email: string, code: string): Promise<{ sent: boolean }> {
+   const safeCode = escapeHtml(code);
+-  const resend = getClient();
+-  if (!resend) { console.error('[email] RESEND_API_KEY is not set - cannot send password reset email'); return { sent: false }; }
+-  try {
+-    const { error } = await resend.emails.send({ from: env.RESEND_FROM_EMAIL, to: email, subject: `${code} is your MAJOR DATA-LINK password reset code`, text: `Your password reset code is ${code}. It expires in 10 minutes. If you didn't request this, you can ignore this email - your password won't change.`, html: `<div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;padding:24px"><p>Someone requested a password reset for your MAJOR DATA-LINK account. Enter this code in the app:</p><p style="font-family:monospace;font-size:32px;font-weight:700;letter-spacing:.08em;background:#f2ead9;padding:16px 20px;border-radius:12px;text-align:center">${safeCode}</p><p style="font-size:13px;color:#4a4438">This code expires in 10 minutes. If you did not request a password reset, you can safely ignore this email.</p></div>` });
+-    if (error) { console.error('[email] Resend rejected the password reset email', error); return { sent: false }; }
+-    return { sent: true };
+-  } catch (error) { console.error('[email] Failed to send password reset email', error); return { sent: false }; }
+-}
+\ No newline at end of file
++  const result = await sendEmail(email, {
++    subject: `${code} is your ${BRAND} password reset code`,
++    text: `Your password reset code is ${code}. It expires in 10 minutes. If you didn't request this, you can ignore this email - your password won't change.`,
++    html: `<div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;padding:24px"><p>Someone requested a password reset for your ${BRAND} account. Enter this code in the app:</p><p style="font-family:monospace;font-size:32px;font-weight:700;letter-spacing:.08em;background:#f2ead9;padding:16px 20px;border-radius:12px;text-align:center">${safeCode}</p><p style="font-size:13px;color:#4a4438">This code expires in 10 minutes. If you did not request a password reset, you can safely ignore this email.</p></div>`
++  });
++  return { sent: result.sent };
++}
+diff --git a/major_data_link_backend/src/routes/admin-api.routes.ts b/major_data_link_backend/src/routes/admin-api.routes.ts
+index 012d7a4..0e0c7e1 100644
+--- a/major_data_link_backend/src/routes/admin-api.routes.ts
++++ b/major_data_link_backend/src/routes/admin-api.routes.ts
+@@ -40,9 +40,9 @@ adminApiRoutes.post('/emails/send', requireFinanceAdmin, async (req, res) => {
+   if (!recipients.length) return res.status(422).json({ status: false, message: 'No recipients found' });
+   if (recipients.length > 100) return res.status(422).json({ status: false, message: 'Please use the admin email composer for audiences larger than 100 recipients' });
+   const result = await sendAdminEmail({ recipients, subject: body.subject, message: body.message });
+-  await logAdminAction({ adminId: req.admin!.id, action: 'SEND_ADMIN_EMAIL', targetType: body.audience, metadata: { audience: body.audience, recipientMode: body.recipient_mode, recipientCount: recipients.length, subject: body.subject, sent: result.sent } });
++  await logAdminAction({ adminId: req.admin!.id, action: 'SEND_ADMIN_EMAIL', targetType: body.audience, metadata: { audience: body.audience, recipientMode: body.recipient_mode, recipientCount: recipients.length, delivered: result.delivered, failed: result.failed, subject: body.subject, sent: result.sent } });
+   if (!result.sent) return res.status(502).json({ status: false, message: result.error ?? 'Email delivery failed' });
+-  res.json({ status: true, data: { recipient_count: recipients.length } });
++  res.json({ status: true, data: { recipient_count: recipients.length, delivered: result.delivered ?? recipients.length, failed: result.failed ?? 0 } });
+ });
+ 
+ adminApiRoutes.post('/user-deliveries', requireFinanceAdmin, async (req, res) => {
