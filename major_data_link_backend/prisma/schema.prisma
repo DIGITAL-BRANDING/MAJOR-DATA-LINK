@@ -199,6 +199,17 @@ model User {
   /// without retaining a device fingerprint, IP address, or user agent.
   lastLoginAt          DateTime?
   lastLoginChannel     CustomerLoginChannel?
+  /// Resend Contacts sync (see lib/resend-contacts.ts) - null until the
+  /// first successful push to RESEND_AUDIENCE_CUSTOMERS_ID, or if that env
+  /// var/RESEND_API_KEY was never configured. Once set, this is the id used
+  /// to update (not re-create) the contact on every later sync.
+  resendContactId      String?   @unique
+  /// Mirrors the Resend contact's `unsubscribed` flag, kept in sync by the
+  /// /api/webhooks/resend handler. Only the admin bulk email tool
+  /// (admin/email-composer.ts's "Everyone in this audience" send) respects
+  /// this - transactional mail (welcome email, password reset codes) is
+  /// never gated by it.
+  emailSubscribed      Boolean   @default(true)
   // Set by the admin panel's "Reset Password" action (see
   // src/admin/resources/user.resource.ts) when an admin issues a temporary
   // password by hand - Resend needs a verified sending domain we don't have
@@ -269,6 +280,12 @@ model Partner {
   /// Partner portal is browser-only. Kept separate from customer login data
   /// because a Partner is a distinct business account model.
   lastPortalLoginAt    DateTime?
+  /// Resend Contacts sync - same purpose as User.resendContactId, pushed to
+  /// RESEND_AUDIENCE_PARTNERS_ID instead. See lib/resend-contacts.ts.
+  resendContactId      String?   @unique
+  /// Same purpose as User.emailSubscribed - kept in sync by the
+  /// /api/webhooks/resend handler.
+  emailSubscribed      Boolean   @default(true)
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
   apiKeys           PartnerApiKey[]

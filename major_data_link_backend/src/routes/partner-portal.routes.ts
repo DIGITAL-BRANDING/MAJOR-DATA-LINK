@@ -2,6 +2,7 @@ import bcrypt from 'bcryptjs';
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
+import { syncResendContact } from '../lib/resend-contacts.js';
 import { koboToNaira } from '../lib/money.js';
 import { clearLockout, isLocked, recordFailure } from '../lib/lockout.js';
 import {
@@ -98,6 +99,8 @@ partnerPortalRoutes.post('/register', async (req, res) => {
       lastPortalLoginAt: new Date()
     }
   });
+
+  void syncResendContact('partner', { id: partner.id, email: partner.email, name: partner.businessName, resendContactId: partner.resendContactId }).catch(() => {});
 
   const tokens = await issuePartnerAuthTokens(partner);
   res.status(201).json({

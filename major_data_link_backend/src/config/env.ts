@@ -130,6 +130,19 @@ const EnvSchema = z.object({
   RESEND_FROM_EMAIL: z.string().default('K-TECH SOLUTIONS COMPANY <support@k-tech.com.ng>'),
   // Public address of the customer web app, used for links inside emails.
   PUBLIC_WEB_URL: z.string().url().default('https://k-tech.com.ng'),
+  // Resend Contacts/Audience sync (see src/lib/resend-contacts.ts). The two
+  // IDs are each Audience's id from the Resend dashboard (Audience >
+  // Settings) - leave either unset to skip pushing that side's contacts;
+  // registration never fails or waits on this either way.
+  RESEND_AUDIENCE_CUSTOMERS_ID: z.string().optional(),
+  RESEND_AUDIENCE_PARTNERS_ID: z.string().optional(),
+  // Signing secret for the webhook Resend sends contact.* events to
+  // (/api/webhooks/resend) - copy it from the Resend dashboard's Webhooks
+  // page (shown once, under "Signing secret", format "whsec_..."). Verified
+  // with resend.webhooks.verify(), same idea as PAYSTACK_SECRET_KEY above.
+  // Left unset, the route 400s every delivery rather than trusting an
+  // unverifiable payload.
+  RESEND_WEBHOOK_SECRET: z.string().optional(),
   // NOTE: z.coerce.boolean() would parse the STRING "false" as true (JS's
   // Boolean("false") === true Ã¢â‚¬â€ any non-empty string is truthy). This explicit
   // string comparison is what actually respects MOCK_PROVIDER=false in .env.

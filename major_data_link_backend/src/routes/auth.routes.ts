@@ -13,6 +13,7 @@ import { verifyLoginPin } from '../services/login-pin.service.js';
 import { tryProvisionInstantVirtualAccount } from '../services/kyc.service.js';
 import { customerLoginChannel } from '../lib/login-activity.js';
 import { sendWelcomeEmail } from '../lib/email.js';
+import { syncResendContact } from '../lib/resend-contacts.js';
 
 export const authRoutes = Router();
 
@@ -72,6 +73,7 @@ authRoutes.post('/register', async (req, res) => {
 
   const tokens = await issueAuthTokens({ id: provisionedUser.id, email: provisionedUser.email });
   void sendWelcomeEmail({ email: provisionedUser.email, fullName: provisionedUser.fullName }).catch((error) => console.error('[email] Welcome email failed', error));
+  void syncResendContact('user', { id: provisionedUser.id, email: provisionedUser.email, name: provisionedUser.fullName, resendContactId: provisionedUser.resendContactId }).catch(() => {});
   await sendUserAuthResponse(req, res, provisionedUser, tokens, 201);
 });
 

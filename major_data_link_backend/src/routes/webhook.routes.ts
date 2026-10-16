@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { Router } from 'express';
+import { Resend, type WebhookEventPayload } from 'resend';
 import { TransactionStatus, TransactionType } from '@prisma/client';
 import { env } from '../config/env.js';
 import { prisma } from '../lib/prisma.js';
@@ -563,6 +564,70 @@ webhookRoutes.post('/katpay', async (req, res) => {
   } catch (error) {
     console.error('[katpay-webhook] failed to process event', eventType, error);
     // Return non-2xx for a genuine processing failure so KatPay retries delivery.
+    return res.status(500).json({ error: 'Webhook processing failed' });
+  }
+
+  res.sendStatus(200);
+});
+
+/**
+ * Resend contact.* webhook - the "pull" half of the Contacts/Audience sync
+ * (see lib/resend-contacts.ts for the push half). Mounted under the same
+ * express.raw() as the others (see app.ts): Resend signs the exact raw bytes
+ * (Standard Webhooks: svix-id / svix-timestamp / svix-signature headers), so
+ * the signature must be verified before any JSON parsing happens.
+ *
+ * Only contact.created / contact.updated / contact.deleted are acted on, and
+ * only to keep User/Partner.emailSubscribed (and resendContactId) in step
+ * with what Resend reports - mainly so someone who unsubscribes on Resend's
+ * side is skipped by the admin bulk email tool. Every other event type is
+ * acknowledged and ignored.
+ */
+webhookRoutes.post('/resend', async (req, res) => {
+  if (!env.RESEND_API_KEY || !env.RESEND_WEBHOOK_SECRET) {
+    return res.status(400).json({ status: false, message: 'Resend webhook is not configured' });
+  }
+  const id = req.header('svix-id');
+  const timestamp = req.header('svix-timestamp');
+  const signature = req.header('svix-signature');
+  if (!id || !timestamp || !signature) {
+    return res.status(400).json({ status: false, message: 'Missing signature headers' });
+  }
+
+  let event: WebhookEventPayload;
+  try {
+    event = new Resend(env.RESEND_API_KEY).webhooks.verify({
+      payload: (req.body as Buffer).toString('utf8'),
+      headers: { id, timestamp, signature },
+      webhookSecret: env.RESEND_WEBHOOK_SECRET
+    });
+  } catch {
+    return res.status(401).json({ status: false, message: 'Invalid signature' });
+  }
+
+  if (event.type !== 'contact.created' && event.type !== 'contact.updated' && event.type !== 'contact.deleted') {
+    return res.sendStatus(200);
+  }
+
+  try {
+    const contact = event.data;
+    const email = contact.email.trim().toLowerCase();
+    // audience_id tells us which table this contact belongs to; if it is
+    // neither configured audience (or unset), fall back to matching by id/email
+    // in both tables so a mis-set env var doesn't silently drop updates.
+    const isCustomers = env.RESEND_AUDIENCE_CUSTOMERS_ID && contact.audience_id === env.RESEND_AUDIENCE_CUSTOMERS_ID;
+    const isPartners = env.RESEND_AUDIENCE_PARTNERS_ID && contact.audience_id === env.RESEND_AUDIENCE_PARTNERS_ID;
+    const where = { OR: [{ resendContactId: contact.id }, { email }] };
+    const data =
+      event.type === 'contact.deleted'
+        ? { resendContactId: null }
+        : { resendContactId: contact.id, emailSubscribed: !contact.unsubscribed };
+
+    if (!isPartners) await prisma.user.updateMany({ where, data });
+    if (!isCustomers) await prisma.partner.updateMany({ where, data });
+  } catch (error) {
+    console.error('[resend-webhook] failed to process event', event.type, error);
+    // Non-2xx so Resend retries delivery.
     return res.status(500).json({ error: 'Webhook processing failed' });
   }
 
