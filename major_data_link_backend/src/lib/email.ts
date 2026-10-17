@@ -58,11 +58,30 @@ async function sendEmail(to: string, message: EmailMessage): Promise<SendResult>
  * one bad address fails only itself, paced to Resend's rate limit, with a
  * retry when it answers "rate limit".
  */
-export async function sendBulkEmail(recipients: string[], message: EmailMessage, options: { pauseMs?: number } = {}): Promise<SendResult> {
+/**
+ * Per-recipient outcome of a bulk send: the Resend email id when Resend
+ * accepted that address (later delivery events are matched on this id - see
+ * the /api/webhooks/resend handler), or the reason it was rejected.
+ */
+export type DeliveryResult = { email: string; resendId?: string; error?: string };
+export type BulkSendResult = SendResult & { results: DeliveryResult[] };
+
+export type BulkSendOptions = {
+  pauseMs?: number;
+  /**
+   * Called with each chunk's per-recipient results as soon as that chunk is
+   * settled, so callers can persist them while the rest of a large send is
+   * still running (Resend delivery webhooks can arrive before the send ends).
+   * Errors thrown here are logged and do not stop the send.
+   */
+  onChunk?: (results: DeliveryResult[]) => Promise<void>;
+};
+
+export async function sendBulkEmail(recipients: string[], message: EmailMessage, options: BulkSendOptions = {}): Promise<BulkSendResult> {
   const resend = getClient();
   if (!resend) {
     console.error('[email] RESEND_API_KEY is not set - cannot send email');
-    return { sent: false, error: 'RESEND_API_KEY is not configured' };
+    return { sent: false, error: 'RESEND_API_KEY is not configured', results: [] };
   }
   const pauseMs = options.pauseMs ?? BULK_PAUSE_MS;
   const unique = [...new Map(recipients.map((address) => [address.trim().toLowerCase(), address.trim()])).values()].filter(Boolean);
@@ -70,11 +89,21 @@ export async function sendBulkEmail(recipients: string[], message: EmailMessage,
   let delivered = 0;
   let failed = 0;
   let firstError: string | undefined;
+  const results: DeliveryResult[] = [];
+  const flush = async (from: number) => {
+    if (!options.onChunk || results.length <= from) return;
+    try {
+      await options.onChunk(results.slice(from));
+    } catch (error) {
+      console.error('[email] onChunk handler failed', error);
+    }
+  };
 
   for (let start = 0; start < unique.length; start += BATCH_SIZE) {
     const chunk = unique.slice(start, start + BATCH_SIZE);
     if (start > 0) await pause(pauseMs);
 
+    const before = results.length;
     let chunkDone = false;
     for (let attempt = 0; attempt < 3 && !chunkDone; attempt += 1) {
       try {
@@ -88,27 +117,50 @@ export async function sendBulkEmail(recipients: string[], message: EmailMessage,
             continue;
           }
           console.error('[email] Resend rejected a bulk batch', error);
-          firstError ??= error.message ?? 'Resend rejected the email';
+          const reason = error.message ?? 'Resend rejected the email';
+          firstError ??= reason;
           failed += chunk.length;
+          for (const address of chunk) results.push({ email: address, error: reason });
           chunkDone = true;
-          if (FATAL_ERRORS.has(error.name)) return { sent: delivered > 0, error: delivered > 0 ? undefined : firstError, delivered, failed: failed + (unique.length - start - chunk.length) };
+          if (FATAL_ERRORS.has(error.name)) {
+            // Every remaining batch would fail the same way - record them and stop.
+            for (const address of unique.slice(start + chunk.length)) results.push({ email: address, error: reason });
+            await flush(before);
+            return { sent: delivered > 0, error: delivered > 0 ? undefined : firstError, delivered, failed: failed + (unique.length - start - chunk.length), results };
+          }
           continue;
         }
-        const rejected = data?.errors ?? [];
-        delivered += data?.data.length ?? 0;
-        failed += rejected.length;
-        for (const item of rejected) console.error(`[email] Resend rejected recipient #${start + item.index} in a bulk send:`, item.message);
-        if (rejected.length) firstError ??= rejected[0].message;
+
+        // In permissive mode Resend returns ids only for the addresses it accepted,
+        // in order, and reports rejected ones by their index within this chunk.
+        const rejected = new Map((data?.errors ?? []).map((item) => [item.index, item.message] as const));
+        const ids = data?.data ?? [];
+        let idCursor = 0;
+        chunk.forEach((address, index) => {
+          const reason = rejected.get(index);
+          if (reason !== undefined) {
+            results.push({ email: address, error: reason });
+          } else {
+            results.push({ email: address, resendId: ids[idCursor]?.id });
+            idCursor += 1;
+          }
+        });
+        delivered += ids.length;
+        failed += rejected.size;
+        for (const [index, reason] of rejected) console.error(`[email] Resend rejected recipient #${start + index} in a bulk send:`, reason);
+        if (rejected.size) firstError ??= rejected.values().next().value;
         chunkDone = true;
       } catch (error) {
         console.error('[email] Failed to send a bulk batch', error);
         firstError ??= 'Email delivery failed';
         failed += chunk.length;
+        for (const address of chunk) results.push({ email: address, error: 'Email delivery failed' });
         chunkDone = true;
       }
     }
+    await flush(before);
   }
-  return { sent: delivered > 0, error: delivered > 0 ? undefined : (firstError ?? 'Email delivery failed'), delivered, failed };
+  return { sent: delivered > 0, error: delivered > 0 ? undefined : (firstError ?? 'Email delivery failed'), delivered, failed, results };
 }
 
 // ── Welcome email ────────────────────────────────────────────────────────
@@ -184,14 +236,14 @@ export async function sendWelcomeEmail(params: { email: string; fullName: string
 
 // ── Admin announcements & password reset ─────────────────────────────────
 
-export async function sendAdminEmail(params: { recipients: string[]; subject: string; message: string }): Promise<SendResult> {
+export async function sendAdminEmail(params: { recipients: string[]; subject: string; message: string }, options: Pick<BulkSendOptions, 'onChunk'> = {}): Promise<BulkSendResult> {
   const message = params.message.trim();
   const safeMessage = escapeHtml(message).replace(/\r?\n/g, '<br>');
   return sendBulkEmail(params.recipients, {
     subject: params.subject.trim(),
     text: message,
     html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:28px;color:#201708;line-height:1.6"><h2 style="color:#0b2f73">${BRAND}</h2><div>${safeMessage}</div><p style="margin-top:28px;color:#666">${BRAND} Team</p></div>`
-  });
+  }, options);
 }
 
 export async function sendPasswordResetEmail(email: string, code: string): Promise<{ sent: boolean }> {

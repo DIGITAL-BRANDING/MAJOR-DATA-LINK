@@ -1049,6 +1049,44 @@ model PartnerNotificationBroadcast {
   @@index([createdByAdminId, createdAt])
 }
 
+/// One admin "Send an email" action (see admin/email-composer.ts). The
+/// per-recipient rows in EmailDelivery are what Resend's delivery webhooks
+/// (email.delivered / bounced / ...) update, so the admin can see what
+/// actually happened to each message, not just that Resend accepted it.
+model EmailBroadcast {
+  id               String          @id @default(uuid())
+  createdByAdminId String
+  createdByAdmin   AdminUser       @relation(fields: [createdByAdminId], references: [id], onDelete: Restrict)
+  audience         String
+  recipientMode    String
+  subject          String
+  recipientCount   Int             @default(0)
+  acceptedCount    Int             @default(0)
+  failedCount      Int             @default(0)
+  createdAt        DateTime        @default(now())
+  deliveries       EmailDelivery[]
+
+  @@index([createdAt])
+}
+
+/// `status` is one of: sent (accepted by Resend), rejected (Resend refused
+/// this address up front), delivery_delayed, delivered, bounced, complained,
+/// failed, suppressed. Kept as text so a new Resend event never needs a
+/// migration just to store it.
+model EmailDelivery {
+  id             String         @id @default(uuid())
+  broadcastId    String
+  broadcast      EmailBroadcast @relation(fields: [broadcastId], references: [id], onDelete: Cascade)
+  resendEmailId  String?        @unique
+  recipientEmail String
+  status         String
+  errorMessage   String?
+  lastEventAt    DateTime?
+  createdAt      DateTime       @default(now())
+
+  @@index([broadcastId, status])
+}
+
 model AdminUser {
   id           String          @id @default(uuid())
   email        String          @unique
@@ -1073,6 +1111,7 @@ model AdminUser {
   auditLogs    AdminAuditLog[]
   sentBroadcasts NotificationBroadcast[]
   sentPartnerBroadcasts PartnerNotificationBroadcast[]
+  emailBroadcasts EmailBroadcast[]
   deliveries UserDelivery[]
 }
 

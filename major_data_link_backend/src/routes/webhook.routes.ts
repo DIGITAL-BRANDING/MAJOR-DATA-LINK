@@ -577,12 +577,66 @@ webhookRoutes.post('/katpay', async (req, res) => {
  * (Standard Webhooks: svix-id / svix-timestamp / svix-signature headers), so
  * the signature must be verified before any JSON parsing happens.
  *
- * Only contact.created / contact.updated / contact.deleted are acted on, and
- * only to keep User/Partner.emailSubscribed (and resendContactId) in step
- * with what Resend reports - mainly so someone who unsubscribes on Resend's
- * side is skipped by the admin bulk email tool. Every other event type is
- * acknowledged and ignored.
+ * contact.* events keep User/Partner.emailSubscribed (and resendContactId) in
+ * step with what Resend reports - mainly so someone who unsubscribes on
+ * Resend's side is skipped by the admin bulk email tool.
+ *
+ * email.* events update EmailDelivery.status for sends recorded by the admin
+ * email composer (matched on Resend's email_id). opened/clicked/received and
+ * the rest are acknowledged and ignored.
  */
+
+/**
+ * Email events we track, mapped to the EmailDelivery.status they set. `rank`
+ * stops a late or out-of-order event from moving a status backwards: e.g. a
+ * "delivered" that arrives after a "delivery_delayed" wins, but a stray
+ * "sent" arriving after "delivered" does not.
+ */
+const EMAIL_EVENT_STATUS: Partial<Record<WebhookEventPayload['type'], { status: string; rank: number }>> = {
+  'email.sent': { status: 'sent', rank: 1 },
+  'email.delivery_delayed': { status: 'delivery_delayed', rank: 2 },
+  'email.delivered': { status: 'delivered', rank: 3 },
+  'email.bounced': { status: 'bounced', rank: 4 },
+  'email.complained': { status: 'complained', rank: 4 },
+  'email.failed': { status: 'failed', rank: 4 },
+  'email.suppressed': { status: 'suppressed', rank: 4 }
+};
+
+function emailEventDetail(event: WebhookEventPayload): string | null {
+  switch (event.type) {
+    case 'email.bounced':
+      return event.data.bounce.message;
+    case 'email.failed':
+      return event.data.failed.reason;
+    case 'email.suppressed':
+      return event.data.suppressed.message;
+    default:
+      return null;
+  }
+}
+
+async function applyEmailDeliveryEvent(event: WebhookEventPayload): Promise<void> {
+  const mapping = EMAIL_EVENT_STATUS[event.type];
+  if (!mapping || !('email_id' in event.data)) return;
+  const emailId = event.data.email_id;
+  if (!emailId) return;
+
+  const detail = emailEventDetail(event);
+  const occurredAt = new Date(event.created_at);
+  const allowedFrom = Object.values(EMAIL_EVENT_STATUS)
+    .filter((m) => m && m.rank <= mapping.rank)
+    .map((m) => m!.status);
+
+  await prisma.emailDelivery.updateMany({
+    where: { resendEmailId: emailId, status: { in: allowedFrom } },
+    data: {
+      status: mapping.status,
+      lastEventAt: Number.isNaN(occurredAt.getTime()) ? new Date() : occurredAt,
+      ...(detail ? { errorMessage: detail } : {})
+    }
+  });
+}
+
 webhookRoutes.post('/resend', async (req, res) => {
   if (!env.RESEND_API_KEY || !env.RESEND_WEBHOOK_SECRET) {
     return res.status(400).json({ status: false, message: 'Resend webhook is not configured' });
@@ -603,6 +657,17 @@ webhookRoutes.post('/resend', async (req, res) => {
     });
   } catch {
     return res.status(401).json({ status: false, message: 'Invalid signature' });
+  }
+
+  if (event.type.startsWith('email.')) {
+    if (!EMAIL_EVENT_STATUS[event.type]) return res.sendStatus(200);
+    try {
+      await applyEmailDeliveryEvent(event);
+    } catch (error) {
+      console.error('[resend-webhook] failed to record delivery event', event.type, error);
+      return res.status(500).json({ error: 'Webhook processing failed' });
+    }
+    return res.sendStatus(200);
   }
 
   if (event.type !== 'contact.created' && event.type !== 'contact.updated' && event.type !== 'contact.deleted') {
