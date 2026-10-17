@@ -6,6 +6,7 @@ import { prisma } from '../lib/prisma.js';
 import { ApiError } from '../middleware/error.js';
 import { katpayService } from './katpay.service.js';
 import { paystackService } from './paystack.service.js';
+import { zenithpayService } from './zenithpay.service.js';
 import { notifyPartnerSafely } from './notification.service.js';
 import { createDynamicFundingAccount, verifyDynamicFunding } from './payment-provider.service.js';
 
@@ -14,9 +15,36 @@ function splitName(name: string) {
   return { firstName, lastName: rest.join(' ') || 'Partner' };
 }
 
+export type PartnerOwnerDetails = { bvn: string; firstName: string; lastName: string };
+
+/**
+ * Reads the business owner's BVN details from a request body (snake_case, the
+ * same shape the portal and the /api/v1 endpoint both accept). Returns undefined
+ * when no BVN was sent, so the caller decides whether that is acceptable.
+ */
+export function partnerOwnerFromBody(body: unknown): PartnerOwnerDetails | undefined {
+  const raw = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>;
+  const bvn = typeof raw.bvn === 'string' ? raw.bvn.trim() : '';
+  if (!bvn) return undefined;
+  const firstName = typeof raw.first_name === 'string' ? raw.first_name.trim() : '';
+  const lastName = typeof raw.last_name === 'string' ? raw.last_name.trim() : '';
+  if (!/^\d{11}$/.test(bvn)) throw new ApiError(422, 'BVN must be exactly 11 digits', 'INVALID_BVN');
+  if (firstName.length < 2 || lastName.length < 2) {
+    throw new ApiError(422, 'Enter the first and last name of the BVN holder', 'VALIDATION_ERROR');
+  }
+  return { bvn, firstName, lastName };
+}
+
 /** Creates the partner's permanent virtual account when their gateway profile permits it. */
-export async function provisionPartnerVirtualAccount(partnerId: string) {
+export async function provisionPartnerVirtualAccount(partnerId: string, owner?: PartnerOwnerDetails) {
   const partner = await prisma.partner.findUniqueOrThrow({ where: { id: partnerId } });
+  if (env.PAYMENT_PROVIDER === 'zenithpay') {
+    // ZenithPay only issues accounts against a BVN, so this path never falls through to the
+    // Paystack/KatPay branches below. A stale KatPay number is replaced once the owner verifies.
+    if (partner.virtualAccountNumber && partner.virtualAccountProvider === 'zenithpay') return partner;
+    if (!owner) throw new ApiError(422, "Enter the business owner's BVN to activate your funding account.", 'PARTNER_BVN_REQUIRED');
+    return assignPartnerZenithAccount(partner, owner);
+  }
   if (partner.virtualAccountNumber) return partner;
   if (!partner.phone || partner.phone.trim().length < 6) {
     throw new ApiError(422, 'A verified partner phone number is required before a funding account can be created.', 'PARTNER_PHONE_REQUIRED');
@@ -36,6 +64,34 @@ export async function provisionPartnerVirtualAccount(partnerId: string) {
   }
   const account = await paystackService.createDedicatedVirtualAccount({ customerCode });
   return prisma.partner.update({ where: { id: partner.id }, data: { paystackCustomerCode: customerCode, virtualAccountNumber: account.account_number, virtualAccountBank: account.bank.name, virtualAccountProvider: 'paystack' } });
+}
+
+async function assignPartnerZenithAccount(partner: { id: string; email: string }, owner: PartnerOwnerDetails) {
+  const account = await zenithpayService.assignDedicatedAccount({
+    bvn: owner.bvn,
+    accountName: `${owner.firstName} ${owner.lastName}`,
+    firstName: owner.firstName,
+    lastName: owner.lastName,
+    email: partner.email
+  });
+  const updated = await prisma.partner.update({
+    where: { id: partner.id },
+    data: {
+      virtualAccountNumber: account.accountNumber,
+      virtualAccountBank: account.bankName,
+      virtualAccountProvider: 'zenithpay',
+      bvnLast4: owner.bvn.slice(-4),
+      bvnVerifiedAt: new Date()
+    }
+  });
+  notifyPartnerSafely({
+    partnerId: partner.id,
+    type: 'WALLET',
+    title: 'Funding account ready',
+    body: `Your funding account is ${account.accountNumber} (${account.bankName}). Transfers to it credit your wallet automatically.`,
+    data: { virtualAccountNumber: account.accountNumber }
+  });
+  return updated;
 }
 
 /** A gateway-verified, one-time funding account used when permanent DVA provisioning is unavailable. */

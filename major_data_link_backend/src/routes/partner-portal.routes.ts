@@ -24,6 +24,7 @@ import {
 import {
   createPartnerDynamicFunding,
   partnerFundingResponse,
+  partnerOwnerFromBody,
   provisionPartnerVirtualAccount,
   verifyPartnerFunding
 } from '../services/partner-funding.service.js';
@@ -319,7 +320,7 @@ partnerPortalRoutes.get('/wallet', requirePartnerSession, async (req, res) => {
 });
 
 partnerPortalRoutes.post('/wallet/funding-account', requirePartnerSession, async (req, res) => {
-  const partner = await provisionPartnerVirtualAccount(req.partner!.id);
+  const partner = await provisionPartnerVirtualAccount(req.partner!.id, partnerOwnerFromBody(req.body));
   res.json({ status: true, message: 'Partner funding account is ready', data: partnerFundingResponse(partner) });
 });
 

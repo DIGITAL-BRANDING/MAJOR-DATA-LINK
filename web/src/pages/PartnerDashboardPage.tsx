@@ -889,13 +889,21 @@ function WalletCard({
   const [amount, setAmount] = useState('');
   const [exactTransfer, setExactTransfer] = useState<ExactTransfer | null>(null);
   const [busy, setBusy] = useState(false);
+  const [ownerBvn, setOwnerBvn] = useState('');
+  const [ownerFirstName, setOwnerFirstName] = useState('');
+  const [ownerLastName, setOwnerLastName] = useState('');
 
-  async function createFundingAccount() {
+  async function createFundingAccount(event: FormEvent) {
+    event.preventDefault();
     setBusy(true);
     onError('');
     try {
-      const result = await portalFetch<{ data: Wallet }>('/wallet/funding-account', { method: 'POST' });
+      const result = await portalFetch<{ data: Wallet }>('/wallet/funding-account', {
+        method: 'POST',
+        body: { bvn: ownerBvn.trim(), first_name: ownerFirstName.trim(), last_name: ownerLastName.trim() }
+      });
       onWallet(result.data);
+      setOwnerBvn('');
       onNotice(t('partnerPortal.wallet.fundingAccountCreated'));
     } catch (err) {
       onError(err instanceof Error ? err.message : t('partnerPortal.wallet.fundingAccountFailed'));
@@ -948,14 +956,53 @@ function WalletCard({
           </button>
         </div>
       ) : (
-        <button
-          disabled={busy}
-          onClick={() => void createFundingAccount()}
-          className="mt-4 inline-flex items-center gap-2 rounded-lg bg-brand-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
-        >
-          <WalletIcon size={16} />
-          {busy ? t('partnerPortal.wallet.creating') : t('partnerPortal.wallet.createAccount')}
-        </button>
+        <form onSubmit={createFundingAccount} className="mt-4 space-y-3">
+          <p className="text-sm text-slate-600">{t('partnerPortal.wallet.bvnIntro')}</p>
+          <label className="block text-xs font-semibold text-slate-600">
+            {t('partnerPortal.wallet.bvnLabel')}
+            <input
+              value={ownerBvn}
+              onChange={(e) => setOwnerBvn(e.target.value.replace(/\D/g, '').slice(0, 11))}
+              inputMode="numeric"
+              autoComplete="off"
+              required
+              placeholder="00000000000"
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none"
+            />
+          </label>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block text-xs font-semibold text-slate-600">
+              {t('partnerPortal.wallet.firstNameLabel')}
+              <input
+                value={ownerFirstName}
+                onChange={(e) => setOwnerFirstName(e.target.value)}
+                required
+                minLength={2}
+                autoComplete="off"
+                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none"
+              />
+            </label>
+            <label className="block text-xs font-semibold text-slate-600">
+              {t('partnerPortal.wallet.lastNameLabel')}
+              <input
+                value={ownerLastName}
+                onChange={(e) => setOwnerLastName(e.target.value)}
+                required
+                minLength={2}
+                autoComplete="off"
+                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none"
+              />
+            </label>
+          </div>
+          <p className="text-xs text-slate-500">{t('partnerPortal.wallet.bvnPrivacy')}</p>
+          <button
+            disabled={busy || ownerBvn.length !== 11}
+            className="inline-flex items-center gap-2 rounded-lg bg-brand-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+          >
+            <WalletIcon size={16} />
+            {busy ? t('partnerPortal.wallet.creating') : t('partnerPortal.wallet.createAccount')}
+          </button>
+        </form>
       )}
 
       <div className="mt-5 border-t border-slate-100 pt-4">

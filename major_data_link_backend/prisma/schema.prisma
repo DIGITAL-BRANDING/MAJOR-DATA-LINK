@@ -262,6 +262,10 @@ model Partner {
   virtualAccountNumber String?    @unique
   virtualAccountBank   String?
   virtualAccountProvider String?
+  /// Last 4 digits of the BVN used to activate the ZenithPay funding account.
+  /// The full BVN is never stored (same rule as User.bvnLast4).
+  bvnLast4             String?
+  bvnVerifiedAt        DateTime?
   paystackCustomerCode String?    @unique
   webhookUrl        String?
   /// Encrypted with PII_ENCRYPTION_KEY; required because outgoing HMAC signing

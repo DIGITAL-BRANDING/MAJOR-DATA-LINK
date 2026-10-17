@@ -22,6 +22,7 @@
         "partner:create": "tsx src/scripts/create-partner.ts",
         "resend:backfill": "tsx src/scripts/backfill-resend-contacts.ts",
         "reset:stale-virtual-accounts": "tsx src/scripts/reset-stale-virtual-accounts.ts",
+        "reset:stale-partner-virtual-accounts": "tsx src/scripts/reset-stale-partner-virtual-accounts.ts",
         "test": "vitest run",
         "test:watch": "vitest",
         "lint": "eslint src --ext .ts"
