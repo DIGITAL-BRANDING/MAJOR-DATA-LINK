@@ -75,8 +75,6 @@ const ha = {
       exactTransferFailed: 'An kasa ƙirƙirar Exact Transfer account',
       bvnIntro: 'Ana bayar da funding account ɗin da sunan mai kasuwancin, don haka ku shigar da BVN ɗinsa sau ɗaya. Ba mu adana cikakkiyar lambar ba.',
       bvnLabel: 'BVN na mai kasuwanci (lambobi 11)',
-      firstNameLabel: 'Sunan farko (kamar yadda yake a BVN)',
-      lastNameLabel: 'Sunan ƙarshe (kamar yadda yake a BVN)',
       bvnPrivacy: 'Ana adana lambobi 4 na ƙarshe kawai.'
     },
     apiKeys: {

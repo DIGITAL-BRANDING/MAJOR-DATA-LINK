@@ -890,8 +890,6 @@ function WalletCard({
   const [exactTransfer, setExactTransfer] = useState<ExactTransfer | null>(null);
   const [busy, setBusy] = useState(false);
   const [ownerBvn, setOwnerBvn] = useState('');
-  const [ownerFirstName, setOwnerFirstName] = useState('');
-  const [ownerLastName, setOwnerLastName] = useState('');
 
   async function createFundingAccount(event: FormEvent) {
     event.preventDefault();
@@ -900,7 +898,7 @@ function WalletCard({
     try {
       const result = await portalFetch<{ data: Wallet }>('/wallet/funding-account', {
         method: 'POST',
-        body: { bvn: ownerBvn.trim(), first_name: ownerFirstName.trim(), last_name: ownerLastName.trim() }
+        body: { bvn: ownerBvn.trim() }
       });
       onWallet(result.data);
       setOwnerBvn('');
@@ -970,30 +968,6 @@ function WalletCard({
               className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none"
             />
           </label>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="block text-xs font-semibold text-slate-600">
-              {t('partnerPortal.wallet.firstNameLabel')}
-              <input
-                value={ownerFirstName}
-                onChange={(e) => setOwnerFirstName(e.target.value)}
-                required
-                minLength={2}
-                autoComplete="off"
-                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none"
-              />
-            </label>
-            <label className="block text-xs font-semibold text-slate-600">
-              {t('partnerPortal.wallet.lastNameLabel')}
-              <input
-                value={ownerLastName}
-                onChange={(e) => setOwnerLastName(e.target.value)}
-                required
-                minLength={2}
-                autoComplete="off"
-                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none"
-              />
-            </label>
-          </div>
           <p className="text-xs text-slate-500">{t('partnerPortal.wallet.bvnPrivacy')}</p>
           <button
             disabled={busy || ownerBvn.length !== 11}

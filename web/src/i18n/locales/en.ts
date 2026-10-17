@@ -75,8 +75,6 @@ const en = {
       exactTransferFailed: 'Could not create Exact Transfer account',
       bvnIntro: 'Your funding account is issued in the name of the business owner, so enter their BVN once. We do not keep the full number.',
       bvnLabel: 'Owner BVN (11 digits)',
-      firstNameLabel: 'First name (as on BVN)',
-      lastNameLabel: 'Last name (as on BVN)',
       bvnPrivacy: 'Only the last 4 digits are stored.'
     },
     apiKeys: {

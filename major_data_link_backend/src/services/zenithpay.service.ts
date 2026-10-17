@@ -5,6 +5,7 @@ type ZenithPayAssignmentResponse = {
   status?: boolean | string;
   response_code?: string;
   message?: string;
+  error?: string;
   accountReference?: string;
   accountName?: string;
   bankName?: string;
@@ -56,11 +57,14 @@ export const zenithpayService = {
     const data = (await response.json().catch(() => ({}))) as ZenithPayAssignmentResponse;
     const successful = data.status === true || data.status === 'success' || data.response_code === '00';
     if (!response.ok || !successful || !data.accountNumber || !data.accountName) {
-      throw new ApiError(
-        502,
-        data.message ?? 'ZenithPay could not assign a dedicated account',
-        'ZENITHPAY_DEDICATED_ACCOUNT_FAILED'
-      );
+      const reason = data.message ?? data.error ?? 'ZenithPay could not assign a dedicated account';
+      // Logged without the BVN or the account details: only what ZenithPay says went wrong.
+      console.error('[zenithpay] dedicated account assignment rejected', {
+        httpStatus: response.status,
+        responseCode: data.response_code ?? null,
+        message: reason
+      });
+      throw new ApiError(502, reason, 'ZENITHPAY_DEDICATED_ACCOUNT_FAILED');
     }
 
     return {

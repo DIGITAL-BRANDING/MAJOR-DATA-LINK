@@ -18,7 +18,7 @@ import {
 import type { NormalizedProviderResponse } from '../services/provider-types.js';
 import { listVerificationPricesForPartner } from '../services/verification.service.js';
 import { partnerVerification } from '../services/partner-verification.service.js';
-import { createPartnerDynamicFunding, partnerFundingResponse, partnerOwnerFromBody, provisionPartnerVirtualAccount, verifyPartnerFunding } from '../services/partner-funding.service.js';
+import { createPartnerDynamicFunding, partnerFundingResponse, partnerBvnFromBody, provisionPartnerVirtualAccount, verifyPartnerFunding } from '../services/partner-funding.service.js';
 import { configurePartnerWebhook, queuePartnerWebhookTest, webhookConfiguration } from '../services/partner-webhook.service.js';
 import { flagPartnerPendingReconciliation } from '../services/partner-reconciliation.service.js';
 import { requirePartnerAccess } from '../services/partner-access.service.js';
@@ -147,7 +147,7 @@ partnerApiRoutes.get('/wallet/balance', async (req, res) => {
 });
 
 partnerApiRoutes.post('/wallet/funding-account', async (req, res) => {
-  const partner = await provisionPartnerVirtualAccount(req.partner!.id, partnerOwnerFromBody(req.body));
+  const partner = await provisionPartnerVirtualAccount(req.partner!.id, partnerBvnFromBody(req.body));
   res.json({ status: true, message: 'Partner funding account is ready', data: partnerFundingResponse(partner) });
 });
 

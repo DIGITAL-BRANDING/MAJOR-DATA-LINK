@@ -15,35 +15,27 @@ function splitName(name: string) {
   return { firstName, lastName: rest.join(' ') || 'Partner' };
 }
 
-export type PartnerOwnerDetails = { bvn: string; firstName: string; lastName: string };
-
 /**
- * Reads the business owner's BVN details from a request body (snake_case, the
- * same shape the portal and the /api/v1 endpoint both accept). Returns undefined
- * when no BVN was sent, so the caller decides whether that is acceptable.
+ * Reads the business owner's BVN from a request body (snake_case, the same shape the
+ * portal and the /api/v1 endpoint both accept). Returns undefined when none was sent.
  */
-export function partnerOwnerFromBody(body: unknown): PartnerOwnerDetails | undefined {
+export function partnerBvnFromBody(body: unknown): string | undefined {
   const raw = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>;
   const bvn = typeof raw.bvn === 'string' ? raw.bvn.trim() : '';
   if (!bvn) return undefined;
-  const firstName = typeof raw.first_name === 'string' ? raw.first_name.trim() : '';
-  const lastName = typeof raw.last_name === 'string' ? raw.last_name.trim() : '';
   if (!/^\d{11}$/.test(bvn)) throw new ApiError(422, 'BVN must be exactly 11 digits', 'INVALID_BVN');
-  if (firstName.length < 2 || lastName.length < 2) {
-    throw new ApiError(422, 'Enter the first and last name of the BVN holder', 'VALIDATION_ERROR');
-  }
-  return { bvn, firstName, lastName };
+  return bvn;
 }
 
 /** Creates the partner's permanent virtual account when their gateway profile permits it. */
-export async function provisionPartnerVirtualAccount(partnerId: string, owner?: PartnerOwnerDetails) {
+export async function provisionPartnerVirtualAccount(partnerId: string, bvn?: string) {
   const partner = await prisma.partner.findUniqueOrThrow({ where: { id: partnerId } });
   if (env.PAYMENT_PROVIDER === 'zenithpay') {
     // ZenithPay only issues accounts against a BVN, so this path never falls through to the
     // Paystack/KatPay branches below. A stale KatPay number is replaced once the owner verifies.
     if (partner.virtualAccountNumber && partner.virtualAccountProvider === 'zenithpay') return partner;
-    if (!owner) throw new ApiError(422, "Enter the business owner's BVN to activate your funding account.", 'PARTNER_BVN_REQUIRED');
-    return assignPartnerZenithAccount(partner, owner);
+    if (!bvn) throw new ApiError(422, "Enter the business owner's BVN to activate your funding account.", 'PARTNER_BVN_REQUIRED');
+    return assignPartnerZenithAccount(partner, bvn);
   }
   if (partner.virtualAccountNumber) return partner;
   if (!partner.phone || partner.phone.trim().length < 6) {
@@ -66,12 +58,15 @@ export async function provisionPartnerVirtualAccount(partnerId: string, owner?: 
   return prisma.partner.update({ where: { id: partner.id }, data: { paystackCustomerCode: customerCode, virtualAccountNumber: account.account_number, virtualAccountBank: account.bank.name, virtualAccountProvider: 'paystack' } });
 }
 
-async function assignPartnerZenithAccount(partner: { id: string; email: string }, owner: PartnerOwnerDetails) {
+async function assignPartnerZenithAccount(partner: { id: string; email: string; businessName: string }, bvn: string) {
+  // ZenithPay only needs the BVN. The names it also takes are derived from the business,
+  // the same way the Paystack partner path does it.
+  const { firstName, lastName } = splitName(partner.businessName);
   const account = await zenithpayService.assignDedicatedAccount({
-    bvn: owner.bvn,
-    accountName: `${owner.firstName} ${owner.lastName}`,
-    firstName: owner.firstName,
-    lastName: owner.lastName,
+    bvn,
+    accountName: partner.businessName,
+    firstName,
+    lastName,
     email: partner.email
   });
   const updated = await prisma.partner.update({
@@ -80,7 +75,7 @@ async function assignPartnerZenithAccount(partner: { id: string; email: string }
       virtualAccountNumber: account.accountNumber,
       virtualAccountBank: account.bankName,
       virtualAccountProvider: 'zenithpay',
-      bvnLast4: owner.bvn.slice(-4),
+      bvnLast4: bvn.slice(-4),
       bvnVerifiedAt: new Date()
     }
   });
