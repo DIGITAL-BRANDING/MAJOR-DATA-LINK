@@ -176,6 +176,18 @@ const ha = {
       colDate: 'Kwanan wata',
       empty: 'Babu API call da aka samu.'
     },
+    activity: {
+      title: 'Cibiyar ayyuka',
+      subtitle: 'Timeline guda na transactions, request updates, webhooks da ayyukan API key.',
+      search: 'Nemo activity',
+      all: 'Dukkan activity',
+      transactions: 'Transactions',
+      updates: 'Request updates',
+      webhooks: 'Webhooks',
+      apiKeys: 'API keys',
+      refresh: 'Sake dubawa',
+      empty: 'Babu activity da aka samu.'
+    },
     language: {
       label: 'Harshe',
       en: 'Turanci',

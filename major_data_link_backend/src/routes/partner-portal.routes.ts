@@ -587,6 +587,49 @@ partnerPortalRoutes.get('/pricing', requirePartnerSession, async (_req, res) => 
   });
 });
 
+const partnerActivityQuery = z.object({
+  search: z.string().trim().max(120).optional(),
+  kind: z.enum(['all', 'transaction', 'request_update', 'webhook', 'api_key']).default('all'),
+  from: z.string().date().optional(),
+  to: z.string().date().optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(40),
+  offset: z.coerce.number().int().min(0).max(10_000).default(0)
+});
+
+partnerPortalRoutes.get('/activity', requirePartnerSession, async (req, res) => {
+  const query = partnerActivityQuery.parse(req.query);
+  const from = query.from ? new Date(`${query.from}T00:00:00.000Z`) : undefined;
+  const to = query.to ? new Date(`${query.to}T23:59:59.999Z`) : undefined;
+  const createdAt = from || to ? { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } : undefined;
+  const search = query.search?.toLowerCase();
+  const partnerId = req.partner!.id;
+
+  const [transactions, updates, deliveries, keys] = await Promise.all([
+    query.kind === 'all' || query.kind === 'transaction'
+      ? prisma.partnerTransaction.findMany({ where: { partnerId, ...(createdAt ? { createdAt } : {}) }, orderBy: { createdAt: 'desc' }, take: 100, select: { id: true, reference: true, type: true, status: true, provider: true, providerRef: true, description: true, createdAt: true, updatedAt: true } })
+      : Promise.resolve([]),
+    query.kind === 'all' || query.kind === 'request_update'
+      ? prisma.partnerRequestUpdate.findMany({ where: { partnerId, ...(createdAt ? { createdAt } : {}) }, orderBy: { createdAt: 'desc' }, take: 100, select: { id: true, message: true, createdAt: true, transaction: { select: { reference: true } } } })
+      : Promise.resolve([]),
+    query.kind === 'all' || query.kind === 'webhook'
+      ? prisma.partnerWebhookDelivery.findMany({ where: { partnerId, ...(createdAt ? { createdAt } : {}) }, orderBy: { createdAt: 'desc' }, take: 100, select: { id: true, eventId: true, event: true, status: true, attemptCount: true, lastResponseStatus: true, lastError: true, createdAt: true, deliveredAt: true } })
+      : Promise.resolve([]),
+    query.kind === 'all' || query.kind === 'api_key'
+      ? prisma.partnerApiKey.findMany({ where: { partnerId, ...(createdAt ? { createdAt } : {}) }, orderBy: { createdAt: 'desc' }, take: 100, select: { id: true, name: true, keyPrefix: true, revokedAt: true, lastUsedAt: true, createdAt: true } })
+      : Promise.resolve([])
+  ]);
+
+  const rows = [
+    ...transactions.map((row) => ({ id: row.id, kind: 'transaction', event: `transaction.${row.status.toLowerCase()}`, title: row.description, status: row.status.toLowerCase(), reference: row.reference, provider: partnerProviderLabel(row.provider), details: row.providerRef ?? null, occurred_at: row.updatedAt.toISOString() })),
+    ...updates.map((row) => ({ id: row.id, kind: 'request_update', event: 'request.update', title: 'Request update', status: 'info', reference: row.transaction.reference, provider: null, details: row.message, occurred_at: row.createdAt.toISOString() })),
+    ...deliveries.map((row) => ({ id: row.id, kind: 'webhook', event: row.event, title: 'Webhook delivery', status: row.status.toLowerCase(), reference: row.eventId, provider: null, details: row.lastError ?? (row.lastResponseStatus ? `HTTP ${row.lastResponseStatus}` : `${row.attemptCount} attempt(s)`), occurred_at: (row.deliveredAt ?? row.createdAt).toISOString() })),
+    ...keys.map((row) => ({ id: row.id, kind: 'api_key', event: row.revokedAt ? 'api_key.revoked' : 'api_key.created', title: row.revokedAt ? `API key revoked: ${row.name}` : `API key created: ${row.name}`, status: row.revokedAt ? 'revoked' : 'active', reference: row.keyPrefix, provider: null, details: row.lastUsedAt ? `Last used ${row.lastUsedAt.toISOString()}` : null, occurred_at: (row.revokedAt ?? row.createdAt).toISOString() }))
+  ].filter((row) => !search || [row.event, row.title, row.reference, row.provider, row.details].some((value) => value?.toLowerCase().includes(search))).sort((a, b) => b.occurred_at.localeCompare(a.occurred_at));
+
+  const data = rows.slice(query.offset, query.offset + query.limit);
+  res.json({ status: true, data, meta: { total: rows.length, limit: query.limit, offset: query.offset, has_more: query.offset + data.length < rows.length } });
+});
+
 const partnerTransactionQuery = z.object({
   search: z.string().trim().max(120).optional(),
   status: z.preprocess((value) => typeof value === 'string' ? value.toUpperCase() : value, z.nativeEnum(TransactionStatus)).optional(),

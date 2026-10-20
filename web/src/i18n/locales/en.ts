@@ -176,6 +176,18 @@ const en = {
       colDate: 'Date',
       empty: 'No API calls found.'
     },
+    activity: {
+      title: 'Activity center',
+      subtitle: 'A unified timeline of transactions, request updates, webhooks and API key actions.',
+      search: 'Search activity',
+      all: 'All activity',
+      transactions: 'Transactions',
+      updates: 'Request updates',
+      webhooks: 'Webhooks',
+      apiKeys: 'API keys',
+      refresh: 'Refresh',
+      empty: 'No activity found.'
+    },
     language: {
       label: 'Language',
       en: 'English',

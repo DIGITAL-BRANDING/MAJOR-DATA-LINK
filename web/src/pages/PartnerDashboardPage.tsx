@@ -118,6 +118,17 @@ type WebhookHealth = {
   last_delivery: { event: string; status: string; attempts: number; response_status: number | null; created_at: string; delivered_at: string | null } | null;
   last_failure: { event: string; attempts: number; response_status: number | null; error: string | null; created_at: string } | null;
 };
+type PartnerActivity = {
+  id: string;
+  kind: 'transaction' | 'request_update' | 'webhook' | 'api_key';
+  event: string;
+  title: string;
+  status: string;
+  reference: string | null;
+  provider: string | null;
+  details: string | null;
+  occurred_at: string;
+};
 type ExactTransfer = { amount: number; reference: string; account_number: string; bank_name: string | null; expires_at: string | null };
 
 function getTokens() {
@@ -372,6 +383,9 @@ export default function PartnerDashboardPage() {
   const [callsOverview, setCallsOverview] = useState<CallsOverviewPoint[]>([]);
   const [prices, setPrices] = useState<PriceRow[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [activity, setActivity] = useState<PartnerActivity[]>([]);
+  const [activitySearch, setActivitySearch] = useState('');
+  const [activityKind, setActivityKind] = useState('all');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
@@ -395,6 +409,13 @@ export default function PartnerDashboardPage() {
   async function loadTransactions() {
     const res = await portalFetch<{ data: Transaction[] }>(transactionQuery()).catch(() => null);
     if (res) setTransactions(res.data);
+  }
+
+  async function loadActivity() {
+    const params = new URLSearchParams({ limit: '40', kind: activityKind });
+    if (activitySearch.trim()) params.set('search', activitySearch.trim());
+    const res = await portalFetch<{ data: PartnerActivity[] }>(`/activity?${params.toString()}`).catch(() => null);
+    if (res) setActivity(res.data);
   }
 
   async function openTransaction(reference: string) {
@@ -444,7 +465,7 @@ export default function PartnerDashboardPage() {
     if (summaryRes) setSummary(summaryRes.data);
     if (overviewRes) setCallsOverview(overviewRes.data);
     if (pricesRes) setPrices(pricesRes.data);
-    await loadTransactions();
+    await Promise.all([loadTransactions(), loadActivity()]);
   }
 
   useEffect(() => {
@@ -464,6 +485,14 @@ export default function PartnerDashboardPage() {
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search, statusFilter, typeFilter, fromDate, toDate]);
+
+  useEffect(() => {
+    if (!partner) return;
+    const timer = setTimeout(() => void loadActivity(), 300);
+    return () => clearTimeout(timer);
+    // loadActivity intentionally stays stable with the current portal session.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [partner, activitySearch, activityKind]);
 
   // Admin completion and provider reconciliation happen server-side. While
   // a partner still has an in-progress call, refresh the ledger quietly so a
@@ -493,6 +522,7 @@ export default function PartnerDashboardPage() {
     setCallsOverview([]);
     setPrices([]);
     setTransactions([]);
+    setActivity([]);
     setNotice('');
     setError('');
   }
@@ -765,6 +795,15 @@ export default function PartnerDashboardPage() {
           )}
         </section>
 
+        <ActivityCenter
+          activity={activity}
+          search={activitySearch}
+          kind={activityKind}
+          onSearch={setActivitySearch}
+          onKind={setActivityKind}
+          onRefresh={() => void loadActivity()}
+        />
+
         {selectedTransaction && (
           <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/50 p-5" role="dialog" aria-modal="true">
             <section className="max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl">
@@ -806,6 +845,78 @@ export default function PartnerDashboardPage() {
         headerLabel="K-Tech Partner Support"
       />
     </main>
+  );
+}
+
+function ActivityCenter({
+  activity,
+  search,
+  kind,
+  onSearch,
+  onKind,
+  onRefresh
+}: {
+  activity: PartnerActivity[];
+  search: string;
+  kind: string;
+  onSearch: (value: string) => void;
+  onKind: (value: string) => void;
+  onRefresh: () => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <Activity className="text-brand-700" size={20} />
+            <h2 className="font-bold">{t('partnerPortal.activity.title')}</h2>
+          </div>
+          <p className="mt-1 text-xs text-slate-500">{t('partnerPortal.activity.subtitle')}</p>
+        </div>
+        <button type="button" onClick={onRefresh} className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50">
+          {t('partnerPortal.activity.refresh')}
+        </button>
+      </div>
+      <div className="mt-4 grid gap-2 sm:grid-cols-[1fr_12rem]">
+        <label className="flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2">
+          <Search size={14} className="text-slate-400" />
+          <input value={search} onChange={(event) => onSearch(event.target.value)} placeholder={t('partnerPortal.activity.search')} className="min-w-0 flex-1 bg-transparent text-sm outline-none" />
+        </label>
+        <select value={kind} onChange={(event) => onKind(event.target.value)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">
+          <option value="all">{t('partnerPortal.activity.all')}</option>
+          <option value="transaction">{t('partnerPortal.activity.transactions')}</option>
+          <option value="request_update">{t('partnerPortal.activity.updates')}</option>
+          <option value="webhook">{t('partnerPortal.activity.webhooks')}</option>
+          <option value="api_key">{t('partnerPortal.activity.apiKeys')}</option>
+        </select>
+      </div>
+      {activity.length === 0 ? <p className="mt-5 rounded-lg bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">{t('partnerPortal.activity.empty')}</p> : (
+        <div className="mt-4 divide-y divide-slate-100">
+          {activity.map((item) => {
+            const positive = ['success', 'delivered', 'active', 'created'].some((value) => item.status.includes(value));
+            const negative = ['failed', 'reversed', 'revoked', 'declined'].some((value) => item.status.includes(value));
+            return (
+              <div key={`${item.kind}-${item.id}`} className="flex gap-3 py-3">
+                <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${positive ? 'bg-emerald-500' : negative ? 'bg-rose-500' : 'bg-amber-500'}`} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-sm font-semibold text-slate-800">{item.title}</p>
+                    <time className="text-xs text-slate-400">{new Date(item.occurred_at).toLocaleString()}</time>
+                  </div>
+                  <p className="mt-1 text-xs text-slate-500">
+                    <span className="uppercase tracking-wide">{item.event.replaceAll('_', ' ')}</span>
+                    {item.provider ? ` · ${item.provider}` : ''}
+                    {item.reference ? ` · ${item.reference}` : ''}
+                  </p>
+                  {item.details && <p className="mt-1 break-all text-xs text-slate-600">{item.details}</p>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
   );
 }
 
