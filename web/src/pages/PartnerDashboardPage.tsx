@@ -16,6 +16,7 @@ import {
   CheckCircle2,
   CircleDollarSign,
   Copy,
+  Download,
   Eye,
   EyeOff,
   Gauge,
@@ -88,6 +89,7 @@ type Summary = { today_calls: number; total_calls: number; total_spend: number; 
 type CallsOverviewPoint = { date: string; calls: number };
 type PriceRow = { service: string; label: string; unit_price: number };
 type Transaction = {
+  id?: string;
   reference: string;
   type: string;
   status: string;
@@ -95,8 +97,13 @@ type Transaction = {
   balance_before?: number;
   balance_after?: number;
   description: string;
+  provider?: string | null;
+  provider_ref?: string | null;
+  idempotency_key?: string;
   created_at: string;
+  updated_at?: string;
 };
+type TransactionDetail = Transaction & { cost: number | null; request_updates: Array<{ id: string; message: string; created_at: string }> };
 type WebhookConfig = { webhook_url: string | null; configured: boolean };
 type WebhookDelivery = { event_id: string; event: string; status: string; attempts: number; response_status: number | null; last_error: string | null; created_at: string; delivered_at: string | null; next_attempt_at: string | null };
 type ExactTransfer = { amount: number; reference: string; account_number: string; bank_name: string | null; expires_at: string | null };
@@ -354,12 +361,58 @@ export default function PartnerDashboardPage() {
   const [prices, setPrices] = useState<PriceRow[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [typeFilter, setTypeFilter] = useState('');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
+  const [selectedTransaction, setSelectedTransaction] = useState<TransactionDetail | null>(null);
+  const [detailBusy, setDetailBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
 
-  async function loadTransactions(query = '') {
-    const res = await portalFetch<{ data: Transaction[] }>(`/transactions?limit=25${query ? `&search=${encodeURIComponent(query)}` : ''}`).catch(() => null);
+  function transactionQuery(path = '/transactions') {
+    const params = new URLSearchParams({ limit: '25' });
+    if (search.trim()) params.set('search', search.trim());
+    if (statusFilter) params.set('status', statusFilter);
+    if (typeFilter) params.set('type', typeFilter);
+    if (fromDate) params.set('from', fromDate);
+    if (toDate) params.set('to', toDate);
+    return `${path}?${params.toString()}`;
+  }
+
+  async function loadTransactions() {
+    const res = await portalFetch<{ data: Transaction[] }>(transactionQuery()).catch(() => null);
     if (res) setTransactions(res.data);
+  }
+
+  async function openTransaction(reference: string) {
+    setDetailBusy(true);
+    try {
+      const res = await portalFetch<{ data: TransactionDetail }>(`/transactions/${encodeURIComponent(reference)}`);
+      setSelectedTransaction(res.data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not load transaction details');
+    } finally {
+      setDetailBusy(false);
+    }
+  }
+
+  async function exportTransactions() {
+    const { access } = getTokens();
+    const exportQuery = new URLSearchParams(transactionQuery('/transactions.csv').split('?')[1]);
+    exportQuery.set('limit', '10000');
+    const response = await fetch(`${PORTAL_BASE}/transactions.csv?${exportQuery.toString()}`, { headers: { Authorization: `Bearer ${access}` } });
+    if (!response.ok) {
+      setError('Could not export transactions');
+      return;
+    }
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `partner-transactions-${new Date().toISOString().slice(0, 10)}.csv`;
+    anchor.click();
+    URL.revokeObjectURL(url);
   }
 
   async function loadEverything() {
@@ -395,21 +448,21 @@ export default function PartnerDashboardPage() {
 
   useEffect(() => {
     if (!partner) return;
-    const timer = setTimeout(() => void loadTransactions(search), 350);
+    const timer = setTimeout(() => void loadTransactions(), 350);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search]);
+  }, [search, statusFilter, typeFilter, fromDate, toDate]);
 
   // Admin completion and provider reconciliation happen server-side. While
   // a partner still has an in-progress call, refresh the ledger quietly so a
   // completed request becomes SUCCESS without requiring a page reload.
   useEffect(() => {
     if (!partner || !transactions.some((transaction) => transaction.status === 'pending')) return;
-    const timer = window.setInterval(() => void loadTransactions(search), 15_000);
+    const timer = window.setInterval(() => void loadTransactions(), 15_000);
     return () => window.clearInterval(timer);
     // loadTransactions intentionally stays stable with the current portal session.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [partner, transactions, search]);
+  }, [partner, transactions, search, statusFilter, typeFilter, fromDate, toDate]);
 
   function onAuthSuccess(data: { access_token: string; refresh_token: string; partner: Partner }) {
     setTokens(data.access_token, data.refresh_token);
@@ -609,8 +662,15 @@ export default function PartnerDashboardPage() {
 
         <section className="mt-6 rounded-2xl border border-slate-200 bg-white">
           <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
-            <h2 className="font-bold">{t('partnerPortal.callsSummary.title')}</h2>
-            <div className="flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-1.5">
+            <div>
+              <h2 className="font-bold">{t('partnerPortal.callsSummary.title')}</h2>
+              <p className="mt-1 text-xs text-slate-500">Click a row to inspect provider references and status updates.</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button type="button" onClick={() => void exportTransactions()} className="hidden items-center gap-1 rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 sm:flex">
+                <Download size={14} /> {t('partnerPortal.callsSummary.exportCsv')}
+              </button>
+              <div className="flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-1.5">
               <Search size={14} className="text-slate-400" />
               <input
                 value={search}
@@ -618,7 +678,36 @@ export default function PartnerDashboardPage() {
                 placeholder={t('partnerPortal.callsSummary.searchPlaceholder')}
                 className="w-40 bg-transparent text-sm outline-none sm:w-56"
               />
+              </div>
             </div>
+          </div>
+          <div className="grid gap-3 border-b border-slate-100 bg-slate-50 px-5 py-4 sm:grid-cols-2 lg:grid-cols-5">
+            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">
+              <option value="">{t('partnerPortal.callsSummary.allStatuses')}</option>
+              <option value="PENDING">Pending</option>
+              <option value="SUCCESS">Success</option>
+              <option value="FAILED">Failed</option>
+              <option value="REVERSED">Reversed</option>
+              <option value="DECLINED">Declined</option>
+            </select>
+            <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">
+              <option value="">{t('partnerPortal.callsSummary.allTypes')}</option>
+              <option value="NIN_VERIFICATION">NIN verification</option>
+              <option value="BVN_VERIFICATION">BVN verification</option>
+              <option value="IDENTITY_SERVICE_REQUEST">Identity service</option>
+              <option value="DATA_PURCHASE">Data purchase</option>
+              <option value="AIRTIME_PURCHASE">Airtime purchase</option>
+              <option value="WALLET_FUNDING">Wallet funding</option>
+            </select>
+            <label className="flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-500">
+              {t('partnerPortal.callsSummary.from')}
+              <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="min-w-0 flex-1 bg-transparent text-sm text-slate-700 outline-none" />
+            </label>
+            <label className="flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-500">
+              {t('partnerPortal.callsSummary.to')}
+              <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="min-w-0 flex-1 bg-transparent text-sm text-slate-700 outline-none" />
+            </label>
+            <button type="button" onClick={() => { setSearch(''); setStatusFilter(''); setTypeFilter(''); setFromDate(''); setToDate(''); }} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100">Clear filters</button>
           </div>
           {transactions.length ? (
             <div className="overflow-x-auto">
@@ -632,11 +721,12 @@ export default function PartnerDashboardPage() {
                     <th className="px-3 py-3 font-semibold">{t('partnerPortal.callsSummary.colBalanceAfter')}</th>
                     <th className="px-3 py-3 font-semibold">{t('partnerPortal.callsSummary.colStatus')}</th>
                     <th className="px-5 py-3 font-semibold">{t('partnerPortal.callsSummary.colDate')}</th>
+                    <th className="px-5 py-3 font-semibold">{t('partnerPortal.callsSummary.details')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {transactions.map((tx) => (
-                    <tr key={tx.reference}>
+                    <tr key={tx.reference} className="transition-colors hover:bg-blue-50/50">
                       <td className="px-5 py-3 font-mono text-xs">{tx.reference}</td>
                       <td className="px-3 py-3 text-xs uppercase text-slate-500">{tx.type.replaceAll('_', ' ')}</td>
                       <td className="px-3 py-3 font-semibold">₦{tx.amount.toLocaleString()}</td>
@@ -652,6 +742,7 @@ export default function PartnerDashboardPage() {
                         </span>
                       </td>
                       <td className="px-5 py-3 text-xs text-slate-500">{new Date(tx.created_at).toLocaleString()}</td>
+                      <td className="px-5 py-3"><button type="button" onClick={() => void openTransaction(tx.reference)} className="font-semibold text-brand-700 hover:underline">{t('partnerPortal.callsSummary.details')}</button></td>
                     </tr>
                   ))}
                 </tbody>
@@ -661,6 +752,40 @@ export default function PartnerDashboardPage() {
             <p className="px-5 py-10 text-center text-sm text-slate-500">{t('partnerPortal.callsSummary.empty')}</p>
           )}
         </section>
+
+        {selectedTransaction && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/50 p-5" role="dialog" aria-modal="true">
+            <section className="max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-[0.14em] text-brand-700">{t('partnerPortal.callsSummary.detailTitle')}</p>
+                  <h2 className="mt-1 break-all font-mono text-lg font-bold text-slate-900">{selectedTransaction.reference}</h2>
+                </div>
+                <button type="button" onClick={() => setSelectedTransaction(null)} className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-600">{t('partnerPortal.callsSummary.close')}</button>
+              </div>
+              {detailBusy ? <p className="mt-6 text-sm text-slate-500">Loading…</p> : (
+                <>
+                  <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                    <DetailItem label="Status" value={selectedTransaction.status.toUpperCase()} />
+                    <DetailItem label="Service" value={selectedTransaction.type.replaceAll('_', ' ')} />
+                    <DetailItem label="Amount" value={`₦${selectedTransaction.amount.toLocaleString()}`} />
+                    <DetailItem label="Provider" value={selectedTransaction.provider ?? '—'} />
+                    <DetailItem label="Provider reference" value={selectedTransaction.provider_ref ?? '—'} />
+                    <DetailItem label="Created" value={new Date(selectedTransaction.created_at).toLocaleString()} />
+                  </div>
+                  <div className="mt-6">
+                    <h3 className="font-bold">{t('partnerPortal.callsSummary.timeline')}</h3>
+                    <div className="mt-3 space-y-3 border-l-2 border-brand-200 pl-4">
+                      <div><p className="text-sm font-semibold">Request recorded</p><p className="text-xs text-slate-500">{new Date(selectedTransaction.created_at).toLocaleString()}</p></div>
+                      {selectedTransaction.request_updates.map((update) => <div key={update.id}><p className="text-sm font-semibold">{update.message}</p><p className="text-xs text-slate-500">{new Date(update.created_at).toLocaleString()}</p></div>)}
+                      {selectedTransaction.updated_at && selectedTransaction.updated_at !== selectedTransaction.created_at && <div><p className="text-sm font-semibold">Current status: {selectedTransaction.status}</p><p className="text-xs text-slate-500">Last updated {new Date(selectedTransaction.updated_at).toLocaleString()}</p></div>}
+                    </div>
+                  </div>
+                </>
+              )}
+            </section>
+          </div>
+        )}
       </div>
       <LiveChatWidget
         active
@@ -695,6 +820,15 @@ function MetricCard({
       <p className="mt-3 text-xl font-bold tabular-nums text-slate-900 sm:text-2xl">{value}</p>
       <p className="mt-0.5 text-xs font-medium text-slate-500">{label}</p>
     </article>
+  );
+}
+
+function DetailItem({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl bg-slate-50 p-3">
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+      <p className="mt-1 break-words text-sm font-semibold text-slate-900">{value}</p>
+    </div>
   );
 }
 

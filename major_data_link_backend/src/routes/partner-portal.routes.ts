@@ -28,7 +28,7 @@ import {
   provisionPartnerVirtualAccount,
   verifyPartnerFunding
 } from '../services/partner-funding.service.js';
-import { TransactionType } from '@prisma/client';
+import { Prisma, TransactionStatus, TransactionType } from '@prisma/client';
 import { listPartnerEnterprisePrices } from '../services/partner-enterprise-catalog.service.js';
 import { getPartnerAccessSummary } from '../services/partner-access.service.js';
 import { createEnterpriseOfferCode, ensurePartnerEnterpriseOfferCode } from '../services/partner-enterprise-profile.service.js';
@@ -519,30 +519,108 @@ partnerPortalRoutes.get('/pricing', requirePartnerSession, async (_req, res) => 
   });
 });
 
+const partnerTransactionQuery = z.object({
+  search: z.string().trim().max(120).optional(),
+  status: z.preprocess((value) => typeof value === 'string' ? value.toUpperCase() : value, z.nativeEnum(TransactionStatus)).optional(),
+  type: z.preprocess((value) => typeof value === 'string' ? value.toUpperCase() : value, z.nativeEnum(TransactionType)).optional(),
+  from: z.string().date().optional(),
+  to: z.string().date().optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(25),
+  offset: z.coerce.number().int().min(0).max(100_000).default(0)
+});
+
+function transactionWhere(partnerId: string, query: z.infer<typeof partnerTransactionQuery>): Prisma.PartnerTransactionWhereInput {
+  const from = query.from ? new Date(`${query.from}T00:00:00.000Z`) : undefined;
+  const to = query.to ? new Date(`${query.to}T23:59:59.999Z`) : undefined;
+  const createdAt = from || to ? { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } : undefined;
+  const search = query.search;
+  return {
+    partnerId,
+    ...(query.status ? { status: query.status } : {}),
+    ...(query.type ? { type: query.type } : {}),
+    ...(createdAt ? { createdAt } : {}),
+    ...(search ? {
+      OR: [
+        { reference: { contains: search, mode: 'insensitive' } },
+        { providerRef: { contains: search, mode: 'insensitive' } },
+        { description: { contains: search, mode: 'insensitive' } }
+      ]
+    } : {})
+  };
+}
+
+function transactionResponse(t: {
+  id: string;
+  reference: string;
+  type: TransactionType;
+  status: TransactionStatus;
+  amountKobo: bigint;
+  costKobo: bigint | null;
+  balanceBeforeKobo: bigint;
+  balanceAfterKobo: bigint;
+  provider: string | null;
+  providerRef: string | null;
+  idempotencyKey: string;
+  description: string;
+  createdAt: Date;
+  updatedAt: Date;
+}) {
+  return {
+    id: t.id,
+    reference: t.reference,
+    type: t.type.toLowerCase(),
+    status: t.status.toLowerCase(),
+    amount: koboToNaira(t.amountKobo),
+    cost: t.costKobo === null ? null : koboToNaira(t.costKobo),
+    balance_before: koboToNaira(t.balanceBeforeKobo),
+    balance_after: koboToNaira(t.balanceAfterKobo),
+    provider: t.provider,
+    provider_ref: t.providerRef,
+    idempotency_key: t.idempotencyKey,
+    description: t.description,
+    created_at: t.createdAt.toISOString(),
+    updated_at: t.updatedAt.toISOString()
+  };
+}
+
 partnerPortalRoutes.get('/transactions', requirePartnerSession, async (req, res) => {
-  const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
-  const limit = Math.min(Math.max(Number(req.query.limit) || 25, 1), 100);
+  const query = partnerTransactionQuery.parse(req.query);
+  const where = transactionWhere(req.partner!.id, query);
+  const [transactions, total] = await Promise.all([
+    prisma.partnerTransaction.findMany({ where, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], skip: query.offset, take: query.limit }),
+    prisma.partnerTransaction.count({ where })
+  ]);
 
+  res.json({ status: true, data: transactions.map(transactionResponse), meta: { total, limit: query.limit, offset: query.offset, has_more: query.offset + transactions.length < total } });
+});
+
+partnerPortalRoutes.get('/transactions.csv', requirePartnerSession, async (req, res) => {
+  const query = partnerTransactionQuery.extend({ limit: z.coerce.number().int().min(1).max(10_000).default(10_000) }).parse(req.query);
   const transactions = await prisma.partnerTransaction.findMany({
-    where: {
-      partnerId: req.partner!.id,
-      ...(search ? { reference: { contains: search, mode: 'insensitive' } } : {})
-    },
-    orderBy: { createdAt: 'desc' },
-    take: limit
+    where: transactionWhere(req.partner!.id, query),
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    take: query.limit,
+    select: { reference: true, type: true, status: true, amountKobo: true, balanceBeforeKobo: true, balanceAfterKobo: true, provider: true, providerRef: true, description: true, createdAt: true }
   });
+  const csvCell = (value: string | number | null) => `"${String(value ?? '').replaceAll('"', '""')}"`;
+  const lines = [
+    ['Reference', 'Type', 'Status', 'Amount (NGN)', 'Balance Before (NGN)', 'Balance After (NGN)', 'Provider', 'Provider Reference', 'Description', 'Created At'].map(csvCell).join(','),
+    ...transactions.map((t) => [t.reference, t.type, t.status, koboToNaira(t.amountKobo), koboToNaira(t.balanceBeforeKobo), koboToNaira(t.balanceAfterKobo), t.provider, t.providerRef, t.description, t.createdAt.toISOString()].map(csvCell).join(','))
+  ];
+  res.type('text/csv').set('Content-Disposition', `attachment; filename="partner-transactions-${new Date().toISOString().slice(0, 10)}.csv"`).send(lines.join('\n'));
+});
 
+partnerPortalRoutes.get('/transactions/:reference', requirePartnerSession, async (req, res) => {
+  const transaction = await prisma.partnerTransaction.findFirst({
+    where: { partnerId: req.partner!.id, reference: req.params.reference },
+    include: { requestUpdates: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], select: { id: true, message: true, createdAt: true } } }
+  });
+  if (!transaction) throw new ApiError(404, 'Transaction not found', 'PARTNER_TRANSACTION_NOT_FOUND');
   res.json({
     status: true,
-    data: transactions.map((t) => ({
-      reference: t.reference,
-      type: t.type.toLowerCase(),
-      status: t.status.toLowerCase(),
-      amount: koboToNaira(t.amountKobo),
-      balance_before: koboToNaira(t.balanceBeforeKobo),
-      balance_after: koboToNaira(t.balanceAfterKobo),
-      description: t.description,
-      created_at: t.createdAt.toISOString()
-    }))
+    data: {
+      ...transactionResponse(transaction),
+      request_updates: transaction.requestUpdates.map((update) => ({ id: update.id, message: update.message, created_at: update.createdAt.toISOString() }))
+    }
   });
 });
