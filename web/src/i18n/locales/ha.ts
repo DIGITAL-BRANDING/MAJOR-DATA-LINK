@@ -110,7 +110,14 @@ const ha = {
       revokeTitle: 'Soke',
       revokedNotice: 'An soke key ɗin.',
       generateFailed: 'An kasa ƙirƙirar API key',
-      revokeFailed: 'An kasa soke key ɗin'
+      revokeFailed: 'An kasa soke key ɗin',
+      rotateTitle: 'Sabunta key',
+      rotatedNotice: 'An sabunta key. Ajiye sabon key yanzu; an soke tsohon key.',
+      rotateFailed: 'An kasa sabunta key',
+      keyLabel: 'Sunan key',
+      active: 'aiki',
+      revoked: 'an soke',
+      activeCount: '{{count}} masu aiki'
     },
     webhook: {
       title: 'Webhook',
@@ -133,6 +140,13 @@ const ha = {
       retryOne: 'Sake gwadawa yanzu',
       deliveryRetried: 'An sake aika webhook ɗin cikin nasara.',
       deliveryRetryQueued: 'An saka webhook ɗin domin a sake aikawa.',
+      healthTitle: 'Lafiyar webhook',
+      last30Days: 'Bayanan isarwa na kwanaki 30 da suka wuce',
+      delivered: 'An isar',
+      failed: 'An kasa',
+      pending: 'Ana jira',
+      lastFailure: 'Isarwar da ta kasa ta ƙarshe',
+      healthFailed: 'An kasa ɗaukar bayanan lafiyar webhook',
       configuredNotice: 'An saita webhook. Ajiye secret ɗin yanzu; ba za a sake nuna shi ba.'
     },
     pricing: {

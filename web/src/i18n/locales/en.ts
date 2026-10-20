@@ -110,7 +110,14 @@ const en = {
       revokeTitle: 'Revoke',
       revokedNotice: 'Key revoked.',
       generateFailed: 'Could not generate API key',
-      revokeFailed: 'Could not revoke key'
+      revokeFailed: 'Could not revoke key',
+      rotateTitle: 'Rotate key',
+      rotatedNotice: 'Key rotated. Save the new key now; the old key is revoked.',
+      rotateFailed: 'Could not rotate key',
+      keyLabel: 'Key label',
+      active: 'active',
+      revoked: 'revoked',
+      activeCount: '{{count}} active'
     },
     webhook: {
       title: 'Webhook',
@@ -133,6 +140,13 @@ const en = {
       retryOne: 'Retry now',
       deliveryRetried: 'Webhook delivery retried successfully.',
       deliveryRetryQueued: 'Webhook retry queued.',
+      healthTitle: 'Webhook health',
+      last30Days: 'Delivery performance over the last 30 days',
+      delivered: 'Delivered',
+      failed: 'Failed',
+      pending: 'Pending',
+      lastFailure: 'Last failed delivery',
+      healthFailed: 'Could not load webhook health',
       configuredNotice: 'Webhook configured. Save the secret now; it will not be shown again.'
     },
     pricing: {

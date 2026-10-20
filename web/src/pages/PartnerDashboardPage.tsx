@@ -106,6 +106,18 @@ type Transaction = {
 type TransactionDetail = Transaction & { cost: number | null; request_updates: Array<{ id: string; message: string; created_at: string }> };
 type WebhookConfig = { webhook_url: string | null; configured: boolean };
 type WebhookDelivery = { event_id: string; event: string; status: string; attempts: number; response_status: number | null; last_error: string | null; created_at: string; delivered_at: string | null; next_attempt_at: string | null };
+type WebhookHealth = {
+  configured: boolean;
+  window_days: number;
+  total: number;
+  delivered: number;
+  failed: number;
+  pending: number;
+  processing: number;
+  delivery_rate: number | null;
+  last_delivery: { event: string; status: string; attempts: number; response_status: number | null; created_at: string; delivered_at: string | null } | null;
+  last_failure: { event: string; attempts: number; response_status: number | null; error: string | null; created_at: string } | null;
+};
 type ExactTransfer = { amount: number; reference: string; account_number: string; bank_name: string | null; expires_at: string | null };
 
 function getTokens() {
@@ -1274,12 +1286,13 @@ function ApiKeysCard({
   const { t } = useTranslation();
   const [busy, setBusy] = useState(false);
   const [revealedKey, setRevealedKey] = useState<string | null>(null);
+  const [keyName, setKeyName] = useState('Live key');
 
   async function generate() {
     setBusy(true);
     onError('');
     try {
-      const result = await portalFetch<{ data: { key: string } }>('/api-keys', { method: 'POST', body: { name: 'Live key' } });
+      const result = await portalFetch<{ data: { key: string } }>('/api-keys', { method: 'POST', body: { name: keyName.trim() || 'Live key' } });
       setRevealedKey(result.data.key);
       const refreshed = await portalFetch<{ data: ApiKey[] }>('/api-keys');
       onKeys(refreshed.data);
@@ -1300,6 +1313,25 @@ function ApiKeysCard({
       onNotice(t('partnerPortal.apiKeys.revokedNotice'));
     } catch (err) {
       onError(err instanceof Error ? err.message : t('partnerPortal.apiKeys.revokeFailed'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function rotate(key: ApiKey) {
+    setBusy(true);
+    onError('');
+    try {
+      const result = await portalFetch<{ data: { key: string } }>(`/api-keys/${encodeURIComponent(key.id)}/rotate`, {
+        method: 'POST',
+        body: { name: key.name }
+      });
+      setRevealedKey(result.data.key);
+      const refreshed = await portalFetch<{ data: ApiKey[] }>('/api-keys');
+      onKeys(refreshed.data);
+      onNotice(t('partnerPortal.apiKeys.rotatedNotice'));
+    } catch (err) {
+      onError(err instanceof Error ? err.message : t('partnerPortal.apiKeys.rotateFailed'));
     } finally {
       setBusy(false);
     }
@@ -1328,6 +1360,12 @@ function ApiKeysCard({
         </button>
       </div>
 
+      <div className="mt-4 flex flex-wrap items-center gap-2 rounded-lg bg-slate-50 p-3">
+        <label htmlFor="partner-api-key-name" className="text-xs font-semibold text-slate-600">{t('partnerPortal.apiKeys.keyLabel')}</label>
+        <input id="partner-api-key-name" value={keyName} onChange={(event) => setKeyName(event.target.value)} maxLength={80} className="min-w-[12rem] flex-1 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs outline-none focus:border-brand-500" />
+        <span className="text-[11px] text-slate-500">{t('partnerPortal.apiKeys.activeCount', { count: keys.filter((key) => !key.revoked_at).length })}</span>
+      </div>
+
       {revealedKey && (
         <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-4">
           <p className="text-xs font-bold text-amber-800">{t('partnerPortal.apiKeys.revealNotice')}</p>
@@ -1348,7 +1386,12 @@ function ApiKeysCard({
         {keys.map((k) => (
           <div key={k.id} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2.5">
             <div>
-              <p className="text-sm font-semibold">{k.name}</p>
+              <p className="flex items-center gap-2 text-sm font-semibold">
+                {k.name}
+                <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${k.revoked_at ? 'bg-slate-200 text-slate-600' : 'bg-emerald-100 text-emerald-700'}`}>
+                  {k.revoked_at ? t('partnerPortal.apiKeys.revoked') : t('partnerPortal.apiKeys.active')}
+                </span>
+              </p>
               <p className="font-mono text-xs text-slate-500">{k.key_prefix}••••••••</p>
               <p className="mt-0.5 text-xs text-slate-400">
                 {k.revoked_at
@@ -1356,17 +1399,18 @@ function ApiKeysCard({
                   : k.last_used_at
                     ? t('partnerPortal.apiKeys.lastUsedOn', { date: new Date(k.last_used_at).toLocaleDateString() })
                     : t('partnerPortal.apiKeys.neverUsed')}
+                {' · '}{new Date(k.created_at).toLocaleDateString()}
               </p>
             </div>
             {!k.revoked_at && (
-              <button
-                disabled={busy}
-                onClick={() => void revoke(k.id)}
-                className="rounded-lg border border-rose-200 p-2 text-rose-600 hover:bg-rose-50 disabled:opacity-40"
-                title={t('partnerPortal.apiKeys.revokeTitle')}
-              >
-                <Trash2 size={15} />
-              </button>
+              <div className="flex items-center gap-1">
+                <button type="button" disabled={busy} onClick={() => void rotate(k)} className="rounded-lg border border-blue-200 p-2 text-blue-600 hover:bg-blue-50 disabled:opacity-40" title={t('partnerPortal.apiKeys.rotateTitle')}>
+                  <RefreshCw size={15} />
+                </button>
+                <button type="button" disabled={busy} onClick={() => void revoke(k.id)} className="rounded-lg border border-rose-200 p-2 text-rose-600 hover:bg-rose-50 disabled:opacity-40" title={t('partnerPortal.apiKeys.revokeTitle')}>
+                  <Trash2 size={15} />
+                </button>
+              </div>
             )}
           </div>
         ))}
@@ -1393,6 +1437,7 @@ function WebhookCard({
   const [busy, setBusy] = useState(false);
   const [revealedSecret, setRevealedSecret] = useState<string | null>(null);
   const [deliveries, setDeliveries] = useState<WebhookDelivery[]>([]);
+  const [health, setHealth] = useState<WebhookHealth | null>(null);
 
   async function loadDeliveries() {
     if (!webhook?.configured) { setDeliveries([]); return; }
@@ -1404,7 +1449,17 @@ function WebhookCard({
     }
   }
 
-  useEffect(() => { void loadDeliveries(); }, [webhook?.configured]);
+  async function loadHealth() {
+    if (!webhook?.configured) { setHealth(null); return; }
+    try {
+      const result = await portalFetch<{ data: WebhookHealth }>('/webhook/health');
+      setHealth(result.data);
+    } catch (err) {
+      onError(err instanceof Error ? err.message : t('partnerPortal.webhook.healthFailed'));
+    }
+  }
+
+  useEffect(() => { void loadDeliveries(); void loadHealth(); }, [webhook?.configured]);
 
   async function save(event: FormEvent) {
     event.preventDefault();
@@ -1438,6 +1493,7 @@ function WebhookCard({
         onError(`Webhook test was not delivered yet (status: ${result.data.status}, attempt: ${result.data.attempts}). Check the callback route and webhook secret.`);
       }
       await loadDeliveries();
+      await loadHealth();
     } catch (err) {
       onError(err instanceof Error ? err.message : t('partnerPortal.webhook.testFailed'));
     } finally {
@@ -1454,6 +1510,7 @@ function WebhookCard({
         ? t('partnerPortal.webhook.retryQueued', { count: result.data.requeued })
         : t('partnerPortal.webhook.retryNone'));
       await loadDeliveries();
+      await loadHealth();
     } catch (err) {
       onError(err instanceof Error ? err.message : t('partnerPortal.webhook.retryFailedError'));
     } finally {
@@ -1469,6 +1526,7 @@ function WebhookCard({
       if (result.data.status === 'delivered') onNotice(t('partnerPortal.webhook.deliveryRetried'));
       else onNotice(t('partnerPortal.webhook.deliveryRetryQueued'));
       await loadDeliveries();
+      await loadHealth();
     } catch (err) {
       onError(err instanceof Error ? err.message : t('partnerPortal.webhook.retryFailedError'));
     } finally { setBusy(false); }
@@ -1535,10 +1593,33 @@ function WebhookCard({
         </div>
       )}
       {webhook?.configured && (
+        health && <section className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h3 className="text-sm font-bold">{t('partnerPortal.webhook.healthTitle')}</h3>
+              <p className="text-xs text-slate-500">{t('partnerPortal.webhook.last30Days')}</p>
+            </div>
+            <span className={`rounded-full px-3 py-1 text-xs font-bold ${health.delivery_rate !== null && health.delivery_rate >= 99 ? 'bg-emerald-100 text-emerald-800' : health.failed > 0 ? 'bg-rose-100 text-rose-800' : 'bg-amber-100 text-amber-800'}`}>
+              {health.delivery_rate === null ? '—' : `${health.delivery_rate}%`}
+            </span>
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <HealthMetric label={t('partnerPortal.webhook.delivered')} value={health.delivered} color="text-emerald-700" />
+            <HealthMetric label={t('partnerPortal.webhook.failed')} value={health.failed} color="text-rose-700" />
+            <HealthMetric label={t('partnerPortal.webhook.pending')} value={health.pending + health.processing} color="text-amber-700" />
+            <HealthMetric label="Total" value={health.total} color="text-slate-700" />
+          </div>
+          {health.last_failure && <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800">
+            <p className="font-bold">{t('partnerPortal.webhook.lastFailure')}</p>
+            <p className="mt-1 break-all">{health.last_failure.event} · {health.last_failure.response_status ? `HTTP ${health.last_failure.response_status}` : 'No HTTP response'} · {health.last_failure.error ?? 'Delivery failed'} · {new Date(health.last_failure.created_at).toLocaleString()}</p>
+          </div>}
+        </section>
+      )}
+      {webhook?.configured && (
         <section className="mt-5 border-t border-slate-200 pt-4">
           <div className="flex items-center justify-between gap-2">
             <h3 className="text-sm font-semibold">{t('partnerPortal.webhook.recentDeliveries')}</h3>
-            <button type="button" disabled={busy} onClick={() => void loadDeliveries()} className="text-xs font-semibold text-brand-700 disabled:opacity-50">{t('partnerPortal.webhook.refresh')}</button>
+            <button type="button" disabled={busy} onClick={() => { void loadDeliveries(); void loadHealth(); }} className="text-xs font-semibold text-brand-700 disabled:opacity-50">{t('partnerPortal.webhook.refresh')}</button>
           </div>
           {deliveries.length === 0 ? <p className="mt-2 text-xs text-slate-500">{t('partnerPortal.webhook.noDeliveries')}</p> : (
             <div className="mt-2 divide-y divide-slate-100">
@@ -1558,4 +1639,8 @@ function WebhookCard({
       )}
     </article>
   );
+}
+
+function HealthMetric({ label, value, color }: { label: string; value: number; color: string }) {
+  return <div className="rounded-lg bg-white px-3 py-2"><p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</p><p className={`mt-1 text-lg font-bold ${color}`}>{value}</p></div>;
 }

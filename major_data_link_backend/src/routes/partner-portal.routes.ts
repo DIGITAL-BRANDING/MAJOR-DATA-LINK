@@ -28,7 +28,7 @@ import {
   provisionPartnerVirtualAccount,
   verifyPartnerFunding
 } from '../services/partner-funding.service.js';
-import { Prisma, TransactionStatus, TransactionType } from '@prisma/client';
+import { PartnerWebhookDeliveryStatus, Prisma, TransactionStatus, TransactionType } from '@prisma/client';
 import { listPartnerEnterprisePrices } from '../services/partner-enterprise-catalog.service.js';
 import { getPartnerAccessSummary } from '../services/partner-access.service.js';
 import { createEnterpriseOfferCode, ensurePartnerEnterpriseOfferCode } from '../services/partner-enterprise-profile.service.js';
@@ -353,6 +353,41 @@ partnerPortalRoutes.post('/api-keys/:id/revoke', requirePartnerSession, async (r
   res.json({ status: true, message: 'API key revoked' });
 });
 
+partnerPortalRoutes.post('/api-keys/:id/rotate', requirePartnerSession, async (req, res) => {
+  const keyId = String(req.params.id);
+  const body = z.object({ name: z.string().trim().min(1).max(80).optional() }).parse(req.body ?? {});
+  const partner = await prisma.partner.findUniqueOrThrow({ where: { id: req.partner!.id } });
+  if (partner.status !== 'ACTIVE') {
+    throw new ApiError(403, 'Your account is not active yet.', 'PARTNER_NOT_ACTIVE');
+  }
+  const current = await prisma.partnerApiKey.findUnique({ where: { id: keyId } });
+  if (!current || current.partnerId !== partner.id) {
+    throw new ApiError(404, 'API key not found', 'API_KEY_NOT_FOUND');
+  }
+  if (current.revokedAt) {
+    throw new ApiError(409, 'This API key has already been revoked.', 'API_KEY_ALREADY_REVOKED');
+  }
+
+  const replacement = createPartnerApiKey();
+  await prisma.$transaction([
+    prisma.partnerApiKey.update({ where: { id: current.id }, data: { revokedAt: new Date() } }),
+    prisma.partnerApiKey.create({
+      data: {
+        partnerId: partner.id,
+        name: body.name ?? `${current.name} (rotated)`,
+        keyPrefix: replacement.keyPrefix,
+        secretHash: replacement.secretHash
+      }
+    })
+  ]);
+
+  res.status(201).json({
+    status: true,
+    message: 'API key rotated. The previous key is now revoked.',
+    data: { key: replacement.plaintext, key_prefix: replacement.keyPrefix }
+  });
+});
+
 // ── Wallet funding + webhook configuration ──────────────────────────────
 // Thin session-authenticated mirrors of the same-named /api/v1 endpoints
 // (partner-api.routes.ts), calling the exact same service functions - so
@@ -453,6 +488,39 @@ partnerPortalRoutes.get('/webhook/deliveries', requirePartnerSession, async (req
       delivered_at: row.deliveredAt?.toISOString() ?? null,
       next_attempt_at: row.status === 'PENDING' ? row.nextAttemptAt.toISOString() : null
     }))
+  });
+});
+
+partnerPortalRoutes.get('/webhook/health', requirePartnerSession, async (req, res) => {
+  const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const where = { partnerId: req.partner!.id, createdAt: { gte: since } };
+  const [configuration, total, delivered, failed, pending, processing, lastDelivery, lastFailure, responseCodes] = await Promise.all([
+    webhookConfiguration(req.partner!.id),
+    prisma.partnerWebhookDelivery.count({ where }),
+    prisma.partnerWebhookDelivery.count({ where: { ...where, status: PartnerWebhookDeliveryStatus.DELIVERED } }),
+    prisma.partnerWebhookDelivery.count({ where: { ...where, status: PartnerWebhookDeliveryStatus.FAILED } }),
+    prisma.partnerWebhookDelivery.count({ where: { ...where, status: PartnerWebhookDeliveryStatus.PENDING } }),
+    prisma.partnerWebhookDelivery.count({ where: { ...where, status: PartnerWebhookDeliveryStatus.PROCESSING } }),
+    prisma.partnerWebhookDelivery.findFirst({ where: { partnerId: req.partner!.id }, orderBy: { createdAt: 'desc' }, select: { event: true, status: true, attemptCount: true, lastResponseStatus: true, createdAt: true, deliveredAt: true } }),
+    prisma.partnerWebhookDelivery.findFirst({ where: { partnerId: req.partner!.id, status: PartnerWebhookDeliveryStatus.FAILED }, orderBy: { createdAt: 'desc' }, select: { event: true, attemptCount: true, lastResponseStatus: true, lastError: true, createdAt: true } }),
+    prisma.partnerWebhookDelivery.groupBy({ by: ['lastResponseStatus'], where, _count: { _all: true } })
+  ]);
+  const rate = total === 0 ? null : Math.round((delivered / total) * 1000) / 10;
+  res.json({
+    status: true,
+    data: {
+      configured: configuration.configured,
+      window_days: 30,
+      total,
+      delivered,
+      failed,
+      pending,
+      processing,
+      delivery_rate: rate,
+      response_codes: responseCodes.map((row) => ({ status: row.lastResponseStatus, count: row._count._all })),
+      last_delivery: lastDelivery ? { event: lastDelivery.event, status: lastDelivery.status.toLowerCase(), attempts: lastDelivery.attemptCount, response_status: lastDelivery.lastResponseStatus, created_at: lastDelivery.createdAt.toISOString(), delivered_at: lastDelivery.deliveredAt?.toISOString() ?? null } : null,
+      last_failure: lastFailure ? { event: lastFailure.event, attempts: lastFailure.attemptCount, response_status: lastFailure.lastResponseStatus, error: lastFailure.lastError, created_at: lastFailure.createdAt.toISOString() } : null
+    }
   });
 });
 
@@ -611,8 +679,12 @@ partnerPortalRoutes.get('/transactions.csv', requirePartnerSession, async (req, 
 });
 
 partnerPortalRoutes.get('/transactions/:reference', requirePartnerSession, async (req, res) => {
-  const transaction = await prisma.partnerTransaction.findFirst({
-    where: { partnerId: req.partner!.id, reference: req.params.reference },
+  const reference = Array.isArray(req.params.reference) ? req.params.reference[0] : req.params.reference;
+  type PartnerTransactionWithUpdates = Prisma.PartnerTransactionGetPayload<{
+    include: { requestUpdates: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], select: { id: true, message: true, createdAt: true } } }
+  }>;
+  const transaction: PartnerTransactionWithUpdates | null = await prisma.partnerTransaction.findFirst({
+    where: { partnerId: req.partner!.id, reference },
     include: { requestUpdates: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], select: { id: true, message: true, createdAt: true } } }
   });
   if (!transaction) throw new ApiError(404, 'Transaction not found', 'PARTNER_TRANSACTION_NOT_FOUND');
