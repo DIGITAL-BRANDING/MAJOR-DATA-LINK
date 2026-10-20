@@ -617,6 +617,19 @@ function transactionWhere(partnerId: string, query: z.infer<typeof partnerTransa
   };
 }
 
+/**
+ * Keep internal adapter/provider identifiers out of the partner-facing ledger.
+ * The portal should show the product name that the partner integrated with,
+ * while the raw provider remains available to admins in the internal ledger.
+ */
+function partnerProviderLabel(provider: string | null): string | null {
+  if (!provider) return null;
+  const key = provider.toLowerCase().replace(/[\s_-]/g, '');
+  if (key === 'techhub') return 'K-Tech Solutions / Musa Verification V1';
+  if (key === 'franceverified') return 'Verification V2';
+  return provider;
+}
+
 function transactionResponse(t: {
   id: string;
   reference: string;
@@ -642,7 +655,7 @@ function transactionResponse(t: {
     cost: t.costKobo === null ? null : koboToNaira(t.costKobo),
     balance_before: koboToNaira(t.balanceBeforeKobo),
     balance_after: koboToNaira(t.balanceAfterKobo),
-    provider: t.provider,
+    provider: partnerProviderLabel(t.provider),
     provider_ref: t.providerRef,
     idempotency_key: t.idempotencyKey,
     description: t.description,
@@ -673,7 +686,7 @@ partnerPortalRoutes.get('/transactions.csv', requirePartnerSession, async (req, 
   const csvCell = (value: string | number | null) => `"${String(value ?? '').replaceAll('"', '""')}"`;
   const lines = [
     ['Reference', 'Type', 'Status', 'Amount (NGN)', 'Balance Before (NGN)', 'Balance After (NGN)', 'Provider', 'Provider Reference', 'Description', 'Created At'].map(csvCell).join(','),
-    ...transactions.map((t) => [t.reference, t.type, t.status, koboToNaira(t.amountKobo), koboToNaira(t.balanceBeforeKobo), koboToNaira(t.balanceAfterKobo), t.provider, t.providerRef, t.description, t.createdAt.toISOString()].map(csvCell).join(','))
+    ...transactions.map((t) => [t.reference, t.type, t.status, koboToNaira(t.amountKobo), koboToNaira(t.balanceBeforeKobo), koboToNaira(t.balanceAfterKobo), partnerProviderLabel(t.provider), t.providerRef, t.description, t.createdAt.toISOString()].map(csvCell).join(','))
   ];
   res.type('text/csv').set('Content-Disposition', `attachment; filename="partner-transactions-${new Date().toISOString().slice(0, 10)}.csv"`).send(lines.join('\n'));
 });
