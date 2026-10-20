@@ -7,11 +7,12 @@ import { franceverifiedSlipAdapter } from './franceverified-slip-adapter.service
 import { submitNinValidationFV, checkNinValidationFV } from './franceverified-nin-validation-adapter.service.js';
 import { checkIpeClearanceFV, submitIpeClearanceFV } from './franceverified-ipe-adapter.service.js';
 import { completePartnerPurchase, debitPartnerWallet, reversePartnerPurchase } from './partner-wallet.service.js';
+import { flagPartnerPendingReconciliation } from './partner-reconciliation.service.js';
 import { prisma } from '../lib/prisma.js';
 import { ApiError } from '../middleware/error.js';
 
 type PartnerSlipResult = {
-  status: boolean; message: string; reference: string; balanceAfter: number;
+  status: boolean | 'pending'; message: string; reference: string; balanceAfter: number;
   userData?: Record<string, unknown>; pdfBase64?: string; pdfUrl?: string;
 };
 
@@ -175,8 +176,15 @@ export async function purchasePartnerSlip(params: {
   const debit = await debitPartnerWallet({
     partnerId: params.partnerId, amount: price.unitPrice, type: params.type,
     description: params.description, idempotencyKey: params.idempotencyKey,
+    costKobo: price.providerCostKobo,
     metadata: { service: params.service, ...params.operational, unit_price: price.unitPrice, pii: sealPII(params.pii) } as Prisma.InputJsonValue
   });
+  if (debit.reused && debit.transaction.status === TransactionStatus.PENDING) {
+    // A previous call may have reached Techhub even if our server lost the
+    // response. Never submit the same paid request upstream a second time.
+    return { status: 'pending', message: 'Request is awaiting provider status reconciliation.', reference: debit.transaction.reference,
+      balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo) };
+  }
   if (debit.reused && debit.transaction.status !== TransactionStatus.PENDING) {
     const metadata = debit.transaction.metadata as Record<string, unknown> | null;
     const pii = openPII<{ user_data?: Record<string, unknown>; pdf_base64?: string; pdf_url?: string }>(metadata?.pii);
@@ -185,6 +193,18 @@ export async function purchasePartnerSlip(params: {
   }
   const provider = await call();
   if (!provider.ok) {
+    if (provider.pending) {
+      const current = debit.transaction.metadata as Record<string, unknown> | null;
+      await prisma.partnerTransaction.update({ where: { id: debit.transaction.id }, data: {
+        provider: price.provider,
+        metadata: { service: params.service, ...params.operational, unit_price: price.unitPrice,
+          provider_outcome: 'unconfirmed', pii: mergeSealedPII(current?.pii, { ...params.pii, submit_raw: provider.raw }) } as Prisma.InputJsonValue
+      }});
+      await flagPartnerPendingReconciliation({ transactionId: debit.transaction.id, provider: price.provider,
+        providerMessage: provider.message, rawStatus: { outcome: 'unconfirmed', service: params.service } });
+      return { status: 'pending', message: provider.message, reference: debit.transaction.reference,
+        balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo) };
+    }
     const reversed = await reversePartnerPurchase(debit.transaction.id, provider.message);
     return { status: false, message: provider.message, reference: reversed.reference, balanceAfter: koboToNaira(reversed.balanceAfterKobo) };
   }

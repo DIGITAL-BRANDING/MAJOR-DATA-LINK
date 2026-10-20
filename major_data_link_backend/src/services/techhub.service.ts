@@ -82,6 +82,9 @@ type TechhubAsyncStatusResponse = {
 
 export type TechhubSlipResult = {
   ok: boolean;
+  /** The provider may have charged/accepted the lookup, but we could not
+   * establish its result. Callers must retain the debit for reconciliation. */
+  pending?: boolean;
   message: string;
   userData?: Record<string, unknown>;
   pdfBase64?: string;
@@ -348,7 +351,10 @@ export class TechhubService {
       }
     } catch (error) {
       console.error(`[techhub] network error calling ${path}:`, error);
-      return { ok: false, message: 'Could not reach the verification provider - please try again shortly', raw: null };
+      // A timeout/reset does not prove that Techhub did not process the POST.
+      // Refunding here allowed the partner to retry while Techhub had already
+      // completed and billed the first request.
+      return { ok: false, pending: true, message: 'The provider response is uncertain. The request is being held for status reconciliation.', raw: null };
     }
 
     // Techhub has returned both "success" and "successful" from its
@@ -356,17 +362,30 @@ export class TechhubService {
     // `success: true`) as a completed, chargeable request.  A mismatch here
     // used to trigger a wallet refund even when Techhub had already produced
     // and charged for a Premium slip.
+    const nestedData = asRecord(data.data);
+    const nestedStatus = typeof nestedData?.status === 'string' ? nestedData.status.trim().toLowerCase() : nestedData?.status;
     const providerStatus = typeof data.status === 'string' ? data.status.trim().toLowerCase() : data.status;
     const isSuccess =
       data.success === true ||
       providerStatus === true ||
       providerStatus === 'success' ||
-      providerStatus === 'successful';
+      providerStatus === 'successful' ||
+      nestedStatus === true ||
+      nestedStatus === 'success' ||
+      nestedStatus === 'successful' ||
+      data.response_code === '00';
 
-    console.info('[techhub] slip response', JSON.stringify({ endpoint: path, http_status: response.status, outcome: response.ok && isSuccess ? 'success' : 'failed' }));
+    console.info('[techhub] slip response', JSON.stringify({ endpoint: path, http_status: response.status, outcome: isSuccess ? 'success' : 'unconfirmed' }));
 
-    if (!response.ok || !isSuccess) {
+    // An explicit provider success is authoritative even if its web server
+    // returned an unusual HTTP status after completing the lookup.
+    if (!isSuccess) {
       console.error(`[techhub] slip lookup failed (path=${path}, http=${response.status}):`, JSON.stringify(data));
+      const explicitFailure = providerStatus === 'error' || providerStatus === 'failed' || data.success === false ||
+        Boolean(data.error_code) || (response.status >= 400 && response.status < 500);
+      if (!explicitFailure) {
+        return { ok: false, pending: true, message: 'The provider response is uncertain. The request is being held for status reconciliation.', raw: data };
+      }
       return {
         ok: false,
         message: publicVerificationMessage(data.message, 'Your request could not be completed. Please check the details and try again.'),

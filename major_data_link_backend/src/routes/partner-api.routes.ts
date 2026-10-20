@@ -278,8 +278,9 @@ partnerApiRoutes.get('/verification/prices', async (_req, res) => {
 function verificationResponse(result: Awaited<ReturnType<typeof partnerVerification.ninByNin>>) {
   // Identity results are intentionally returned only to the authenticated
   // requesting partner and are never logged by this route.
-  return { status: result.status, message: result.message, data: {
+  return { status: result.status === 'pending' ? true : result.status, message: result.message, data: {
     reference: result.reference, balance_after: result.balanceAfter,
+    ...(result.status === 'pending' ? { status: 'pending' as const } : {}),
     user_data: result.userData ?? null, pdf_base64: result.pdfBase64 ?? null, pdf_url: result.pdfUrl ?? null
   }};
 }

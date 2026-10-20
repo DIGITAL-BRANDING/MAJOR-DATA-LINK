@@ -306,7 +306,7 @@ function renderPage(params: {
     <h1>Provider Reconciliation</h1>
     <a class="back" href="/admin">&larr; Back to admin panel</a>
   </header>
-  <p class="intro">Transactions where a provider responded with an ambiguous "still processing" status instead of a clear success or failure. Check that provider's own merchant dashboard or contact their support for the real outcome, then resolve here - do not guess. (Partner API NIN/BVN verification tickets aren't listed here - those self-resolve automatically via reconcilePendingPartnerVerificationTickets; only partner data/airtime purchases need a human.)</p>
+  <p class="intro">Transactions where the provider response did not confirm success or failure. Check the provider's own merchant dashboard or contact its support for the real outcome, then resolve here - do not guess. Partner API slip requests with an uncertain response are held here without refunding or resubmitting upstream.</p>
 
   ${params.notice ? `<div class="notice">${escape(params.notice)}</div>` : ''}
   ${params.error ? `<div class="error-banner">${escape(params.error)}</div>` : ''}
