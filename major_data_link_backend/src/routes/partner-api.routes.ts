@@ -17,6 +17,8 @@ import {
 } from '../services/partner-wallet.service.js';
 import type { NormalizedProviderResponse } from '../services/provider-types.js';
 import { listVerificationPricesForPartner } from '../services/verification.service.js';
+import { listPartnerEnterprisePrices } from '../services/partner-enterprise-catalog.service.js';
+import { ensurePartnerEnterpriseOfferCode } from '../services/partner-enterprise-profile.service.js';
 import { partnerVerification } from '../services/partner-verification.service.js';
 import { createPartnerDynamicFunding, partnerFundingResponse, partnerBvnFromBody, provisionPartnerVirtualAccount, verifyPartnerFunding } from '../services/partner-funding.service.js';
 import { configurePartnerWebhook, queuePartnerWebhookTest, webhookConfiguration } from '../services/partner-webhook.service.js';
@@ -183,7 +185,7 @@ partnerApiRoutes.get('/dashboard', async (req, res) => {
     prisma.partnerTransaction.findMany({
       where: { partnerId: req.partner!.id }, orderBy: { createdAt: 'desc' }, take: 20
     }),
-    listVerificationPricesForPartner()
+    listPartnerEnterprisePrices(req.partner!.id)
   ]);
   const calls = all.length;
   const successful = all.filter((tx) => tx.status === TransactionStatus.SUCCESS).length;
@@ -199,7 +201,7 @@ partnerApiRoutes.get('/dashboard', async (req, res) => {
       failed: dayTransactions.filter((tx) => tx.status === TransactionStatus.FAILED || tx.status === TransactionStatus.REVERSED).length };
   });
   res.json({ status: true, data: {
-    partner: { business_name: partner.businessName, email: partner.email, phone: partner.phone },
+    partner: { business_name: partner.businessName, email: partner.email, phone: partner.phone, enterprise_offer_code: await ensurePartnerEnterpriseOfferCode(partner.id) },
     wallet: partnerFundingResponse(partner),
     summary: { today_calls: todayCalls, total_calls: calls, total_spend: koboToNaira(totalSpendKobo), successful_calls: successful, failed_calls: failed },
     chart: byDay, recent_transactions: recent.map(partnerTransactionResponse),
@@ -271,8 +273,13 @@ partnerApiRoutes.get('/data/plans/:network', async (req, res) => {
 partnerApiRoutes.use('/verification', requirePartnerApiTier('NIN_BVN'));
 
 partnerApiRoutes.get('/verification/prices', async (_req, res) => {
-  const prices = await listVerificationPricesForPartner();
+  const prices = await listVerificationPricesForPartner(_req.partner!.id);
   res.json({ status: true, data: prices });
+});
+
+partnerApiRoutes.get('/pricing', async (req, res) => {
+  const prices = await listPartnerEnterprisePrices(req.partner!.id);
+  res.json({ status: true, data: prices.filter((price) => price.isActive).map((price) => ({ service: price.service, label: price.label, unit_price: price.unitPrice })) });
 });
 
 function verificationResponse(result: Awaited<ReturnType<typeof partnerVerification.ninByNin>>) {

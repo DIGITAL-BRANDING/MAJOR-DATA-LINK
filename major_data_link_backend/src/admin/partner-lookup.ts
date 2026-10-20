@@ -213,6 +213,7 @@ async function findPartner(q: string) {
       virtualAccountBank: true,
       virtualAccountProvider: true,
       webhookUrl: true,
+      enterpriseOfferCode: true,
       lastPortalLoginAt: true,
       createdAt: true
     }
@@ -245,6 +246,7 @@ export async function partnerLookupPayload(q: string) {
       virtual_account_bank: partner.virtualAccountBank,
       virtual_account_provider: partner.virtualAccountProvider,
       webhook_url: partner.webhookUrl,
+      enterprise_offer_code: partner.enterpriseOfferCode,
       last_portal_login_at: partner.lastPortalLoginAt?.toISOString() ?? null,
       created_at: partner.createdAt.toISOString()
     },
@@ -360,6 +362,7 @@ function renderPage(params: {
     <div class="card">
       <h2>${escape(partner.businessName)} <span class="status" style="color:${PARTNER_STATUS_COLOR[partner.status] ?? '#1A1508'}">${escape(partner.status)}</span></h2>
       <p class="hint">${escape(partner.email)} &middot; ${escape(partner.phone ?? 'no phone on file')} &middot; joined ${partner.createdAt.toLocaleDateString('en-NG')}${partner.lastPortalLoginAt ? ` &middot; last portal login ${partner.lastPortalLoginAt.toLocaleString('en-NG')}` : ' &middot; has never logged into the portal'}</p>
+      <p class="hint">Private enterprise offer code: <code>${escape(partner.enterpriseOfferCode ?? 'not issued yet')}</code></p>
       ${partner.virtualAccountNumber ? `<p class="hint">Virtual account: ${escape(partner.virtualAccountNumber)} (${escape(partner.virtualAccountBank ?? '')}, via ${escape(partner.virtualAccountProvider ?? 'paystack')})</p>` : '<p class="hint">No virtual account provisioned yet.</p>'}
       <p class="hint">API keys: ${apiKeyCounts.active} active, ${apiKeyCounts.revoked} revoked. ${partner.webhookUrl ? `Webhook configured: ${escape(partner.webhookUrl)}` : 'No webhook URL configured.'}</p>
       <a class="link" href="/admin/resources/Partner/records/${encodeURIComponent(partner.id)}/show">Open full Partner record (approve, suspend, generate/reset keys) &rarr;</a><br>

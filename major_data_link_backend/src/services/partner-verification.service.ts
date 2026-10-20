@@ -42,7 +42,7 @@ async function submitPartnerAsync(params: {
     if (existing) return { reference: debit.transaction.reference, ticketId: existing, balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo), status: 'pending' };
     const ticketId = `MANUAL-${debit.transaction.reference}`;
     await prisma.partnerTransaction.update({ where: { id: debit.transaction.id }, data: { provider: 'manual', providerRef: ticketId,
-      metadata: { service: params.service, ...params.operational, unit_price: price.unitPrice, ticket_id: ticketId, manual_processing: true, pii: sealPII(params.pii) } as Prisma.InputJsonValue } });
+      metadata: { service: params.service, ...params.operational, unit_price: koboToNaira(debit.transaction.amountKobo), ticket_id: ticketId, manual_processing: true, pii: sealPII(params.pii) } as Prisma.InputJsonValue } });
     return { reference: debit.transaction.reference, ticketId, balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo), status: 'pending' };
   }
   const call = params.callByProvider[price.provider];
@@ -73,7 +73,7 @@ async function submitPartnerAsync(params: {
   const current = debit.transaction.metadata as Record<string, unknown> | null;
   await prisma.partnerTransaction.update({ where: { id: debit.transaction.id }, data: {
     provider: price.provider, providerRef: result.ticketId,
-    metadata: { service: params.service, ...params.operational, unit_price: price.unitPrice, ticket_id: result.ticketId,
+    metadata: { service: params.service, ...params.operational, unit_price: koboToNaira(debit.transaction.amountKobo), ticket_id: result.ticketId,
       pii: mergeSealedPII(current?.pii, { ...params.pii, submit_raw: result.raw }) } as Prisma.InputJsonValue
   }});
   return { reference: debit.transaction.reference, ticketId: result.ticketId, balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo), status: 'pending' };
@@ -197,7 +197,7 @@ export async function purchasePartnerSlip(params: {
       const current = debit.transaction.metadata as Record<string, unknown> | null;
       await prisma.partnerTransaction.update({ where: { id: debit.transaction.id }, data: {
         provider: price.provider,
-        metadata: { service: params.service, ...params.operational, unit_price: price.unitPrice,
+        metadata: { service: params.service, ...params.operational, unit_price: koboToNaira(debit.transaction.amountKobo),
           provider_outcome: 'unconfirmed', pii: mergeSealedPII(current?.pii, { ...params.pii, submit_raw: provider.raw }) } as Prisma.InputJsonValue
       }});
       await flagPartnerPendingReconciliation({ transactionId: debit.transaction.id, provider: price.provider,
@@ -210,7 +210,7 @@ export async function purchasePartnerSlip(params: {
   }
   const current = debit.transaction.metadata as Record<string, unknown> | null;
   await prisma.partnerTransaction.update({ where: { id: debit.transaction.id }, data: {
-    metadata: { service: params.service, ...params.operational, unit_price: price.unitPrice,
+    metadata: { service: params.service, ...params.operational, unit_price: koboToNaira(debit.transaction.amountKobo),
       pii: mergeSealedPII(current?.pii, { ...params.pii, user_data: provider.userData, pdf_base64: provider.pdfBase64, pdf_url: provider.pdfUrl }) } as Prisma.InputJsonValue
   }});
   // Record the provider that ACTUALLY fulfilled this request, not a hardcoded 'techhub'.

@@ -55,7 +55,7 @@ export async function submitPartnerNinModification(params: {
   const pdfBase64 = await renderModificationPdf({ reference: debit.transaction.reference, type: params.type, fields: config.fields, values: params.values, submittedAt: debit.transaction.createdAt });
   await prisma.partnerTransaction.update({
     where: { id: debit.transaction.id },
-    data: { metadata: { service, modification_type: params.type, unit_price: price.unitPrice, pii: sealPII({ ...params.values, pdf_base64: pdfBase64 }) } as Prisma.InputJsonValue }
+    data: { metadata: { service, modification_type: params.type, unit_price: koboToNaira(debit.transaction.amountKobo), pii: sealPII({ ...params.values, pdf_base64: pdfBase64 }) } as Prisma.InputJsonValue }
   });
 
   return { reference: debit.transaction.reference, balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo) };
@@ -78,7 +78,7 @@ export async function submitPartnerBvnModification(params: {
   const pdfBase64 = await renderBvnModificationPdf({ reference: debit.transaction.reference, type: params.type, fields: config.fields, values: params.values, submittedAt: debit.transaction.createdAt });
   await prisma.partnerTransaction.update({
     where: { id: debit.transaction.id },
-    data: { metadata: { service, modification_type: params.type, unit_price: price.unitPrice, pii: sealPII({ ...params.values, pdf_base64: pdfBase64 }) } as Prisma.InputJsonValue }
+    data: { metadata: { service, modification_type: params.type, unit_price: koboToNaira(debit.transaction.amountKobo), pii: sealPII({ ...params.values, pdf_base64: pdfBase64 }) } as Prisma.InputJsonValue }
   });
 
   return { reference: debit.transaction.reference, balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo) };
@@ -120,7 +120,7 @@ export async function submitPartnerNewspaperPublication(params: {
   const pdfBase64 = await renderNewspaperPublicationPdf({ reference: debit.transaction.reference, values: params.values, submittedAt: debit.transaction.createdAt });
   await prisma.partnerTransaction.update({
     where: { id: debit.transaction.id },
-    data: { metadata: { service: 'NEWSPAPER_PUBLICATION', unit_price: price.unitPrice, pii: sealPII({ ...params.values, pdf_base64: pdfBase64 }) } as Prisma.InputJsonValue }
+    data: { metadata: { service: 'NEWSPAPER_PUBLICATION', unit_price: koboToNaira(debit.transaction.amountKobo), pii: sealPII({ ...params.values, pdf_base64: pdfBase64 }) } as Prisma.InputJsonValue }
   });
   return { reference: debit.transaction.reference, balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo) };
 }
@@ -139,7 +139,7 @@ export async function submitPartnerBirthAttestation(params: {
   const pdfBase64 = await renderBirthAttestationPdf({ reference: debit.transaction.reference, values: params.values, submittedAt: debit.transaction.createdAt });
   await prisma.partnerTransaction.update({
     where: { id: debit.transaction.id },
-    data: { metadata: { service: 'BIRTH_ATTESTATION', unit_price: price.unitPrice, pii: sealPII({ ...params.values, pdf_base64: pdfBase64 }) } as Prisma.InputJsonValue }
+    data: { metadata: { service: 'BIRTH_ATTESTATION', unit_price: koboToNaira(debit.transaction.amountKobo), pii: sealPII({ ...params.values, pdf_base64: pdfBase64 }) } as Prisma.InputJsonValue }
   });
   return { reference: debit.transaction.reference, balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo) };
 }

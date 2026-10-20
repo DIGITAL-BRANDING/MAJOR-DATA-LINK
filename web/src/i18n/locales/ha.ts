@@ -24,6 +24,22 @@ const ha = {
       register: 'Yi rajista',
       businessName: 'Sunan kamfani',
       businessNamePlaceholder: 'misali Kindness Digital Branding',
+      contactName: 'Sunan babban contact',
+      contactNamePlaceholder: 'Cikakken sunan mai kula da asusun',
+      companyRegistrationNumber: 'Lambar rajistar kamfani (na zaɓi)',
+      companyRegistrationNumberPlaceholder: 'Lambar RC / BN',
+      businessType: 'Nau’in kasuwanci',
+      selectBusinessType: 'Zaɓi nau’in kasuwanci',
+      otherBusinessType: 'Wani nau’i',
+      website: 'Website na kamfani (na zaɓi)',
+      expectedVolume: 'Adadin API requests na wata (na zaɓi)',
+      environment: 'Yanayin integration',
+      requestedServices: 'Services da kuke buƙata (na zaɓi)',
+      requestedServicesPlaceholder: 'Raba da comma, misali NIN, BVN, IPE Clearance',
+      useCase: 'Ta yaya za ku yi amfani da API?',
+      useCasePlaceholder: 'Bayyana samfurinku, customers, da tsarin integration ɗinku.',
+      technicalEmail: 'Email na technical contact (na zaɓi)',
+      technicalPhone: 'Lambar technical contact (na zaɓi)',
       email: 'Email',
       emailPlaceholder: 'you@company.com',
       phone: 'Lambar waya (na zaɓi)',
@@ -33,8 +49,12 @@ const ha = {
       loginCta: 'Shiga',
       registerCta: 'Ƙirƙiri asusun kamfani',
       registerNotice:
-        'Bayan rajista, admin din K-Tech Solutions zai fara duba kamfaninku kafin ku iya ƙirƙirar live API key ko sarrafa transactions - amma za ku iya shiga dashboard ɗin nan take don duba matsayin rajistarku.',
+        'Wannan enterprise application zai taimaka mana mu fahimci kamfaninku da bukatun integration. Admin din K-Tech Solutions zai amince da asusun kafin ku iya ƙirƙirar live API key ko sarrafa transactions. Offer code da farashin rangwamenku za su bayyana a dashboard bayan rajista.',
       genericError: 'Wani abu ya faru. Da fatan za a sake gwadawa.'
+    },
+    enterpriseOffer: {
+      title: 'Rangwamen enterprise naka na sirri',
+      body: 'Wannan code yana nuna farashin da aka keɓe wa kamfaninku kawai. Ajiye shi tare da bayanan integration ɗinku.'
     },
     banner: {
       pendingTitle: 'Ana bitar rajistarku',

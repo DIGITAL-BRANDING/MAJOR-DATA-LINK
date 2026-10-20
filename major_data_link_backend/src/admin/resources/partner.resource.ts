@@ -22,10 +22,10 @@ export const partnerResource: ResourceWithOptions = {
   options: {
     id: 'Partner',
     navigation: { name: 'API Integrators', icon: 'Code' },
-    listProperties: ['businessName', 'email', 'phone', 'walletBalanceKobo', 'status', 'lastPortalLoginAt', 'createdAt'],
-    showProperties: ['id', 'businessName', 'email', 'phone', 'walletBalanceKobo', 'status', 'virtualAccountNumber', 'virtualAccountBank', 'virtualAccountProvider', 'webhookUrl', 'lastPortalLoginAt', 'createdAt', 'updatedAt'],
-    editProperties: ['businessName', 'email', 'phone', 'status', 'webhookUrl'],
-    filterProperties: ['businessName', 'email', 'phone', 'status', 'lastPortalLoginAt', 'createdAt'],
+    listProperties: ['businessName', 'email', 'enterpriseOfferCode', 'walletBalanceKobo', 'status', 'lastPortalLoginAt', 'createdAt'],
+    showProperties: ['id', 'businessName', 'email', 'phone', 'contactName', 'companyRegistrationNumber', 'businessType', 'websiteUrl', 'useCase', 'expectedMonthlyVolume', 'requestedServices', 'integrationEnvironment', 'technicalContactEmail', 'technicalContactPhone', 'enterpriseOfferCode', 'walletBalanceKobo', 'status', 'virtualAccountNumber', 'virtualAccountBank', 'virtualAccountProvider', 'webhookUrl', 'lastPortalLoginAt', 'createdAt', 'updatedAt'],
+    editProperties: ['businessName', 'email', 'phone', 'contactName', 'companyRegistrationNumber', 'businessType', 'websiteUrl', 'useCase', 'expectedMonthlyVolume', 'requestedServices', 'integrationEnvironment', 'technicalContactEmail', 'technicalContactPhone', 'status', 'webhookUrl'],
+    filterProperties: ['businessName', 'email', 'enterpriseOfferCode', 'phone', 'status', 'lastPortalLoginAt', 'createdAt'],
     properties: {
       walletBalanceKobo: {
         isVisible: { list: true, show: true, edit: false, filter: false },
@@ -44,7 +44,13 @@ export const partnerResource: ResourceWithOptions = {
       lastPortalLoginAt: {
         isVisible: { list: true, show: true, edit: false, filter: true },
         description: 'Most recent successful Partner Portal (web) sign-in.'
-      }
+      },
+      enterpriseOfferCode: {
+        isVisible: { list: true, show: true, edit: false, filter: true },
+        description: 'Private label for the partner-specific enterprise rate. Billing uses the saved per-service overrides, not a code supplied by the partner.'
+      },
+      requestedServices: { description: 'Services requested during enterprise onboarding.' }
+      
     },
     actions: {
       list: { isAccessible: canManagePartners },

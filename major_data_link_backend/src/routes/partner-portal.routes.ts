@@ -29,8 +29,9 @@ import {
   verifyPartnerFunding
 } from '../services/partner-funding.service.js';
 import { TransactionType } from '@prisma/client';
-import { listVerificationPricesForPartner } from '../services/verification.service.js';
+import { listPartnerEnterprisePrices } from '../services/partner-enterprise-catalog.service.js';
 import { getPartnerAccessSummary } from '../services/partner-access.service.js';
+import { createEnterpriseOfferCode, ensurePartnerEnterpriseOfferCode } from '../services/partner-enterprise-profile.service.js';
 
 /**
  * Self-service partner portal - a normal email+password login for the
@@ -56,15 +57,40 @@ async function partnerProfile(partner: {
   businessName: string;
   email: string;
   phone: string | null;
+  contactName?: string | null;
+  companyRegistrationNumber?: string | null;
+  businessType?: string | null;
+  websiteUrl?: string | null;
+  useCase?: string | null;
+  expectedMonthlyVolume?: number | null;
+  requestedServices?: unknown;
+  integrationEnvironment?: string | null;
+  technicalContactEmail?: string | null;
+  technicalContactPhone?: string | null;
+  enterpriseOfferCode?: string | null;
   status: string;
   walletBalanceKobo: bigint;
   createdAt: Date;
 }) {
+  const enterpriseOfferCode = partner.enterpriseOfferCode ?? await ensurePartnerEnterpriseOfferCode(partner.id);
   return {
     id: partner.id,
     business_name: partner.businessName,
     email: partner.email,
     phone: partner.phone,
+    enterprise_offer_code: enterpriseOfferCode,
+    enterprise_profile: {
+      contact_name: partner.contactName ?? null,
+      company_registration_number: partner.companyRegistrationNumber ?? null,
+      business_type: partner.businessType ?? null,
+      website_url: partner.websiteUrl ?? null,
+      use_case: partner.useCase ?? null,
+      expected_monthly_volume: partner.expectedMonthlyVolume ?? null,
+      requested_services: partner.requestedServices ?? [],
+      integration_environment: partner.integrationEnvironment ?? null,
+      technical_contact_email: partner.technicalContactEmail ?? null,
+      technical_contact_phone: partner.technicalContactPhone ?? null
+    },
     status: partner.status.toLowerCase(),
     wallet_balance: koboToNaira(partner.walletBalanceKobo),
     api_access: await getPartnerAccessSummary(partner.id, partner.walletBalanceKobo),
@@ -75,10 +101,20 @@ async function partnerProfile(partner: {
 partnerPortalRoutes.post('/register', async (req, res) => {
   const body = z
     .object({
-      business_name: z.string().trim().min(2),
-      contact_phone: z.string().trim().min(6).optional(),
+      business_name: z.string().trim().min(2).max(160),
+      contact_name: z.string().trim().min(2).max(120).optional(),
+      contact_phone: z.string().trim().min(6).max(30).optional(),
       email: z.string().trim().email().transform((value) => value.toLowerCase()),
-      password: z.string().min(8)
+      company_registration_number: z.string().trim().max(80).optional(),
+      business_type: z.string().trim().max(80).optional(),
+      website_url: z.string().trim().url().max(255).optional(),
+      use_case: z.string().trim().max(2_000).optional(),
+      expected_monthly_volume: z.coerce.number().int().min(1).max(10_000_000).optional(),
+      requested_services: z.array(z.string().trim().min(1).max(80)).max(40).optional(),
+      integration_environment: z.enum(['sandbox', 'production', 'both']).optional(),
+      technical_contact_email: z.string().trim().email().transform((value) => value.toLowerCase()).optional(),
+      technical_contact_phone: z.string().trim().min(6).max(30).optional(),
+      password: z.string().min(8).max(200)
     })
     .parse(req.body);
 
@@ -96,6 +132,17 @@ partnerPortalRoutes.post('/register', async (req, res) => {
       businessName: body.business_name,
       email: body.email,
       phone: body.contact_phone ?? null,
+      contactName: body.contact_name ?? null,
+      companyRegistrationNumber: body.company_registration_number ?? null,
+      businessType: body.business_type ?? null,
+      websiteUrl: body.website_url ?? null,
+      useCase: body.use_case ?? null,
+      expectedMonthlyVolume: body.expected_monthly_volume ?? null,
+      requestedServices: body.requested_services ?? [],
+      integrationEnvironment: body.integration_environment ?? 'sandbox',
+      technicalContactEmail: body.technical_contact_email ?? null,
+      technicalContactPhone: body.technical_contact_phone ?? null,
+      enterpriseOfferCode: createEnterpriseOfferCode(),
       passwordHash,
       lastPortalLoginAt: new Date()
     }
@@ -463,11 +510,9 @@ partnerPortalRoutes.get('/calls-overview', requirePartnerSession, async (req, re
 });
 
 partnerPortalRoutes.get('/pricing', requirePartnerSession, async (_req, res) => {
-  // Verification services only - data/airtime pricing is per plan (hundreds
-  // of network/plan combinations), so it doesn't fit a fixed tile grid the
-  // way a handful of flat-rate verification services do. See
-  // GET /data/plans/:network on the commercial API for live plan pricing.
-  const prices = await listVerificationPricesForPartner();
+  // Fixed-rate services use each partner's negotiated enterprise override.
+  // Data/airtime plan prices remain provider/catalog-specific.
+  const prices = await listPartnerEnterprisePrices(_req.partner!.id);
   res.json({
     status: true,
     data: prices.filter((p) => p.isActive).map((p) => ({ service: p.service, label: p.label, unit_price: p.unitPrice }))

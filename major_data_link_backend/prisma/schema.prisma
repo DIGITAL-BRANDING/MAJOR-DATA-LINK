@@ -253,6 +253,24 @@ model Partner {
   businessName      String
   email             String        @unique
   phone             String?
+  /// Enterprise onboarding details collected before API approval. These are
+  /// intentionally separate from the portal password and wallet records so
+  /// admins can review the commercial/integration request without exposing
+  /// credentials.
+  contactName       String?
+  companyRegistrationNumber String?
+  businessType      String?
+  websiteUrl        String?
+  useCase           String?       @db.Text
+  expectedMonthlyVolume Int?
+  requestedServices Json?
+  integrationEnvironment String?
+  technicalContactEmail String?
+  technicalContactPhone String?
+  /// Stable, partner-specific label for the negotiated enterprise offer. It
+  /// is informational for the partner; prices are still enforced server-side
+  /// from PartnerServicePrice rows.
+  enterpriseOfferCode String?     @unique
   walletBalanceKobo BigInt        @default(0)
   /// Self-registered partners start PENDING_REVIEW (see the enum's
   /// doc-comment); create-partner.ts (admin-provisioned) explicitly passes
@@ -293,6 +311,7 @@ model Partner {
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
   apiKeys           PartnerApiKey[]
+  servicePrices     PartnerServicePrice[]
   transactions      PartnerTransaction[]
   requestUpdates    PartnerRequestUpdate[]
   webhookDeliveries PartnerWebhookDelivery[]
@@ -333,6 +352,21 @@ model PartnerApiKey {
 
   @@index([partnerId, revokedAt])
   @@index([keyPrefix])
+}
+
+/// Per-partner enterprise API price overrides. A missing row uses the shared
+/// partner price; the override is applied only to this partner's API calls.
+model PartnerServicePrice {
+  id        String   @id @default(uuid())
+  partnerId String
+  service   String
+  priceKobo BigInt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  partner   Partner  @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+
+  @@unique([partnerId, service])
+  @@index([service])
 }
 
 /// Append-only ledger for commercial API usage. It mirrors the safety

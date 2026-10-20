@@ -333,12 +333,16 @@ export async function listVerificationPrices() {
  * actually charged (partnerSellingPriceKobo when an admin has set one),
  * not the retail web price.
  */
-export async function listVerificationPricesForPartner() {
+export async function listVerificationPricesForPartner(partnerId?: string) {
   const rows = await Promise.all(SERVICE_KEYS.map((key) => getOrCreateVerificationPricingRow(key)));
+  const overrides = partnerId
+    ? await prisma.partnerServicePrice.findMany({ where: { partnerId }, select: { service: true, priceKobo: true } })
+    : [];
+  const partnerPrices = new Map(overrides.map((row) => [row.service, row.priceKobo]));
   return rows.filter((row) => row.service !== 'IPE_CLEARANCE').map((row) => ({
     service: row.service,
     label: row.label,
-    unitPrice: koboToNaira(row.partnerSellingPriceKobo ?? row.sellingPriceKobo ?? row.providerCostKobo),
+    unitPrice: koboToNaira(partnerPrices.get(row.service) ?? row.partnerSellingPriceKobo ?? row.sellingPriceKobo ?? row.providerCostKobo),
     isActive: row.isActive
   }));
 }

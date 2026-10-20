@@ -3,6 +3,7 @@ import { nanoid } from 'nanoid';
 import { koboToNaira, nairaToKobo } from '../lib/money.js';
 import { prisma } from '../lib/prisma.js';
 import { ApiError } from '../middleware/error.js';
+import { resolvePartnerServicePrice } from './partner-service-pricing.service.js';
 
 export async function debitPartnerWallet(input: {
   partnerId: string;
@@ -22,7 +23,27 @@ export async function debitPartnerWallet(input: {
   });
   if (existing) return { transaction: existing, reused: true };
 
-  const amountKobo = nairaToKobo(input.amount);
+  const metadata = (input.metadata as Record<string, unknown> | null) ?? {};
+  let priceService = typeof metadata.service === 'string' ? metadata.service : null;
+  if (priceService === 'IPE_CLEARANCE' && typeof metadata.ipe_type === 'string') {
+    const ipeServiceByType: Record<string, string> = {
+      get_old_tracking_id: 'IPE_CLEARANCE_GET_OLD_TRACKING_ID',
+      inprocessing_error: 'IPE_CLEARANCE_INPROCESSING_ERROR',
+      tracking_is_being_processed: 'IPE_CLEARANCE_TRACKING_IS_BEING_PROCESSED',
+      modification_ipe: 'IPE_CLEARANCE_MODIFICATION_IPE',
+      hit_blocked: 'IPE_CLEARANCE_HIT_BLOCKED'
+    };
+    priceService = ipeServiceByType[metadata.ipe_type] ?? priceService;
+  }
+  const chargedAmount = priceService
+    ? await resolvePartnerServicePrice(input.partnerId, priceService, input.amount)
+    : input.amount;
+  const amountKobo = nairaToKobo(chargedAmount);
+  const transactionMetadata = {
+    ...metadata,
+    ...(typeof metadata.unit_price === 'number' ? { unit_price: chargedAmount } : {}),
+    ...(priceService ? { pricing_service: priceService } : {})
+  } as Prisma.InputJsonValue;
   return prisma.$transaction(async (tx) => {
     const replay = await tx.partnerTransaction.findUnique({
       where: { partnerId_idempotencyKey: { partnerId: input.partnerId, idempotencyKey: input.idempotencyKey } }
@@ -46,7 +67,7 @@ export async function debitPartnerWallet(input: {
         reference: `MDL-${Date.now()}-${nanoid(8).toUpperCase()}`,
         idempotencyKey: input.idempotencyKey,
         description: input.description,
-        metadata: input.metadata,
+        metadata: transactionMetadata,
         ...(input.costKobo !== undefined ? { costKobo: input.costKobo } : {})
       }
     });

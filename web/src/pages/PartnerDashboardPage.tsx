@@ -53,6 +53,19 @@ type Partner = {
   business_name: string;
   email: string;
   phone: string | null;
+  enterprise_offer_code: string | null;
+  enterprise_profile?: {
+    contact_name: string | null;
+    company_registration_number: string | null;
+    business_type: string | null;
+    website_url: string | null;
+    use_case: string | null;
+    expected_monthly_volume: number | null;
+    requested_services: unknown;
+    integration_environment: string | null;
+    technical_contact_email: string | null;
+    technical_contact_phone: string | null;
+  };
   status: 'pending_review' | 'active' | 'suspended';
   wallet_balance: number;
   api_access: {
@@ -486,6 +499,16 @@ export default function PartnerDashboardPage() {
           <p className="mt-1 text-sm font-medium text-blue-100">{t('partnerPortal.hero.walletBalance')}</p>
         </section>
 
+        {partner.enterprise_offer_code && (
+          <section className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-5 text-amber-950">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.14em] text-amber-700">{t('partnerPortal.enterpriseOffer.title')}</p>
+              <p className="mt-1 text-sm">{t('partnerPortal.enterpriseOffer.body')}</p>
+            </div>
+            <code className="rounded-lg bg-white px-4 py-2 text-base font-extrabold tracking-[0.12em] shadow-sm">{partner.enterprise_offer_code}</code>
+          </section>
+        )}
+
         {partner.status !== 'active' && (
           <section
             className={`mt-6 flex items-start gap-3 rounded-2xl border p-5 ${
@@ -725,7 +748,17 @@ function AuthGate({ onSuccess }: { onSuccess: (data: { access_token: string; ref
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [businessName, setBusinessName] = useState('');
+  const [contactName, setContactName] = useState('');
   const [phone, setPhone] = useState('');
+  const [companyRegistrationNumber, setCompanyRegistrationNumber] = useState('');
+  const [businessType, setBusinessType] = useState('');
+  const [websiteUrl, setWebsiteUrl] = useState('');
+  const [useCase, setUseCase] = useState('');
+  const [expectedMonthlyVolume, setExpectedMonthlyVolume] = useState('');
+  const [requestedServices, setRequestedServices] = useState('');
+  const [integrationEnvironment, setIntegrationEnvironment] = useState('sandbox');
+  const [technicalContactEmail, setTechnicalContactEmail] = useState('');
+  const [technicalContactPhone, setTechnicalContactPhone] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -739,7 +772,22 @@ function AuthGate({ onSuccess }: { onSuccess: (data: { access_token: string; ref
       const body =
         mode === 'login'
           ? { email, password }
-          : { business_name: businessName, contact_phone: phone || undefined, email, password };
+          : {
+              business_name: businessName,
+              contact_name: contactName,
+              contact_phone: phone || undefined,
+              company_registration_number: companyRegistrationNumber || undefined,
+              business_type: businessType || undefined,
+              website_url: websiteUrl || undefined,
+              use_case: useCase || undefined,
+              expected_monthly_volume: expectedMonthlyVolume ? Number(expectedMonthlyVolume) : undefined,
+              requested_services: requestedServices.split(',').map((service) => service.trim()).filter(Boolean),
+              integration_environment: integrationEnvironment,
+              technical_contact_email: technicalContactEmail || undefined,
+              technical_contact_phone: technicalContactPhone || undefined,
+              email,
+              password
+            };
       const result = await portalFetch<{ data: { access_token: string; refresh_token: string; partner: Partner } }>(path, {
         method: 'POST',
         body
@@ -757,7 +805,7 @@ function AuthGate({ onSuccess }: { onSuccess: (data: { access_token: string; ref
       <div className="mx-auto flex max-w-md justify-end pb-3">
         <LanguageSwitcher />
       </div>
-      <section className="mx-auto max-w-md rounded-3xl border border-slate-200 bg-white p-7 shadow-xl shadow-slate-200/50">
+      <section className={`mx-auto rounded-3xl border border-slate-200 bg-white p-7 shadow-xl shadow-slate-200/50 ${mode === 'register' ? 'max-w-3xl' : 'max-w-md'}`}>
         <div className="flex items-center gap-3">
           <div className="rounded-2xl bg-brand-700 p-3 text-white">
             <ShieldCheck />
@@ -800,6 +848,70 @@ function AuthGate({ onSuccess }: { onSuccess: (data: { access_token: string; ref
                 className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-brand-500"
               />
             </div>
+          )}
+
+          {mode === 'register' && (
+            <>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="text-sm font-semibold">{t('partnerPortal.auth.contactName')}</label>
+                  <input required value={contactName} onChange={(e) => setContactName(e.target.value)} placeholder={t('partnerPortal.auth.contactNamePlaceholder')} className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-brand-500" />
+                </div>
+                <div>
+                  <label className="text-sm font-semibold">{t('partnerPortal.auth.companyRegistrationNumber')}</label>
+                  <input value={companyRegistrationNumber} onChange={(e) => setCompanyRegistrationNumber(e.target.value)} placeholder={t('partnerPortal.auth.companyRegistrationNumberPlaceholder')} className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-brand-500" />
+                </div>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="text-sm font-semibold">{t('partnerPortal.auth.businessType')}</label>
+                  <select value={businessType} onChange={(e) => setBusinessType(e.target.value)} className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-brand-500">
+                    <option value="">{t('partnerPortal.auth.selectBusinessType')}</option>
+                    <option value="fintech">Fintech / Payments</option>
+                    <option value="telco">Telecom / Aggregator</option>
+                    <option value="school">School / Institution</option>
+                    <option value="government">Government / NGO</option>
+                    <option value="other">{t('partnerPortal.auth.otherBusinessType')}</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-sm font-semibold">{t('partnerPortal.auth.website')}</label>
+                  <input type="url" value={websiteUrl} onChange={(e) => setWebsiteUrl(e.target.value)} placeholder="https://example.com" className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-brand-500" />
+                </div>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="text-sm font-semibold">{t('partnerPortal.auth.expectedVolume')}</label>
+                  <input type="number" min="1" value={expectedMonthlyVolume} onChange={(e) => setExpectedMonthlyVolume(e.target.value)} placeholder="e.g. 5000" className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-brand-500" />
+                </div>
+                <div>
+                  <label className="text-sm font-semibold">{t('partnerPortal.auth.environment')}</label>
+                  <select value={integrationEnvironment} onChange={(e) => setIntegrationEnvironment(e.target.value)} className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-brand-500">
+                    <option value="sandbox">Sandbox first</option>
+                    <option value="production">Production</option>
+                    <option value="both">Sandbox and production</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="text-sm font-semibold">{t('partnerPortal.auth.requestedServices')}</label>
+                <input value={requestedServices} onChange={(e) => setRequestedServices(e.target.value)} placeholder={t('partnerPortal.auth.requestedServicesPlaceholder')} className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-brand-500" />
+              </div>
+              <div>
+                <label className="text-sm font-semibold">{t('partnerPortal.auth.useCase')}</label>
+                <textarea required minLength={10} value={useCase} onChange={(e) => setUseCase(e.target.value)} placeholder={t('partnerPortal.auth.useCasePlaceholder')} rows={3} className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-brand-500" />
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="text-sm font-semibold">{t('partnerPortal.auth.technicalEmail')}</label>
+                  <input type="email" value={technicalContactEmail} onChange={(e) => setTechnicalContactEmail(e.target.value)} placeholder="developer@company.com" className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-brand-500" />
+                </div>
+                <div>
+                  <label className="text-sm font-semibold">{t('partnerPortal.auth.technicalPhone')}</label>
+                  <input value={technicalContactPhone} onChange={(e) => setTechnicalContactPhone(e.target.value)} placeholder="08012345678" className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-brand-500" />
+                </div>
+              </div>
+            </>
           )}
 
           <div>

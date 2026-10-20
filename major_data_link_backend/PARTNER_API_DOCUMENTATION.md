@@ -254,6 +254,32 @@ retail web/app users ke biya (duba "Verification Pricing" a AdminJS ko
 Idan admin bai saita partner price ba, za a yi amfani da retail price a
 maimako.
 
+**Enterprise pricing per partner:** Ana iya saita farashin daban-daban ga kowane
+partner account daga Admin → Partner Pricing → Enterprise rate for one partner.
+Farashin da aka saita yana aiki ne ga duk API keys na wannan account, kuma ba ya
+canza shared partner price ko na sauran partners. A bar service babu komai domin
+ya ci gaba da amfani da shared partner rate. Partner na iya duba fixed-service
+catalog ɗinsa ta `GET /pricing`; `GET /verification/prices` ya ci gaba da nuna
+farashin NIN/BVN kawai. API key ɗin da aka danganta da account shi ne ke tantance
+farashin da za a caje. Kalmar sirrin portal ta shiga dashboard ce kawai.
+
+**Private enterprise offer code:** Bayan partner ya yi rajista, dashboard zai
+nuna masa code kamar `KTECH-ENT-AB12CD34EF`. Wannan code na gane offer ɗin da aka
+keɓe wa account ɗin, don haka partner ya san cewa farashin nasa ne kawai. Code ɗin
+ba password ba ne kuma ba ya ba da damar neman rangwame; billing na duba partner
+account/API key sannan ya ɗauki farashin da admin ya ajiye. Kada a saka code ɗin a
+frontend ko a tura shi a matsayin API key.
+
+**Enterprise registration:** `POST /api/partner-portal/register` na karɓar
+`business_name`, `contact_name`, `contact_phone`, `company_registration_number`,
+`business_type`, `website_url`, `use_case`, `expected_monthly_volume`,
+`requested_services` (array), `integration_environment` (`sandbox`, `production`,
+ko `both`), `technical_contact_email`, `technical_contact_phone`, `email`, da
+`password`. Bayan submit, partner yana iya shiga portal amma account ɗin yana
+`pending_review` har sai admin ya approve shi. Offer code ɗin yana bayyana a
+profile bayan an ƙirƙiri account, kuma ana iya ganin/ba da shi daga Admin → Partner
+Pricing.
+
 **NIN Slip by NIN:** `POST /verification/nin/by-nin`
 
 ```json

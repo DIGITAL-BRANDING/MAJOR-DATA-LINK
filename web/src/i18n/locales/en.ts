@@ -24,6 +24,22 @@ const en = {
       register: 'Register',
       businessName: 'Business name',
       businessNamePlaceholder: 'e.g. Kindness Digital Branding',
+      contactName: 'Primary contact name',
+      contactNamePlaceholder: 'Full name of the account owner',
+      companyRegistrationNumber: 'Company registration number (optional)',
+      companyRegistrationNumberPlaceholder: 'RC / BN number',
+      businessType: 'Business type',
+      selectBusinessType: 'Select business type',
+      otherBusinessType: 'Other',
+      website: 'Company website (optional)',
+      expectedVolume: 'Expected monthly API requests (optional)',
+      environment: 'Integration environment',
+      requestedServices: 'Services you need (optional)',
+      requestedServicesPlaceholder: 'Comma-separated, e.g. NIN, BVN, IPE Clearance',
+      useCase: 'How will you use the API?',
+      useCasePlaceholder: 'Tell us about your product, customers, and integration plan.',
+      technicalEmail: 'Technical contact email (optional)',
+      technicalPhone: 'Technical contact phone (optional)',
       email: 'Email',
       emailPlaceholder: 'you@company.com',
       phone: 'Phone number (optional)',
@@ -33,8 +49,12 @@ const en = {
       loginCta: 'Log in',
       registerCta: 'Create company account',
       registerNotice:
-        "After registering, a K-Tech Solutions admin will review your company before you can generate a live API key or process transactions - but you can log into the dashboard right away to check your registration status.",
+        "This enterprise application helps us review your business and integration needs. A K-Tech Solutions admin will approve the account before you can generate a live API key or process transactions. Your private offer code and negotiated prices will appear in the dashboard after registration.",
       genericError: 'Something went wrong. Please try again.'
+    },
+    enterpriseOffer: {
+      title: 'Your private enterprise offer',
+      body: 'This code identifies the negotiated pricing assigned only to your company. Keep it with your integration records.'
     },
     banner: {
       pendingTitle: 'Your registration is under review',
