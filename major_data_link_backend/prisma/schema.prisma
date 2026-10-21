@@ -59,6 +59,9 @@ enum PartnerStatus {
   /// status other than ACTIVE - see middleware/partner-auth.ts).
   PENDING_REVIEW
   ACTIVE
+  /// Application was reviewed and declined. The partner can still log in to
+  /// see the outcome, but cannot use live API access until an admin reopens it.
+  REJECTED
   SUSPENDED
 }
 

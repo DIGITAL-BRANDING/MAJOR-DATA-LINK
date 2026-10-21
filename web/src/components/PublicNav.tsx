@@ -6,6 +6,8 @@ import { useAuth } from '../lib/auth';
 
 const NAV_LINKS = [
   { to: '/partner-dashboard', label: 'API Portal', isRoute: true },
+  { to: '/enterprise-api', label: 'Enterprise API', isRoute: true },
+  { to: '/partner-register', label: 'Apply for API', isRoute: true },
   { to: '#result-checkers', label: 'Results', isRoute: false },
   { to: '#how-it-works', label: 'How it works', isRoute: false },
   { to: '#download', label: 'Get the app', isRoute: false }

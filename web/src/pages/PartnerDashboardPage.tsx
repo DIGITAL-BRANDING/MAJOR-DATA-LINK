@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import PromoIllustrationBadge, { isPromoIllustrationKey } from '../components/PromoIllustration';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Trans, useTranslation } from 'react-i18next';
 import LanguageSwitcher from '../components/LanguageSwitcher';
 import LiveChatWidget from '../components/LiveChatWidget';
@@ -67,7 +67,7 @@ type Partner = {
     technical_contact_email: string | null;
     technical_contact_phone: string | null;
   };
-  status: 'pending_review' | 'active' | 'suspended';
+  status: 'pending_review' | 'active' | 'rejected' | 'suspended';
   wallet_balance: number;
   api_access: {
     tier: 'FUND_WALLET' | 'NIN_BVN' | 'FULL_API';
@@ -374,6 +374,10 @@ function PartnerNotificationPopup() {
 
 export default function PartnerDashboardPage() {
   const { t } = useTranslation();
+  const [searchParams] = useSearchParams();
+  const requestedView = searchParams.get('view') ?? 'overview';
+  const dashboardView = ['overview', 'wallet', 'webhooks', 'activity', 'transactions', 'pricing'].includes(requestedView) ? requestedView : 'overview';
+  const showView = (...views: string[]) => views.includes(dashboardView);
   const [checkedSession, setCheckedSession] = useState(false);
   const [partner, setPartner] = useState<Partner | null>(null);
   const [wallet, setWallet] = useState<Wallet | null>(null);
@@ -585,16 +589,18 @@ export default function PartnerDashboardPage() {
           </p>
         )}
 
-        <section className="rounded-3xl border border-brand-900/40 bg-brand-800 bg-gradient-to-br from-brand-800 to-brand-600 p-6 text-white shadow-lg shadow-brand-900/20">
+        <PartnerQuickLinks />
+
+        {showView('overview') && <section id="overview" className="scroll-mt-24 rounded-3xl border border-brand-900/40 bg-brand-800 bg-gradient-to-br from-brand-800 to-brand-600 p-6 text-white shadow-lg shadow-brand-900/20">
           <p className="text-sm font-medium text-blue-100">{t('partnerPortal.hero.welcomeBack')}</p>
           <h1 className="mt-1 text-2xl font-bold text-white">{partner.business_name}</h1>
           <p className="mt-4 text-4xl font-extrabold tabular-nums tracking-tight text-white sm:text-5xl">
             ₦{partner.wallet_balance.toLocaleString()}
           </p>
           <p className="mt-1 text-sm font-medium text-blue-100">{t('partnerPortal.hero.walletBalance')}</p>
-        </section>
+        </section>}
 
-        {partner.enterprise_offer_code && (
+        {showView('overview') && partner.enterprise_offer_code && (
           <section className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-5 text-amber-950">
             <div>
               <p className="text-xs font-bold uppercase tracking-[0.14em] text-amber-700">{t('partnerPortal.enterpriseOffer.title')}</p>
@@ -617,18 +623,22 @@ export default function PartnerDashboardPage() {
               <p className="font-bold">
                 {partner.status === 'pending_review'
                   ? t('partnerPortal.banner.pendingTitle')
-                  : t('partnerPortal.banner.suspendedTitle')}
+                  : partner.status === 'rejected'
+                    ? t('partnerPortal.banner.rejectedTitle')
+                    : t('partnerPortal.banner.suspendedTitle')}
               </p>
               <p className="mt-1 text-sm leading-relaxed">
                 {partner.status === 'pending_review'
                   ? t('partnerPortal.banner.pendingBody', { email: partner.email })
-                  : t('partnerPortal.banner.suspendedBody')}
+                  : partner.status === 'rejected'
+                    ? t('partnerPortal.banner.rejectedBody')
+                    : t('partnerPortal.banner.suspendedBody')}
               </p>
             </div>
           </section>
         )}
 
-        {partner.status === 'active' && (
+        {showView('overview') && partner.status === 'active' && (
           <section className="mt-6 rounded-2xl border border-blue-200 bg-gradient-to-br from-blue-50 to-white p-6 shadow-sm">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div className="max-w-3xl">
@@ -648,7 +658,7 @@ export default function PartnerDashboardPage() {
           </section>
         )}
 
-        <section className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        {showView('overview') && <section className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
           <MetricCard icon={CalendarCheck2} border="border-l-blue-500" iconColor="text-blue-600" label={t('partnerPortal.metrics.todayCalls')} value={summary?.today_calls ?? 0} />
           <MetricCard icon={Gauge} border="border-l-amber-500" iconColor="text-amber-600" label={t('partnerPortal.metrics.totalCalls')} value={summary?.total_calls ?? 0} />
           <MetricCard
@@ -660,14 +670,14 @@ export default function PartnerDashboardPage() {
           />
           <MetricCard icon={CheckCircle2} border="border-l-emerald-500" iconColor="text-emerald-600" label={t('partnerPortal.metrics.successfulCalls')} value={summary?.successful_calls ?? 0} />
           <MetricCard icon={XCircle} border="border-l-rose-500" iconColor="text-rose-600" label={t('partnerPortal.metrics.failedCalls')} value={summary?.failed_calls ?? 0} />
-        </section>
+        </section>}
 
-        <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-5">
+        {showView('overview') && <section id="calls-overview" className="mt-6 scroll-mt-24 rounded-2xl border border-slate-200 bg-white p-5">
           <h2 className="font-bold">{t('partnerPortal.callsOverview.title')}</h2>
           <CallsOverviewChart data={callsOverview} />
-        </section>
+        </section>}
 
-        <section className="mt-6 grid gap-6 lg:grid-cols-2">
+        {showView('wallet') && <section id="wallet" className="mt-6 scroll-mt-24 grid gap-6 lg:grid-cols-2">
           <WalletCard wallet={wallet} onError={setError} onNotice={setNotice} onWallet={setWallet} />
           <ApiKeysCard
             keys={keys}
@@ -676,14 +686,14 @@ export default function PartnerDashboardPage() {
             onNotice={setNotice}
             onKeys={setKeys}
           />
-        </section>
+        </section>}
 
-        <section className="mt-6">
+        {showView('webhooks') && <section id="webhooks" className="mt-6 scroll-mt-24">
           <WebhookCard webhook={webhook} onError={setError} onNotice={setNotice} onWebhook={setWebhook} />
-        </section>
+        </section>}
 
-        {prices.length > 0 && (
-          <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-5">
+        {showView('pricing') && prices.length > 0 && (
+          <section id="pricing" className="mt-6 scroll-mt-24 rounded-2xl border border-slate-200 bg-white p-5">
             <div className="flex items-center gap-2">
               <Tag className="text-brand-700" size={20} />
               <h2 className="font-bold">{t('partnerPortal.pricing.title')}</h2>
@@ -702,7 +712,7 @@ export default function PartnerDashboardPage() {
           </section>
         )}
 
-        <section className="mt-6 rounded-2xl border border-slate-200 bg-white">
+        {showView('transactions') && <section id="transactions" className="mt-6 scroll-mt-24 rounded-2xl border border-slate-200 bg-white">
           <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
             <div>
               <h2 className="font-bold">{t('partnerPortal.callsSummary.title')}</h2>
@@ -793,16 +803,16 @@ export default function PartnerDashboardPage() {
           ) : (
             <p className="px-5 py-10 text-center text-sm text-slate-500">{t('partnerPortal.callsSummary.empty')}</p>
           )}
-        </section>
+        </section>}
 
-        <ActivityCenter
+        {showView('activity') && <ActivityCenter
           activity={activity}
           search={activitySearch}
           kind={activityKind}
           onSearch={setActivitySearch}
           onKind={setActivityKind}
           onRefresh={() => void loadActivity()}
-        />
+        />}
 
         {selectedTransaction && (
           <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/50 p-5" role="dialog" aria-modal="true">
@@ -848,6 +858,36 @@ export default function PartnerDashboardPage() {
   );
 }
 
+function PartnerQuickLinks() {
+  const { t } = useTranslation();
+  const [searchParams] = useSearchParams();
+  const activeView = searchParams.get('view') ?? 'overview';
+  const links = [
+    ['overview', t('partnerPortal.quickLinks.overview')],
+    ['wallet', t('partnerPortal.quickLinks.wallet')],
+    ['webhooks', t('partnerPortal.quickLinks.webhooks')],
+    ['activity', t('partnerPortal.quickLinks.activity')],
+    ['transactions', t('partnerPortal.quickLinks.transactions')],
+    ['pricing', t('partnerPortal.quickLinks.pricing')]
+  ];
+  return (
+    <nav aria-label={t('partnerPortal.quickLinks.label')} className="mb-6 flex gap-2 overflow-x-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
+      {links.map(([view, label]) => (
+        <Link
+          key={view}
+          to={`/partner-dashboard?view=${view}`}
+          className={`shrink-0 rounded-lg px-3 py-2 text-xs font-semibold transition ${activeView === view ? 'bg-brand-700 text-white' : 'text-slate-600 hover:bg-brand-50 hover:text-brand-700'}`}
+        >
+          {label}
+        </Link>
+      ))}
+      <Link to="/partner-docs" className="shrink-0 rounded-lg bg-brand-700 px-3 py-2 text-xs font-semibold text-white hover:bg-brand-800">
+        {t('partnerPortal.quickLinks.documentation')}
+      </Link>
+    </nav>
+  );
+}
+
 function ActivityCenter({
   activity,
   search,
@@ -865,7 +905,7 @@ function ActivityCenter({
 }) {
   const { t } = useTranslation();
   return (
-    <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-5">
+    <section id="activity" className="mt-6 scroll-mt-24 rounded-2xl border border-slate-200 bg-white p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">

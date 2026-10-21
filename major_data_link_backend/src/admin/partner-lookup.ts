@@ -311,6 +311,7 @@ const STATUS_COLOR: Record<string, string> = {
 const PARTNER_STATUS_COLOR: Record<string, string> = {
   ACTIVE: '#1E7B34',
   PENDING_REVIEW: '#9C7A17',
+  REJECTED: '#B3261E',
   SUSPENDED: '#B3261E'
 };
 

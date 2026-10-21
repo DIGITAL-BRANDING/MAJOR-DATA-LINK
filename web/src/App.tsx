@@ -30,6 +30,8 @@ import ProfilePage from './pages/ProfilePage';
 import PinSetupPage from './pages/PinSetupPage';
 import PartnerDashboardPage from './pages/PartnerDashboardPage';
 import PartnerApiDocsPage from './pages/PartnerApiDocsPage';
+import EnterpriseApiPage from './pages/EnterpriseApiPage';
+import EnterpriseRegistrationPage from './pages/EnterpriseRegistrationPage';
 import JambServicesPage from './pages/JambServicesPage';
 import CacServicesPage from './pages/CacServicesPage';
 import TinServicesPage from './pages/TinServicesPage';
@@ -73,6 +75,8 @@ export default function App() {
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/partner-dashboard" element={<PartnerDashboardPage />} />
+          <Route path="/enterprise-api" element={<EnterpriseApiPage />} />
+          <Route path="/partner-register" element={<EnterpriseRegistrationPage />} />
           <Route path="/partner-docs" element={<PartnerApiDocsPage />} />
           <Route path="/privacy-policy" element={<PrivacyRedirect page="privacy-policy" />} />
           <Route path="/result-checkers" element={<ProtectedRoute><ResultCheckersPage /></ProtectedRoute>} />

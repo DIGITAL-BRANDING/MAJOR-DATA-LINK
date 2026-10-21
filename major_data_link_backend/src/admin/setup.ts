@@ -8,6 +8,7 @@ import { env } from '../config/env.js';
 import { authenticateAdmin } from './auth.js';
 import { registerBulkPricingRoutes } from './bulk-pricing.js';
 import { registerPartnerPricingRoutes } from './partner-pricing.js';
+import { registerPartnerApplicationRoutes } from './partner-applications.js';
 import { registerNinBvnProviderRoutes } from './nin-bvn-provider.js';
 import { registerServiceStatusRoutes } from './service-status.js';
 import { registerCompanyWalletRoutes } from './company-wallet.js';
@@ -231,6 +232,7 @@ export async function buildAdminRouter() {
 
   registerBulkPricingRoutes(router);
   registerPartnerPricingRoutes(router);
+  registerPartnerApplicationRoutes(router);
   registerNinBvnProviderRoutes(router);
   registerServiceStatusRoutes(router);
   registerCompanyWalletRoutes(router);

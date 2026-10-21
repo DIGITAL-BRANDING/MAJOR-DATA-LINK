@@ -80,10 +80,10 @@ export const partnerResource: ResourceWithOptions = {
           const admin = context.currentAdmin as unknown as AdminSessionUser | undefined;
           if (!record || !admin) throw new Error('Missing partner or admin context');
           const partner = await prisma.partner.findUniqueOrThrow({ where: { id: record.params.id as string } });
-          if (partner.status === 'PENDING_REVIEW') {
+          if (partner.status === 'PENDING_REVIEW' || partner.status === 'REJECTED') {
             return {
               record: record.toJSON(context.currentAdmin),
-              notice: { type: 'error', message: 'This partner is still pending review - use "Approve Partner" first.' }
+              notice: { type: 'error', message: partner.status === 'REJECTED' ? 'This application was rejected - reopen it from Enterprise Partner Applications before activation.' : 'This partner is still pending review - use "Approve Partner" first.' }
             };
           }
           const status = partner.status === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE';

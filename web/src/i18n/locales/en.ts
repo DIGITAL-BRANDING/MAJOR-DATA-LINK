@@ -15,6 +15,66 @@ const en = {
       dashboard: 'Dashboard',
       logout: 'Log out'
     },
+    enterpriseApi: {
+      documentation: 'API documentation',
+      signIn: 'Partner sign in',
+      eyebrow: 'Enterprise API access',
+      heroTitle: 'Build your product on reliable identity and digital service APIs.',
+      heroBody: 'One secure integration for NIN and BVN verification, data, airtime, wallet funding and asynchronous identity services. Every enterprise partner receives a reviewed access plan and a private pricing offer.',
+      apply: 'Apply for API access',
+      viewDocs: 'Explore technical docs',
+      trust: { https: 'HTTPS-only API', idempotency: 'Idempotent transactions', webhooks: 'Signed webhook events' },
+      servicesEyebrow: 'What you can build',
+      servicesTitle: 'Services designed for production integrations',
+      servicesBody: 'Use a predictable API surface, detailed references and delivery events to keep your customers informed from request to completion.',
+      services: {
+        identity: { title: 'Identity verification', body: 'NIN, BVN and identity service workflows with provider routing, references and status tracking.' },
+        data: { title: 'Data & airtime', body: 'Purchase data plans and airtime through one authenticated API with idempotency protection.' },
+        wallet: { title: 'Wallet funding', body: 'Fund your partner wallet using a dedicated account or a secure one-off transfer flow.' },
+        async: { title: 'Async operations', body: 'Submit long-running requests and receive signed webhook updates when they resolve.' }
+      },
+      accessEyebrow: 'Access plans',
+      accessTitle: 'Choose the operating model that fits your business',
+      accessBody: 'Your approved plan is attached to your company account. Enterprise pricing can be negotiated per partner and is visible only inside your portal.',
+      recommended: 'Recommended',
+      choosePlan: 'Start application',
+      plans: {
+        starter: { title: 'Starter', body: 'For teams validating an integration.', features: ['Reviewed enterprise registration', 'NIN/BVN API access after approval', 'Standard rate limits', 'Partner dashboard and documentation'] },
+        growth: { title: 'Growth', body: 'For products processing regular customer volume.', features: ['Everything in Starter', 'Higher request limits by agreement', 'Webhook delivery and retries', 'Private negotiated pricing offer'] },
+        enterprise: { title: 'Enterprise', body: 'For high-volume platforms and strategic partners.', features: ['Custom service access plan', 'Custom pricing per service', 'Integration support and monitoring', 'Dedicated commercial relationship'] }
+      },
+      promise: {
+        security: { title: 'Security by default', body: 'Keys are stored as hashes, requests use HTTPS, and webhook events can be verified with a secret.' },
+        keys: { title: 'Controlled API keys', body: 'Create, label, rotate and revoke keys from your partner portal without exposing old secrets.' },
+        support: { title: 'Operational visibility', body: 'Track transactions, webhook health, request updates and integration activity from one portal.' }
+      }
+    },
+    registrationPage: {
+      eyebrow: 'Enterprise onboarding',
+      title: 'Apply for production API access',
+      body: 'Tell us about your company and integration so we can prepare the right service access, limits and private commercial offer for your team.',
+      signIn: 'Already have an account?',
+      benefit1: 'Your application is reviewed by the K-Tech Solutions API team.',
+      benefit2: 'Approved partners receive controlled keys and a private pricing offer.',
+      benefit3: 'You can start in sandbox and move to production after approval.',
+      stepCompany: 'Company',
+      stepIntegration: 'Integration',
+      stepAccess: 'Access',
+      companySection: 'Company profile',
+      companyHint: 'Use your registered business details so our team can verify the application.',
+      integrationSection: 'Integration plan',
+      integrationHint: 'Select the services and environment your product needs.',
+      accountSection: 'Portal account',
+      accountHint: 'Create the secure account you will use to track approval, keys, pricing and API activity.',
+      companyRequired: 'Complete the business name, primary contact and business type before continuing.',
+      integrationRequired: 'Select at least one service and describe your integration in at least 10 characters.',
+      consent: 'I confirm that these details are accurate and agree that K-Tech Solutions may contact me about API access and onboarding.',
+      consentRequired: 'Please confirm the application consent before submitting.',
+      back: 'Back',
+      next: 'Continue',
+      submit: 'Submit enterprise application',
+      submitting: 'Submitting application…'
+    },
     notifications: {
       recent: 'Recent notifications',
       empty: 'No notifications yet.'
@@ -60,6 +120,8 @@ const en = {
       pendingTitle: 'Your registration is under review',
       pendingBody:
         'We\'re reviewing your company before you can generate a live API key or start processing transactions. We\'ll reach out to you by email ({{email}}) once approved.',
+      rejectedTitle: 'Your API application needs further review',
+      rejectedBody: 'This application was not approved at this time. Check your notifications for the review note or contact K-Tech Solutions for next steps.',
       suspendedTitle: 'This account has been suspended',
       suspendedBody: 'Contact K-Tech Solutions for more information about this account.'
     },
@@ -73,6 +135,16 @@ const en = {
       totalSpend: 'Total Spend',
       successfulCalls: 'Successful Calls',
       failedCalls: 'Failed Calls'
+    },
+    quickLinks: {
+      label: 'Partner portal sections',
+      overview: 'Overview',
+      wallet: 'Wallet & keys',
+      webhooks: 'Webhooks',
+      activity: 'Activity',
+      transactions: 'Transactions',
+      pricing: 'Pricing',
+      documentation: 'Documentation'
     },
     callsOverview: {
       title: 'API Calls Overview (Last 30 Days)',

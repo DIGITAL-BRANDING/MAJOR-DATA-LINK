@@ -62,6 +62,7 @@ const quickLinks: QuickLink[] = [
   { label: 'Data Plan Pricing', description: 'Set prices for data plans', resourceId: 'DataPlanPricing', icon: 'ShoppingCart' },
   { label: 'Result PIN Stock', description: 'Add prepaid WAEC, NECO and NABTEB PINs', href: `${ADMIN_ROOT_PATH}/result-pin-stock`, icon: 'Package' },
   { label: 'Partner Pricing', description: 'Set API-partner-only prices', href: `${ADMIN_ROOT_PATH}/partner-pricing`, icon: 'DollarSign' },
+  { label: 'Partner Applications', description: 'Review enterprise API applications and approve or reject access', href: `${ADMIN_ROOT_PATH}/partner-applications?status=PENDING_REVIEW`, icon: 'ClipboardCheck' },
   { label: 'Partner Lookup', description: 'Check partner wallet, usage and funding', href: `${ADMIN_ROOT_PATH}/partner-lookup`, icon: 'Search' },
   { label: 'Manual Partner Webhook Recovery', description: 'Delivery status and retry for resolved manual partner requests', href: `${ADMIN_ROOT_PATH}/partner-manual-requests/resend`, icon: 'Send' },
   { label: 'Coupons', description: 'Discount codes & promotions', resourceId: 'Coupon', icon: 'CreditCard' },

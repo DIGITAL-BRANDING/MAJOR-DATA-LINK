@@ -15,6 +15,66 @@ const ha = {
       dashboard: 'Dashboard',
       logout: 'Fita'
     },
+    enterpriseApi: {
+      documentation: 'Bayanan API',
+      signIn: 'Shiga Partner',
+      eyebrow: 'Enterprise API access',
+      heroTitle: 'Gina samfurinka da ingantattun identity da digital service APIs.',
+      heroBody: 'Haɗa NIN da BVN verification, data, airtime, wallet funding da asynchronous identity services cikin integration guda mai tsaro. Kowane enterprise partner yana samun tsari da farashi na musamman bayan dubawa.',
+      apply: 'Nemi API access',
+      viewDocs: 'Duba technical docs',
+      trust: { https: 'HTTPS kawai', idempotency: 'Idempotent transactions', webhooks: 'Signed webhook events' },
+      servicesEyebrow: 'Abin da za ku gina',
+      servicesTitle: 'Services da aka shirya don production integration',
+      servicesBody: 'Yi amfani da API mai tsari, cikakkun references da delivery events domin customers su san matsayin request daga farko zuwa ƙarshe.',
+      services: {
+        identity: { title: 'Identity verification', body: 'NIN, BVN da identity service workflows tare da provider routing, references da status tracking.' },
+        data: { title: 'Data da airtime', body: 'Sayi data plans da airtime ta authenticated API guda mai kariyar idempotency.' },
+        wallet: { title: 'Wallet funding', body: 'Caji partner wallet da dedicated account ko secure one-off transfer flow.' },
+        async: { title: 'Async operations', body: 'Tura requests masu ɗaukar lokaci sannan ka karɓi signed webhook updates idan sun kammala.' }
+      },
+      accessEyebrow: 'Tsare-tsaren access',
+      accessTitle: 'Zaɓi tsarin da ya dace da kasuwancinka',
+      accessBody: 'An haɗa plan ɗinka da company account ɗinka. Ana iya tattauna enterprise pricing ga kowane partner kuma shi kaɗai zai gan shi a portal ɗinsa.',
+      recommended: 'Mafi dacewa',
+      choosePlan: 'Fara application',
+      plans: {
+        starter: { title: 'Starter', body: 'Ga teams da ke fara gwajin integration.', features: ['Enterprise registration da aka duba', 'NIN/BVN API bayan approval', 'Standard rate limits', 'Partner dashboard da documentation'] },
+        growth: { title: 'Growth', body: 'Ga products masu yawan customer requests.', features: ['Dukkan Starter', 'Higher request limits bisa yarjejeniya', 'Webhook delivery da retries', 'Private negotiated pricing offer'] },
+        enterprise: { title: 'Enterprise', body: 'Ga high-volume platforms da strategic partners.', features: ['Custom service access plan', 'Custom pricing ga kowane service', 'Integration support da monitoring', 'Dedicated commercial relationship'] }
+      },
+      promise: {
+        security: { title: 'Tsaro tun daga farko', body: 'Ana ajiye keys a matsayin hashes, ana amfani da HTTPS, kuma za a iya tabbatar da webhook events da secret.' },
+        keys: { title: 'Controlled API keys', body: 'Ƙirƙira, sa wa suna, rotate da revoke keys daga partner portal ba tare da fallasa tsoffin secrets ba.' },
+        support: { title: 'Ganin aikin system', body: 'Bi transactions, webhook health, request updates da integration activity daga portal guda.' }
+      }
+    },
+    registrationPage: {
+      eyebrow: 'Enterprise onboarding',
+      title: 'Nemi production API access',
+      body: 'Faɗa mana game da kamfaninku da integration ɗinku domin mu shirya service access, limits da farashin kasuwanci na musamman.',
+      signIn: 'Kuna da account?',
+      benefit1: 'Ƙungiyar API ta K-Tech Solutions za ta duba application ɗinku.',
+      benefit2: 'Partner da aka amince da shi zai samu controlled keys da farashi na sirri.',
+      benefit3: 'Za ku iya fara da sandbox sannan ku koma production bayan approval.',
+      stepCompany: 'Kamfani',
+      stepIntegration: 'Integration',
+      stepAccess: 'Access',
+      companySection: 'Bayanan kamfani',
+      companyHint: 'Yi amfani da bayanan kasuwancin da aka yi rajista domin a iya tabbatar da application ɗinku.',
+      integrationSection: 'Tsarin integration',
+      integrationHint: 'Zaɓi services da environment da samfurinku yake buƙata.',
+      accountSection: 'Asusun portal',
+      accountHint: 'Ƙirƙiri secure account da za ku yi amfani da shi wajen bin approval, keys, farashi da API activity.',
+      companyRequired: 'Cika sunan kamfani, babban contact da nau’in kasuwanci kafin ci gaba.',
+      integrationRequired: 'Zaɓi aƙalla service guda kuma ka bayyana integration da haruffa 10 ko fiye.',
+      consent: 'Na tabbatar cewa bayanan da na bayar gaskiya ne, kuma na amince K-Tech Solutions ta tuntube ni game da API access da onboarding.',
+      consentRequired: 'Da fatan za a tabbatar da amincewar application kafin submit.',
+      back: 'Koma baya',
+      next: 'Ci gaba',
+      submit: 'Tura enterprise application',
+      submitting: 'Ana tura application…'
+    },
     notifications: {
       recent: 'Sanarwa na baya-bayan nan',
       empty: 'Babu sanarwa tukuna.'
@@ -60,6 +120,8 @@ const ha = {
       pendingTitle: 'Ana bitar rajistarku',
       pendingBody:
         'Za a fara duba kamfaninku kafin ku iya ƙirƙirar live API key ko fara sarrafa transactions. Za mu tuntube ku ta imel ({{email}}) idan an amince.',
+      rejectedTitle: 'Ana buƙatar ƙarin bitar API application ɗinku',
+      rejectedBody: 'Ba a amince da application ɗin a wannan lokacin ba. Duba notifications don review note ko tuntuɓi K-Tech Solutions don mataki na gaba.',
       suspendedTitle: 'An dakatar da wannan asusun',
       suspendedBody: 'Tuntuɓi K-Tech Solutions don ƙarin bayani game da wannan asusun.'
     },
@@ -73,6 +135,16 @@ const ha = {
       totalSpend: 'Jimlar Kashewa',
       successfulCalls: 'Calls masu Nasara',
       failedCalls: 'Calls da suka Kasa'
+    },
+    quickLinks: {
+      label: 'Sassan partner portal',
+      overview: 'Overview',
+      wallet: 'Wallet da keys',
+      webhooks: 'Webhooks',
+      activity: 'Ayyuka',
+      transactions: 'Transactions',
+      pricing: 'Farashi',
+      documentation: 'Documentation'
     },
     callsOverview: {
       title: 'Bayanin API Calls (Kwana 30 na Baya)',
