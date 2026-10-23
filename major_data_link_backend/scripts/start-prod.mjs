@@ -1,4 +1,8 @@
 import { spawn } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+process.env.ADMIN_JS_TMP_DIR ??= join(tmpdir(), 'adminjs');
 
 // A deployed Prisma client may select a newly-added column before the API can
 // serve any request. Run `migrate deploy` before every production start so

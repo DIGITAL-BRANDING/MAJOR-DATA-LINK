@@ -3,8 +3,8 @@ build_context_directory: /
 pre_build_command: "npm ci --prefix web --include=dev --no-audit --no-fund && npm run build --prefix web && rm -rf major_data_link_backend/public/app && mkdir -p major_data_link_backend/public/app && cp -R web/dist/. major_data_link_backend/public/app/"
 build:
   system: auto
-  command: "npm ci --include=dev --no-audit --no-fund && npm run prisma:generate && npm run build"
-start_command: "npm run start:prod"
+  command: "cd major_data_link_backend && npm ci --include=dev --no-audit --no-fund && npm run prisma:generate && npm run build"
+start_command: "cd major_data_link_backend && npm run start:prod"
 scaling:
   trigger: http_requests
   min_cpu: 0.1
