@@ -1,0 +1,19 @@
+working_directory: major_data_link_backend
+build_context_directory: /
+pre_build_command: "npm ci --prefix web --include=dev --no-audit --no-fund && npm run build --prefix web && rm -rf major_data_link_backend/public/app && mkdir -p major_data_link_backend/public/app && cp -R web/dist/. major_data_link_backend/public/app/"
+build:
+  system: auto
+  command: "npm ci --include=dev --no-audit --no-fund && npm run prisma:generate && npm run build"
+start_command: "npm run start:prod"
+scaling:
+  trigger: http_requests
+  min_cpu: 0.1
+  max_cpu: 0.1
+  min_memory: 128
+  max_memory: 256
+  min_replicas: 1
+  max_replicas: 1
+health_check:
+  type: http
+  http_path: /health
+  interval_in_seconds: 30
