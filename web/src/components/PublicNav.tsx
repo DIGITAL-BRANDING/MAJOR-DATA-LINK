@@ -5,8 +5,10 @@ import Logo from './Logo';
 import { useAuth } from '../lib/auth';
 
 const NAV_LINKS = [
-  { to: '/partner-dashboard', label: 'API Portal', isRoute: true },
-  { to: '/enterprise-api', label: 'Enterprise API', isRoute: true },
+  // The public API Portal entry must open the enterprise landing page first.
+  // Authentication belongs to the landing page CTA, while /partner-dashboard
+  // remains the authenticated portal route.
+  { to: '/enterprise-api', label: 'API Portal', isRoute: true },
   { to: '/partner-register', label: 'Apply for API', isRoute: true },
   { to: '#result-checkers', label: 'Results', isRoute: false },
   { to: '#how-it-works', label: 'How it works', isRoute: false },

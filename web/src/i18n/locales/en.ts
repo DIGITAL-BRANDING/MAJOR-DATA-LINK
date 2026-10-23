@@ -108,6 +108,18 @@ const en = {
       passwordPlaceholderRegister: 'At least 8 characters',
       loginCta: 'Log in',
       registerCta: 'Create company account',
+      backToEnterprise: 'Enterprise API',
+      loginEyebrow: 'Secure partner access',
+      loginTitle: 'Operate your API business with confidence.',
+      loginBody: 'Sign in to manage API keys, wallet funding, webhooks, service pricing, and every transaction from one controlled enterprise workspace.',
+      loginPrompt: 'Use your approved company account to continue to the partner control center.',
+      loginFeatureSecurity: 'Protected access',
+      loginFeatureKeys: 'Controlled API keys',
+      loginFeatureMonitoring: 'Live monitoring',
+      loginSecurityNote: 'Your credentials are encrypted in transit.',
+      viewDocumentation: 'Read API documentation',
+      newPartner: 'New enterprise partner?',
+      startOnboarding: 'Start 3-step onboarding',
       registerNotice:
         "This enterprise application helps us review your business and integration needs. A K-Tech Solutions admin will approve the account before you can generate a live API key or process transactions. Your private offer code and negotiated prices will appear in the dashboard after registration.",
       genericError: 'Something went wrong. Please try again.'
@@ -125,6 +137,36 @@ const en = {
       suspendedTitle: 'This account has been suspended',
       suspendedBody: 'Contact K-Tech Solutions for more information about this account.'
     },
+    onboarding: {
+      title: 'Developer onboarding center',
+      subtitle: 'Complete the steps below to prepare your company for reliable production API integration.',
+      progress: '{{completed}} of {{total}} steps complete',
+      applicationStatus: 'Application status',
+      status: {
+        active: 'Approved and active',
+        pending_review: 'Pending review',
+        rejected: 'Needs further review',
+        suspended: 'Suspended'
+      },
+      registrationTitle: 'Enterprise profile submitted',
+      registrationBody: 'Your company and integration profile has been recorded.',
+      approvalTitle: 'Application approved',
+      approvalBody: {
+        active: 'Your account is approved and can use live partner features.',
+        pending_review: 'Our team is reviewing your company and integration plan.',
+        rejected: 'Review the notification sent to your account and contact support for next steps.',
+        suspended: 'Your account is currently suspended. Contact support before continuing.'
+      },
+      walletTitle: 'Fund your partner wallet',
+      walletBody: 'Maintain at least ₦{{minimum}} to activate identity API access.',
+      apiKeyTitle: 'Create a live API key',
+      apiKeyBody: 'Generate a key after approval and store it securely in your server environment.',
+      webhookTitle: 'Configure your webhook',
+      webhookBody: 'Add a secure callback URL so your system receives transaction status updates.',
+      completed: 'Complete',
+      openStep: 'Open step',
+      ready: 'Your partner account is ready for production integration.'
+    },
     hero: {
       welcomeBack: 'Welcome back',
       walletBalance: 'Partner wallet balance'
@@ -139,12 +181,15 @@ const en = {
     quickLinks: {
       label: 'Partner portal sections',
       overview: 'Overview',
+      onboarding: 'Developer center',
       wallet: 'Wallet & keys',
       webhooks: 'Webhooks',
       activity: 'Activity',
       transactions: 'Transactions',
       pricing: 'Pricing',
-      documentation: 'Documentation'
+      documentation: 'Documentation',
+      openMenu: 'Menu',
+      closeMenu: 'Close'
     },
     callsOverview: {
       title: 'API Calls Overview (Last 30 Days)',
@@ -223,11 +268,29 @@ const en = {
     },
     pricing: {
       title: 'Service Pricing',
-      subtitle:
-        'Wholesale price - data/airtime pricing varies by plan, see <code>GET /data/plans/:network</code> in the documentation for current pricing.'
+      subtitle: 'Your active partner rates for available services.',
+      eyebrow: 'Partner price book',
+      availableServices: 'Available services',
+      allCategories: 'All services',
+      show: 'Show',
+      entries: 'entries',
+      search: 'Search services…',
+      service: 'Service',
+      category: 'Category',
+      partnerPrice: 'Your price (₦)',
+      empty: 'No services match your filters.',
+      showing: 'Showing {{start}}–{{end}} of {{total}} services',
+      previous: 'Previous',
+      next: 'Next',
+      page: 'Page {{page}} of {{pages}}',
+      categories: {
+        airtime: 'Airtime', data: 'Data', cable: 'Cable TV', education: 'Education', electricity: 'Electricity',
+        nin: 'NIN', bvn: 'BVN', jamb: 'JAMB', cac: 'CAC', tax: 'Tax', other: 'Other'
+      }
     },
     callsSummary: {
       title: 'API Calls Summary',
+      transactionsSubtitle: 'Review your partner transaction ledger and inspect individual references.',
       searchPlaceholder: 'Search reference, provider ref or description',
       filters: 'Filters',
       allStatuses: 'All statuses',
@@ -235,13 +298,21 @@ const en = {
       from: 'From',
       to: 'To',
       exportCsv: 'Export CSV',
+      clearFilters: 'Clear filters',
+      show: 'Show',
+      entries: 'entries',
+      showingTransactions: 'Showing {{start}}–{{end}} of {{total}} transactions',
+      previous: 'Previous',
+      next: 'Next',
+      colNin: 'NIN',
+      protectedIdentifier: 'Protected',
       details: 'Details',
       detailTitle: 'Transaction details',
       timeline: 'Timeline',
       close: 'Close',
-      colReference: 'Reference',
+      colReference: 'Transaction ID',
       colType: 'Type',
-      colAmount: 'Amount',
+      colAmount: 'Price (₦)',
       colBalanceBefore: 'Balance before',
       colBalanceAfter: 'Balance after',
       colStatus: 'Status',

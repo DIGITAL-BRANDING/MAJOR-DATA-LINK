@@ -312,7 +312,7 @@ export default function LandingPage() {
 
           <ul className={`nav-links${menuOpen ? ' active' : ''}`}>
             <li>
-              <Link to="/partner-dashboard" onClick={closeMenu}>
+              <Link to="/enterprise-api" onClick={closeMenu}>
                 {L.navApi}
               </Link>
             </li>
@@ -613,7 +613,7 @@ export default function LandingPage() {
           </div>
           <div>
             <h4>{L.footerDevHeading}</h4>
-            <Link to="/partner-dashboard">{L.footerPortal}</Link>
+            <Link to="/enterprise-api">{L.footerPortal}</Link>
             <Link to="/partner-docs">{L.footerDocs}</Link>
           </div>
           <div>

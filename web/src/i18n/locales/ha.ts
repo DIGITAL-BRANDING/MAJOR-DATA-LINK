@@ -108,6 +108,18 @@ const ha = {
       passwordPlaceholderRegister: 'Aƙalla haruffa 8',
       loginCta: 'Shiga',
       registerCta: 'Ƙirƙiri asusun kamfani',
+      backToEnterprise: 'Enterprise API',
+      loginEyebrow: 'Amintaccen partner access',
+      loginTitle: 'Gudanar da API business ɗinku cikin kwarin gwiwa.',
+      loginBody: 'Shiga domin sarrafa API keys, cajin wallet, webhooks, farashin services, da duk transactions daga enterprise workspace guda mai tsaro.',
+      loginPrompt: 'Yi amfani da approved company account ɗinku domin shiga partner control center.',
+      loginFeatureSecurity: 'Protected access',
+      loginFeatureKeys: 'Controlled API keys',
+      loginFeatureMonitoring: 'Live monitoring',
+      loginSecurityNote: 'Ana kare credentials ɗinku yayin tafiya ta network.',
+      viewDocumentation: 'Karanta API documentation',
+      newPartner: 'Sabon enterprise partner ne?',
+      startOnboarding: 'Fara matakan onboarding 3',
       registerNotice:
         'Wannan enterprise application zai taimaka mana mu fahimci kamfaninku da bukatun integration. Admin din K-Tech Solutions zai amince da asusun kafin ku iya ƙirƙirar live API key ko sarrafa transactions. Offer code da farashin rangwamenku za su bayyana a dashboard bayan rajista.',
       genericError: 'Wani abu ya faru. Da fatan za a sake gwadawa.'
@@ -125,6 +137,36 @@ const ha = {
       suspendedTitle: 'An dakatar da wannan asusun',
       suspendedBody: 'Tuntuɓi K-Tech Solutions don ƙarin bayani game da wannan asusun.'
     },
+    onboarding: {
+      title: 'Developer onboarding center',
+      subtitle: 'Kammala matakan da ke ƙasa domin shirya kamfaninku don ingantaccen production API integration.',
+      progress: 'An kammala matakai {{completed}} cikin {{total}}',
+      applicationStatus: 'Matsayin application',
+      status: {
+        active: 'An amince kuma yana aiki',
+        pending_review: 'Ana jiran bita',
+        rejected: 'Ana buƙatar ƙarin bita',
+        suspended: 'An dakatar'
+      },
+      registrationTitle: 'An tura enterprise profile',
+      registrationBody: 'An adana bayanan kamfaninku da tsarin integration.',
+      approvalTitle: 'An amince da application',
+      approvalBody: {
+        active: 'An amince da asusunku kuma kuna iya amfani da live partner features.',
+        pending_review: 'Team ɗinmu na duba kamfaninku da tsarin integration.',
+        rejected: 'Duba notification da aka tura wa asusunku sannan ku tuntuɓi support don mataki na gaba.',
+        suspended: 'An dakatar da asusunku yanzu. Tuntuɓi support kafin ku ci gaba.'
+      },
+      walletTitle: 'Caji partner wallet',
+      walletBody: 'A riƙe aƙalla ₦{{minimum}} domin kunna identity API access.',
+      apiKeyTitle: 'Ƙirƙiri live API key',
+      apiKeyBody: 'Bayan an amince, ƙirƙiri key kuma ku adana shi cikin tsaro a server environment ɗinku.',
+      webhookTitle: 'Saita webhook ɗinku',
+      webhookBody: 'Saka callback URL mai tsaro domin system ɗinku ya karɓi updates na transaction status.',
+      completed: 'An kammala',
+      openStep: 'Buɗe mataki',
+      ready: 'Partner account ɗinku ya shirya don production integration.'
+    },
     hero: {
       welcomeBack: 'Barka da dawowa',
       walletBalance: 'Ma\'aunin wallet na Partner'
@@ -139,12 +181,15 @@ const ha = {
     quickLinks: {
       label: 'Sassan partner portal',
       overview: 'Overview',
+      onboarding: 'Developer center',
       wallet: 'Wallet da keys',
       webhooks: 'Webhooks',
       activity: 'Ayyuka',
       transactions: 'Transactions',
       pricing: 'Farashi',
-      documentation: 'Documentation'
+      documentation: 'Documentation',
+      openMenu: 'Menu',
+      closeMenu: 'Rufe'
     },
     callsOverview: {
       title: 'Bayanin API Calls (Kwana 30 na Baya)',
@@ -223,11 +268,29 @@ const ha = {
     },
     pricing: {
       title: 'Farashin Sabis',
-      subtitle:
-        'Farashin wholesale - farashin data/airtime yana canzawa bisa plan, duba <code>GET /data/plans/:network</code> a documentation don ainihin farashi na yanzu.'
+      subtitle: 'Farashin partner ɗinka na yanzu ne ga ayyukan da ake da su.',
+      eyebrow: 'Jadawalin farashin partner',
+      availableServices: 'Ayyukan da ake da su',
+      allCategories: 'Dukkan ayyuka',
+      show: 'Nuna',
+      entries: 'layuka',
+      search: 'Nemo ayyuka…',
+      service: 'Sabis',
+      category: 'Rukuni',
+      partnerPrice: 'Farashinka (₦)',
+      empty: 'Babu sabis da ya dace da tacewar da ka zaɓa.',
+      showing: 'Ana nuna {{start}}–{{end}} daga sabis {{total}}',
+      previous: 'Na baya',
+      next: 'Na gaba',
+      page: 'Shafi {{page}} cikin {{pages}}',
+      categories: {
+        airtime: 'Airtime', data: 'Data', cable: 'Cable TV', education: 'Ilimi', electricity: 'Wutar lantarki',
+        nin: 'NIN', bvn: 'BVN', jamb: 'JAMB', cac: 'CAC', tax: 'Haraji', other: 'Sauran'
+      }
     },
     callsSummary: {
       title: 'Taƙaitawar API Calls',
+      transactionsSubtitle: 'Duba tarihin transactions na partner ɗinka da cikakken bayani kan kowanne.',
       searchPlaceholder: 'Nemo reference, provider ref ko bayanin aiki',
       filters: 'Tacewa',
       allStatuses: 'Dukkan matsayi',
@@ -235,13 +298,21 @@ const ha = {
       from: 'Daga',
       to: 'Zuwa',
       exportCsv: 'Fitar da CSV',
+      clearFilters: 'Share tacewa',
+      show: 'Nuna',
+      entries: 'layuka',
+      showingTransactions: 'Ana nuna {{start}}–{{end}} daga transactions {{total}}',
+      previous: 'Na baya',
+      next: 'Na gaba',
+      colNin: 'NIN',
+      protectedIdentifier: 'An ɓoye',
       details: 'Cikakkun bayanai',
       detailTitle: 'Cikakken transaction',
       timeline: 'Timeline',
       close: 'Rufe',
-      colReference: 'Reference',
+      colReference: 'ID ɗin Transaction',
       colType: 'Nau\'i',
-      colAmount: 'Adadin kuɗi',
+      colAmount: 'Farashi (₦)',
       colBalanceBefore: 'Balance kafin',
       colBalanceAfter: 'Balance bayan',
       colStatus: 'Matsayi',

@@ -9,6 +9,7 @@ import { isWebPushSupported, removeWebPushSubscription, syncWebPush } from '../l
 import {
   Activity,
   AlertTriangle,
+  ArrowRight,
   Bell,
   BookOpen,
   Building2,
@@ -16,6 +17,7 @@ import {
   CheckCircle2,
   CircleDollarSign,
   Copy,
+  Circle,
   Download,
   Eye,
   EyeOff,
@@ -26,9 +28,10 @@ import {
   Lock,
   LogOut,
   Mail,
-  Phone,
+  Menu,
   PlusCircle,
   RefreshCw,
+  Rocket,
   Search,
   ShieldCheck,
   Tag,
@@ -88,6 +91,22 @@ type ApiKey = { id: string; name: string; key_prefix: string; last_used_at: stri
 type Summary = { today_calls: number; total_calls: number; total_spend: number; successful_calls: number; failed_calls: number };
 type CallsOverviewPoint = { date: string; calls: number };
 type PriceRow = { service: string; label: string; unit_price: number };
+type PricingCategory = 'airtime' | 'data' | 'cable' | 'education' | 'electricity' | 'nin' | 'bvn' | 'jamb' | 'cac' | 'tax' | 'other';
+
+function getPricingCategory(price: PriceRow): PricingCategory {
+  const value = `${price.service} ${price.label}`.toLowerCase();
+  if (/\bbvn\b/.test(value)) return 'bvn';
+  if (/\bnin\b|ipe clearance|demographic/.test(value)) return 'nin';
+  if (/\bjamb\b/.test(value)) return 'jamb';
+  if (/\bcac\b|company registration|business name/.test(value)) return 'cac';
+  if (/\btin\b|\btax\b/.test(value)) return 'tax';
+  if (/waec|neco|nab?teb|result checker|result pin|scratch card/.test(value)) return 'education';
+  if (/electricity|disco|\bmeter\b/.test(value)) return 'electricity';
+  if (/cable|dstv|gotv|startimes/.test(value)) return 'cable';
+  if (/airtime|\bvtu\b/.test(value)) return 'airtime';
+  if (/data plan|\bdata\b/.test(value)) return 'data';
+  return 'other';
+}
 type Transaction = {
   id?: string;
   reference: string;
@@ -103,6 +122,12 @@ type Transaction = {
   created_at: string;
   updated_at?: string;
 };
+function transactionPageNumbers(currentPage: number, totalPages: number): Array<number | 'start-gap' | 'end-gap'> {
+  if (totalPages <= 5) return Array.from({ length: totalPages }, (_, index) => index + 1);
+  if (currentPage <= 3) return [1, 2, 3, 'end-gap', totalPages];
+  if (currentPage >= totalPages - 2) return [1, 'start-gap', totalPages - 2, totalPages - 1, totalPages];
+  return [1, 'start-gap', currentPage, 'end-gap', totalPages];
+}
 type TransactionDetail = Transaction & { cost: number | null; request_updates: Array<{ id: string; message: string; created_at: string }> };
 type WebhookConfig = { webhook_url: string | null; configured: boolean };
 type WebhookDelivery = { event_id: string; event: string; status: string; attempts: number; response_status: number | null; last_error: string | null; created_at: string; delivered_at: string | null; next_attempt_at: string | null };
@@ -376,7 +401,7 @@ export default function PartnerDashboardPage() {
   const { t } = useTranslation();
   const [searchParams] = useSearchParams();
   const requestedView = searchParams.get('view') ?? 'overview';
-  const dashboardView = ['overview', 'wallet', 'webhooks', 'activity', 'transactions', 'pricing'].includes(requestedView) ? requestedView : 'overview';
+  const dashboardView = ['overview', 'onboarding', 'wallet', 'webhooks', 'activity', 'transactions', 'pricing'].includes(requestedView) ? requestedView : 'overview';
   const showView = (...views: string[]) => views.includes(dashboardView);
   const [checkedSession, setCheckedSession] = useState(false);
   const [partner, setPartner] = useState<Partner | null>(null);
@@ -386,7 +411,15 @@ export default function PartnerDashboardPage() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [callsOverview, setCallsOverview] = useState<CallsOverviewPoint[]>([]);
   const [prices, setPrices] = useState<PriceRow[]>([]);
+  const [pricingCategory, setPricingCategory] = useState<'all' | PricingCategory>('all');
+  const [pricingSearch, setPricingSearch] = useState('');
+  const [pricingPageSize, setPricingPageSize] = useState(10);
+  const [pricingPage, setPricingPage] = useState(1);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [transactionTotal, setTransactionTotal] = useState(0);
+  const [transactionPage, setTransactionPage] = useState(1);
+  const [transactionPageSize, setTransactionPageSize] = useState(10);
+  const [transactionsLoading, setTransactionsLoading] = useState(false);
   const [activity, setActivity] = useState<PartnerActivity[]>([]);
   const [activitySearch, setActivitySearch] = useState('');
   const [activityKind, setActivityKind] = useState('all');
@@ -401,7 +434,7 @@ export default function PartnerDashboardPage() {
   const [notice, setNotice] = useState('');
 
   function transactionQuery(path = '/transactions') {
-    const params = new URLSearchParams({ limit: '25' });
+    const params = new URLSearchParams({ limit: String(transactionPageSize), offset: String((transactionPage - 1) * transactionPageSize) });
     if (search.trim()) params.set('search', search.trim());
     if (statusFilter) params.set('status', statusFilter);
     if (typeFilter) params.set('type', typeFilter);
@@ -411,8 +444,13 @@ export default function PartnerDashboardPage() {
   }
 
   async function loadTransactions() {
-    const res = await portalFetch<{ data: Transaction[] }>(transactionQuery()).catch(() => null);
-    if (res) setTransactions(res.data);
+    setTransactionsLoading(true);
+    const res = await portalFetch<{ data: Transaction[]; meta?: { total: number } }>(transactionQuery()).catch(() => null);
+    if (res) {
+      setTransactions(res.data);
+      setTransactionTotal(res.meta?.total ?? res.data.length);
+    }
+    setTransactionsLoading(false);
   }
 
   async function loadActivity() {
@@ -438,6 +476,7 @@ export default function PartnerDashboardPage() {
     const { access } = getTokens();
     const exportQuery = new URLSearchParams(transactionQuery('/transactions.csv').split('?')[1]);
     exportQuery.set('limit', '10000');
+    exportQuery.set('offset', '0');
     const response = await fetch(`${PORTAL_BASE}/transactions.csv?${exportQuery.toString()}`, { headers: { Authorization: `Bearer ${access}` } });
     if (!response.ok) {
       setError('Could not export transactions');
@@ -488,7 +527,7 @@ export default function PartnerDashboardPage() {
     const timer = setTimeout(() => void loadTransactions(), 350);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, statusFilter, typeFilter, fromDate, toDate]);
+  }, [search, statusFilter, typeFilter, fromDate, toDate, transactionPage, transactionPageSize]);
 
   useEffect(() => {
     if (!partner) return;
@@ -507,7 +546,7 @@ export default function PartnerDashboardPage() {
     return () => window.clearInterval(timer);
     // loadTransactions intentionally stays stable with the current portal session.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [partner, transactions, search, statusFilter, typeFilter, fromDate, toDate]);
+  }, [partner, transactions, search, statusFilter, typeFilter, fromDate, toDate, transactionPage, transactionPageSize]);
 
   function onAuthSuccess(data: { access_token: string; refresh_token: string; partner: Partner }) {
     setTokens(data.access_token, data.refresh_token);
@@ -531,6 +570,18 @@ export default function PartnerDashboardPage() {
     setError('');
   }
 
+  const pricingCategoryOrder: PricingCategory[] = ['airtime', 'data', 'cable', 'education', 'electricity', 'nin', 'bvn', 'jamb', 'cac', 'tax', 'other'];
+  const pricingCategories = pricingCategoryOrder.filter((category) => prices.some((price) => getPricingCategory(price) === category));
+  const normalizedPricingSearch = pricingSearch.trim().toLowerCase();
+  const filteredPrices = prices.filter((price) => {
+    const matchesCategory = pricingCategory === 'all' || getPricingCategory(price) === pricingCategory;
+    const matchesSearch = !normalizedPricingSearch || `${price.label} ${price.service}`.toLowerCase().includes(normalizedPricingSearch);
+    return matchesCategory && matchesSearch;
+  });
+  const pricingPageCount = Math.max(1, Math.ceil(filteredPrices.length / pricingPageSize));
+  const visiblePrices = filteredPrices.slice((pricingPage - 1) * pricingPageSize, pricingPage * pricingPageSize);
+  const pricingCategoryLabel = (category: PricingCategory) => t(`partnerPortal.pricing.categories.${category}`);
+
   if (!checkedSession) {
     return (
       <main className="flex min-h-screen items-center justify-center gap-2 bg-slate-50 text-slate-600">
@@ -544,33 +595,33 @@ export default function PartnerDashboardPage() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-50 text-slate-900">
+    <main className="min-h-screen bg-slate-100/70 text-slate-900">
       <PartnerNotificationPopup />
-      <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-4">
+      <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/95 shadow-sm backdrop-blur-xl">
+        <div className="mx-auto flex min-h-[72px] max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:px-8">
           <div className="flex items-center gap-3">
-            <div className="rounded-xl bg-brand-700 p-2 text-white">
+            <div className="rounded-xl bg-gradient-to-br from-brand-700 to-blue-500 p-2.5 text-white shadow-md shadow-brand-900/15">
               <Activity size={21} />
             </div>
             <div>
-              <p className="font-bold">{t('partnerPortal.header.appName')}</p>
+              <p className="font-bold tracking-tight">{t('partnerPortal.header.appName')}</p>
               <p className="text-xs text-slate-500">{t('partnerPortal.header.tagline')}</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <PartnerPushToggle />
+          <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+            <div className="hidden lg:block"><PartnerPushToggle /></div>
             <PartnerNotificationBell />
-            <LanguageSwitcher />
+            <div className="hidden sm:block"><LanguageSwitcher /></div>
             <Link
               to="/partner-docs"
-              className="flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+              className="hidden items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 md:flex"
             >
               <BookOpen size={16} />
               {t('partnerPortal.header.documentation')}
             </Link>
             <button
               onClick={logout}
-              className="flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+              className="hidden items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 md:flex"
             >
               <LogOut size={16} />
               {t('partnerPortal.header.logout')}
@@ -579,7 +630,7 @@ export default function PartnerDashboardPage() {
         </div>
       </header>
 
-      <div className="mx-auto max-w-6xl px-5 py-8">
+      <div className="mx-auto max-w-7xl px-4 py-5 sm:px-6 sm:py-7 lg:px-8 lg:py-8">
         {error && (
           <p className="mb-5 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p>
         )}
@@ -589,15 +640,31 @@ export default function PartnerDashboardPage() {
           </p>
         )}
 
-        <PartnerQuickLinks />
+        <PartnerQuickLinks onLogout={logout} />
 
-        {showView('overview') && <section id="overview" className="scroll-mt-24 rounded-3xl border border-brand-900/40 bg-brand-800 bg-gradient-to-br from-brand-800 to-brand-600 p-6 text-white shadow-lg shadow-brand-900/20">
-          <p className="text-sm font-medium text-blue-100">{t('partnerPortal.hero.welcomeBack')}</p>
-          <h1 className="mt-1 text-2xl font-bold text-white">{partner.business_name}</h1>
-          <p className="mt-4 text-4xl font-extrabold tabular-nums tracking-tight text-white sm:text-5xl">
-            ₦{partner.wallet_balance.toLocaleString()}
-          </p>
-          <p className="mt-1 text-sm font-medium text-blue-100">{t('partnerPortal.hero.walletBalance')}</p>
+        {showView('overview') && <section id="overview" className="relative isolate scroll-mt-24 overflow-hidden rounded-3xl bg-gradient-to-br from-slate-950 via-blue-950 to-brand-800 p-5 text-white shadow-xl shadow-blue-950/10 sm:p-8">
+          <div className="pointer-events-none absolute -right-20 -top-28 -z-10 h-72 w-72 rounded-full bg-cyan-400/15 blur-3xl" />
+          <div className="pointer-events-none absolute -bottom-36 left-1/3 -z-10 h-64 w-64 rounded-full bg-blue-400/15 blur-3xl" />
+          <div className="flex flex-col gap-7 sm:flex-row sm:items-end sm:justify-between">
+            <div className="min-w-0">
+              <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-xs font-semibold text-blue-100 backdrop-blur">
+                <span className={`h-2 w-2 rounded-full ${partner.status === 'active' ? 'bg-emerald-400' : partner.status === 'pending_review' ? 'bg-amber-400' : 'bg-rose-400'}`} />
+                {partner.status.replaceAll('_', ' ')}
+              </div>
+              <p className="mt-5 text-sm font-medium text-blue-100">{t('partnerPortal.hero.welcomeBack')}</p>
+              <h1 className="mt-1 break-words text-2xl font-bold tracking-tight text-white sm:text-3xl">{partner.business_name}</h1>
+              <p className="mt-2 break-all text-sm text-blue-100/75">{partner.email}</p>
+            </div>
+            <div className="w-full rounded-2xl border border-white/15 bg-white/10 p-4 backdrop-blur-md sm:max-w-xs sm:p-5">
+              <div className="flex items-center gap-2 text-sm font-medium text-blue-100">
+                <WalletIcon size={16} /> {t('partnerPortal.hero.walletBalance')}
+              </div>
+              <p className="mt-2 text-3xl font-extrabold tabular-nums tracking-tight text-white sm:text-4xl">₦{partner.wallet_balance.toLocaleString()}</p>
+              <Link to="/partner-dashboard?view=wallet" className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-cyan-200 transition hover:text-white">
+                {t('partnerPortal.quickLinks.wallet')} <ArrowRight size={15} />
+              </Link>
+            </div>
+          </div>
         </section>}
 
         {showView('overview') && partner.enterprise_offer_code && (
@@ -636,6 +703,10 @@ export default function PartnerDashboardPage() {
               </p>
             </div>
           </section>
+        )}
+
+        {showView('overview', 'onboarding') && (
+          <PartnerOnboardingCenter partner={partner} wallet={wallet} keys={keys} webhook={webhook} />
         )}
 
         {showView('overview') && partner.status === 'active' && (
@@ -692,117 +763,163 @@ export default function PartnerDashboardPage() {
           <WebhookCard webhook={webhook} onError={setError} onNotice={setNotice} onWebhook={setWebhook} />
         </section>}
 
-        {showView('pricing') && prices.length > 0 && (
-          <section id="pricing" className="mt-6 scroll-mt-24 rounded-2xl border border-slate-200 bg-white p-5">
-            <div className="flex items-center gap-2">
-              <Tag className="text-brand-700" size={20} />
-              <h2 className="font-bold">{t('partnerPortal.pricing.title')}</h2>
-            </div>
-            <p className="mt-1 text-xs text-slate-500">
-              <Trans i18nKey="partnerPortal.pricing.subtitle" components={{ code: <code /> }} />
-            </p>
-            <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-              {prices.map((p) => (
-                <div key={p.service} className="rounded-xl border-l-4 border-l-brand-600 bg-blue-50 p-4">
-                  <p className="text-xs font-semibold text-slate-500">{p.label}</p>
-                  <p className="mt-1 text-lg font-bold text-brand-800">₦{p.unit_price.toLocaleString()}</p>
+        {showView('pricing') && (
+          <section id="pricing" className="mt-6 scroll-mt-24 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className="bg-gradient-to-r from-slate-950 via-blue-950 to-brand-800 px-5 py-6 text-white sm:px-7">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2 text-blue-200">
+                    <Tag size={16} />
+                    <span className="text-xs font-bold uppercase tracking-[0.16em]">{t('partnerPortal.pricing.eyebrow')}</span>
+                  </div>
+                  <h2 className="mt-2 text-2xl font-bold tracking-tight">{t('partnerPortal.pricing.title')}</h2>
+                  <p className="mt-1 max-w-2xl text-sm text-blue-100/80">
+                    <Trans i18nKey="partnerPortal.pricing.subtitle" components={{ code: <code /> }} />
+                  </p>
                 </div>
-              ))}
+                <div className="rounded-xl border border-white/15 bg-white/10 px-4 py-3 backdrop-blur-sm">
+                  <p className="text-xs text-blue-100">{t('partnerPortal.pricing.availableServices')}</p>
+                  <p className="mt-1 text-2xl font-bold">{prices.length}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="border-b border-slate-200 px-4 pt-4 sm:px-6">
+              <div className="flex gap-1 overflow-x-auto pb-3">
+                <button type="button" onClick={() => { setPricingCategory('all'); setPricingPage(1); }} className={`shrink-0 rounded-lg px-3 py-2 text-sm font-semibold transition ${pricingCategory === 'all' ? 'bg-brand-700 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'}`}>
+                  {t('partnerPortal.pricing.allCategories')}
+                </button>
+                {pricingCategories.map((category) => (
+                  <button key={category} type="button" onClick={() => { setPricingCategory(category); setPricingPage(1); }} className={`shrink-0 rounded-lg px-3 py-2 text-sm font-semibold transition ${pricingCategory === category ? 'bg-brand-700 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'}`}>
+                    {pricingCategoryLabel(category)}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+              <label className="flex items-center gap-2 text-sm text-slate-500">
+                <span>{t('partnerPortal.pricing.show')}</span>
+                <select value={pricingPageSize} onChange={(event) => { setPricingPageSize(Number(event.target.value)); setPricingPage(1); }} className="rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm font-medium text-slate-700 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100">
+                  {[10, 25, 50].map((size) => <option key={size} value={size}>{size}</option>)}
+                </select>
+                <span>{t('partnerPortal.pricing.entries')}</span>
+              </label>
+              <label className="flex w-full items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-slate-400 focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-100 sm:max-w-xs">
+                <Search size={16} />
+                <input value={pricingSearch} onChange={(event) => { setPricingSearch(event.target.value); setPricingPage(1); }} placeholder={t('partnerPortal.pricing.search')} className="w-full bg-transparent text-sm text-slate-800 outline-none placeholder:text-slate-400" />
+              </label>
+            </div>
+
+            <div className="overflow-x-auto px-4 sm:px-6">
+              <table className="w-full min-w-[540px] border-collapse text-left">
+                <thead>
+                  <tr className="border-y border-slate-200 bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
+                    <th className="px-4 py-3 font-bold">{t('partnerPortal.pricing.service')}</th>
+                    <th className="px-4 py-3 font-bold">{t('partnerPortal.pricing.category')}</th>
+                    <th className="px-4 py-3 text-right font-bold">{t('partnerPortal.pricing.partnerPrice')}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {visiblePrices.map((price) => (
+                    <tr key={price.service} className="transition hover:bg-blue-50/50">
+                      <td className="px-4 py-3.5">
+                        <p className="font-semibold text-slate-800">{price.label}</p>
+                        <p className="mt-0.5 font-mono text-[11px] text-slate-400">{price.service}</p>
+                      </td>
+                      <td className="px-4 py-3.5"><span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">{pricingCategoryLabel(getPricingCategory(price))}</span></td>
+                      <td className="px-4 py-3.5 text-right font-bold tabular-nums text-brand-800">₦{Number(price.unit_price).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    </tr>
+                  ))}
+                  {visiblePrices.length === 0 && <tr><td colSpan={3} className="px-4 py-12 text-center text-sm text-slate-500">{t('partnerPortal.pricing.empty')}</td></tr>}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex flex-col gap-3 border-t border-slate-200 px-4 py-4 text-sm text-slate-500 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+              <p>{t('partnerPortal.pricing.showing', { start: filteredPrices.length ? (pricingPage - 1) * pricingPageSize + 1 : 0, end: Math.min(pricingPage * pricingPageSize, filteredPrices.length), total: filteredPrices.length })}</p>
+              <div className="flex items-center gap-2 self-end sm:self-auto">
+                <button type="button" disabled={pricingPage <= 1} onClick={() => setPricingPage((page) => Math.max(1, page - 1))} className="rounded-lg border border-slate-300 px-3 py-2 font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">{t('partnerPortal.pricing.previous')}</button>
+                <span className="min-w-20 text-center text-xs font-medium text-slate-500">{t('partnerPortal.pricing.page', { page: Math.min(pricingPage, pricingPageCount), pages: pricingPageCount })}</span>
+                <button type="button" disabled={pricingPage >= pricingPageCount} onClick={() => setPricingPage((page) => Math.min(pricingPageCount, page + 1))} className="rounded-lg border border-slate-300 px-3 py-2 font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">{t('partnerPortal.pricing.next')}</button>
+              </div>
             </div>
           </section>
         )}
 
-        {showView('transactions') && <section id="transactions" className="mt-6 scroll-mt-24 rounded-2xl border border-slate-200 bg-white">
-          <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
+        {showView('transactions') && <section id="transactions" className="mt-6 scroll-mt-24 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="flex flex-col gap-4 border-b border-slate-200 px-4 py-5 sm:px-6 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <h2 className="font-bold">{t('partnerPortal.callsSummary.title')}</h2>
-              <p className="mt-1 text-xs text-slate-500">Click a row to inspect provider references and status updates.</p>
+              <h2 className="text-lg font-bold tracking-tight text-slate-900">{t('partnerPortal.quickLinks.transactions')}</h2>
+              <p className="mt-1 text-sm text-slate-500">{t('partnerPortal.callsSummary.transactionsSubtitle')}</p>
             </div>
-            <div className="flex items-center gap-2">
-              <button type="button" onClick={() => void exportTransactions()} className="hidden items-center gap-1 rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 sm:flex">
-                <Download size={14} /> {t('partnerPortal.callsSummary.exportCsv')}
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <label className="flex min-w-0 items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-slate-400 transition focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-100 sm:w-72">
+                <Search size={16} />
+                <input value={search} onChange={(event) => { setSearch(event.target.value); setTransactionPage(1); }} placeholder={t('partnerPortal.callsSummary.searchPlaceholder')} className="w-full bg-transparent text-sm text-slate-800 outline-none placeholder:text-slate-400" />
+              </label>
+              <button type="button" onClick={() => void exportTransactions()} className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50">
+                <Download size={15} /> {t('partnerPortal.callsSummary.exportCsv')}
               </button>
-              <div className="flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-1.5">
-              <Search size={14} className="text-slate-400" />
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder={t('partnerPortal.callsSummary.searchPlaceholder')}
-                className="w-40 bg-transparent text-sm outline-none sm:w-56"
-              />
-              </div>
             </div>
           </div>
-          <div className="grid gap-3 border-b border-slate-100 bg-slate-50 px-5 py-4 sm:grid-cols-2 lg:grid-cols-5">
-            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">
+          <div className="grid gap-3 border-b border-slate-200 bg-slate-50/80 px-4 py-4 sm:grid-cols-2 sm:px-6 lg:grid-cols-5">
+            <select value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value); setTransactionPage(1); }} className="rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100">
               <option value="">{t('partnerPortal.callsSummary.allStatuses')}</option>
-              <option value="PENDING">Pending</option>
-              <option value="SUCCESS">Success</option>
-              <option value="FAILED">Failed</option>
-              <option value="REVERSED">Reversed</option>
-              <option value="DECLINED">Declined</option>
+              {['PENDING', 'SUCCESS', 'FAILED', 'IGNORED', 'DECLINED', 'REVERSED'].map((status) => <option key={status} value={status}>{status.replaceAll('_', ' ')}</option>)}
             </select>
-            <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">
+            <select value={typeFilter} onChange={(event) => { setTypeFilter(event.target.value); setTransactionPage(1); }} className="rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100">
               <option value="">{t('partnerPortal.callsSummary.allTypes')}</option>
-              <option value="NIN_VERIFICATION">NIN verification</option>
-              <option value="BVN_VERIFICATION">BVN verification</option>
-              <option value="IDENTITY_SERVICE_REQUEST">Identity service</option>
-              <option value="DATA_PURCHASE">Data purchase</option>
-              <option value="AIRTIME_PURCHASE">Airtime purchase</option>
-              <option value="WALLET_FUNDING">Wallet funding</option>
+              {['WALLET_FUNDING', 'WALLET_TRANSFER', 'DATA_PURCHASE', 'AIRTIME_PURCHASE', 'ELECTRICITY_PURCHASE', 'CABLE_PURCHASE', 'RESULT_PIN', 'SMS', 'WITHDRAWAL', 'REFERRAL_COMMISSION', 'MANUAL_ADJUSTMENT', 'COUPON_REDEMPTION', 'NIN_VERIFICATION', 'BVN_VERIFICATION', 'IDENTITY_SERVICE_REQUEST', 'NIN_MODIFICATION', 'BVN_LICENSE_ONBOARDING', 'CAC_SERVICE_REQUEST', 'BVN_MODIFICATION', 'BIRTH_ATTESTATION', 'NEWSPAPER_PUBLICATION', 'BVN_CRM', 'JAMB_SERVICE_REQUEST', 'SCHOOL_WEBSITE_SUBSCRIPTION', 'TIN_SERVICE_REQUEST', 'REFUND', 'WALLET_FUNDING_FEE'].map((type) => <option key={type} value={type}>{type.replaceAll('_', ' ')}</option>)}
             </select>
-            <label className="flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-500">
-              {t('partnerPortal.callsSummary.from')}
-              <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="min-w-0 flex-1 bg-transparent text-sm text-slate-700 outline-none" />
-            </label>
-            <label className="flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-500">
-              {t('partnerPortal.callsSummary.to')}
-              <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="min-w-0 flex-1 bg-transparent text-sm text-slate-700 outline-none" />
-            </label>
-            <button type="button" onClick={() => { setSearch(''); setStatusFilter(''); setTypeFilter(''); setFromDate(''); setToDate(''); }} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100">Clear filters</button>
+            <label className="flex min-w-0 items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-500">{t('partnerPortal.callsSummary.from')}<input type="date" value={fromDate} onChange={(event) => { setFromDate(event.target.value); setTransactionPage(1); }} className="min-w-0 flex-1 bg-transparent text-sm text-slate-700 outline-none" /></label>
+            <label className="flex min-w-0 items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-500">{t('partnerPortal.callsSummary.to')}<input type="date" value={toDate} onChange={(event) => { setToDate(event.target.value); setTransactionPage(1); }} className="min-w-0 flex-1 bg-transparent text-sm text-slate-700 outline-none" /></label>
+            <button type="button" onClick={() => { setSearch(''); setStatusFilter(''); setTypeFilter(''); setFromDate(''); setToDate(''); setTransactionPage(1); }} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-100">{t('partnerPortal.callsSummary.clearFilters')}</button>
           </div>
-          {transactions.length ? (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-slate-100 text-left text-xs uppercase text-slate-500">
-                    <th className="px-5 py-3 font-semibold">{t('partnerPortal.callsSummary.colReference')}</th>
-                    <th className="px-3 py-3 font-semibold">{t('partnerPortal.callsSummary.colType')}</th>
-                    <th className="px-3 py-3 font-semibold">{t('partnerPortal.callsSummary.colAmount')}</th>
-                    <th className="px-3 py-3 font-semibold">{t('partnerPortal.callsSummary.colBalanceBefore')}</th>
-                    <th className="px-3 py-3 font-semibold">{t('partnerPortal.callsSummary.colBalanceAfter')}</th>
-                    <th className="px-3 py-3 font-semibold">{t('partnerPortal.callsSummary.colStatus')}</th>
-                    <th className="px-5 py-3 font-semibold">{t('partnerPortal.callsSummary.colDate')}</th>
-                    <th className="px-5 py-3 font-semibold">{t('partnerPortal.callsSummary.details')}</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {transactions.map((tx) => (
-                    <tr key={tx.reference} className="transition-colors hover:bg-blue-50/50">
-                      <td className="px-5 py-3 font-mono text-xs">{tx.reference}</td>
-                      <td className="px-3 py-3 text-xs uppercase text-slate-500">{tx.type.replaceAll('_', ' ')}</td>
-                      <td className="px-3 py-3 font-semibold">₦{tx.amount.toLocaleString()}</td>
-                      <td className="px-3 py-3 text-slate-500">{tx.balance_before !== undefined ? `₦${tx.balance_before.toLocaleString()}` : '—'}</td>
-                      <td className="px-3 py-3 text-slate-500">{tx.balance_after !== undefined ? `₦${tx.balance_after.toLocaleString()}` : '—'}</td>
-                      <td className="px-3 py-3">
-                        <span
-                          className={`text-xs font-semibold uppercase ${
-                            tx.status === 'success' ? 'text-emerald-600' : tx.status === 'pending' ? 'text-amber-600' : 'text-rose-600'
-                          }`}
-                        >
-                          {tx.status}
-                        </span>
-                      </td>
-                      <td className="px-5 py-3 text-xs text-slate-500">{new Date(tx.created_at).toLocaleString()}</td>
-                      <td className="px-5 py-3"><button type="button" onClick={() => void openTransaction(tx.reference)} className="font-semibold text-brand-700 hover:underline">{t('partnerPortal.callsSummary.details')}</button></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          <div className="flex flex-col gap-3 px-4 py-3 text-sm text-slate-500 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+            <label className="flex items-center gap-2">{t('partnerPortal.callsSummary.show')}<select value={transactionPageSize} onChange={(event) => { setTransactionPageSize(Number(event.target.value)); setTransactionPage(1); }} className="rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm text-slate-700 outline-none focus:border-brand-500">{[10, 25, 50].map((size) => <option key={size} value={size}>{size}</option>)}</select>{t('partnerPortal.callsSummary.entries')}</label>
+            <span>{t('partnerPortal.callsSummary.showingTransactions', { start: transactionTotal ? (transactionPage - 1) * transactionPageSize + 1 : 0, end: Math.min(transactionPage * transactionPageSize, transactionTotal), total: transactionTotal })}</span>
+          </div>
+          <div className="overflow-x-auto px-3 sm:px-5">
+            <table className="w-full min-w-[1040px] border-collapse text-left text-sm">
+              <thead><tr className="border-y border-blue-100 bg-blue-50 text-xs font-semibold text-slate-700">
+                <th className="px-3 py-3">{t('partnerPortal.callsSummary.colReference')}</th>
+                <th className="px-3 py-3">{t('partnerPortal.callsSummary.colNin')}</th>
+                <th className="px-3 py-3">{t('partnerPortal.callsSummary.colType')}</th>
+                <th className="px-3 py-3">{t('partnerPortal.callsSummary.colAmount')}</th>
+                <th className="px-3 py-3">{t('partnerPortal.callsSummary.colBalanceBefore')}</th>
+                <th className="px-3 py-3">{t('partnerPortal.callsSummary.colBalanceAfter')}</th>
+                <th className="px-3 py-3">{t('partnerPortal.callsSummary.colStatus')}</th>
+                <th className="px-3 py-3">{t('partnerPortal.callsSummary.colDate')}</th>
+              </tr></thead>
+              <tbody className="divide-y divide-slate-200">
+                {transactions.map((tx) => {
+                  const statusColor = tx.status === 'success' ? 'bg-emerald-100 text-emerald-700' : tx.status === 'pending' ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700';
+                  const isNinRequest = tx.type.toLowerCase().includes('nin') || tx.description.toLowerCase().includes('nin');
+                  return <tr key={tx.reference} className="transition-colors hover:bg-blue-50/50">
+                    <td className="px-3 py-3.5"><button type="button" onClick={() => void openTransaction(tx.reference)} className="max-w-[220px] truncate font-mono text-xs text-brand-800 hover:underline" title={tx.reference}>{tx.reference}</button></td>
+                    <td className="px-3 py-3.5 font-mono text-xs text-slate-500">{isNinRequest ? t('partnerPortal.callsSummary.protectedIdentifier') : '—'}</td>
+                    <td className="px-3 py-3.5 font-medium text-slate-700">{tx.description || tx.type.replaceAll('_', ' ')}</td>
+                    <td className="whitespace-nowrap px-3 py-3.5 font-semibold tabular-nums text-slate-800">₦{tx.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    <td className="whitespace-nowrap px-3 py-3.5 tabular-nums text-slate-600">₦{tx.balance_before?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? '—'}</td>
+                    <td className="whitespace-nowrap px-3 py-3.5 tabular-nums text-slate-600">₦{tx.balance_after?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? '—'}</td>
+                    <td className="px-3 py-3.5"><span className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${statusColor}`}>{tx.status.replaceAll('_', ' ')}</span></td>
+                    <td className="whitespace-nowrap px-3 py-3.5 text-xs text-slate-600">{new Date(tx.created_at).toLocaleString(undefined, { month: 'short', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
+                  </tr>;
+                })}
+                {!transactions.length && <tr><td colSpan={8} className="px-4 py-12 text-center text-sm text-slate-500">{transactionsLoading ? t('partnerPortal.common.loading') : t('partnerPortal.callsSummary.empty')}</td></tr>}
+              </tbody>
+            </table>
+          </div>
+          <div className="flex flex-col gap-3 border-t border-slate-200 px-4 py-4 sm:flex-row sm:items-center sm:justify-center sm:px-6">
+            <div className="flex flex-wrap items-center justify-center gap-1.5">
+              <button type="button" disabled={transactionPage <= 1} onClick={() => setTransactionPage((page) => Math.max(1, page - 1))} className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">‹ {t('partnerPortal.callsSummary.previous')}</button>
+              {transactionPageNumbers(transactionPage, Math.max(1, Math.ceil(transactionTotal / transactionPageSize))).map((page, index) => typeof page === 'number'
+                ? <button key={page} type="button" aria-current={transactionPage === page ? 'page' : undefined} onClick={() => setTransactionPage(page)} className={`min-w-9 rounded-lg border px-3 py-2 text-sm font-semibold transition ${transactionPage === page ? 'border-brand-700 bg-brand-700 text-white' : 'border-slate-300 text-slate-700 hover:bg-slate-50'}`}>{page}</button>
+                : <span key={`${page}-${index}`} className="px-1 text-slate-400">…</span>)}
+              <button type="button" disabled={transactionPage >= Math.ceil(transactionTotal / transactionPageSize) || transactionTotal === 0} onClick={() => setTransactionPage((page) => page + 1)} className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">{t('partnerPortal.callsSummary.next')} ›</button>
             </div>
-          ) : (
-            <p className="px-5 py-10 text-center text-sm text-slate-500">{t('partnerPortal.callsSummary.empty')}</p>
-          )}
+          </div>
         </section>}
 
         {showView('activity') && <ActivityCenter
@@ -858,33 +975,146 @@ export default function PartnerDashboardPage() {
   );
 }
 
-function PartnerQuickLinks() {
+function PartnerOnboardingCenter({
+  partner,
+  wallet,
+  keys,
+  webhook
+}: {
+  partner: Partner;
+  wallet: Wallet | null;
+  keys: ApiKey[];
+  webhook: WebhookConfig | null;
+}) {
+  const { t } = useTranslation();
+  const walletBalance = wallet?.balance ?? partner.wallet_balance;
+  const activeKey = keys.some((key) => !key.revoked_at);
+  const steps = [
+    {
+      title: t('partnerPortal.onboarding.registrationTitle'),
+      body: t('partnerPortal.onboarding.registrationBody'),
+      complete: true,
+      to: '/partner-dashboard?view=overview'
+    },
+    {
+      title: t('partnerPortal.onboarding.approvalTitle'),
+      body: t(`partnerPortal.onboarding.approvalBody.${partner.status}`),
+      complete: partner.status === 'active',
+      to: '/partner-docs'
+    },
+    {
+      title: t('partnerPortal.onboarding.walletTitle'),
+      body: t('partnerPortal.onboarding.walletBody', { minimum: partner.api_access.nin_bvn_minimum_deposit }),
+      complete: walletBalance >= partner.api_access.nin_bvn_minimum_deposit,
+      to: '/partner-dashboard?view=wallet'
+    },
+    {
+      title: t('partnerPortal.onboarding.apiKeyTitle'),
+      body: t('partnerPortal.onboarding.apiKeyBody'),
+      complete: activeKey,
+      to: '/partner-dashboard?view=wallet'
+    },
+    {
+      title: t('partnerPortal.onboarding.webhookTitle'),
+      body: t('partnerPortal.onboarding.webhookBody'),
+      complete: Boolean(webhook?.configured && webhook.webhook_url),
+      to: '/partner-dashboard?view=webhooks'
+    }
+  ];
+  const completed = steps.filter((step) => step.complete).length;
+  const progress = Math.round((completed / steps.length) * 100);
+  const statusKey = partner.status === 'active' ? 'active' : partner.status;
+
+  return (
+    <section id="onboarding" className="mt-6 scroll-mt-24 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex items-start gap-3">
+          <span className="rounded-xl bg-brand-50 p-2 text-brand-700"><Rocket size={20} /></span>
+          <div>
+            <h2 className="font-bold text-slate-900">{t('partnerPortal.onboarding.title')}</h2>
+            <p className="mt-1 max-w-2xl text-sm text-slate-500">{t('partnerPortal.onboarding.subtitle')}</p>
+          </div>
+        </div>
+        <div className="min-w-48 rounded-xl bg-slate-50 px-4 py-3">
+          <div className="flex items-center justify-between gap-3 text-xs font-semibold text-slate-600">
+            <span>{t('partnerPortal.onboarding.progress', { completed, total: steps.length })}</span>
+            <span>{progress}%</span>
+          </div>
+          <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-200"><div className="h-full rounded-full bg-brand-600 transition-all" style={{ width: `${progress}%` }} /></div>
+        </div>
+      </div>
+
+      <div className="mt-5 flex flex-wrap items-center gap-2 text-sm">
+        <span className="font-semibold text-slate-500">{t('partnerPortal.onboarding.applicationStatus')}:</span>
+        <span className={`rounded-full px-3 py-1 text-xs font-bold ${partner.status === 'active' ? 'bg-emerald-100 text-emerald-700' : partner.status === 'pending_review' ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700'}`}>
+          {t(`partnerPortal.onboarding.status.${statusKey}`)}
+        </span>
+      </div>
+
+      <div className="mt-5 grid gap-3 md:grid-cols-2">
+        {steps.map((step, index) => (
+          <div key={step.title} className={`rounded-xl border p-4 ${step.complete ? 'border-emerald-200 bg-emerald-50/60' : 'border-slate-200 bg-white'}`}>
+            <div className="flex items-start gap-3">
+              {step.complete ? <CheckCircle2 className="mt-0.5 shrink-0 text-emerald-600" size={19} /> : <Circle className="mt-0.5 shrink-0 text-slate-300" size={19} />}
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-bold text-slate-900">{index + 1}. {step.title}</p>
+                <p className="mt-1 text-xs leading-5 text-slate-500">{step.body}</p>
+                <Link to={step.to} className="mt-3 inline-flex items-center gap-1 text-xs font-bold text-brand-700 hover:underline">
+                  {step.complete ? t('partnerPortal.onboarding.completed') : t('partnerPortal.onboarding.openStep')} <ArrowRight size={13} />
+                </Link>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {completed === steps.length && (
+        <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+          <span className="font-semibold">{t('partnerPortal.onboarding.ready')}</span>
+          <Link to="/partner-docs" className="inline-flex items-center gap-1 font-bold hover:underline">{t('partnerPortal.quickLinks.documentation')} <ArrowRight size={14} /></Link>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function PartnerQuickLinks({ onLogout }: { onLogout: () => void }) {
   const { t } = useTranslation();
   const [searchParams] = useSearchParams();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const activeView = searchParams.get('view') ?? 'overview';
   const links = [
     ['overview', t('partnerPortal.quickLinks.overview')],
+    ['onboarding', t('partnerPortal.quickLinks.onboarding')],
     ['wallet', t('partnerPortal.quickLinks.wallet')],
     ['webhooks', t('partnerPortal.quickLinks.webhooks')],
     ['activity', t('partnerPortal.quickLinks.activity')],
     ['transactions', t('partnerPortal.quickLinks.transactions')],
     ['pricing', t('partnerPortal.quickLinks.pricing')]
   ];
+  const linkClass = (view: string) => `block rounded-lg px-3 py-2.5 text-sm font-semibold transition md:inline-flex md:shrink-0 md:py-2 md:text-xs ${activeView === view ? 'bg-brand-700 text-white shadow-sm' : 'text-slate-600 hover:bg-brand-50 hover:text-brand-700'}`;
   return (
-    <nav aria-label={t('partnerPortal.quickLinks.label')} className="mb-6 flex gap-2 overflow-x-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
-      {links.map(([view, label]) => (
-        <Link
-          key={view}
-          to={`/partner-dashboard?view=${view}`}
-          className={`shrink-0 rounded-lg px-3 py-2 text-xs font-semibold transition ${activeView === view ? 'bg-brand-700 text-white' : 'text-slate-600 hover:bg-brand-50 hover:text-brand-700'}`}
-        >
-          {label}
-        </Link>
-      ))}
-      <Link to="/partner-docs" className="shrink-0 rounded-lg bg-brand-700 px-3 py-2 text-xs font-semibold text-white hover:bg-brand-800">
-        {t('partnerPortal.quickLinks.documentation')}
-      </Link>
-    </nav>
+    <div className="mb-5 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="flex items-center justify-between px-4 py-3 md:hidden">
+        <span className="text-sm font-semibold text-slate-700">{t('partnerPortal.quickLinks.label')}</span>
+        <button type="button" aria-expanded={mobileMenuOpen} aria-controls="partner-mobile-menu" onClick={() => setMobileMenuOpen((open) => !open)} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50">
+          <Menu size={16} /> {mobileMenuOpen ? t('partnerPortal.quickLinks.closeMenu') : t('partnerPortal.quickLinks.openMenu')}
+        </button>
+      </div>
+      <nav aria-label={t('partnerPortal.quickLinks.label')} className="hidden gap-1 overflow-x-auto p-2 md:flex">
+        {links.map(([view, label]) => <Link key={view} to={`/partner-dashboard?view=${view}`} className={linkClass(view)}>{label}</Link>)}
+        <Link to="/partner-docs" className="inline-flex shrink-0 items-center rounded-lg bg-brand-700 px-3 py-2 text-xs font-semibold text-white transition hover:bg-brand-800">{t('partnerPortal.quickLinks.documentation')}</Link>
+      </nav>
+      {mobileMenuOpen && <nav id="partner-mobile-menu" aria-label={t('partnerPortal.quickLinks.label')} className="grid gap-1 border-t border-slate-100 p-2 md:hidden">
+        <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-2 pb-3">
+          <PartnerPushToggle />
+          <LanguageSwitcher />
+        </div>
+        {links.map(([view, label]) => <Link key={view} to={`/partner-dashboard?view=${view}`} onClick={() => setMobileMenuOpen(false)} className={linkClass(view)}>{label}</Link>)}
+        <Link to="/partner-docs" onClick={() => setMobileMenuOpen(false)} className="rounded-lg px-3 py-2.5 text-sm font-semibold text-brand-700 transition hover:bg-brand-50">{t('partnerPortal.quickLinks.documentation')}</Link>
+        <button type="button" onClick={onLogout} className="flex items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm font-semibold text-slate-600 transition hover:bg-slate-50"><LogOut size={16} />{t('partnerPortal.header.logout')}</button>
+      </nav>}
+    </div>
   );
 }
 
@@ -1041,21 +1271,8 @@ function CallsOverviewChart({ data }: { data: CallsOverviewPoint[] }) {
 
 function AuthGate({ onSuccess }: { onSuccess: (data: { access_token: string; refresh_token: string; partner: Partner }) => void }) {
   const { t } = useTranslation();
-  const [mode, setMode] = useState<'login' | 'register'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [businessName, setBusinessName] = useState('');
-  const [contactName, setContactName] = useState('');
-  const [phone, setPhone] = useState('');
-  const [companyRegistrationNumber, setCompanyRegistrationNumber] = useState('');
-  const [businessType, setBusinessType] = useState('');
-  const [websiteUrl, setWebsiteUrl] = useState('');
-  const [useCase, setUseCase] = useState('');
-  const [expectedMonthlyVolume, setExpectedMonthlyVolume] = useState('');
-  const [requestedServices, setRequestedServices] = useState('');
-  const [integrationEnvironment, setIntegrationEnvironment] = useState('sandbox');
-  const [technicalContactEmail, setTechnicalContactEmail] = useState('');
-  const [technicalContactPhone, setTechnicalContactPhone] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -1065,29 +1282,9 @@ function AuthGate({ onSuccess }: { onSuccess: (data: { access_token: string; ref
     setBusy(true);
     setError('');
     try {
-      const path = mode === 'login' ? '/login' : '/register';
-      const body =
-        mode === 'login'
-          ? { email, password }
-          : {
-              business_name: businessName,
-              contact_name: contactName,
-              contact_phone: phone || undefined,
-              company_registration_number: companyRegistrationNumber || undefined,
-              business_type: businessType || undefined,
-              website_url: websiteUrl || undefined,
-              use_case: useCase || undefined,
-              expected_monthly_volume: expectedMonthlyVolume ? Number(expectedMonthlyVolume) : undefined,
-              requested_services: requestedServices.split(',').map((service) => service.trim()).filter(Boolean),
-              integration_environment: integrationEnvironment,
-              technical_contact_email: technicalContactEmail || undefined,
-              technical_contact_phone: technicalContactPhone || undefined,
-              email,
-              password
-            };
-      const result = await portalFetch<{ data: { access_token: string; refresh_token: string; partner: Partner } }>(path, {
+      const result = await portalFetch<{ data: { access_token: string; refresh_token: string; partner: Partner } }>('/login', {
         method: 'POST',
-        body
+        body: { email, password }
       });
       onSuccess(result.data);
     } catch (err) {
@@ -1098,185 +1295,43 @@ function AuthGate({ onSuccess }: { onSuccess: (data: { access_token: string; ref
   }
 
   return (
-    <main className="min-h-screen bg-slate-50 px-5 py-10 text-slate-900">
-      <div className="mx-auto flex max-w-md justify-end pb-3">
-        <LanguageSwitcher />
+    <main className="relative min-h-screen overflow-hidden bg-slate-950 text-white">
+      <div className="pointer-events-none absolute -left-32 -top-32 h-96 w-96 rounded-full bg-cyan-400/20 blur-3xl" />
+      <div className="pointer-events-none absolute -bottom-40 right-0 h-[30rem] w-[30rem] rounded-full bg-blue-600/20 blur-3xl" />
+      <div className="pointer-events-none absolute inset-0 opacity-[.06]" style={{ backgroundImage: 'linear-gradient(rgba(148,163,184,.4) 1px, transparent 1px), linear-gradient(90deg, rgba(148,163,184,.4) 1px, transparent 1px)', backgroundSize: '42px 42px' }} />
+
+      <header className="relative z-10 border-b border-white/10 bg-slate-950/70 backdrop-blur">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4 sm:px-8">
+          <Link to="/enterprise-api" className="flex items-center gap-3">
+            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-cyan-400 text-slate-950"><ShieldCheck size={21} /></span>
+            <span><strong className="block text-sm tracking-wide">{t('partnerPortal.header.appName')}</strong><small className="text-xs text-slate-400">{t('partnerPortal.header.tagline')}</small></span>
+          </Link>
+          <div className="flex items-center gap-3"><LanguageSwitcher /><Link to="/enterprise-api" className="hidden rounded-lg px-3 py-2 text-sm font-semibold text-slate-300 hover:bg-white/10 sm:block">{t('partnerPortal.auth.backToEnterprise')}</Link></div>
+        </div>
+      </header>
+
+      <div className="relative z-10 mx-auto grid max-w-7xl gap-12 px-5 py-12 sm:px-8 lg:grid-cols-[1fr_460px] lg:items-center lg:py-20">
+        <section className="max-w-2xl">
+          <span className="inline-flex items-center gap-2 rounded-full border border-cyan-300/30 bg-cyan-300/10 px-3 py-1.5 text-xs font-bold uppercase tracking-[.16em] text-cyan-200"><Building2 size={14} /> {t('partnerPortal.auth.loginEyebrow')}</span>
+          <h1 className="mt-6 text-4xl font-black leading-tight tracking-tight sm:text-6xl">{t('partnerPortal.auth.loginTitle')}</h1>
+          <p className="mt-6 max-w-xl text-base leading-8 text-slate-400 sm:text-lg">{t('partnerPortal.auth.loginBody')}</p>
+          <div className="mt-9 grid gap-3 sm:grid-cols-3">
+            {[t('partnerPortal.auth.loginFeatureSecurity'), t('partnerPortal.auth.loginFeatureKeys'), t('partnerPortal.auth.loginFeatureMonitoring')].map((feature) => <div key={feature} className="rounded-2xl border border-white/10 bg-white/[.05] p-4 text-sm font-semibold text-slate-200"><CheckCircle2 size={17} className="mb-3 text-cyan-300" />{feature}</div>)}
+          </div>
+          <p className="mt-8 text-sm text-slate-500"><Link to="/partner-docs" className="font-semibold text-cyan-300 hover:text-cyan-200">{t('partnerPortal.auth.viewDocumentation')}</Link> <span className="mx-2">·</span> {t('partnerPortal.auth.loginSecurityNote')}</p>
+        </section>
+
+        <section className="rounded-3xl border border-white/10 bg-white/[.08] p-6 shadow-2xl shadow-cyan-950/40 backdrop-blur-xl sm:p-8">
+          <div className="mb-8"><p className="text-xs font-bold uppercase tracking-[.16em] text-cyan-300">{t('partnerPortal.auth.loginEyebrow')}</p><h2 className="mt-3 text-2xl font-bold">{t('partnerPortal.auth.login')}</h2><p className="mt-2 text-sm leading-6 text-slate-400">{t('partnerPortal.auth.loginPrompt')}</p></div>
+          <form onSubmit={submit} className="space-y-5">
+            <div><label className="flex items-center gap-2 text-sm font-semibold text-slate-200"><Mail size={16} className="text-cyan-300" />{t('partnerPortal.auth.email')}</label><input required type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder={t('partnerPortal.auth.emailPlaceholder')} className="mt-2 w-full rounded-xl border border-white/15 bg-slate-900/80 px-3 py-3 text-sm text-white outline-none transition focus:border-cyan-300" /></div>
+            <div><label className="flex items-center gap-2 text-sm font-semibold text-slate-200"><Lock size={16} className="text-cyan-300" />{t('partnerPortal.auth.password')}</label><div className="mt-2 flex rounded-xl border border-white/15 bg-slate-900/80 focus-within:border-cyan-300"><input required minLength={8} type={showPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" className="min-w-0 flex-1 bg-transparent px-3 py-3 text-sm text-white outline-none" /><button type="button" onClick={() => setShowPassword((v) => !v)} aria-label={showPassword ? 'Hide password' : 'Show password'} className="px-3 text-slate-400 hover:text-white">{showPassword ? <EyeOff size={17} /> : <Eye size={17} />}</button></div></div>
+            {error && <p className="rounded-xl border border-rose-300/30 bg-rose-400/10 px-4 py-3 text-sm text-rose-200">{error}</p>}
+            <button disabled={busy} className="flex w-full items-center justify-center gap-2 rounded-xl bg-cyan-400 px-4 py-3.5 font-bold text-slate-950 transition hover:bg-cyan-300 disabled:opacity-60">{busy ? <LoaderCircle size={18} className="animate-spin" /> : <ShieldCheck size={18} />}{t('partnerPortal.auth.loginCta')}</button>
+          </form>
+          <div className="mt-7 border-t border-white/10 pt-6 text-center text-sm text-slate-400"><span>{t('partnerPortal.auth.newPartner')} </span><Link to="/partner-register" className="font-bold text-cyan-300 hover:text-cyan-200">{t('partnerPortal.auth.startOnboarding')}</Link></div>
+        </section>
       </div>
-      <section className={`mx-auto rounded-3xl border border-slate-200 bg-white p-7 shadow-xl shadow-slate-200/50 ${mode === 'register' ? 'max-w-3xl' : 'max-w-md'}`}>
-        <div className="flex items-center gap-3">
-          <div className="rounded-2xl bg-brand-700 p-3 text-white">
-            <ShieldCheck />
-          </div>
-          <div>
-            <p className="text-xs font-bold uppercase tracking-[.18em] text-brand-700">{t('partnerPortal.header.appName')}</p>
-            <h1 className="text-2xl font-bold">{t('partnerPortal.header.tagline')}</h1>
-          </div>
-        </div>
-
-        <div className="mt-6 flex rounded-xl bg-slate-100 p-1 text-sm font-semibold">
-          <button
-            type="button"
-            onClick={() => setMode('login')}
-            className={`flex-1 rounded-lg py-2 ${mode === 'login' ? 'bg-white text-brand-700 shadow' : 'text-slate-500'}`}
-          >
-            {t('partnerPortal.auth.login')}
-          </button>
-          <button
-            type="button"
-            onClick={() => setMode('register')}
-            className={`flex-1 rounded-lg py-2 ${mode === 'register' ? 'bg-white text-brand-700 shadow' : 'text-slate-500'}`}
-          >
-            {t('partnerPortal.auth.register')}
-          </button>
-        </div>
-
-        <form onSubmit={submit} className="mt-6 space-y-4">
-          {mode === 'register' && (
-            <div>
-              <label className="flex items-center gap-2 text-sm font-semibold">
-                <Building2 size={16} className="text-brand-700" />
-                {t('partnerPortal.auth.businessName')}
-              </label>
-              <input
-                required
-                value={businessName}
-                onChange={(e) => setBusinessName(e.target.value)}
-                placeholder={t('partnerPortal.auth.businessNamePlaceholder')}
-                className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-brand-500"
-              />
-            </div>
-          )}
-
-          {mode === 'register' && (
-            <>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div>
-                  <label className="text-sm font-semibold">{t('partnerPortal.auth.contactName')}</label>
-                  <input required value={contactName} onChange={(e) => setContactName(e.target.value)} placeholder={t('partnerPortal.auth.contactNamePlaceholder')} className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-brand-500" />
-                </div>
-                <div>
-                  <label className="text-sm font-semibold">{t('partnerPortal.auth.companyRegistrationNumber')}</label>
-                  <input value={companyRegistrationNumber} onChange={(e) => setCompanyRegistrationNumber(e.target.value)} placeholder={t('partnerPortal.auth.companyRegistrationNumberPlaceholder')} className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-brand-500" />
-                </div>
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div>
-                  <label className="text-sm font-semibold">{t('partnerPortal.auth.businessType')}</label>
-                  <select value={businessType} onChange={(e) => setBusinessType(e.target.value)} className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-brand-500">
-                    <option value="">{t('partnerPortal.auth.selectBusinessType')}</option>
-                    <option value="fintech">Fintech / Payments</option>
-                    <option value="telco">Telecom / Aggregator</option>
-                    <option value="school">School / Institution</option>
-                    <option value="government">Government / NGO</option>
-                    <option value="other">{t('partnerPortal.auth.otherBusinessType')}</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="text-sm font-semibold">{t('partnerPortal.auth.website')}</label>
-                  <input type="url" value={websiteUrl} onChange={(e) => setWebsiteUrl(e.target.value)} placeholder="https://example.com" className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-brand-500" />
-                </div>
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div>
-                  <label className="text-sm font-semibold">{t('partnerPortal.auth.expectedVolume')}</label>
-                  <input type="number" min="1" value={expectedMonthlyVolume} onChange={(e) => setExpectedMonthlyVolume(e.target.value)} placeholder="e.g. 5000" className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-brand-500" />
-                </div>
-                <div>
-                  <label className="text-sm font-semibold">{t('partnerPortal.auth.environment')}</label>
-                  <select value={integrationEnvironment} onChange={(e) => setIntegrationEnvironment(e.target.value)} className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-brand-500">
-                    <option value="sandbox">Sandbox first</option>
-                    <option value="production">Production</option>
-                    <option value="both">Sandbox and production</option>
-                  </select>
-                </div>
-              </div>
-              <div>
-                <label className="text-sm font-semibold">{t('partnerPortal.auth.requestedServices')}</label>
-                <input value={requestedServices} onChange={(e) => setRequestedServices(e.target.value)} placeholder={t('partnerPortal.auth.requestedServicesPlaceholder')} className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-brand-500" />
-              </div>
-              <div>
-                <label className="text-sm font-semibold">{t('partnerPortal.auth.useCase')}</label>
-                <textarea required minLength={10} value={useCase} onChange={(e) => setUseCase(e.target.value)} placeholder={t('partnerPortal.auth.useCasePlaceholder')} rows={3} className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-brand-500" />
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div>
-                  <label className="text-sm font-semibold">{t('partnerPortal.auth.technicalEmail')}</label>
-                  <input type="email" value={technicalContactEmail} onChange={(e) => setTechnicalContactEmail(e.target.value)} placeholder="developer@company.com" className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-brand-500" />
-                </div>
-                <div>
-                  <label className="text-sm font-semibold">{t('partnerPortal.auth.technicalPhone')}</label>
-                  <input value={technicalContactPhone} onChange={(e) => setTechnicalContactPhone(e.target.value)} placeholder="08012345678" className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-brand-500" />
-                </div>
-              </div>
-            </>
-          )}
-
-          <div>
-            <label className="flex items-center gap-2 text-sm font-semibold">
-              <Mail size={16} className="text-brand-700" />
-              {t('partnerPortal.auth.email')}
-            </label>
-            <input
-              required
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder={t('partnerPortal.auth.emailPlaceholder')}
-              className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-brand-500"
-            />
-          </div>
-
-          {mode === 'register' && (
-            <div>
-              <label className="flex items-center gap-2 text-sm font-semibold">
-                <Phone size={16} className="text-brand-700" />
-                {t('partnerPortal.auth.phone')}
-              </label>
-              <input
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder={t('partnerPortal.auth.phonePlaceholder')}
-                className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-brand-500"
-              />
-            </div>
-          )}
-
-          <div>
-            <label className="flex items-center gap-2 text-sm font-semibold">
-              <Lock size={16} className="text-brand-700" />
-              {t('partnerPortal.auth.password')}
-            </label>
-            <div className="mt-2 flex rounded-lg border border-slate-300 focus-within:border-brand-500">
-              <input
-                required
-                minLength={8}
-                type={showPassword ? 'text' : 'password'}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder={mode === 'register' ? t('partnerPortal.auth.passwordPlaceholderRegister') : '••••••••'}
-                className="min-w-0 flex-1 bg-transparent px-3 py-2.5 text-sm outline-none"
-              />
-              <button type="button" onClick={() => setShowPassword((v) => !v)} className="px-3 text-slate-500">
-                {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
-              </button>
-            </div>
-          </div>
-
-          {error && <p className="text-sm text-rose-600">{error}</p>}
-
-          <button
-            disabled={busy}
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-700 px-4 py-3 font-semibold text-white disabled:opacity-60"
-          >
-            {busy ? <LoaderCircle size={18} className="animate-spin" /> : <ShieldCheck size={18} />}
-            {mode === 'login' ? t('partnerPortal.auth.loginCta') : t('partnerPortal.auth.registerCta')}
-          </button>
-        </form>
-
-        {mode === 'register' && (
-          <p className="mt-5 text-xs leading-relaxed text-slate-500">{t('partnerPortal.auth.registerNotice')}</p>
-        )}
-      </section>
     </main>
   );
 }
