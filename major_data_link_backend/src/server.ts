@@ -47,9 +47,16 @@ async function startServer() {
     const { startPartnerWebhookWorker } = await import('./services/partner-webhook.service.js');
     const { reconcilePendingPartnerVerificationTickets } = await import('./services/partner-verification.service.js');
     const stopPartnerWebhookWorker = startPartnerWebhookWorker();
-    const reconcilePartnerTickets = () => void reconcilePendingPartnerVerificationTickets().catch((error) => console.error('[partner-verification] reconciliation run failed', error));
+    let partnerTicketReconciliationRunning = false;
+    const reconcilePartnerTickets = () => {
+      if (partnerTicketReconciliationRunning) return;
+      partnerTicketReconciliationRunning = true;
+      void reconcilePendingPartnerVerificationTickets()
+        .catch((error) => console.error('[partner-verification] reconciliation run failed', error))
+        .finally(() => { partnerTicketReconciliationRunning = false; });
+    };
     reconcilePartnerTickets();
-    const partnerTicketTimer = setInterval(reconcilePartnerTickets, 30_000);
+    const partnerTicketTimer = setInterval(reconcilePartnerTickets, 60_000);
     partnerTicketTimer.unref();
 
     // Watchdog: logs loudly if any wallet stops matching its ledger.

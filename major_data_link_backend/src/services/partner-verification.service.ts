@@ -19,6 +19,10 @@ type PartnerSlipResult = {
 export type PartnerAsyncSubmitResult = { reference: string; ticketId: string; balanceAfter: number; status: 'pending' };
 export type PartnerAsyncStatusResult = { reference: string; ticketId: string; status: 'pending' | 'success' | 'failed'; response: Record<string, unknown> | null };
 
+const FRANCEVERIFIED_STATUS_POLL_INTERVAL_MS = 5 * 60_000;
+const TECHHUB_STATUS_POLL_INTERVAL_MS = 60_000;
+const franceVerifiedChecksInFlight = new Set<string>();
+
 /**
  * Partner equivalent of the retail async verification workflow. Partner
  * transactions stay PENDING until Techhub confirms the ticket. The ticket is
@@ -98,20 +102,47 @@ async function checkPartnerAsync(params: {
   if (transaction.provider === 'manual') return { reference: transaction.reference, ticketId: params.ticketId, status: 'pending', response: null };
   const call = params.callByProvider[transaction.provider as VerificationProvider];
   if (!call) throw new ApiError(500, `No status-check implementation for provider "${transaction.provider}"`, 'PROVIDER_NOT_IMPLEMENTED');
-  const result = await call(params.ticketId);
-  if (result.status === 'pending') return { reference: transaction.reference, ticketId: result.ticketId, status: 'pending', response: null };
-  const nextMetadata = { ...metadata, pii: mergeSealedPII(metadata.pii, { response: result.response, check_raw: result.raw }) } as Prisma.InputJsonValue;
-  if (result.status === 'success') {
-    await prisma.partnerTransaction.update({ where: { id: transaction.id }, data: { metadata: nextMetadata } });
-    // transaction.costKobo was captured at submit time in submitPartnerAsync()
-    // above (Techhub's actual cost, not the partner's unit_price) - reuse it
-    // rather than re-deriving.
-    await completePartnerPurchase(transaction.id, transaction.provider ?? 'techhub', transaction.providerRef ?? undefined, transaction.costKobo ?? undefined);
-    return { reference: transaction.reference, ticketId: result.ticketId, status: 'success', response: result.response };
+  const isFranceVerified = transaction.provider === 'franceverified';
+  if (isFranceVerified) {
+    const lastCheckedAt = Date.parse(String(metadata.provider_status_checked_at ?? ''));
+    if (franceVerifiedChecksInFlight.has(transaction.id) ||
+        (Number.isFinite(lastCheckedAt) && Date.now() - lastCheckedAt < FRANCEVERIFIED_STATUS_POLL_INTERVAL_MS)) {
+      return { reference: transaction.reference, ticketId: params.ticketId, status: 'pending', response: null };
+    }
+    // Claim the ticket before awaiting I/O, so a user poll and the background
+    // reconciler cannot issue the same FranceVerified check concurrently.
+    franceVerifiedChecksInFlight.add(transaction.id);
   }
-  await prisma.partnerTransaction.update({ where: { id: transaction.id }, data: { metadata: nextMetadata } });
-  await reversePartnerPurchase(transaction.id, 'Verification provider reported a failed result');
-  return { reference: transaction.reference, ticketId: result.ticketId, status: 'failed', response: result.response };
+
+  try {
+    const checkedAt = new Date().toISOString();
+    const checkedMetadata = { ...metadata, provider_status_checked_at: checkedAt };
+    // Persist before the provider call. This is the durable backoff timestamp
+    // used by the worker, including when the provider returns an error envelope.
+    await prisma.partnerTransaction.update({
+      where: { id: transaction.id },
+      data: { metadata: checkedMetadata as Prisma.InputJsonValue }
+    });
+
+    const result = await call(params.ticketId);
+    if (result.status === 'pending') {
+      return { reference: transaction.reference, ticketId: result.ticketId, status: 'pending', response: null };
+    }
+    const nextMetadata = { ...checkedMetadata, pii: mergeSealedPII(metadata.pii, { response: result.response, check_raw: result.raw }) } as Prisma.InputJsonValue;
+    if (result.status === 'success') {
+      await prisma.partnerTransaction.update({ where: { id: transaction.id }, data: { metadata: nextMetadata } });
+      // transaction.costKobo was captured at submit time in submitPartnerAsync()
+      // above (Techhub's actual cost, not the partner's unit_price) - reuse it
+      // rather than re-deriving.
+      await completePartnerPurchase(transaction.id, transaction.provider ?? 'techhub', transaction.providerRef ?? undefined, transaction.costKobo ?? undefined);
+      return { reference: transaction.reference, ticketId: result.ticketId, status: 'success', response: result.response };
+    }
+    await prisma.partnerTransaction.update({ where: { id: transaction.id }, data: { metadata: nextMetadata } });
+    await reversePartnerPurchase(transaction.id, 'Verification provider reported a failed result');
+    return { reference: transaction.reference, ticketId: result.ticketId, status: 'failed', response: result.response };
+  } finally {
+    if (isFranceVerified) franceVerifiedChecksInFlight.delete(transaction.id);
+  }
 }
 
 /**
@@ -120,9 +151,19 @@ async function checkPartnerAsync(params: {
  * ticket, which defeats the point of a notification system. The worker only
  * handles services whose upstream status endpoints are already implemented.
  */
-export async function reconcilePendingPartnerVerificationTickets(limit = 20) {
+export async function reconcilePendingPartnerVerificationTickets(limit = 5) {
+  const now = Date.now();
   const transactions = await prisma.partnerTransaction.findMany({
-    where: { status: TransactionStatus.PENDING, provider: { in: ['techhub', 'franceverified'] }, type: TransactionType.IDENTITY_SERVICE_REQUEST, providerRef: { not: null } },
+    where: {
+      status: TransactionStatus.PENDING,
+      provider: { in: ['techhub', 'franceverified'] },
+      type: TransactionType.IDENTITY_SERVICE_REQUEST,
+      providerRef: { not: null },
+      OR: [
+        { provider: 'franceverified', updatedAt: { lte: new Date(now - FRANCEVERIFIED_STATUS_POLL_INTERVAL_MS) } },
+        { provider: 'techhub', updatedAt: { lte: new Date(now - TECHHUB_STATUS_POLL_INTERVAL_MS) } }
+      ]
+    },
     orderBy: { updatedAt: 'asc' }, take: limit
   });
   await Promise.allSettled(transactions.map(async (transaction) => {
