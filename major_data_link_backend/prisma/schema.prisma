@@ -315,6 +315,7 @@ model Partner {
   updatedAt         DateTime      @updatedAt
   apiKeys           PartnerApiKey[]
   servicePrices     PartnerServicePrice[]
+  serviceAccess     PartnerServiceAccess[]
   transactions      PartnerTransaction[]
   requestUpdates    PartnerRequestUpdate[]
   webhookDeliveries PartnerWebhookDelivery[]
@@ -364,6 +365,20 @@ model PartnerServicePrice {
   partnerId String
   service   String
   priceKobo BigInt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  partner   Partner  @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+
+  @@unique([partnerId, service])
+  @@index([service])
+}
+
+/// Per-partner service availability. Missing rows default to enabled.
+model PartnerServiceAccess {
+  id        String   @id @default(uuid())
+  partnerId String
+  service   String
+  isEnabled Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   partner   Partner  @relation(fields: [partnerId], references: [id], onDelete: Cascade)
