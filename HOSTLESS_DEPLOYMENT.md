@@ -7,7 +7,7 @@ The backend and web dashboard deploy together as one Hostless app. Supabase rema
 1. Connect the GitHub repository and choose the branch containing `hostless.yaml`.
 2. Use the repository root as the configuration-file location. The file sets the backend working directory and uses the repository root as the build context so it can build the sibling `web` app.
 3. Keep the app at one replica. The backend runs in-process webhook and reconciliation workers, so multiple replicas could process the same work more than once.
-4. The free-tier resource ceiling is intentionally set to 0.1 vCPU and 256 MB RAM. Watch memory and CPU metrics after first boot; if the service exceeds the free allowance, do not enable paid overage without approval.
+4. Hostless currently documents free apps as always-on, with no idle sleep or cold start. This app can use up to 0.5 vCPU and 256 MB RAM per replica under the published free allowance; the `hostless.yaml` CPU ceiling is set accordingly. The account allowance is shared, so watch CPU and memory metrics after first boot and do not enable paid overage without approval.
 5. No Hostless database is needed. The backend connects to the existing Supabase project.
 
 ## Environment variables

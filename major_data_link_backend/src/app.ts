@@ -148,13 +148,19 @@ export function createApp() {
     express.static(path.join(process.cwd(), 'public', 'branding'), { maxAge: '1d' })
   );
 
-  app.use(rateLimit({
+  const apiRateLimiter = rateLimit({
     windowMs: 60_000,
-    limit: 120,
+    // Mobile users can share one public IP through carrier-grade NAT. Keep
+    // a useful per-IP ceiling for API abuse, but leave enough headroom for
+    // normal traffic from a school, office, or mobile carrier.
+    limit: 600,
     standardHeaders: 'draft-7',
     legacyHeaders: false,
-    skip: (req) => req.path.startsWith('/api/webhooks')
-  }));
+    // This app also serves its frontend and static assets. Those requests
+    // must not consume the API budget (or make /health fail under load).
+    skip: (req) => !req.path.startsWith('/api') || req.path.startsWith('/api/webhooks')
+  });
+  app.use(apiRateLimiter);
 
   // Count failed attempts only; successful sessions should not consume the
   // brute-force protection budget.
@@ -165,7 +171,6 @@ export function createApp() {
     legacyHeaders: false,
     skipSuccessfulRequests: true
   });
-  const userLimiter = rateLimit({ windowMs: 5 * 60_000, limit: 45, standardHeaders: 'draft-7', legacyHeaders: false });
 
   // Webhook signatures cover raw bytes, so parse these before express.json().
   app.use('/api/webhooks', express.raw({ type: '*/*' }), webhookRoutes);
@@ -183,11 +188,14 @@ export function createApp() {
   // Password reset is public and therefore receives the same strict anti-brute-force limit as login.
   app.use('/api/password', authLimiter, passwordRoutes);
   app.use('/api/admin', adminApiRoutes);
-  app.use('/api/user', userLimiter, userRoutes);
+  // Do not place a low per-IP limit around the whole account router: normal
+  // users behind the same carrier/office NAT would throttle each other.
+  // PIN/password attempts already have per-account lockouts in their services.
+  app.use('/api/user', userRoutes);
   app.use('/api/wallet', walletRoutes);
   app.use('/api/kyc', kycRoutes);
   app.use('/api/notifications', notificationRoutes);
-  app.use('/api/web-push', userLimiter, webPushRoutes);
+  app.use('/api/web-push', webPushRoutes);
   app.use('/api/deliveries', deliveryRoutes);
   app.use('/api/referral', referralRoutes);
   app.use('/api/support', supportRoutes);
