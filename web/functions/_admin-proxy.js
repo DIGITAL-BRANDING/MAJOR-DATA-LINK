@@ -1,11 +1,11 @@
-const BACKEND_PATH = /^\/(?:admin|api|socket\.io)(?:\/|$)|^\/(?:privacy-policy|terms)$/;
-const DEFAULT_BACKEND_ORIGIN = 'https://k-tech.up.railway.app';
+const ADMIN_PATH = /^\/admin(?:\/|$)/;
+const DEFAULT_BACKEND_ORIGIN = 'https://k-tech.com.ng';
 
 /**
- * Keep API, AdminJS, and Socket.IO same-origin for the Cloudflare-hosted web
- * app, while forwarding application traffic to the Railway backend.
+ * Proxy AdminJS through the customer-facing host while the web app calls the
+ * Railway apex domain directly for APIs and Socket.IO.
  */
-export async function proxyBackendRequest(request, env) {
+export async function proxyAdminRequest(request, env) {
   const configuredOrigin = String(env.KTECH_BACKEND_ORIGIN || DEFAULT_BACKEND_ORIGIN).trim();
 
   let backendOrigin;
@@ -22,7 +22,7 @@ export async function proxyBackendRequest(request, env) {
   }
 
   const incomingUrl = new URL(request.url);
-  if (!BACKEND_PATH.test(incomingUrl.pathname)) {
+  if (!ADMIN_PATH.test(incomingUrl.pathname)) {
     return new Response('Not found', { status: 404 });
   }
 
@@ -42,6 +42,3 @@ export async function proxyBackendRequest(request, env) {
 
   return fetch(forwardedRequest);
 }
-
-// Keep the older name as an alias for the AdminJS route wrappers.
-export const proxyAdminRequest = proxyBackendRequest;

@@ -263,8 +263,8 @@ export function createApp() {
     }
   });
 
-  // Optional local/legacy web app assets. Production browser traffic is served
-  // by Cloudflare Pages; Railway hosts the API and AdminJS backend.
+  // Web frontend built from ../web via Vite and copied here by the Railway
+  // build config. Mounted after all API/admin/legal routes above.
   //
   // Two-step static serve:
   //  1. express.static first - serves real files (JS/CSS bundles, images)

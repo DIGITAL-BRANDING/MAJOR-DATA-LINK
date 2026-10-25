@@ -2,15 +2,15 @@
 // In dev, requests to /api/* are proxied to VITE_API_PROXY_TARGET (see vite.config.ts) -
 // VITE_API_BASE_URL is also respected in dev, for pointing a local frontend at a
 // non-default backend.
-// The default production deployment serves web/dist from the backend, so it
-// remains same-origin. A separate Cloudflare Pages deployment can set
-// VITE_API_BASE_URL to the public backend origin at build time; trimming the
-// trailing slash keeps every API path well-formed in either arrangement.
+// The Railway apex domain serves both the web app and API. Cloudflare Pages
+// serves www.k-tech.com.ng and calls the same Railway API origin directly.
+// Keep the production default explicit so both deployments use the canonical
+// backend even when Cloudflare's build variables are not configured.
 // Exported so src/components/ChatWidget.tsx can point its Socket.IO
 // connection at the same backend origin as every REST call here, instead
 // of duplicating this env lookup.
 const configuredApiBase = (import.meta.env.VITE_API_BASE_URL ?? '').trim().replace(/\/+$/, '');
-export const API_BASE = configuredApiBase || '';
+export const API_BASE = configuredApiBase || (import.meta.env.PROD ? 'https://k-tech.com.ng' : '');
 export const PARTNER_API_BASE = `${API_BASE}/api/v1`;
 
 const TOKEN_KEY = 'mdl_access_token';

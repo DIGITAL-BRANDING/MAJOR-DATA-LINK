@@ -21,17 +21,17 @@ VITE_API_PROXY_TARGET=http://localhost:5000 npm run dev
 
 ## Production
 
-The production web app is deployed to Cloudflare Pages. Keep
-`VITE_API_BASE_URL` unset so API and Socket.IO requests use the same origin;
-the Pages Functions in `functions/` proxy `/api/*`, `/socket.io/*`, and
-`/admin/*` to the Railway backend. The backend origin defaults to
-`https://k-tech.up.railway.app`; set the Cloudflare Pages variable
-`KTECH_BACKEND_ORIGIN` to another HTTPS origin if Railway's public domain
-changes. Set Railway's `WEB_ALLOWED_ORIGINS` to include both
+The production web app is served from Railway at `k-tech.com.ng` and from
+Cloudflare Pages at `www.k-tech.com.ng`. Both builds use
+`https://k-tech.com.ng` for API and Socket.IO requests by default; override
+that with `VITE_API_BASE_URL` only if the backend domain changes. The Pages
+Functions proxy only `/admin/*` to Railway, using the
+`KTECH_BACKEND_ORIGIN` variable or its `https://k-tech.com.ng` default. Set
+Railway's `WEB_ALLOWED_ORIGINS` to include both
 `https://www.k-tech.com.ng` and `https://k-tech.com.ng` so browser API requests
-and Socket.IO handshakes pass the backend origin checks. Legal pages are also
-proxied to Railway. Railway builds only the backend; Cloudflare builds and
-serves the customer-facing frontend.
+and Socket.IO handshakes pass the backend origin checks. Railway builds and
+serves its frontend alongside the backend; Cloudflare serves the frontend on
+the `www` host.
 
 ## What's here (current scope)
 
