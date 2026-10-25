@@ -1,12 +1,11 @@
-const ADMIN_PATH = /^\/admin(?:\/|$)/;
-const DEFAULT_BACKEND_ORIGIN = 'https://k-tech.hostless.app';
+const BACKEND_PATH = /^\/(?:admin|api|socket\.io)(?:\/|$)|^\/(?:privacy-policy|terms)$/;
+const DEFAULT_BACKEND_ORIGIN = 'https://k-tech.up.railway.app';
 
 /**
- * Proxy the server-rendered AdminJS panel through the customer-facing host.
- * Keeping the browser on www.k-tech.com.ng preserves the expected origin,
- * session cookie behavior, and CSRF checks while the API runs on Hostless.
+ * Keep API, AdminJS, and Socket.IO same-origin for the Cloudflare-hosted web
+ * app, while forwarding application traffic to the Railway backend.
  */
-export async function proxyAdminRequest(request, env) {
+export async function proxyBackendRequest(request, env) {
   const configuredOrigin = String(env.KTECH_BACKEND_ORIGIN || DEFAULT_BACKEND_ORIGIN).trim();
 
   let backendOrigin;
@@ -23,7 +22,7 @@ export async function proxyAdminRequest(request, env) {
   }
 
   const incomingUrl = new URL(request.url);
-  if (!ADMIN_PATH.test(incomingUrl.pathname)) {
+  if (!BACKEND_PATH.test(incomingUrl.pathname)) {
     return new Response('Not found', { status: 404 });
   }
 
@@ -43,3 +42,6 @@ export async function proxyAdminRequest(request, env) {
 
   return fetch(forwardedRequest);
 }
+
+// Keep the older name as an alias for the AdminJS route wrappers.
+export const proxyAdminRequest = proxyBackendRequest;

@@ -37,3 +37,5 @@ npm run start:prod
 ```
 
 `start:prod` runs `prisma migrate deploy` and then starts `node dist/server.js`.
+Railway serves the backend API and AdminJS. The customer-facing web app is
+built and served separately by Cloudflare Pages.

@@ -263,10 +263,8 @@ export function createApp() {
     }
   });
 
-  // The web app (landing page + browser dashboard, built from ../web via
-  // Vite - see railway.json/nixpacks.toml, which copy `web/dist` here at
-  // build time). Mounted LAST, after every API/admin/legal route above, so
-  // none of those can ever be shadowed by it.
+  // Optional local/legacy web app assets. Production browser traffic is served
+  // by Cloudflare Pages; Railway hosts the API and AdminJS backend.
   //
   // Two-step static serve:
   //  1. express.static first - serves real files (JS/CSS bundles, images)
