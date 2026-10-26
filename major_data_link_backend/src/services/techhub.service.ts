@@ -205,7 +205,41 @@ function mockPdfBase64() {
   return Buffer.from('%PDF-1.4\n% MAJOR DATA-LINK mock slip - MOCK_TECHHUB is on\n').toString('base64');
 }
 
+type SlipTransport = 'json' | 'form' | 'form_query';
+const ALL_TRANSPORTS: SlipTransport[] = ['json', 'form', 'form_query'];
+// Remembers, per endpoint path, which transport Techhub actually accepted.
+const preferredTransport = new Map<string, SlipTransport>();
+
+function providerMessageText(data: unknown): string {
+  const record = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>;
+  return ['message', 'error', 'msg', 'detail', 'error_message']
+    .map((key) => record[key])
+    .filter((value): value is string => typeof value === 'string')
+    .join(' | ');
+}
+
+/**
+ * True when the provider says it never saw our fields. Deliberately matches by
+ * wording only (not HTTP status): Techhub has answered this with 400, 422 and
+ * even 200. Never true for a success payload.
+ */
+function isMissingParameterResponse(status: number, data: unknown): boolean {
+  const record = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>;
+  if (record.success === true || record.response_code === '00') return false;
+  const state = typeof record.status === 'string' ? record.status.toLowerCase() : record.status;
+  if (state === 'success' || state === 'successful' || state === true) return false;
+  const text = providerMessageText(data);
+  if (!text) return false;
+  return /miss(ing)?\b.*\bparam|param(eter)?s?\b.*\b(miss|required)|required\s+(field|param)|(api[_ ]?key|phone)\b.*\b(required|missing|not\s+provided|is\s+empty)/i.test(text);
+}
+
 export class TechhubService {
+  private transportLadder(path: string): SlipTransport[] {
+    const first = preferredTransport.get(path);
+    return first ? [first, ...ALL_TRANSPORTS.filter((t) => t !== first)] : ALL_TRANSPORTS;
+  }
+
+
   private baseUrl() {
     return env.TECHHUB_BASE_URL.replace(/\/$/, '');
   }
@@ -217,9 +251,14 @@ export class TechhubService {
   // one isn't set, so an installation using just one Techhub account for
   // everything needs no changes.
   private apiKey(service: 'nin' | 'bvn') {
+    // Railway/Heroku-style dashboards happily store "" or a pasted value with
+    // surrounding quotes/newlines. `??` only falls back on null/undefined, so
+    // an empty TECHHUB_NIN_API_KEY used to shadow a valid TECHHUB_API_KEY, and
+    // a quoted/whitespace-padded key reached Techhub malformed.
+    const clean = (value?: string) => value?.trim().replace(/^["']+|["']+$/g, '').trim() || undefined;
     const key = service === 'nin'
-      ? env.TECHHUB_NIN_API_KEY ?? env.TECHHUB_API_KEY
-      : env.TECHHUB_BVN_API_KEY ?? env.TECHHUB_API_KEY;
+      ? clean(env.TECHHUB_NIN_API_KEY) ?? clean(env.TECHHUB_API_KEY)
+      : clean(env.TECHHUB_BVN_API_KEY) ?? clean(env.TECHHUB_API_KEY);
     if (!key) {
       throw new ApiError(500, 'Techhub API key is not configured', 'TECHHUB_NOT_CONFIGURED');
     }
@@ -270,15 +309,22 @@ export class TechhubService {
   // though api_key/phone were sent correctly. Re-POSTing to the redirect
   // target preserves the method and body so this class of bug can't recur
   // even if a base-URL env override drifts from the documented host again.
-  private async requestSlip(path: string, payload: Record<string, unknown>, formEncoded = false): Promise<Response> {
-    const body = formEncoded
-      ? new URLSearchParams(Object.entries(payload).map(([key, value]) => [key, String(value)])).toString()
-      : JSON.stringify(payload);
+  private async requestSlip(path: string, payload: Record<string, unknown>, transport: SlipTransport = 'json'): Promise<Response> {
+    const fields = Object.entries(payload)
+      .filter(([, value]) => value !== undefined && value !== null)
+      .map(([key, value]) => [key, String(value)] as [string, string]);
+    const form = new URLSearchParams(fields).toString();
+    const body = transport === 'json' ? JSON.stringify(Object.fromEntries(fields)) : form;
     const headers = {
-      'Content-Type': formEncoded ? 'application/x-www-form-urlencoded' : 'application/json',
-      Accept: 'application/json'
+      'Content-Type': transport === 'json' ? 'application/json' : 'application/x-www-form-urlencoded',
+      Accept: 'application/json',
+      // Some shared-hosting WAFs (mod_security) drop or mangle bodies from
+      // anonymous/default client user-agents.
+      'User-Agent': 'MajorDataLink/1.0 (+https://majordatalink.com)'
     };
-    const requestUrl = `${this.baseUrl()}/${path}`;
+    // 'form_query' also mirrors the fields into the query string so scripts
+    // that read $_GET / $_REQUEST instead of $_POST still see them.
+    const requestUrl = `${this.baseUrl()}/${path}${transport === 'form_query' ? `?${form}` : ''}`;
     const response = await fetch(requestUrl, {
       method: 'POST',
       headers,
@@ -290,11 +336,12 @@ export class TechhubService {
     if (response.status >= 300 && response.status < 400) {
       const location = response.headers.get('location');
       if (!location) {
-        console.error(`[techhub] redirect (${response.status}) from ${requestUrl} had no Location header`);
+        console.error(`[techhub] redirect (${response.status}) from ${path} had no Location header`);
         return response;
       }
       const redirectUrl = new URL(location, requestUrl).toString();
-      console.warn(`[techhub] following redirect ${requestUrl} -> ${redirectUrl} (preserving POST + body)`);
+      // Never log the full URL: in 'form_query' mode it carries the api_key.
+      console.warn(`[techhub] following redirect for ${path} -> ${new URL(redirectUrl).origin} (preserving POST + body)`);
       return fetch(redirectUrl, {
         method: 'POST',
         headers,
@@ -331,23 +378,24 @@ export class TechhubService {
     let response: Response;
     let data: TechhubSlipResponse;
     try {
-      response = await this.requestSlip(path, payload);
-      data = (await response.json().catch(() => ({}))) as TechhubSlipResponse;
-
-      // Techhub's documentation shows JSON, but some live PHP endpoints read
-      // only `$_POST` and therefore report missing parameters for an otherwise
-      // valid JSON request. A 400 missing-parameter response cannot represent
-      // a completed lookup, so retrying ONCE as form-urlencoded is safe and
-      // does not create a second wallet debit (the wallet call is outside this
-      // provider transport method).
-      if (
-        response.status === 400 &&
-        typeof data.message === 'string' &&
-        /missing\s+required\s+parameters?/i.test(data.message)
-      ) {
-        console.warn(`[techhub] JSON body was rejected as missing parameters; retrying form body (path=${path}, fields=${Object.keys(body).join(',')})`);
-        response = await this.requestSlip(path, payload, true);
+      // Techhub documents JSON, but several live PHP endpoints read only
+      // $_POST (form body) or $_REQUEST (query string) and answer with a
+      // "missing parameter" error for an otherwise valid JSON request. That
+      // answer proves nothing was processed, so walking down the ladder is
+      // safe and cannot double-bill (the wallet debit lives outside this
+      // transport method). The first transport the endpoint accepts is
+      // remembered so later calls skip the failed attempts.
+      const ladder = this.transportLadder(path);
+      response = undefined as unknown as Response;
+      data = {} as TechhubSlipResponse;
+      for (const transport of ladder) {
+        response = await this.requestSlip(path, payload, transport);
         data = (await response.json().catch(() => ({}))) as TechhubSlipResponse;
+        if (!isMissingParameterResponse(response.status, data)) {
+          preferredTransport.set(path, transport);
+          break;
+        }
+        console.warn(`[techhub] ${transport} body rejected as missing parameters (path=${path}, http=${response.status}, fields=${Object.keys(payload).filter((k) => k !== 'api_key').join(',')}, provider_message=${JSON.stringify(providerMessageText(data))})`);
       }
     } catch (error) {
       console.error(`[techhub] network error calling ${path}:`, error);
