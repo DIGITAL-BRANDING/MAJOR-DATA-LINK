@@ -4,6 +4,8 @@
 export const CONTACT = {
   whatsapp: '+2347041371095',
   phoneAlt: '07025859543',
+  // Customer-support WhatsApp line shown on the dashboard help banner.
+  supportWhatsapp: '+2347080913547',
   whatsappChannelUrl: 'https://whatsapp.com/channel/0029Vb8KzHy5PO0stgnsNy0l',
   email: 'kindnesscomp20@gmail.com',
   emailDisplay: 'kindnesscomp20@gmail.com / sunusiusama94@gmail.com',
@@ -11,6 +13,11 @@ export const CONTACT = {
 
 export function whatsappLink(text: string) {
   const digits = CONTACT.whatsapp.replace('+', '');
+  return `https://wa.me/${digits}?text=${encodeURIComponent(text)}`;
+}
+
+export function supportWhatsappLink(text: string) {
+  const digits = CONTACT.supportWhatsapp.replace('+', '');
   return `https://wa.me/${digits}?text=${encodeURIComponent(text)}`;
 }
 

@@ -37,6 +37,8 @@ walletRoutes.get('/balance', async (req, res) => {
     currency: 'NGN',
     virtual_account_number: env.VIRTUAL_ACCOUNT_FUNDING_ENABLED ? user.virtualAccountNumber : null,
     virtual_account_bank: env.VIRTUAL_ACCOUNT_FUNDING_ENABLED ? user.virtualAccountBank : null,
+    virtual_account_name: env.VIRTUAL_ACCOUNT_FUNDING_ENABLED ? user.virtualAccountName : null,
+    virtual_account_provider: env.VIRTUAL_ACCOUNT_FUNDING_ENABLED ? user.virtualAccountProvider : null,
     virtual_account_funding_paused: env.VIRTUAL_ACCOUNT_FUNDING_ENABLED ? undefined : true
   });
 });
@@ -54,6 +56,8 @@ walletRoutes.get('/virtual-account', async (req, res) => {
     currency: 'NGN',
     virtual_account_number: env.VIRTUAL_ACCOUNT_FUNDING_ENABLED ? user.virtualAccountNumber : null,
     virtual_account_bank: env.VIRTUAL_ACCOUNT_FUNDING_ENABLED ? user.virtualAccountBank : null,
+    virtual_account_name: env.VIRTUAL_ACCOUNT_FUNDING_ENABLED ? user.virtualAccountName : null,
+    virtual_account_provider: env.VIRTUAL_ACCOUNT_FUNDING_ENABLED ? user.virtualAccountProvider : null,
     virtual_account_funding_paused: env.VIRTUAL_ACCOUNT_FUNDING_ENABLED ? undefined : true
   });
 });

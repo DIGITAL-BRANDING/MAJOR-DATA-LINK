@@ -45,6 +45,7 @@ async function provisionKatpayVirtualAccount(userId: string) {
       data: {
         virtualAccountNumber: account.account_number,
         virtualAccountBank: account.bank_name,
+        virtualAccountName: account.account_name,
         virtualAccountProvider: 'katpay'
       }
     });

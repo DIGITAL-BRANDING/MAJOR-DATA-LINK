@@ -85,6 +85,7 @@ export async function verifyBvnAndActivateWallet(params: {
           kycStatus: KycStatus.VERIFIED,
           virtualAccountNumber: account.accountNumber,
           virtualAccountBank: account.bankName,
+          virtualAccountName: account.accountName,
           virtualAccountProvider: 'zenithpay',
           bvnLast4,
           bvnVerifiedAt: new Date(),
@@ -154,6 +155,7 @@ export async function verifyBvnAndActivateWallet(params: {
         kycStatus: KycStatus.VERIFIED,
         virtualAccountNumber: dva.account_number,
         virtualAccountBank: dva.bank.name,
+        virtualAccountName: dva.account_name,
         virtualAccountProvider: 'paystack',
         bvnLast4,
         bvnVerifiedAt: new Date(),
@@ -240,6 +242,7 @@ export async function tryProvisionInstantVirtualAccount(userId: string) {
       data: {
         virtualAccountNumber: dva.account_number,
         virtualAccountBank: dva.bank.name,
+        virtualAccountName: dva.account_name,
         virtualAccountProvider: 'paystack'
       }
     });

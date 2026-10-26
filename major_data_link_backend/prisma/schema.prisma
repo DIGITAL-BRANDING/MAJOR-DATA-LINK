@@ -228,6 +228,9 @@ model User {
   // route direct-deposit webhooks (see creditDirectDeposit vs
   // creditDirectDepositByAccountNumber in wallet.service.ts) to the right matcher.
   virtualAccountProvider String?
+  /// Account holder name exactly as the gateway issued it (shown on the
+  /// dashboard wallet card). Null for accounts created before this column.
+  virtualAccountName   String?
   paystackCustomerCode String?
   bvnLast4             String?
   bvnVerifiedAt        DateTime?
