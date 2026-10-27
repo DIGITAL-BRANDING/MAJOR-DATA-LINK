@@ -18,6 +18,7 @@ import { franceverifiedSlipAdapter } from './franceverified-slip-adapter.service
 import type { IdentitySlipTier } from '../lib/render-identity-slip-pdf.js';
 import { submitNinValidationFV, checkNinValidationFV } from './franceverified-nin-validation-adapter.service.js';
 import { checkIpeClearanceFV, submitIpeClearanceFV } from './franceverified-ipe-adapter.service.js';
+import { hubbuService } from './hubbu.service.js';
 
 /**
  * Which upstream API actually fulfils a given ServicePricing row right now -
@@ -29,7 +30,7 @@ import { checkIpeClearanceFV, submitIpeClearanceFV } from './franceverified-ipe-
  * franceverified-slip-adapter.service.ts).
  */
 /** `manual` keeps an accepted request in our encrypted queue for an admin. */
-export type VerificationProvider = 'techhub' | 'franceverified' | 'manual';
+export type VerificationProvider = 'techhub' | 'franceverified' | 'hubbu' | 'manual';
 
 /**
  * Emits operational timing and the selected service provider: no user ID,
@@ -649,6 +650,7 @@ export function purchaseNinByNin(params: { userId: string; nin: string; tier: Ni
     // each tier differently.
     callByProvider: {
       techhub: () => params.tier === 'personal' ? techhubService.ninPersonalInfoByNin(params.nin) : techhubService.ninByNin(params.nin, params.tier),
+      hubbu: () => hubbuService.verifyNin({ method: 'nin', nin: params.nin, slip_type: params.tier === 'personal' ? 'standard' : params.tier }),
       // Same data for every tier; only the rendered layout differs.
       franceverified: () => franceverifiedSlipAdapter.ninByNin(params.nin, franceSlipTier(params.tier), params.tier === 'personal')
     },
@@ -704,7 +706,8 @@ export function purchaseNinVerificationV1(params: { userId: string; nin: string;
     callByProvider: {
       techhub: () => params.tier === 'personal'
         ? techhubService.ninPersonalInfoByNin(params.nin)
-        : techhubService.ninByNin(params.nin, params.tier)
+        : techhubService.ninByNin(params.nin, params.tier),
+      hubbu: () => hubbuService.verifyNin({ method: 'nin', nin: params.nin, slip_type: params.tier === 'personal' ? 'standard' : params.tier })
     }
   });
 }
@@ -745,6 +748,7 @@ export function purchaseNinByPhone(params: {
     idempotencyKey: params.idempotencyKey,
     callByProvider: {
       techhub: () => params.tier === 'personal' ? techhubService.ninPersonalInfoByPhone(params.phone) : techhubService.ninByPhone(params.phone, params.tier),
+      hubbu: () => hubbuService.verifyNin({ method: 'phone', phone: params.phone, slip_type: params.tier === 'personal' ? 'standard' : params.tier }),
       franceverified: () => franceverifiedSlipAdapter.ninByPhone(params.phone, franceSlipTier(params.tier), params.tier === 'personal')
     }
   });
@@ -769,6 +773,7 @@ export function purchaseNinByPhoneV1(params: { userId: string; phone: string; ti
     idempotencyKey: params.idempotencyKey,
     callByProvider: {
       techhub: () => params.tier === 'personal' ? techhubService.ninPersonalInfoByPhone(params.phone) : techhubService.ninByPhone(params.phone, params.tier)
+      ,hubbu: () => hubbuService.verifyNin({ method: 'phone', phone: params.phone, slip_type: params.tier === 'personal' ? 'standard' : params.tier })
     }
   });
 }
@@ -824,6 +829,7 @@ export function purchaseNinByDemographic(params: {
           dob: params.dob,
           gender: params.gender
         })
+      ,hubbu: () => hubbuService.verifyNin({ method: 'demo', first_name: params.firstname, last_name: params.lastname, dob: params.dob, gender: params.gender })
     }
   });
 }
@@ -882,6 +888,7 @@ export function purchaseBvnSlip(params: { userId: string; bvn: string; tier: Tec
     idempotencyKey: params.idempotencyKey,
     callByProvider: {
       techhub: () => techhubService.bvnSlip(params.bvn, params.tier),
+      hubbu: () => hubbuService.verifyBvn(params.bvn, params.tier),
       franceverified: () => franceverifiedSlipAdapter.bvnSlip(params.bvn, params.tier)
     }
   });
@@ -891,6 +898,7 @@ export function purchaseBvnSlip(params: { userId: string; bvn: string; tier: Tec
 
 export type AsyncSubmitResult = { reference: string; ticketId: string; balanceAfter: number };
 export type AsyncStatusResult = { ticketId: string; status: 'pending' | 'success' | 'failed'; response: Record<string, unknown> | null };
+const hubbuPendingStatus = async (ticketId: string): Promise<TechhubAsyncStatusResult> => ({ ticketId, status: 'pending', response: null, raw: { status_endpoint_documented: false } });
 
 /**
  * Shared by all five async flows. Debits immediately (the wallet charge
@@ -1159,14 +1167,17 @@ export function submitPersonalization(params: { userId: string; trackingId: stri
     operational: {},
     pii: { tracking_id: params.trackingId },
     idempotencyKey: params.idempotencyKey,
-    callByProvider: { techhub: () => techhubService.submitPersonalization(params.trackingId) }
+    callByProvider: {
+      techhub: () => techhubService.submitPersonalization(params.trackingId),
+      hubbu: () => hubbuService.submit('/nin/personalization', { nin: params.trackingId, payload: { tracking_id: params.trackingId } })
+    }
   });
 }
 export function checkPersonalizationStatus(params: { userId: string; ticketId: string }) {
   return checkAsyncServiceStatus({
     userId: params.userId,
     ticketId: params.ticketId,
-    callByProvider: { techhub: (id) => techhubService.checkPersonalization(id) }
+    callByProvider: { techhub: (id) => techhubService.checkPersonalization(id), hubbu: hubbuPendingStatus }
   });
 }
 
@@ -1190,7 +1201,8 @@ export function submitBvnRetrieval(params: {
           first_name: params.firstName,
           last_name: params.lastName,
           phone_number: params.phoneNumber
-        })
+        }),
+      hubbu: () => hubbuService.submit('/bvn/retrieval', { retrieval_method: 'phone', lookup_identifier: params.phoneNumber, first_name: params.firstName, last_name: params.lastName, phone: params.phoneNumber })
     }
   });
 }
@@ -1198,7 +1210,7 @@ export function checkBvnRetrievalStatus(params: { userId: string; ticketId: stri
   return checkAsyncServiceStatus({
     userId: params.userId,
     ticketId: params.ticketId,
-    callByProvider: { techhub: (id) => techhubService.checkBvnRetrieval(id) }
+    callByProvider: { techhub: (id) => techhubService.checkBvnRetrieval(id), hubbu: hubbuPendingStatus }
   });
 }
 
@@ -1217,7 +1229,8 @@ export function submitIpeClearance(params: {
     idempotencyKey: params.idempotencyKey,
     callByProvider: {
       techhub: () => techhubService.submitIpeClearance(params.trackingId, params.ipeType),
-      franceverified: () => submitIpeClearanceFV(params.trackingId, params.ipeType)
+      franceverified: () => submitIpeClearanceFV(params.trackingId, params.ipeType),
+      hubbu: () => hubbuService.submit('/ipe/clearance', { payload: { tracking_id: params.trackingId, ipe_type: params.ipeType } })
     }
   });
 }
@@ -1225,7 +1238,7 @@ export function checkIpeClearanceStatus(params: { userId: string; ticketId: stri
   return checkAsyncServiceStatus({
     userId: params.userId,
     ticketId: params.ticketId,
-    callByProvider: { techhub: (id) => techhubService.checkIpeClearance(id), franceverified: (id) => checkIpeClearanceFV(id) }
+    callByProvider: { techhub: (id) => techhubService.checkIpeClearance(id), franceverified: (id) => checkIpeClearanceFV(id), hubbu: hubbuPendingStatus }
   });
 }
 

@@ -52,7 +52,7 @@ export function groupFor(type: TransactionType, metadata: unknown): QueueGroup {
 
 export function isManualWorkItem(row: { type: TransactionType; provider: string | null }) {
   return MANUAL_TRANSACTION_TYPES.includes(row.type)
-    || (row.provider === 'manual' && MANUAL_VERIFICATION_TRANSACTION_TYPES.includes(row.type));
+    || ((row.provider === 'manual' || row.provider === 'hubbu') && MANUAL_VERIFICATION_TRANSACTION_TYPES.includes(row.type));
 }
 
 function escapeHtml(value: string) {
@@ -70,7 +70,7 @@ export function registerManualRequestRoutes(router: Router) {
       prisma.partnerTransaction.findMany({ where: { status: TransactionStatus.PENDING }, select: { id: true, reference: true, type: true, provider: true, metadata: true, description: true, createdAt: true }, orderBy: { createdAt: 'asc' } })
     ]);
     const rows = [
-      ...customerRows.filter(isManualWorkItem).map((row) => ({ ...row, source: 'Customer', href: row.type === TransactionType.JAMB_SERVICE_REQUEST ? `/admin/jamb/${row.id}/fulfil` : row.provider === 'manual' && MANUAL_VERIFICATION_TRANSACTION_TYPES.includes(row.type) ? `/admin/manual-verifications?group=${groupFor(row.type, row.metadata)}` : `/admin/resources/Transaction/records/${row.id}/show`, group: groupFor(row.type, row.metadata) })),
+      ...customerRows.filter(isManualWorkItem).map((row) => ({ ...row, source: 'Customer', href: row.type === TransactionType.JAMB_SERVICE_REQUEST ? `/admin/jamb/${row.id}/fulfil` : (row.provider === 'manual' || row.provider === 'hubbu') && MANUAL_VERIFICATION_TRANSACTION_TYPES.includes(row.type) ? `/admin/manual-verifications?group=${groupFor(row.type, row.metadata)}` : `/admin/resources/Transaction/records/${row.id}/show`, group: groupFor(row.type, row.metadata) })),
       // Partner work is deliberately opened in its batch queue: admins should
       // never be sent back to the old one-request-at-a-time screen.
       ...partnerRows.filter(isManualWorkItem).map((row) => ({ ...row, source: 'Partner API', href: '/admin/partner-manual-requests', group: groupFor(row.type, row.metadata) }))

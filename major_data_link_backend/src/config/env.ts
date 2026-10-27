@@ -95,6 +95,10 @@ const EnvSchema = z.object({
   // fail outright - fixed.
   FRANCEVERIFIED_BASE_URL: z.string().url().default('https://franceverified.com/api/v1'),
   FRANCEVERIFIED_API_KEY: z.string().optional(),
+  // Hubbu identity verification API. Keep credentials server-side; endpoints
+  // are rooted at HUBBU_BASE_URL and authenticated with X-API-KEY.
+  HUBBU_BASE_URL: z.string().url().default('https://hubbu.com.ng'),
+  HUBBU_API_KEY: z.string().optional(),
   // Shared bearer token placed in the FranceVerified webhook URL path.
   // Generate a long random value and use the same value in their dashboard.
   FRANCEVERIFIED_WEBHOOK_SECRET: z.preprocess((value) => value === '' ? undefined : value, z.string().min(32).optional()),

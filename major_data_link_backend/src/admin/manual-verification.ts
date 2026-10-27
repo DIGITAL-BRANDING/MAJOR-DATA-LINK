@@ -17,7 +17,7 @@ function uploadedFile(req: Request, name = 'file') { const value = files(req)[na
 function fields(req: Request) { return (req as unknown as { fields?: Record<string, string | string[] | undefined> }).fields ?? {}; }
 function field(req: Request, name: string) { const value = fields(req)[name]; return typeof value === 'string' ? value.trim() : ''; }
 function escapeHtml(value: string) { return value.replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]!); }
-function isManualVerification(transaction: { type: TransactionType; provider: string | null }) { return transaction.provider === 'manual' && verificationTypes.includes(transaction.type); }
+function isManualVerification(transaction: { type: TransactionType; provider: string | null }) { return (transaction.provider === 'manual' || transaction.provider === 'hubbu') && verificationTypes.includes(transaction.type); }
 function serviceLabel(metadata: unknown, fallback: string) { const service = typeof metadata === 'object' && metadata !== null ? (metadata as Record<string, unknown>).service : undefined; return typeof service === 'string' ? service.replace(/_/g, ' ') : fallback.replace(/_/g, ' '); }
 function groupFor(transaction: { type: TransactionType; metadata: unknown }) { const service = typeof transaction.metadata === 'object' && transaction.metadata !== null ? (transaction.metadata as Record<string, unknown>).service : undefined; return transaction.type === TransactionType.BVN_VERIFICATION || (typeof service === 'string' && service.startsWith('BVN_')) ? 'BVN' : 'NIN'; }
 function requestIdentifier(pii: Record<string, unknown> | null) { if (!pii) return '—'; for (const key of ['nin', 'tracking_id', 'trackingId', 'bvn', 'phone']) { const value = pii[key]; if (typeof value === 'string' && value.trim()) return value.trim(); } return '—'; }
@@ -70,7 +70,7 @@ export function registerManualVerificationRoutes(router: Router) {
   router.get('/manual-verifications', async (req, res) => {
     const admin = req.session?.adminUser as AdminSessionUser | undefined; if (!admin) return res.redirect('/admin/login');
     const group = req.query.group === 'BVN' ? 'BVN' : 'NIN';
-    const pending = await prisma.transaction.findMany({ where: { status: TransactionStatus.PENDING, provider: 'manual', type: { in: verificationTypes } }, include: { user: { select: { fullName: true, email: true } } }, orderBy: { createdAt: 'asc' } });
+    const pending = await prisma.transaction.findMany({ where: { status: TransactionStatus.PENDING, provider: { in: ['manual', 'hubbu'] }, type: { in: verificationTypes } }, include: { user: { select: { fullName: true, email: true } } }, orderBy: { createdAt: 'asc' } });
     res.type('html').send(renderBatchPage({ rows: pending.filter((row) => groupFor(row) === group), group, flash: typeof req.query.flash === 'string' ? req.query.flash : undefined }));
   });
   router.post('/manual-verifications/batch', async (req, res) => {

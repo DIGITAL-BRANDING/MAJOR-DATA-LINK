@@ -4,7 +4,8 @@ import { koboToNaira } from '../lib/money.js';
 import { sealPII, openPII } from '../lib/pii.js';
 import { prisma } from '../lib/prisma.js';
 import { ApiError } from '../middleware/error.js';
-import { debitWallet } from './wallet.service.js';
+import { debitWallet, refundWallet } from './wallet.service.js';
+import { hubbuService } from './hubbu.service.js';
 
 /**
  * Techhub has no API for NIN Modification yet (confirmed against
@@ -203,7 +204,7 @@ export async function getModificationPrice(type: ModificationType, opts: { forPa
   const unitKobo = opts.forPartner
     ? (row.partnerSellingPriceKobo ?? row.sellingPriceKobo ?? row.providerCostKobo)
     : (row.sellingPriceKobo ?? row.providerCostKobo);
-  return { unitPrice: koboToNaira(unitKobo), providerCostKobo: row.providerCostKobo };
+  return { unitPrice: koboToNaira(unitKobo), providerCostKobo: row.providerCostKobo, provider: row.provider };
 }
 
 /** Public price list, keyed by modification type id - never throws on a disabled service. */
@@ -336,6 +337,18 @@ export async function submitModificationRequest(params: {
       } as Prisma.InputJsonValue
     }
   });
+
+  if (price.provider === 'hubbu') {
+    const result = await hubbuService.submit('/nin/modification', {
+      reference: debit.reference, nin: String(params.values.nin ?? ''), modification_type: params.type, payload: params.values
+    });
+    if (!result.ok || !result.ticketId) {
+      await prisma.transaction.update({ where: { id: debit.transaction.id }, data: { status: TransactionStatus.FAILED, provider: 'hubbu' } });
+      await refundWallet({ transactionId: debit.transaction.id, userId: params.userId });
+      throw new ApiError(502, result.message, 'HUBBU_SUBMIT_FAILED');
+    }
+    await prisma.transaction.update({ where: { id: debit.transaction.id }, data: { provider: 'hubbu', providerRef: result.ticketId } });
+  }
 
   // Deliberately no recordProviderDebit() here (unlike purchaseSlip()/
   // submitAsyncService() in verification.service.ts) - no Techhub API call

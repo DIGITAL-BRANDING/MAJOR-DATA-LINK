@@ -114,7 +114,7 @@ export const transactionResource: ResourceWithOptions = {
         guard: 'Mark this manually-routed NIN/BVN request as completed? Confirm it has been processed first.',
         isAccessible: ({ currentAdmin, record }) => {
           const admin = currentAdmin as unknown as AdminSessionUser | undefined;
-          return !!admin && admin.role !== 'SUPPORT' && record?.params?.provider === 'manual' && ['IDENTITY_SERVICE_REQUEST', 'NIN_VERIFICATION', 'BVN_VERIFICATION'].includes(record?.params?.type as string) && record?.params?.status === 'PENDING';
+          return !!admin && admin.role !== 'SUPPORT' && ['manual', 'hubbu'].includes(record?.params?.provider as string) && ['IDENTITY_SERVICE_REQUEST', 'NIN_VERIFICATION', 'BVN_VERIFICATION'].includes(record?.params?.type as string) && record?.params?.status === 'PENDING';
         },
         handler: async (_request, _response, context) => {
           const { record, currentAdmin } = context;
