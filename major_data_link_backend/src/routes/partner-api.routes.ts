@@ -314,6 +314,24 @@ partnerApiRoutes.post('/verification/nin/by-phone', async (req, res) => {
   res.json(verificationResponse(result));
 });
 
+// Personal Information slip (identity report with photograph), built from a
+// NIN lookup or - alternatively - a phone-number lookup. Send EXACTLY ONE of
+// `nin` or `phone`; each is billed under its own service price.
+partnerApiRoutes.post('/verification/nin/personal-info', async (req, res) => {
+  const body = z.object({
+    nin: z.string().trim().regex(/^\d{11}$/, 'nin must be exactly 11 digits').optional(),
+    phone: z.string().trim().regex(/^\d{11}$/, 'phone must be exactly 11 digits').optional()
+  }).refine((value) => Number(Boolean(value.nin)) + Number(Boolean(value.phone)) === 1, {
+    message: 'Provide exactly one of nin or phone'
+  }).parse(req.body);
+  const idempotencyKey = idempotencyKeyFrom(req);
+  const result = body.nin
+    ? await partnerVerification.ninPersonalInfo(req.partner!.id, body.nin, idempotencyKey)
+    : await partnerVerification.ninPersonalInfoByPhone(req.partner!.id, body.phone!, idempotencyKey);
+  res.set('Cache-Control', 'no-store');
+  res.json(verificationResponse(result));
+});
+
 partnerApiRoutes.post('/verification/nin/by-demographic', async (req, res) => {
   const body = z.object({ firstname: z.string().trim().min(1), lastname: z.string().trim().min(1), dob: z.string().trim().min(1), gender: z.enum(['MALE', 'FEMALE']).optional() }).parse(req.body);
   const result = await partnerVerification.ninByDemographic(req.partner!.id, body, idempotencyKeyFrom(req));

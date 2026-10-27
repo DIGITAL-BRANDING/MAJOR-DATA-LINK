@@ -292,6 +292,26 @@ Pricing.
 { "phone": "08012345678", "tier": "standard" }
 ```
 
+**NIN Personal Information Slip:** `POST /verification/nin/personal-info`
+
+Yana mayar da rahoton Personal Information (bayanan identity tare da hoto) a
+matsayin PDF. Ka aiko **ɗaya kacal** daga cikin `nin` ko `phone` (11 digits
+kowanne); aika duka biyu ko babu ko ɗaya zai dawo da `422`.
+
+```json
+{ "nin": "12345678901" }
+```
+
+```json
+{ "phone": "08012345678" }
+```
+
+Response yana da tsari ɗaya da sauran slips (`data.user_data`, `data.pdf_base64`,
+`data.reference`, `data.balance_after`). Ana caji ne a ƙarƙashin
+`NIN_PERSONAL_INFO_SLIP` (by NIN) ko `NIN_PHONE_PERSONAL_INFO_SLIP` (by phone),
+kuma ana mayar da kuɗi idan lookup ɗin ya gaza. Farashin yana cikin
+`GET /verification/prices`.
+
 **NIN Slip by demographic:** `POST /verification/nin/by-demographic`
 
 ```json

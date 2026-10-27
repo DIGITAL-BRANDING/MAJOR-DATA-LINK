@@ -270,6 +270,23 @@ export const partnerVerification = {
     description: `NIN slip (${tier}) by phone`, operational: { mode: 'by_phone', tier }, pii: { phone }, idempotencyKey,
     callByProvider: { techhub: () => techhubService.ninByPhone(phone, tier), franceverified: () => franceverifiedSlipAdapter.ninByPhone(phone, tier === 'premium' ? 'premium' : undefined) }
   }),
+  // Personal Information slip: same provider call as the retail "personal"
+  // tier (see purchaseNinByNin / purchaseNinByPhone in verification.service.ts).
+  // Techhub has no such product, so techhubService buys its cheapest (REGULAR)
+  // lookup and we draw our own slip from the identity fields + photograph;
+  // FranceVerified returns data only and we render the same report. The
+  // admin-selected provider on the NIN_PERSONAL_INFO_SLIP /
+  // NIN_PHONE_PERSONAL_INFO_SLIP ServicePricing rows decides which one runs.
+  ninPersonalInfo: (partnerId: string, nin: string, idempotencyKey: string) => purchasePartnerSlip({
+    partnerId, service: 'NIN_PERSONAL_INFO_SLIP', type: TransactionType.NIN_VERIFICATION,
+    description: 'NIN personal information slip by NIN', operational: { mode: 'by_nin', tier: 'personal' }, pii: { nin }, idempotencyKey,
+    callByProvider: { techhub: () => techhubService.ninPersonalInfoByNin(nin), franceverified: () => franceverifiedSlipAdapter.ninByNin(nin, undefined, true) }
+  }),
+  ninPersonalInfoByPhone: (partnerId: string, phone: string, idempotencyKey: string) => purchasePartnerSlip({
+    partnerId, service: 'NIN_PHONE_PERSONAL_INFO_SLIP', type: TransactionType.NIN_VERIFICATION,
+    description: 'NIN personal information slip by phone', operational: { mode: 'by_phone', tier: 'personal' }, pii: { phone }, idempotencyKey,
+    callByProvider: { techhub: () => techhubService.ninPersonalInfoByPhone(phone), franceverified: () => franceverifiedSlipAdapter.ninByPhone(phone, undefined, true) }
+  }),
   ninByDemographic: (partnerId: string, values: { firstname: string; lastname: string; dob: string; gender?: string }, idempotencyKey: string) => purchasePartnerSlip({
     partnerId, service: 'NIN_DEMOGRAPHIC', type: TransactionType.NIN_VERIFICATION,
     description: 'NIN slip by demographic details', operational: { mode: 'by_demographic' }, pii: values, idempotencyKey,
