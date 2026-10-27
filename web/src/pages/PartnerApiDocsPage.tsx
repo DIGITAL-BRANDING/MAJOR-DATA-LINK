@@ -179,6 +179,23 @@ export default function PartnerApiDocsPage() {
               { name: 'tier', type: 'string', required: true, desc: 'premium, standard, or regular' }
             ]}
           />
+          <EndpointCard method="POST" path="/verification/nin/personal-info" title="NIN Personal Information Slip" icon={FileText}>
+            <p className="mb-3 text-xs text-slate-500">
+              Returns the Personal Information report (identity details with photograph) as a PDF. Field names in <code>user_data</code> are display labels and can vary by what the provider returns; <code>photo</code> is included when available. Send <strong>exactly one</strong> of{' '}
+              <code>nin</code> or <code>phone</code>; sending both, or neither, returns <code>422</code>. Requires an{' '}
+              <code>Idempotency-Key</code> header. Billed as the NIN Personal Information price (by NIN) or the by-Phone Personal Information
+              price (by phone), and refunded automatically if the lookup fails.
+            </p>
+            <ParamsTable
+              rows={[
+                { name: 'nin', type: 'string', required: false, desc: '11-digit NIN. Use this OR phone' },
+                { name: 'phone', type: 'string', required: false, desc: '11-digit phone number registered to the NIN. Use this OR nin' }
+              ]}
+            />
+            <ResponseExample
+              json={`{\n  "status": true,\n  "message": "Personal information slip generated successfully",\n  "data": {\n    "reference": "MDL-...",\n    "balance_after": 44780,\n    "user_data": { "First Name": "...", "Last Name": "...", "Date of Birth": "...", "photo": "<base64 image>" },\n    "pdf_base64": "..."\n  }\n}`}
+            />
+          </EndpointCard>
           <EndpointCard method="POST" path="/verification/nin/by-demographic" title="NIN Verification by Demographic Details" icon={Fingerprint}>
             <ParamsTable
               rows={[
