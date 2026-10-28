@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { BellRing, X, Send, CheckCheck } from 'lucide-react';
+import { BellRing, MessageCircle, X, Send, CheckCheck } from 'lucide-react';
 import { io, type Socket } from 'socket.io-client';
 import { API_BASE } from '../lib/api';
 import { enableChatNotificationSound, playChatNotificationSound } from '../lib/chat-notification-sound';
 import { OPEN_LIVECHAT_EVENT } from '../lib/live-chat-events';
+import { supportWhatsappLink } from '../lib/contact';
 import { isWebPushActive, syncWebPush } from '../lib/web-push';
 import WhatsAppIcon from './WhatsAppIcon';
 
@@ -77,6 +78,7 @@ function promptForPush(
  */
 export default function LiveChatWidget({ active, token, ownerKey, headerLabel, pushEnabled = true }: LiveChatWidgetProps) {
   const [open, setOpen] = useState(false);
+  const [choiceOpen, setChoiceOpen] = useState(false);
   const [connected, setConnected] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [conversationStatus, setConversationStatus] = useState<'OPEN' | 'CLOSED'>('OPEN');
@@ -271,6 +273,29 @@ export default function LiveChatWidget({ active, token, ownerKey, headerLabel, p
 
   return (
     <div className="fixed bottom-4 right-4 z-50 flex flex-col items-end gap-3">
+      {choiceOpen && !open && (
+        <div role="dialog" aria-label="Choose a support channel" className="w-64 rounded-2xl border border-parchment-line bg-white p-3 shadow-2xl">
+          <p className="px-2 pb-2 text-xs font-semibold text-ink-soft">How would you like to contact support?</p>
+          <a
+            href={supportWhatsappLink('Hello K-Tech Solutions, I need support.')}
+            target="_blank"
+            rel="noreferrer"
+            onClick={() => setChoiceOpen(false)}
+            className="flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold text-ink transition hover:bg-emerald-50"
+          >
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#25d366] text-white"><WhatsAppIcon size={21} /></span>
+            WhatsApp Chat
+          </a>
+          <button
+            type="button"
+            onClick={() => { setChoiceOpen(false); openPanel(); }}
+            className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-semibold text-ink transition hover:bg-blue-50"
+          >
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-700"><MessageCircle size={20} /></span>
+            Live Support Chat
+          </button>
+        </div>
+      )}
       {open && (
         <div className="flex h-[480px] w-[340px] max-w-[92vw] flex-col overflow-hidden rounded-2xl border border-parchment-line bg-cream shadow-2xl">
           <div className="flex items-center justify-between bg-gold-500 px-4 py-3">
@@ -369,10 +394,18 @@ export default function LiveChatWidget({ active, token, ownerKey, headerLabel, p
       {/* Styled like WhatsApp's floating chat button (green disc, white glyph). */}
       <button
         type="button"
-        onClick={() => (open ? setOpen(false) : openPanel())}
+        onClick={() => {
+          if (open) {
+            setOpen(false);
+            setChoiceOpen(false);
+          } else {
+            setChoiceOpen((current) => !current);
+          }
+        }}
         className="relative flex h-[50px] w-[50px] items-center justify-center rounded-full bg-[#25d366] text-white shadow-[2px_2px_10px_rgba(0,0,0,0.3)] transition hover:scale-110 hover:bg-[#128c7e] md:h-[60px] md:w-[60px]"
-        aria-label="Open live chat"
-        title="Live chat"
+        aria-label={open ? 'Close live chat' : 'Choose a support channel'}
+        aria-expanded={choiceOpen}
+        title="Contact support"
       >
         <WhatsAppIcon size={30} />
         {unread > 0 && (

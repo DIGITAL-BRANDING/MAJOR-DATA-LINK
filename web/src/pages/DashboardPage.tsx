@@ -303,6 +303,7 @@ export default function DashboardPage() {
           <Link
             to="/fund-wallet"
             className="mt-4 flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#d8ad2c] to-[#f1c64b] py-3.5 font-display text-sm font-bold text-[#082653] shadow-md shadow-amber-900/20 transition hover:brightness-105"
+            style={{ backgroundColor: '#f1c64b' }}
           >
             <PlusCircle size={17} /> Fund Wallet
           </Link>
@@ -333,7 +334,7 @@ export default function DashboardPage() {
       </div>
 
       {/* WhatsApp support */}
-      <div className="mt-4 flex items-center gap-3 rounded-2xl bg-gradient-to-r from-emerald-500 to-green-500 px-4 py-4 text-white shadow-md shadow-emerald-900/10">
+      <div className="mt-4 flex items-center gap-3 rounded-2xl bg-[#25d366] px-4 py-4 text-white shadow-md shadow-emerald-900/10">
         <WhatsAppIcon size={24} className="shrink-0" />
         <p className="min-w-0 flex-1 text-center font-body text-sm font-bold">
           Need help? Chat with our WhatsApp Support
