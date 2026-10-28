@@ -144,6 +144,8 @@ export async function debitWallet(params: {
   description: string;
   metadata?: Prisma.InputJsonValue;
   idempotencyKey?: string;
+  /** Provider recorded atomically with the debit when a paid request is routed upstream. */
+  provider?: string;
   /**
    * Our cost basis for this purchase, in kobo, captured up front from
    * whatever pricing config the caller already looked up (e.g.
@@ -207,6 +209,7 @@ export async function debitWallet(params: {
           balanceAfterKobo: after.walletBalanceKobo,
           reference,
           idempotencyKey: params.idempotencyKey,
+          provider: params.provider,
           description: params.description,
           metadata: params.metadata,
           costKobo: params.costKobo ?? null

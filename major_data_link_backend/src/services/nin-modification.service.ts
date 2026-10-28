@@ -1,11 +1,11 @@
 import PDFDocument from 'pdfkit';
 import { Prisma, TransactionStatus, TransactionType } from '@prisma/client';
 import { koboToNaira } from '../lib/money.js';
-import { sealPII, openPII } from '../lib/pii.js';
+import { sealPII, openPII, mergeSealedPII } from '../lib/pii.js';
 import { prisma } from '../lib/prisma.js';
 import { ApiError } from '../middleware/error.js';
 import { debitWallet, refundWallet } from './wallet.service.js';
-import { hubbuService } from './hubbu.service.js';
+import { hubbuService, hubbuIdempotencyKey, hubbuRequestHash } from './hubbu.service.js';
 
 /**
  * Techhub has no API for NIN Modification yet (confirmed against
@@ -295,6 +295,12 @@ export async function submitModificationRequest(params: {
   const config = MODIFICATION_CONFIG[params.type];
   const price = await getModificationPrice(params.type);
   const service = serviceKeyFor(params.type);
+  const hubbuHash = price.provider === 'hubbu' ? hubbuRequestHash(params.userId, service, params.values) : undefined;
+  if (hubbuHash) {
+    const pending = await prisma.transaction.findMany({ where: { userId: params.userId, type: TransactionType.NIN_MODIFICATION, provider: 'hubbu', status: TransactionStatus.PENDING }, orderBy: { createdAt: 'desc' }, take: 100 });
+    const prior = pending.find((transaction) => (transaction.metadata as Record<string, unknown> | null)?.hubbu_request_hash === hubbuHash);
+    if (prior) return { reference: prior.reference, balanceAfter: koboToNaira(prior.balanceAfterKobo) };
+  }
 
   const debit = await debitWallet({
     userId: params.userId,
@@ -305,9 +311,11 @@ export async function submitModificationRequest(params: {
       service,
       modification_type: params.type,
       unit_price: price.unitPrice,
+      ...(hubbuHash ? { hubbu_request_hash: hubbuHash, hubbu_submission_state: 'queued' } : {}),
       pii: sealPII(params.values)
     } as Prisma.InputJsonValue,
-    idempotencyKey: params.idempotencyKey,
+    idempotencyKey: params.idempotencyKey ?? (hubbuHash ? hubbuIdempotencyKey(hubbuHash) : undefined),
+    provider: price.provider === 'hubbu' ? 'hubbu' : undefined,
     // We haven't actually paid Techhub anything yet - the admin pays their
     // listed price when they manually process this on techhubltd.co, which
     // for now is the same number as what we charge (no markup configured).
@@ -339,15 +347,42 @@ export async function submitModificationRequest(params: {
   });
 
   if (price.provider === 'hubbu') {
-    const result = await hubbuService.submit('/nin/modification', {
-      reference: debit.reference, nin: String(params.values.nin ?? ''), modification_type: params.type, payload: params.values
-    });
-    if (!result.ok || !result.ticketId) {
+    const reconciliationRef = `HUBBU-RECONCILE-${debit.reference}`;
+    const current = await prisma.transaction.findUnique({ where: { id: debit.transaction.id }, select: { metadata: true } });
+    await prisma.transaction.update({ where: { id: debit.transaction.id }, data: {
+      provider: 'hubbu', providerRef: reconciliationRef,
+      metadata: { ...((current?.metadata as Record<string, unknown> | null) ?? {}), hubbu_submission_state: 'submitting', hubbu_request_hash: hubbuHash } as Prisma.InputJsonValue
+    } });
+    let result;
+    try {
+      result = await hubbuService.submit('/nin/modification', {
+        reference: debit.reference, nin: String(params.values.nin ?? ''), modification_type: params.type, payload: params.values
+      });
+    } catch (error) {
+      const previous = debit.transaction.metadata as Record<string, unknown> | null;
+      await prisma.transaction.update({ where: { id: debit.transaction.id }, data: {
+        metadata: { ...(previous ?? {}), hubbu_submission_state: 'unknown', hubbu_request_hash: hubbuHash, pii: mergeSealedPII(previous?.pii, { hubbu_error: error instanceof Error ? error.message : 'Unknown network error' }) } as Prisma.InputJsonValue
+      } });
+      return { reference: debit.reference, balanceAfter: debit.balanceAfter };
+    }
+    const unknown = (result.raw as Record<string, unknown> | null)?.__classifiedState === 'unknown';
+    if (unknown || (result.accepted && !result.ticketId)) {
+      const previous = debit.transaction.metadata as Record<string, unknown> | null;
+      await prisma.transaction.update({ where: { id: debit.transaction.id }, data: {
+        metadata: { ...(previous ?? {}), hubbu_submission_state: 'unknown', hubbu_request_hash: hubbuHash, pii: mergeSealedPII(previous?.pii, { submit_raw: result.raw }) } as Prisma.InputJsonValue
+      } });
+      return { reference: debit.reference, balanceAfter: debit.balanceAfter };
+    }
+    if (!result.ok) {
       await prisma.transaction.update({ where: { id: debit.transaction.id }, data: { status: TransactionStatus.FAILED, provider: 'hubbu' } });
       await refundWallet({ transactionId: debit.transaction.id, userId: params.userId });
       throw new ApiError(502, result.message, 'HUBBU_SUBMIT_FAILED');
     }
-    await prisma.transaction.update({ where: { id: debit.transaction.id }, data: { provider: 'hubbu', providerRef: result.ticketId } });
+    const previous = debit.transaction.metadata as Record<string, unknown> | null;
+    await prisma.transaction.update({ where: { id: debit.transaction.id }, data: {
+      provider: 'hubbu', providerRef: result.ticketId,
+      metadata: { ...(previous ?? {}), hubbu_submission_state: 'accepted', hubbu_request_hash: hubbuHash, pii: mergeSealedPII(previous?.pii, { submit_raw: result.raw }) } as Prisma.InputJsonValue
+    } });
   }
 
   // Deliberately no recordProviderDebit() here (unlike purchaseSlip()/
