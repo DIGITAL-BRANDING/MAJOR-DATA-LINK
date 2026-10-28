@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
-import { Bell, Fingerprint, GraduationCap, IdCard, LayoutDashboard, LogOut, Menu, MessageCircle, PackageOpen, Smartphone, WalletCards, X, Briefcase, Phone, ShieldCheck, CheckCircle2, MapPin, Search, Unlink, FilePenLine, Baby, Receipt, Newspaper, History, Settings2, UserRound, Gift } from 'lucide-react';
+import { ArrowLeftRight, Bell, Fingerprint, GraduationCap, IdCard, LayoutDashboard, LogOut, Menu, MessageCircle, PackageOpen, Smartphone, WalletCards, X, Briefcase, Phone, ShieldCheck, CheckCircle2, MapPin, Search, Unlink, FilePenLine, Baby, Receipt, Newspaper, History, Settings2, UserRound, Gift } from 'lucide-react';
 import Logo from './Logo';
 import { useAuth } from '../lib/auth';
 import { api } from '../lib/api';
@@ -23,6 +23,7 @@ function Sidebar({ close }: { close?: () => void }) {
       <NavLink to="/verifications" onClick={close} className={navClass}><History size={17} />Service History</NavLink>
       <NavLink to="/deliveries" onClick={close} className={navClass}><PackageOpen size={17} />My Deliveries</NavLink>
       <NavLink to="/wallet-history" onClick={close} className={navClass}><WalletCards size={17} />Wallet History</NavLink>
+      <NavLink to="/wallet-transfer" onClick={close} className={navClass}><ArrowLeftRight size={17} />Transfer to a user</NavLink>
       <NavLink to="/support" onClick={close} className={navClass}><MessageCircle size={17} />Complaints & Support</NavLink>
       <NavLink to="/jamb-services" onClick={close} className={navClass}><GraduationCap size={17} />JAMB Services</NavLink>
     </nav>

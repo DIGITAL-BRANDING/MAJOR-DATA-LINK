@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ArrowRight,
+  ArrowLeftRight,
   Check,
   Code2,
   Copy,
@@ -306,6 +307,12 @@ export default function DashboardPage() {
             style={{ backgroundColor: '#f1c64b' }}
           >
             <PlusCircle size={17} /> Fund Wallet
+          </Link>
+          <Link
+            to="/wallet-transfer"
+            className="mt-3 flex items-center justify-center gap-2 rounded-xl border border-white/20 bg-white/10 py-3.5 font-display text-sm font-bold text-white transition hover:bg-white/20"
+          >
+            <ArrowLeftRight size={17} /> Transfer to a user
           </Link>
           <Link
             to="/wallet-history"

@@ -34,7 +34,7 @@ class LegalDocumentScreen extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             Text(
-              'Effective date: 4 August 2026',
+              'Effective date: 28 October 2026',
               style: context.textTheme.bodySmall?.copyWith(
                 color: AppColors.neutral500,
               ),
@@ -193,7 +193,7 @@ const _termsSections = [
   (
     title: '4. Wallet balance and referral earnings',
     body:
-        'Wallet balance may only be used to purchase services within K-TECH SOLUTIONS, such as data, airtime, cable TV, electricity, result checker and recharge/data cards. Wallet balance cannot be transferred to another user\'s account and cannot be withdrawn or cashed out to a bank account, card or any external destination. Referral commission accrues separately as you refer other users; once released, referral commission can only be moved into your own wallet balance for use within the app — it is not paid out as cash and cannot be withdrawn to a bank account.',
+        'Wallet balance may be used to purchase services within K-TECH SOLUTIONS or transferred to another active K-TECH SOLUTIONS user using their registered phone number. Confirm the recipient name and amount before entering your transaction PIN; completed transfers are immediate and generally cannot be reversed. Wallet balance cannot be withdrawn or cashed out to a bank account, card or any external destination. Referral commission accrues separately as you refer other users; once released, referral commission can only be moved into your own wallet balance for use within the app — it is not paid out as cash and cannot be withdrawn to a bank account.',
   ),
   (
     title: '5. Purchases and refunds',

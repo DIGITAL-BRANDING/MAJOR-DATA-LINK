@@ -51,6 +51,9 @@ export function ledgerBalanceKobo(rows: LedgerRow[]): bigint {
       // Ignoring the second kind made every user who ever withdrew referral
       // earnings look "out of balance" by exactly that amount.
       if (success && meta(row)?.withdrawal === true) expected += row.amountKobo;
+    } else if (type === TransactionType.WALLET_TRANSFER) {
+      const transfer = meta(row)?.wallet_transfer as Record<string, unknown> | undefined;
+      if (success) expected += transfer?.direction === 'incoming' ? row.amountKobo : -row.amountKobo;
     } else {
       // Every purchase type: debitWallet deducts when the row is created,
       // even while the request is still PENDING, and a failure is returned

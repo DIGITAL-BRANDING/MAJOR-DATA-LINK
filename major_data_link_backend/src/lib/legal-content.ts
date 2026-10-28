@@ -6,7 +6,7 @@ export interface LegalSection {
 // Mirrors imam_datasub/lib/features/legal/presentation/screens/legal_document_screen.dart
 // exactly. If you update the wording in one place, update it in the other — Play Store
 // review and basic legal hygiene both expect the public page and in-app copy to match.
-export const EFFECTIVE_DATE = '4 August 2026';
+export const EFFECTIVE_DATE = '28 October 2026';
 
 export const PRIVACY_SECTIONS: LegalSection[] = [
   {
@@ -54,7 +54,7 @@ export const TERMS_SECTIONS: LegalSection[] = [
   },
   {
     title: '4. Wallet balance and referral earnings',
-    body: 'Wallet balance may only be used to purchase services within MAJOR DATA-LINK, such as data, airtime, cable TV, electricity, result checker and recharge/data cards. Wallet balance cannot be transferred to another user\u2019s account and cannot be withdrawn or cashed out to a bank account, card or any external destination. Referral commission accrues separately as you refer other users; once released, referral commission can only be moved into your own wallet balance for use within the app \u2014 it is not paid out as cash and cannot be withdrawn to a bank account.'
+    body: 'Wallet balance may be used to purchase services within MAJOR DATA-LINK or transferred to another active MAJOR DATA-LINK user using their registered phone number. Confirm the recipient name and amount before entering your transaction PIN; completed transfers are immediate and generally cannot be reversed. Wallet balance cannot be withdrawn or cashed out to a bank account, card or any external destination. Referral commission accrues separately as you refer other users; once released, referral commission can only be moved into your own wallet balance for use within the app \u2014 it is not paid out as cash and cannot be withdrawn to a bank account.'
   },
   {
     title: '5. Purchases and refunds',

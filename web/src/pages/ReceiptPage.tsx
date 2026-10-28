@@ -127,7 +127,10 @@ export default function ReceiptPage() {
   const statusMeta = STATUS_META[tx.status] ?? STATUS_META.pending;
   const TypeIcon = typeMeta.icon;
   const StatusIcon = statusMeta.icon;
-  const isCredit = CREDIT_TYPES.has(tx.type);
+  const transferMeta = tx.metadata?.wallet_transfer as { direction?: string; counterparty_name?: string } | undefined;
+  const isCredit = tx.type === 'wallet_transfer'
+    ? transferMeta?.direction === 'incoming'
+    : CREDIT_TYPES.has(tx.type);
   const createdAt = new Date(tx.created_at);
 
   return (
@@ -171,6 +174,9 @@ export default function ReceiptPage() {
         {/* Details table */}
         <div className="space-y-0 px-6 py-6 sm:px-10">
           <ReceiptRow label="Description" value={tx.description} />
+          {tx.type === 'wallet_transfer' && transferMeta?.counterparty_name && (
+            <ReceiptRow label={transferMeta.direction === 'incoming' ? 'Received from' : 'Sent to'} value={transferMeta.counterparty_name} />
+          )}
           <ReceiptRow
             label="Reference"
             value={

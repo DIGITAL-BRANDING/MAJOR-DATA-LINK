@@ -27,6 +27,17 @@ function nonEmptyString(value: unknown) {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
 }
 
+function walletTransferSummary(metadata: unknown) {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return {};
+  const transfer = (metadata as Record<string, unknown>).wallet_transfer;
+  if (!transfer || typeof transfer !== 'object' || Array.isArray(transfer)) return {};
+  const record = transfer as Record<string, unknown>;
+  return {
+    transfer_direction: record.direction === 'incoming' || record.direction === 'outgoing' ? record.direction : undefined,
+    counterparty_name: typeof record.counterparty_name === 'string' ? record.counterparty_name : undefined
+  };
+}
+
 function firstString(record: Record<string, unknown> | null | undefined, keys: string[]) {
   for (const key of keys) {
     const value = nonEmptyString(record?.[key]);
@@ -178,7 +189,8 @@ transactionRoutes.get('/', async (req, res) => {
       balance_after: koboToNaira(tx.balanceAfterKobo),
       description: tx.description,
       created_at: tx.createdAt.toISOString(),
-      document_available: hasStoredServiceDocument(tx.metadata)
+      document_available: hasStoredServiceDocument(tx.metadata),
+      ...walletTransferSummary(tx.metadata)
     }))
   });
 });

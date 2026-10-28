@@ -294,6 +294,8 @@ export const api = {
   // key only for that same request payload.
   postSlip: <T>(path: string, body: unknown, idempotencyKey: string, timeoutMs = 45_000) =>
     request<T>(path, { method: 'POST', body, auth: true, timeoutMs, idempotencyKey }),
+  postIdempotent: <T>(path: string, body: unknown, idempotencyKey: string) =>
+    request<T>(path, { method: 'POST', body, auth: true, idempotencyKey }),
   newIdempotencyKey,
   // PDFs cannot use request() because that helper correctly expects a JSON
   // envelope. Keep the Authorization header here so documents are never put

@@ -38,6 +38,7 @@ import TinServicesPage from './pages/TinServicesPage';
 import SupportPage from './pages/SupportPage';
 import ServiceHistoryPage from './pages/ServiceHistoryPage';
 import WalletHistoryPage from './pages/WalletHistoryPage';
+import WalletTransferPage from './pages/WalletTransferPage';
 import SchoolWebsitePage from './pages/SchoolWebsitePage';
 import ChatWidget from './components/ChatWidget';
 
@@ -110,6 +111,7 @@ export default function App() {
           <Route path="/terms" element={<PrivacyRedirect page="terms" />} />
           <Route path="/fund-wallet" element={<ProtectedRoute><FundWalletPage /></ProtectedRoute>} />
           <Route path="/wallet-history" element={<ProtectedRoute><WalletHistoryPage /></ProtectedRoute>} />
+          <Route path="/wallet-transfer" element={<ProtectedRoute><WalletTransferPage /></ProtectedRoute>} />
           <Route path="/school-website" element={<ProtectedRoute><SchoolWebsitePage /></ProtectedRoute>} />
           <Route path="/deliveries" element={<ProtectedRoute><DeliveriesPage /></ProtectedRoute>} />
           <Route path="/receipt/:id" element={<ProtectedRoute><ReceiptPage /></ProtectedRoute>} />

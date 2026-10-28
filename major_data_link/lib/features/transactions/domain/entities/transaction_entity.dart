@@ -65,7 +65,9 @@ class TransactionEntity extends Equatable {
       amount: _toDouble(json['amount']),
       isCredit: json['is_credit'] == true ||
           json['type']?.toString() == 'fund' ||
-          json['type']?.toString() == 'referral',
+          json['type']?.toString() == 'referral' ||
+          (json['type']?.toString().toLowerCase() == 'wallet_transfer' &&
+              json['transfer_direction']?.toString().toLowerCase() == 'incoming'),
       date: DateTime.tryParse(json['created_at']?.toString() ?? '') ??
           DateTime.now(),
       reference: json['reference']?.toString(),
@@ -104,6 +106,7 @@ class TransactionEntity extends Equatable {
       case 'wallet_fund':
         return TxType.fund;
       case 'transfer':
+      case 'wallet_transfer':
         return TxType.transfer;
       case 'referral':
         return TxType.referral;
