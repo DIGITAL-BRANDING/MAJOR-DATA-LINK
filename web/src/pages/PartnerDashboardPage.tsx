@@ -642,7 +642,7 @@ export default function PartnerDashboardPage() {
 
         <PartnerQuickLinks onLogout={logout} />
 
-        {showView('overview') && <section id="overview" className="relative isolate scroll-mt-24 overflow-hidden rounded-3xl bg-gradient-to-br from-slate-950 via-blue-950 to-brand-800 p-5 text-white shadow-xl shadow-blue-950/10 sm:p-8">
+        {showView('overview') && <section id="overview" className="relative isolate scroll-mt-24 overflow-hidden rounded-3xl bg-slate-950 bg-gradient-to-br from-slate-950 via-blue-950 to-brand-800 p-5 text-white shadow-xl shadow-blue-950/10 sm:p-8" style={{ backgroundColor: '#020617' }}>
           <div className="pointer-events-none absolute -right-20 -top-28 -z-10 h-72 w-72 rounded-full bg-cyan-400/15 blur-3xl" />
           <div className="pointer-events-none absolute -bottom-36 left-1/3 -z-10 h-64 w-64 rounded-full bg-blue-400/15 blur-3xl" />
           <div className="flex flex-col gap-7 sm:flex-row sm:items-end sm:justify-between">

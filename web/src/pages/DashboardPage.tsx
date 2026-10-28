@@ -204,7 +204,10 @@ export default function DashboardPage() {
       </h1>
 
       {/* Balance card */}
-      <div className="relative mt-5 overflow-hidden rounded-3xl bg-gradient-to-br from-[#09295f] via-[#0a397e] to-[#061d47] p-5 text-white shadow-xl shadow-blue-950/25 sm:p-6">
+      <div
+        className="relative mt-5 overflow-hidden rounded-3xl bg-[#09295f] bg-gradient-to-br from-[#09295f] via-[#0a397e] to-[#061d47] p-5 text-white shadow-xl shadow-blue-950/25 sm:p-6"
+        style={{ backgroundColor: '#09295f' }}
+      >
         <div className="pointer-events-none absolute -right-16 -top-20 h-56 w-56 rounded-full bg-white/5" />
         <div className="relative">
           <div className="flex items-start justify-between gap-3">
