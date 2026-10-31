@@ -4,6 +4,7 @@ import { koboToNaira, nairaToKobo } from '../lib/money.js';
 import { prisma } from '../lib/prisma.js';
 import { ApiError } from '../middleware/error.js';
 import { resolvePartnerServicePrice } from './partner-service-pricing.service.js';
+import { emailAdminsForManualRequest, isManualRequestSubmission } from './manual-request-admin-email.service.js';
 
 export async function debitPartnerWallet(input: {
   partnerId: string;
@@ -44,7 +45,7 @@ export async function debitPartnerWallet(input: {
     ...(typeof metadata.unit_price === 'number' ? { unit_price: chargedAmount } : {}),
     ...(priceService ? { pricing_service: priceService } : {})
   } as Prisma.InputJsonValue;
-  return prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     const replay = await tx.partnerTransaction.findUnique({
       where: { partnerId_idempotencyKey: { partnerId: input.partnerId, idempotencyKey: input.idempotencyKey } }
     });
@@ -73,6 +74,11 @@ export async function debitPartnerWallet(input: {
     });
     return { transaction, reused: false };
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  if (!result.reused && isManualRequestSubmission({ type: result.transaction.type, provider: result.transaction.provider, metadata: result.transaction.metadata })) {
+    void emailAdminsForManualRequest({ source: 'Partner', reference: result.transaction.reference, type: result.transaction.type,
+      description: result.transaction.description, createdAt: result.transaction.createdAt });
+  }
+  return result;
 }
 
 export async function completePartnerPurchase(
@@ -84,16 +90,26 @@ export async function completePartnerPurchase(
    * every success path (data/airtime purchase, verification slip, async
    * ticket resolution) keeps it accurate with a single call site, instead
    * of each caller needing to remember to do it separately. */
-  costKobo?: bigint
+  costKobo?: bigint,
+  fulfillment?: Record<string, unknown>,
+  statusMetadata?: Record<string, unknown>
 ) {
-  const transaction = await prisma.partnerTransaction.update({
-    where: { id: transactionId },
-    data: {
-      status: TransactionStatus.SUCCESS,
-      provider,
-      providerRef: providerRef ?? null,
-      ...(costKobo !== undefined ? { costKobo } : {})
-    }
+  const transaction = await prisma.$transaction(async (tx) => {
+    const current = await tx.partnerTransaction.findUniqueOrThrow({ where: { id: transactionId } });
+    const existingMetadata = (current.metadata as Record<string, unknown> | null) ?? {};
+    const updated = await tx.partnerTransaction.update({
+      where: { id: transactionId },
+      data: {
+        status: TransactionStatus.SUCCESS,
+        provider,
+        providerRef: providerRef ?? null,
+        metadata: { ...existingMetadata, ...(statusMetadata ?? {}), ...(fulfillment ? { fulfillment } : {}), delivery_state: 'queued' } as Prisma.InputJsonValue,
+        ...(costKobo !== undefined ? { costKobo } : {})
+      }
+    });
+    const { enqueuePartnerTransactionWebhook } = await import('./partner-webhook.service.js');
+    await enqueuePartnerTransactionWebhook(updated, tx);
+    return updated;
   });
   if (costKobo !== undefined && costKobo > 0n) {
     const { recordProviderDebit } = await import('./provider-ledger.service.js');
@@ -104,9 +120,12 @@ export async function completePartnerPurchase(
       description: `${transaction.description} (partner API)`
     }).catch((error) => console.error('[provider-ledger] failed to record debit for', transaction.id, error));
   }
-  void import('./partner-webhook.service.js').then(({ enqueuePartnerTransactionWebhook, deliverDuePartnerWebhooks }) =>
-    enqueuePartnerTransactionWebhook(transaction).then(() => deliverDuePartnerWebhooks(1)).catch((error) => console.error('[partner-webhooks] could not queue success event', error))
-  );
+  try {
+    const { deliverDuePartnerWebhooks } = await import('./partner-webhook.service.js');
+    void deliverDuePartnerWebhooks(1).catch((error) => console.error('[partner-webhooks] delivery attempt failed', error));
+  } catch (error) {
+    console.error('[partner-webhooks] could not queue success event', error);
+  }
   return transaction;
 }
 
@@ -121,10 +140,12 @@ export async function reversePartnerPurchase(transactionId: string, message: str
     // REFUND entry. The partner's transaction-history endpoint can then
     // explain exactly why a request failed without exposing provider raw data.
     const existingMetadata = (original.metadata as Record<string, unknown> | null) ?? {};
-    await tx.partnerTransaction.update({ where: { id: original.id }, data: {
+    const reversed = await tx.partnerTransaction.update({ where: { id: original.id }, data: {
       status: TransactionStatus.REVERSED,
       metadata: { ...existingMetadata, failure_reason: message, failed_at: new Date().toISOString() } as Prisma.InputJsonValue
     } });
+    const { enqueuePartnerTransactionWebhook } = await import('./partner-webhook.service.js');
+    await enqueuePartnerTransactionWebhook(reversed, tx);
     await tx.partnerTransaction.create({
       data: {
         partnerId: original.partnerId,
@@ -146,9 +167,12 @@ export async function reversePartnerPurchase(transactionId: string, message: str
       metadata: { ...existingMetadata, failure_reason: message }
     };
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
-  void import('./partner-webhook.service.js').then(({ enqueuePartnerTransactionWebhook, deliverDuePartnerWebhooks }) =>
-    enqueuePartnerTransactionWebhook(transaction).then(() => deliverDuePartnerWebhooks(1)).catch((error) => console.error('[partner-webhooks] could not queue reversal event', error))
-  );
+  try {
+    const { deliverDuePartnerWebhooks } = await import('./partner-webhook.service.js');
+    void deliverDuePartnerWebhooks(1).catch((error) => console.error('[partner-webhooks] reversal delivery attempt failed', error));
+  } catch (error) {
+    console.error('[partner-webhooks] could not queue reversal event', error);
+  }
   return transaction;
 }
 

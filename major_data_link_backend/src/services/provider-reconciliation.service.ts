@@ -1,11 +1,14 @@
 import { Prisma, TransactionStatus } from '@prisma/client';
 import { ApiError } from '../middleware/error.js';
 import { koboToNaira } from '../lib/money.js';
+import { mergeSealedPII } from '../lib/pii.js';
 import { prisma } from '../lib/prisma.js';
 import { refundWallet } from './wallet.service.js';
 import { recordProviderDebit } from './provider-ledger.service.js';
 import { awardReferralCommission } from './referral.service.js';
 import { notifyUser } from './notification.service.js';
+import { nanoid } from 'nanoid';
+import { enqueueUserNotificationDelivery } from './notification-delivery.service.js';
 
 /**
  * Handles any provider's ambiguous "in progress" response status - not a
@@ -140,17 +143,18 @@ export async function resolveReconciliationAsSuccess(params: {
   // re-guessing, since it's the provider that actually returned "pending".
   const resolvedProvider = transaction.provider ?? 'unknown';
 
-  const updated = await prisma.transaction.update({
-    where: { id: transaction.id },
-    data: {
+  const updated = await prisma.$transaction(async (tx) => {
+    const saved = await tx.transaction.update({
+      where: { id: transaction.id },
+      data: {
       status: TransactionStatus.SUCCESS,
       provider: resolvedProvider,
       providerRef: params.providerRef ?? transaction.providerRef,
       ...(finalCostKobo !== undefined ? { costKobo: finalCostKobo } : {}),
       metadata: {
         ...existingMetadata,
-        ...(params.pin ? { pin: params.pin } : {}),
-        ...(params.serial ? { serial: params.serial } : {}),
+        fulfillment: { state: 'complete', reconciledAt: new Date().toISOString(), ...(params.note ? { note: params.note } : {}) },
+        ...(params.pin || params.serial ? { pii: mergeSealedPII(existingMetadata.pii, { ...(params.pin ? { pin: params.pin } : {}), ...(params.serial ? { serial: params.serial } : {}) }) } : {}),
         reconciliation: {
           ...((existingMetadata.reconciliation as Record<string, unknown> | undefined) ?? {}),
           resolvedAt: new Date().toISOString(),
@@ -159,7 +163,14 @@ export async function resolveReconciliationAsSuccess(params: {
           note: params.note ?? null
         }
       } as Prisma.InputJsonValue
-    }
+      }
+    });
+    const notification = await tx.notification.upsert({ where: { dedupeKey: `verification:${transaction.id}:success` }, create: {
+      id: nanoid(), userId: transaction.userId, type: 'TRANSACTION', title: 'Transaction confirmed', body: `${transaction.description} has been confirmed successful.`,
+      data: { transactionId: transaction.id, reference: transaction.reference }, dedupeKey: `verification:${transaction.id}:success`
+    }, update: {} });
+    await enqueueUserNotificationDelivery(tx, notification.id);
+    return saved;
   });
 
   if (finalCostKobo !== undefined && finalCostKobo > 0n) {
@@ -177,14 +188,6 @@ export async function resolveReconciliationAsSuccess(params: {
     purchaseAmountKobo: transaction.amountKobo,
     sourceTransactionId: transaction.id
   }).catch((error) => console.error('[referral] failed to award commission for', transaction.id, error));
-
-  await notifyUser({
-    userId: transaction.userId,
-    type: 'TRANSACTION',
-    title: 'Transaction confirmed',
-    body: `${transaction.description} has been confirmed successful.`,
-    data: { transactionId: transaction.id, reference: transaction.reference }
-  }).catch((error) => console.error('[notification] failed to notify user for', transaction.id, error));
 
   return { transaction: updated, alreadyResolved: false as const };
 }
@@ -232,6 +235,12 @@ export async function resolveReconciliationAsFailed(params: { transactionId: str
     reason: params.reason,
     initiatedByAdminId: params.adminId
   });
+  await notifyUser({
+    userId: transaction.userId, type: 'TRANSACTION', title: 'Transaction failed and was refunded',
+    body: `${transaction.description} has been confirmed as unsuccessful and refunded.`,
+    data: { transactionId: transaction.id, reference: transaction.reference, status: 'reversed' },
+    dedupeKey: `verification:${transaction.id}:failure`
+  }).catch((error) => console.error('[notification] failed to notify user for', transaction.id, error));
 
   return { transaction: refunded, alreadyResolved: false as const, balanceAfter: koboToNaira(refunded.balanceAfterKobo) };
 }

@@ -1,7 +1,7 @@
 import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
-import { PartnerWebhookDeliveryStatus, TransactionStatus, TransactionType, type PartnerTransaction } from '@prisma/client';
+import { PartnerWebhookDeliveryStatus, Prisma, TransactionStatus, TransactionType, type PartnerTransaction } from '@prisma/client';
 import { koboToNaira } from '../lib/money.js';
 import { openPII, sealPII, type SealedPII } from '../lib/pii.js';
 import { prisma } from '../lib/prisma.js';
@@ -108,10 +108,19 @@ function payloadFor(tx: PartnerTransaction, eventId: string) {
 }
 
 /** Writes a terminal transaction event into the transactional outbox. */
-export async function enqueuePartnerTransactionWebhook(tx: PartnerTransaction) {
+export async function enqueuePartnerTransactionWebhook(tx: PartnerTransaction, client?: Prisma.TransactionClient) {
   if (tx.status === TransactionStatus.PENDING || tx.status === TransactionStatus.PROCESSING) return;
+  const eventKey = `${tx.id}:${tx.status}`;
   const eventId = randomUUID();
-  await enqueuePartnerWebhookEvent(tx.partnerId, 'transaction.updated', `${tx.id}:${tx.status}`, payloadFor(tx, eventId), eventId);
+  const save = async (dbtx: Prisma.TransactionClient) => {
+    await enqueuePartnerWebhookEvent(tx.partnerId, 'transaction.updated', eventKey, payloadFor(tx, eventId), eventId, dbtx);
+    const current = await dbtx.partnerTransaction.findUniqueOrThrow({ where: { id: tx.id } });
+    await dbtx.partnerTransaction.update({ where: { id: tx.id }, data: {
+      metadata: { ...((current.metadata as Record<string, unknown> | null) ?? {}), delivery_state: 'queued', delivery_queued_at: new Date().toISOString() }
+    } });
+  };
+  if (!client) await prisma.$transaction(save);
+  else await save(client);
 }
 
 /** Queues an admin-authored progress message separately from terminal status
@@ -172,12 +181,12 @@ export async function resendPartnerTransactionWebhook(tx: PartnerTransaction, fa
   return prisma.partnerWebhookDelivery.findUnique({ where: { eventId } });
 }
 
-async function enqueuePartnerWebhookEvent(partnerId: string, event: string, eventKey: string, payload: object, eventId = randomUUID()) {
-  const partner = await prisma.partner.findUnique({ where: { id: partnerId }, select: { webhookUrl: true, webhookSecretEncrypted: true } });
+async function enqueuePartnerWebhookEvent(partnerId: string, event: string, eventKey: string, payload: object, eventId = randomUUID(), dbtx: Prisma.TransactionClient = prisma) {
+  const partner = await dbtx.partner.findUnique({ where: { id: partnerId }, select: { webhookUrl: true, webhookSecretEncrypted: true } });
   const secret = secretFromSealed(partner?.webhookSecretEncrypted);
   if (!partner?.webhookUrl || !secret) return;
   try {
-    await prisma.partnerWebhookDelivery.create({ data: {
+    await dbtx.partnerWebhookDelivery.create({ data: {
       partnerId, eventId, eventKey, event,
       payload, signingSecret: sealPII({ secret }), nextAttemptAt: new Date()
     }});
@@ -229,6 +238,23 @@ export async function retryFailedPartnerTransactionWebhooks(partnerId: string) {
   }
   if (requeued) await deliverDuePartnerWebhooks(Math.min(requeued, 25));
   return { requeued };
+}
+
+/** Repairs a crash between committing a terminal transaction and writing its webhook outbox event. */
+export async function queueMissingPartnerTransactionWebhooks(limit = 100) {
+  const rows = await prisma.partnerTransaction.findMany({
+    where: { status: { in: [TransactionStatus.SUCCESS, TransactionStatus.REVERSED] }, partner: { webhookUrl: { not: null } } },
+    orderBy: { updatedAt: 'asc' }, take: limit
+  });
+  let queued = 0;
+  for (const transaction of rows) {
+    const eventKey = `${transaction.id}:${transaction.status}`;
+    const existing = await prisma.partnerWebhookDelivery.findUnique({ where: { partnerId_eventKey: { partnerId: transaction.partnerId, eventKey } }, select: { id: true } });
+    if (existing) continue;
+    await enqueuePartnerTransactionWebhook(transaction);
+    queued += 1;
+  }
+  return queued;
 }
 
 /** Partner-initiated retry for a failed event, scoped to the authenticated partner. */
@@ -298,6 +324,7 @@ async function deliverOne(id: string) {
 
 /** Processes due work; safe to run on every application instance. */
 export async function deliverDuePartnerWebhooks(limit = 25) {
+  await queueMissingPartnerTransactionWebhooks(limit).catch((error) => console.error('[partner-webhooks] missing event recovery failed', error));
   // Recover a delivery abandoned by an instance restart after two minutes.
   await prisma.partnerWebhookDelivery.updateMany({ where: { status: PartnerWebhookDeliveryStatus.PROCESSING, lockedAt: { lt: new Date(Date.now() - 120_000) } }, data: { status: PartnerWebhookDeliveryStatus.PENDING, lockedAt: null, nextAttemptAt: new Date() } });
   const due = await prisma.partnerWebhookDelivery.findMany({ where: { status: PartnerWebhookDeliveryStatus.PENDING, nextAttemptAt: { lte: new Date() } }, orderBy: { nextAttemptAt: 'asc' }, take: limit, select: { id: true } });

@@ -23,6 +23,7 @@ import { partnerVerification } from '../services/partner-verification.service.js
 import { createPartnerDynamicFunding, partnerFundingResponse, partnerBvnFromBody, provisionPartnerVirtualAccount, verifyPartnerFunding } from '../services/partner-funding.service.js';
 import { configurePartnerWebhook, queuePartnerWebhookTest, webhookConfiguration } from '../services/partner-webhook.service.js';
 import { flagPartnerPendingReconciliation } from '../services/partner-reconciliation.service.js';
+import { notifyPartnerSafely } from '../services/notification.service.js';
 import { requirePartnerAccess } from '../services/partner-access.service.js';
 import {
   submitPartnerNinModification,
@@ -82,7 +83,18 @@ async function purchaseForPartner(input: {
     return { transaction: debit.transaction, message: 'Transaction already processed' };
   }
 
-  const upstream = await input.callProvider(debit.transaction.reference);
+  let upstream: NormalizedProviderResponse;
+  try { upstream = await input.callProvider(debit.transaction.reference); }
+  catch (error) {
+    const latest = await prisma.partnerTransaction.findUniqueOrThrow({ where: { id: debit.transaction.id } });
+    await flagPartnerPendingReconciliation({ transactionId: latest.id, provider: input.provider, providerRef: debit.transaction.reference,
+      providerMessage: error instanceof Error ? error.message : 'Provider response could not be confirmed',
+      userMessage: `${input.description} is awaiting provider confirmation. It will not be submitted again.` });
+    await prisma.partnerTransaction.update({ where: { id: latest.id }, data: { metadata: {
+      ...((latest.metadata as Record<string, unknown> | null) ?? {}), provider_outcome: 'unconfirmed'
+    } as Prisma.InputJsonValue } });
+    return { transaction: latest, message: 'Transaction is pending confirmation' };
+  }
   if (upstream.status) {
     // For data/airtime the partner is already charged our exact wholesale
     // cost with no markup (see PARTNER_API_DOCUMENTATION.md's pricing
@@ -90,7 +102,9 @@ async function purchaseForPartner(input: {
     // response reveals a more precise figure (upstream.costKobo, from a
     // balance-delta - see bilalsadasub.service.ts/provider.service.ts).
     const finalCostKobo = upstream.costKobo ?? nairaToKobo(input.amount);
-    const transaction = await completePartnerPurchase(debit.transaction.id, input.provider, upstream.providerRef, finalCostKobo);
+    const transaction = await completePartnerPurchase(debit.transaction.id, input.provider, upstream.providerRef, finalCostKobo,
+      { state: 'complete', message: upstream.message ?? 'Transaction processed', raw: upstream.raw ?? null, recordedAt: new Date().toISOString() });
+    await notifyPartnerSafely({ partnerId: input.partnerId, type: 'TRANSACTION', title: 'Purchase completed', body: `${transaction.description} (${transaction.reference}) was completed successfully.`, data: { reference: transaction.reference, status: 'success' }, dedupeKey: `purchase:${transaction.id}:success` });
     return { transaction, message: upstream.message ?? 'Transaction processed' };
   }
   if (upstream.pending) {
@@ -105,12 +119,19 @@ async function purchaseForPartner(input: {
     await flagPartnerPendingReconciliation({
       transactionId: debit.transaction.id,
       provider: input.provider,
-      providerRef: upstream.providerRef,
-      providerMessage: upstream.message
+      providerRef: upstream.providerRef ?? debit.transaction.reference,
+      providerMessage: upstream.message,
+      rawStatus: upstream.raw ?? null
     });
     return { transaction: debit.transaction, message: upstream.message ?? 'Transaction is pending confirmation' };
   }
+  await prisma.partnerTransaction.update({ where: { id: debit.transaction.id }, data: {
+    metadata: { ...((debit.transaction.metadata as Record<string, unknown> | null) ?? {}),
+      fulfillment: { state: 'failed', message: upstream.message ?? 'Provider rejected transaction', raw: upstream.raw ?? null, recordedAt: new Date().toISOString() }
+    } as Prisma.InputJsonValue
+  } });
   const transaction = await reversePartnerPurchase(debit.transaction.id, upstream.message ?? 'Provider rejected transaction');
+  await notifyPartnerSafely({ partnerId: input.partnerId, type: 'TRANSACTION', title: 'Purchase failed and was refunded', body: `${transaction.description} (${transaction.reference}) failed. The wallet has been refunded.`, data: { reference: transaction.reference, status: 'reversed' }, dedupeKey: `purchase:${transaction.id}:failure` });
   return { transaction, message: upstream.message ?? 'Transaction failed and was refunded' };
 }
 
@@ -560,7 +581,7 @@ partnerApiRoutes.get('/identity/requests/:reference', async (req, res) => {
     orderBy: { createdAt: 'asc' },
     select: { id: true, message: true, createdAt: true }
   });
-  const { pdf_base64, submission_pdf_base64, delivered_file_base64, delivered_file_name, delivered_file_mime, admin_note, ...rest } = pii as Record<string, unknown>;
+  const { pdf_base64, submission_pdf_base64, delivered_file_base64, delivered_file_name, delivered_file_mime, admin_note, provider_raw_response, submit_raw, check_raw, ...rest } = pii as Record<string, unknown>;
   res.set('Cache-Control', 'no-store');
   res.json({
     status: true,
@@ -575,6 +596,7 @@ partnerApiRoutes.get('/identity/requests/:reference', async (req, res) => {
       delivered_file_name: (delivered_file_name as string | undefined) ?? null,
       delivered_file_mime: (delivered_file_mime as string | undefined) ?? null,
       admin_note: (admin_note as string | undefined) ?? null,
+      result: pii.response ?? pii.user_data ?? null,
       updates: updates.map((update) => ({ id: update.id, message: update.message, created_at: update.createdAt.toISOString() })),
       details: rest
     }

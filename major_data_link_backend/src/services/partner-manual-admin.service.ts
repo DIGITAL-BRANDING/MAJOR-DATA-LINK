@@ -73,12 +73,13 @@ export async function completePartnerManualRequest(params: {
   }
 
   const existingMetadata = (transaction.metadata as Record<string, unknown> | null) ?? {};
+  let completionMetadata: Record<string, unknown> | undefined;
   if (params.fileBase64 || params.note) {
     const sealed = mergeSealedPII(existingMetadata.pii, {
       ...(params.fileBase64 ? { delivered_file_base64: params.fileBase64, delivered_file_name: params.fileName ?? 'document', delivered_file_mime: params.fileMime ?? 'application/octet-stream' } : {}),
       ...(params.note ? { admin_note: params.note } : {})
     });
-    await prisma.partnerTransaction.update({ where: { id: transaction.id }, data: { metadata: { ...existingMetadata, pii: sealed } as Prisma.InputJsonValue } });
+    completionMetadata = { pii: sealed };
   }
 
   // No real upstream provider for any of these - 'manual' plus whatever
@@ -88,7 +89,7 @@ export async function completePartnerManualRequest(params: {
   // recorded once, here.
   // Retain the MANUAL-* ticket issued at submission so the partner's
   // completion webhook and subsequent status checks can identify this row.
-  await completePartnerPurchase(transaction.id, 'manual', transaction.providerRef ?? undefined, transaction.costKobo ?? undefined);
+  await completePartnerPurchase(transaction.id, 'manual', transaction.providerRef ?? undefined, transaction.costKobo ?? undefined, undefined, completionMetadata);
   notifyPartnerSafely({
     partnerId: transaction.partnerId,
     type: 'TRANSACTION',

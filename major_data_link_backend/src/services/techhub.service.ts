@@ -82,6 +82,7 @@ type TechhubAsyncStatusResponse = {
 
 export type TechhubSlipResult = {
   ok: boolean;
+  providerRef?: string;
   /** The provider may have charged/accepted the lookup, but we could not
    * establish its result. Callers must retain the debit for reconciliation. */
   pending?: boolean;
@@ -161,6 +162,8 @@ function hasPersonalInfoFields(fields: IdentitySlipField[]) {
 
 export type TechhubAsyncSubmitResult = {
   ok: boolean;
+  /** The provider accepted the request but did not return a pollable ticket. */
+  pending?: boolean;
   /** The provider accepted the paid request but did not return a pollable ticket. */
   accepted?: boolean;
   ticketId?: string;

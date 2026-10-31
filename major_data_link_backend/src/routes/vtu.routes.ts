@@ -1,4 +1,5 @@
 import { Router, type Request } from 'express';
+import { nanoid } from 'nanoid';
 import { Prisma, TransactionStatus, TransactionType } from '@prisma/client';
 import { z } from 'zod';
 import { koboToNaira } from '../lib/money.js';
@@ -14,6 +15,7 @@ import { recordProviderDebit } from '../services/provider-ledger.service.js';
 import { awardReferralCommission } from '../services/referral.service.js';
 import { flagPendingReconciliation } from '../services/provider-reconciliation.service.js';
 import { requireServiceActive } from '../lib/service-status.js';
+import { enqueueUserNotificationDelivery } from '../services/notification-delivery.service.js';
 
 export const vtuRoutes = Router();
 
@@ -100,22 +102,37 @@ export async function processProviderPurchase(params: {
     };
   }
 
-  const provider = await params.callProvider(debit.reference);
+  let provider: NormalizedProviderResponse;
+  try { provider = await params.callProvider(debit.reference); }
+  catch (error) {
+    const metadata = (debit.transaction.metadata as Record<string, unknown> | null) ?? {};
+    await prisma.transaction.update({ where: { id: debit.transaction.id }, data: {
+      provider: params.provider, providerRef: debit.reference,
+      metadata: { ...metadata, provider_outcome: 'unconfirmed', reconciliation: { flaggedAt: new Date().toISOString(), providerMessage: error instanceof Error ? error.message : 'Provider response could not be confirmed', rawStatus: null } } as Prisma.InputJsonValue
+    } });
+    await flagPendingReconciliation({ transactionId: debit.transaction.id, provider: params.provider, providerRef: debit.reference, providerMessage: 'Provider response could not be confirmed' });
+    return { status: false as const, pending: true, message: 'Your request is awaiting provider confirmation. It will not be submitted again.', reference: debit.reference, balanceAfter: debit.balanceAfter };
+  }
 
   if (provider.status) {    const finalCostKobo = provider.costKobo ?? params.costKobo;
 
-    await prisma.transaction.update({
-      where: { id: debit.transaction.id },
-      data: {
+    await prisma.$transaction(async (tx) => {
+      const current = await tx.transaction.findUniqueOrThrow({ where: { id: debit.transaction.id } });
+      const metadata = (current.metadata as Record<string, unknown> | null) ?? {};
+      const updated = await tx.transaction.update({ where: { id: current.id }, data: {
         status: TransactionStatus.SUCCESS,
         provider: params.provider,
         providerRef: provider.providerRef ?? null,
-        // The provider's own reported balance delta, when present, is more
-        // accurate than the config-based estimate debitWallet() stored above
-        // (it's what we were ACTUALLY charged, this one time) - overwrite
-        // with it. Otherwise leave the estimate (or null) as-is.
+        metadata: { ...metadata, fulfillment: { state: 'complete', message: provider.message ?? 'Transaction processed', raw: provider.raw ?? null, recordedAt: new Date().toISOString() } } as Prisma.InputJsonValue,
         ...(provider.costKobo !== undefined ? { costKobo: provider.costKobo } : {})
-      }
+      } });
+      const notification = await tx.notification.upsert({
+        where: { dedupeKey: `purchase:${current.id}:success` },
+        create: { id: nanoid(), userId: current.userId, type: 'TRANSACTION', title: `${current.description} completed`, body: provider.message ?? `Your purchase is complete. Reference: ${current.reference}`, data: { transactionId: current.id, reference: current.reference, status: 'success' }, dedupeKey: `purchase:${current.id}:success` },
+        update: {}
+      });
+      await enqueueUserNotificationDelivery(tx, notification.id);
+      return updated;
     });
 
     // Best-effort - never blocks a successful purchase response. Only
@@ -159,8 +176,9 @@ export async function processProviderPurchase(params: {
     await flagPendingReconciliation({
       transactionId: debit.transaction.id,
       provider: params.provider,
-      providerRef: provider.providerRef,
-      providerMessage: provider.message
+      providerRef: provider.providerRef ?? debit.reference,
+      providerMessage: provider.message,
+      rawStatus: provider.raw ?? null
     });
     return {
       status: false as const,
@@ -176,14 +194,24 @@ export async function processProviderPurchase(params: {
     data: {
       status: TransactionStatus.FAILED,
       provider: params.provider,
-      providerRef: provider.providerRef ?? null
+      providerRef: provider.providerRef ?? null,
+      metadata: { ...((debit.transaction.metadata as Record<string, unknown> | null) ?? {}),
+        fulfillment: { state: 'failed', message: provider.message ?? 'Provider rejected transaction', raw: provider.raw ?? null, recordedAt: new Date().toISOString() }
+      } as Prisma.InputJsonValue
     }
   });
   const refunded = await refundWallet({ transactionId: debit.transaction.id, userId: params.userId });
+  const failure = provider.message ?? 'Transaction failed and was refunded';
+  const notification = await prisma.notification.upsert({
+    where: { dedupeKey: `purchase:${debit.transaction.id}:failure` },
+    create: { id: nanoid(), userId: params.userId, type: 'TRANSACTION', title: 'Purchase failed and was refunded', body: `${failure} Reference: ${debit.reference}`, data: { transactionId: debit.transaction.id, reference: debit.reference, status: 'reversed' }, dedupeKey: `purchase:${debit.transaction.id}:failure` },
+    update: {}
+  });
+  await prisma.notificationDelivery.upsert({ where: { notificationId: notification.id }, create: { id: nanoid(), notificationId: notification.id }, update: {} });
 
   return {
     status: false as const,
-    message: provider.message ?? 'Transaction failed and was refunded',
+    message: failure,
     reference: debit.reference,
     balanceAfter: koboToNaira(refunded.balanceAfterKobo)
   };

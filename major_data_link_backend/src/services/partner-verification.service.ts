@@ -62,15 +62,52 @@ async function submitPartnerAsync(params: {
   });
   if (debit.reused) {
     const ticketId = debit.transaction.providerRef;
-    if (ticketId) return { reference: debit.transaction.reference, ticketId, balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo), status: 'pending' };
+    if (ticketId && (debit.transaction.provider === 'manual' || (debit.transaction.metadata as Record<string, unknown> | null)?.provider_outcome !== 'unconfirmed')) return { reference: debit.transaction.reference, ticketId, balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo), status: 'pending' };
     // A previously rejected request has already been refunded. Never call the
     // upstream again with this same idempotency key; require a new order key.
     if (debit.transaction.status !== TransactionStatus.PENDING) {
       throw new ApiError(409, 'This idempotency key was already processed. Use a new Idempotency-Key for another request.', 'IDEMPOTENCY_KEY_REUSED');
     }
   }
-  const result = await call();
+  let result: Awaited<ReturnType<NonNullable<typeof call>>>;
+  const alreadySubmitted = debit.reused && debit.transaction.status === TransactionStatus.PENDING;
+  if (alreadySubmitted) {
+    const latest = await prisma.partnerTransaction.findUniqueOrThrow({ where: { id: debit.transaction.id } });
+    const previous = (latest.metadata as Record<string, unknown> | null) ?? {};
+    if (previous.provider_outcome === 'unconfirmed') {
+      return { reference: debit.transaction.reference, ticketId: latest.providerRef ?? `RECONCILE-${debit.transaction.reference}`, balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo), status: 'pending' };
+    }
+    await flagPartnerPendingReconciliation({ transactionId: latest.id, provider: price.provider, providerRef: `RECONCILE-${debit.transaction.reference}`, providerMessage: 'Previous submission outcome is unknown; request was not resubmitted.' });
+    await prisma.partnerTransaction.update({ where: { id: latest.id }, data: { metadata: { ...previous, provider_outcome: 'unconfirmed' } as Prisma.InputJsonValue } });
+    return { reference: debit.transaction.reference, ticketId: `RECONCILE-${debit.transaction.reference}`, balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo), status: 'pending' };
+  }
+  try {
+    result = await call();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Provider response could not be confirmed';
+    const latest = await prisma.partnerTransaction.findUniqueOrThrow({ where: { id: debit.transaction.id } });
+    await flagPartnerPendingReconciliation({ transactionId: latest.id, provider: price.provider, providerRef: `RECONCILE-${debit.transaction.reference}`, providerMessage: message, userMessage: `${params.description} is awaiting provider confirmation. It will not be submitted again.` });
+    await prisma.partnerTransaction.update({ where: { id: latest.id }, data: { metadata: {
+      ...((latest.metadata as Record<string, unknown> | null) ?? {}), provider_outcome: 'unconfirmed', provider_error: message
+    } as Prisma.InputJsonValue } });
+    return { reference: debit.transaction.reference, ticketId: debit.transaction.providerRef ?? `RECONCILE-${debit.transaction.reference}`, balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo), status: 'pending' };
+  }
+  if (result.ok && !result.ticketId) {
+    const latest = await prisma.partnerTransaction.findUniqueOrThrow({ where: { id: debit.transaction.id } });
+    const message = 'Provider accepted the request but did not return a ticket ID';
+    await flagPartnerPendingReconciliation({ transactionId: latest.id, provider: price.provider, providerRef: `RECONCILE-${debit.transaction.reference}`, providerMessage: message, rawStatus: result.raw, userMessage: `${params.description} is awaiting provider confirmation. It will not be submitted again.` });
+    await prisma.partnerTransaction.update({ where: { id: latest.id }, data: {
+      metadata: { ...((latest.metadata as Record<string, unknown> | null) ?? {}), provider_outcome: 'unconfirmed', pii: mergeSealedPII((latest.metadata as Record<string, unknown> | null)?.pii, { submit_raw: result.raw }) } as Prisma.InputJsonValue } });
+    return { reference: debit.transaction.reference, ticketId: `RECONCILE-${debit.transaction.reference}`, balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo), status: 'pending' };
+  }
   if (!result.ok || !result.ticketId) {
+    if (result.pending) {
+      const latest = await prisma.partnerTransaction.findUniqueOrThrow({ where: { id: debit.transaction.id } });
+      await flagPartnerPendingReconciliation({ transactionId: latest.id, provider: price.provider, providerRef: `RECONCILE-${debit.transaction.reference}`, providerMessage: result.message, rawStatus: result.raw, userMessage: `${params.description} is awaiting provider confirmation. It will not be submitted again.` });
+      await prisma.partnerTransaction.update({ where: { id: latest.id }, data: {
+        metadata: { ...((latest.metadata as Record<string, unknown> | null) ?? {}), provider_outcome: 'unconfirmed', pii: mergeSealedPII((latest.metadata as Record<string, unknown> | null)?.pii, { submit_raw: result.raw }) } as Prisma.InputJsonValue } });
+      return { reference: debit.transaction.reference, ticketId: `RECONCILE-${debit.transaction.reference}`, balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo), status: 'pending' };
+    }
     await reversePartnerPurchase(debit.transaction.id, result.message);
     throw new ApiError(502, result.message || 'Verification provider could not accept this request', 'TECHHUB_SUBMIT_FAILED');
   }
@@ -100,6 +137,7 @@ async function checkPartnerAsync(params: {
       status: transaction.status === TransactionStatus.SUCCESS ? 'success' : 'failed', response: stored?.response ?? null };
   }
   if (transaction.provider === 'manual') return { reference: transaction.reference, ticketId: params.ticketId, status: 'pending', response: null };
+  if (metadata.provider_outcome === 'unconfirmed') return { reference: transaction.reference, ticketId: params.ticketId, status: 'pending', response: null };
   const call = params.callByProvider[transaction.provider as VerificationProvider];
   if (!call) throw new ApiError(500, `No status-check implementation for provider "${transaction.provider}"`, 'PROVIDER_NOT_IMPLEMENTED');
   const isFranceVerified = transaction.provider === 'franceverified';
@@ -130,11 +168,11 @@ async function checkPartnerAsync(params: {
     }
     const nextMetadata = { ...checkedMetadata, pii: mergeSealedPII(metadata.pii, { response: result.response, check_raw: result.raw }) } as Prisma.InputJsonValue;
     if (result.status === 'success') {
-      await prisma.partnerTransaction.update({ where: { id: transaction.id }, data: { metadata: nextMetadata } });
       // transaction.costKobo was captured at submit time in submitPartnerAsync()
       // above (Techhub's actual cost, not the partner's unit_price) - reuse it
       // rather than re-deriving.
-      await completePartnerPurchase(transaction.id, transaction.provider ?? 'techhub', transaction.providerRef ?? undefined, transaction.costKobo ?? undefined);
+      await completePartnerPurchase(transaction.id, transaction.provider ?? 'techhub', transaction.providerRef ?? undefined, transaction.costKobo ?? undefined,
+        undefined, { pii: mergeSealedPII(metadata.pii, { response: result.response, check_raw: result.raw }), service: metadata.service, result: result.response, provider_raw_response: result.raw });
       return { reference: transaction.reference, ticketId: result.ticketId, status: 'success', response: result.response };
     }
     await prisma.partnerTransaction.update({ where: { id: transaction.id }, data: { metadata: nextMetadata } });
@@ -159,6 +197,7 @@ export async function reconcilePendingPartnerVerificationTickets(limit = 5) {
       provider: { in: ['techhub', 'franceverified'] },
       type: TransactionType.IDENTITY_SERVICE_REQUEST,
       providerRef: { not: null },
+      NOT: { metadata: { path: ['provider_outcome'], equals: 'unconfirmed' } },
       OR: [
         { provider: 'franceverified', updatedAt: { lte: new Date(now - FRANCEVERIFIED_STATUS_POLL_INTERVAL_MS) } },
         { provider: 'techhub', updatedAt: { lte: new Date(now - TECHHUB_STATUS_POLL_INTERVAL_MS) } }
@@ -223,8 +262,16 @@ export async function purchasePartnerSlip(params: {
   if (debit.reused && debit.transaction.status === TransactionStatus.PENDING) {
     // A previous call may have reached Techhub even if our server lost the
     // response. Never submit the same paid request upstream a second time.
-    return { status: 'pending', message: 'Request is awaiting provider status reconciliation.', reference: debit.transaction.reference,
+    const previous = (debit.transaction.metadata as Record<string, unknown> | null) ?? {};
+    if (debit.transaction.providerRef && (debit.transaction.provider === 'manual' || previous.provider_outcome !== 'unconfirmed')) return { status: 'pending', message: 'Request is awaiting provider status.', reference: debit.transaction.reference,
       balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo) };
+    if (previous.provider_outcome === 'unconfirmed') return { status: 'pending', message: 'Request is awaiting provider confirmation.', reference: debit.transaction.reference,
+      balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo) };
+    const ticketId = `RECONCILE-${debit.transaction.reference}`;
+    await flagPartnerPendingReconciliation({ transactionId: debit.transaction.id, provider: price.provider, providerRef: ticketId,
+      providerMessage: 'Previous submission outcome is unknown; request was not submitted again.', userMessage: `${params.description} is awaiting provider confirmation. It will not be submitted again.` });
+    await prisma.partnerTransaction.update({ where: { id: debit.transaction.id }, data: { metadata: { ...previous, provider_outcome: 'unconfirmed' } as Prisma.InputJsonValue } });
+    return { status: 'pending', message: 'Request is awaiting provider confirmation.', reference: debit.transaction.reference, balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo) };
   }
   if (debit.reused && debit.transaction.status !== TransactionStatus.PENDING) {
     const metadata = debit.transaction.metadata as Record<string, unknown> | null;
@@ -232,30 +279,41 @@ export async function purchasePartnerSlip(params: {
     return { status: debit.transaction.status === TransactionStatus.SUCCESS, message: 'Transaction already processed', reference: debit.transaction.reference,
       balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo), userData: pii?.user_data, pdfBase64: pii?.pdf_base64, pdfUrl: pii?.pdf_url };
   }
-  const provider = await call();
+  let provider: Awaited<ReturnType<typeof call>>;
+  try { provider = await call(); }
+  catch (error) {
+    const current = await prisma.partnerTransaction.findUniqueOrThrow({ where: { id: debit.transaction.id } });
+    const ticketId = `RECONCILE-${debit.transaction.reference}`;
+    await flagPartnerPendingReconciliation({ transactionId: current.id, provider: price.provider, providerRef: ticketId,
+      providerMessage: error instanceof Error ? error.message : 'Provider response could not be confirmed',
+      userMessage: `${params.description} is awaiting provider confirmation. It will not be submitted again.` });
+    await prisma.partnerTransaction.update({ where: { id: current.id }, data: { metadata: {
+      ...((current.metadata as Record<string, unknown> | null) ?? {}), provider_outcome: 'unconfirmed'
+    } as Prisma.InputJsonValue } });
+    return { status: 'pending', message: 'Request is awaiting provider confirmation.', reference: debit.transaction.reference, balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo) };
+  }
   if (!provider.ok) {
     if (provider.pending) {
       const current = debit.transaction.metadata as Record<string, unknown> | null;
       await prisma.partnerTransaction.update({ where: { id: debit.transaction.id }, data: {
         provider: price.provider,
         metadata: { service: params.service, ...params.operational, unit_price: koboToNaira(debit.transaction.amountKobo),
-          provider_outcome: 'unconfirmed', pii: mergeSealedPII(current?.pii, { ...params.pii, submit_raw: provider.raw }) } as Prisma.InputJsonValue
+        provider_outcome: 'unconfirmed', reconciliation: { flaggedAt: new Date().toISOString(), providerMessage: provider.message, rawStatus: provider.raw },
+        pii: mergeSealedPII(current?.pii, { ...params.pii, submit_raw: provider.raw }) } as Prisma.InputJsonValue
       }});
       await flagPartnerPendingReconciliation({ transactionId: debit.transaction.id, provider: price.provider,
-        providerMessage: provider.message, rawStatus: { outcome: 'unconfirmed', service: params.service } });
+        providerRef: `RECONCILE-${debit.transaction.reference}`, providerMessage: provider.message, rawStatus: { outcome: 'unconfirmed', service: params.service },
+        userMessage: `${params.description} is awaiting provider confirmation. It will not be submitted again.` });
       return { status: 'pending', message: provider.message, reference: debit.transaction.reference,
         balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo) };
     }
     const reversed = await reversePartnerPurchase(debit.transaction.id, provider.message);
     return { status: false, message: provider.message, reference: reversed.reference, balanceAfter: koboToNaira(reversed.balanceAfterKobo) };
   }
-  const current = debit.transaction.metadata as Record<string, unknown> | null;
-  await prisma.partnerTransaction.update({ where: { id: debit.transaction.id }, data: {
-    metadata: { service: params.service, ...params.operational, unit_price: koboToNaira(debit.transaction.amountKobo),
-      pii: mergeSealedPII(current?.pii, { ...params.pii, user_data: provider.userData, pdf_base64: provider.pdfBase64, pdf_url: provider.pdfUrl }) } as Prisma.InputJsonValue
-  }});
   // Record the provider that ACTUALLY fulfilled this request, not a hardcoded 'techhub'.
-  const transaction = await completePartnerPurchase(debit.transaction.id, price.provider, undefined, price.providerCostKobo);
+  const completionMetadata = { service: params.service, unit_price: koboToNaira(debit.transaction.amountKobo),
+    pii: mergeSealedPII((debit.transaction.metadata as Record<string, unknown> | null)?.pii, { ...params.pii, user_data: provider.userData, pdf_base64: provider.pdfBase64, pdf_url: provider.pdfUrl, provider_raw_response: provider.raw }) };
+  const transaction = await completePartnerPurchase(debit.transaction.id, price.provider, provider.providerRef, price.providerCostKobo, undefined, completionMetadata);
   return { status: true, message: provider.message, reference: transaction.reference, balanceAfter: koboToNaira(transaction.balanceAfterKobo), userData: provider.userData, pdfBase64: provider.pdfBase64, pdfUrl: provider.pdfUrl };
 }
 

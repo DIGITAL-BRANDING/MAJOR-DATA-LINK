@@ -411,24 +411,29 @@ export class ProviderService {
       );
       return {
         status: false,
+        pending: !this.isExplicitPurchaseFailure(body),
         providerRef: reference,
         message: this.isInactivePlan(body)
           ? 'This data plan has been disabled by the network. Please choose another available plan.'
           : this.isLikelyBalanceIssue(body)
           ? 'Service temporarily unavailable - please try again shortly'
           : (body.detail ?? body.api_response ?? `Provider returned HTTP ${response.status}`),
-        costKobo: undefined
+        costKobo: undefined,
+        raw: body
       };
     }
 
-    const statusText = String(body.Status ?? body.status ?? '').toLowerCase();
-    const succeeded = ['successful', 'success'].includes(statusText) || body.status === true;
+    const statusText = String(body.Status ?? body.status ?? '').trim().toLowerCase();
+    const succeeded = ['successful', 'success', 'completed', 'complete'].includes(statusText) || body.status === true;
+    const pending = ['pending', 'processing', 'process', 'queued', 'in progress', 'in_progress', 'submitted'].includes(statusText) ||
+      !succeeded && !this.isExplicitPurchaseFailure(body);
     if (!succeeded) {
       console.error(`[alrahuz] purchase not successful (reference=${reference}):`, JSON.stringify(body));
     }
 
     return {
       status: succeeded,
+      pending,
       providerRef: body.ident ?? reference,
       message: succeeded
         ? (body.api_response ?? 'Transaction successful')
@@ -436,10 +441,17 @@ export class ProviderService {
           ? 'This data plan has been disabled by the network. Please choose another available plan.'
           : this.isLikelyBalanceIssue(body)
           ? 'Service temporarily unavailable - please try again shortly'
-          : (body.api_response ?? `Provider status: ${body.Status ?? 'unknown'}`),
+          : (body.api_response ?? `Provider status: ${body.Status ?? body.status ?? 'unknown'}`),
       costKobo: succeeded ? costKobo : undefined,
       raw: body
     };
+  }
+
+  private isExplicitPurchaseFailure(body: AlrahuzResponse) {
+    const status = String(body.Status ?? body.status ?? '').trim().toLowerCase();
+    if (['failed', 'failure', 'error', 'rejected', 'declined', 'cancelled', 'canceled', 'unsuccessful'].includes(status) || body.status === false) return true;
+    const message = `${body.api_response ?? ''} ${body.detail ?? ''}`.toLowerCase();
+    return /\b(insufficient|invalid|not found|disabled|inactive|failed|declined|rejected|error|unable to|cannot process)\b/.test(message);
   }
 
   /**

@@ -755,7 +755,8 @@ partnerPortalRoutes.get('/transactions/:reference', requirePartnerSession, async
         return { completion: transaction.status === TransactionStatus.SUCCESS ? {
           note: typeof pii.admin_note === 'string' ? pii.admin_note : null,
           attachment: typeof pii.delivered_file_base64 === 'string' ? { available: true, file_name: typeof pii.delivered_file_name === 'string' ? pii.delivered_file_name : 'document', mime_type: typeof pii.delivered_file_mime === 'string' ? pii.delivered_file_mime : 'application/octet-stream' } : null,
-          details: Object.fromEntries(Object.entries(pii).filter(([key, value]) => !key.includes('base64') && key !== 'admin_note' && key !== 'delivered_file_name' && key !== 'delivered_file_mime' && typeof value !== 'object'))
+          details: Object.fromEntries(Object.entries(pii).filter(([key, value]) => !key.includes('base64') && key !== 'admin_note' && key !== 'delivered_file_name' && key !== 'delivered_file_mime' && key !== 'submit_raw' && key !== 'check_raw' && key !== 'response' && key !== 'user_data' && typeof value !== 'object')),
+          result: pii.response ?? pii.user_data ?? null
         } : null };
       })() : {})
     }

@@ -1010,6 +1010,7 @@ model Notification {
   title       String
   body        String
   data        Json?
+  dedupeKey   String?           @unique
   isRead      Boolean           @default(false)
   readAt      DateTime?
   broadcastId String?
@@ -1027,10 +1028,25 @@ model Notification {
   showAsPopup Boolean           @default(false)
   createdAt   DateTime          @default(now())
   user        User              @relation(fields: [userId], references: [id])
+  delivery    NotificationDelivery?
   broadcast   NotificationBroadcast? @relation(fields: [broadcastId], references: [id])
 
   @@index([userId, createdAt])
   @@index([userId, isRead])
+}
+
+model NotificationDelivery {
+  id             String       @id @default(uuid())
+  notificationId String       @unique
+  status         String       @default("PENDING")
+  attemptCount   Int          @default(0)
+  nextAttemptAt  DateTime     @default(now())
+  lastAttemptAt  DateTime?
+  lastError      String?
+  createdAt      DateTime     @default(now())
+  notification   Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  @@index([status, nextAttemptAt])
 }
 
 /// Audit record of one admin "send a message to users" action (e.g. a price-change
@@ -1073,6 +1089,7 @@ model PartnerNotification {
   title       String
   body        String
   data        Json?
+  dedupeKey   String?                       @unique
   isRead      Boolean                       @default(false)
   readAt      DateTime?
   broadcastId String?

@@ -1,4 +1,5 @@
 import { Prisma, TransactionStatus, TransactionType } from '@prisma/client';
+import { nanoid } from 'nanoid';
 import { koboToNaira } from '../lib/money.js';
 import { mergeSealedPII, openPII, sealPII } from '../lib/pii.js';
 import { prisma } from '../lib/prisma.js';
@@ -19,6 +20,8 @@ import type { IdentitySlipTier } from '../lib/render-identity-slip-pdf.js';
 import { submitNinValidationFV, checkNinValidationFV } from './franceverified-nin-validation-adapter.service.js';
 import { checkIpeClearanceFV, submitIpeClearanceFV } from './franceverified-ipe-adapter.service.js';
 import { hubbuService, hubbuIdempotencyKey, hubbuRequestHash } from './hubbu.service.js';
+import { notifyUser } from './notification.service.js';
+import { enqueueUserNotificationDelivery } from './notification-delivery.service.js';
 
 /**
  * Which upstream API actually fulfils a given ServicePricing row right now -
@@ -510,7 +513,15 @@ async function purchaseSlip(params: {
       succeeded: (response) => typeof response === 'object' && response !== null && 'ok' in response && response.ok === true
     });
   } catch (error) {
-    if (price.provider !== 'hubbu') throw error;
+    if (price.provider !== 'hubbu') {
+      const previous = debit.transaction.metadata as Record<string, unknown> | null;
+      await prisma.transaction.update({ where: { id: debit.transaction.id }, data: {
+        provider: price.provider,
+        metadata: { ...(previous ?? {}), provider_outcome: 'unconfirmed', provider_error: error instanceof Error ? error.message : 'Provider response could not be confirmed',
+          reconciliation: { flaggedAt: new Date().toISOString(), providerMessage: 'Provider response could not be confirmed', rawStatus: null } } as Prisma.InputJsonValue
+      } });
+      return { status: true, pending: true, message: 'Ba a samu tabbacin sakamakon provider ba. An ajiye request domin a bincika, ba tare da sake tura shi ba.', reference: debit.reference, transactionId: debit.transaction.id, balanceAfter: debit.balanceAfter };
+    }
     const previous = debit.transaction.metadata as Record<string, unknown> | null;
     await prisma.transaction.update({ where: { id: debit.transaction.id }, data: {
       provider: 'hubbu', providerRef: hubbuReconciliationRef,
@@ -540,6 +551,17 @@ async function purchaseSlip(params: {
     });
   }
 
+  if (!result.ok && price.provider !== 'hubbu' && !noRecord) {
+    const previous = debit.transaction.metadata as Record<string, unknown> | null;
+    const ticketId = `RECONCILE-${debit.reference}`;
+    await prisma.transaction.update({ where: { id: debit.transaction.id }, data: {
+      provider: actualProvider, providerRef: ticketId,
+      metadata: { ...(previous ?? {}), provider_outcome: 'unconfirmed', reconciliation: { flaggedAt: new Date().toISOString(), providerMessage: result.message, rawStatus: result.raw },
+        pii: mergeSealedPII(previous?.pii, { ...params.pii, provider_raw_response: result.raw }) } as Prisma.InputJsonValue
+    } });
+    return { status: true, pending: true, message: 'Provider bai tabbatar da result ba. An ajiye request domin admin ya duba kafin a yanke hukunci kan kuɗi.', reference: debit.reference, transactionId: debit.transaction.id, balanceAfter: debit.balanceAfter };
+  }
+
   if (result.ok) {
     const recognisedFieldCount = Object.keys(result.userData ?? {}).filter((k) => k !== 'photo').length;
     if (recognisedFieldCount <= 2) {
@@ -555,9 +577,10 @@ async function purchaseSlip(params: {
       );
     }
     const existingMetadata = debit.transaction.metadata as Record<string, unknown> | null;
-    await prisma.transaction.update({
-      where: { id: debit.transaction.id },
-      data: {
+    await prisma.$transaction(async (tx) => {
+      await tx.transaction.update({
+        where: { id: debit.transaction.id },
+        data: {
         status: TransactionStatus.SUCCESS,
         provider: actualProvider,
         metadata: {
@@ -571,8 +594,11 @@ async function purchaseSlip(params: {
             pdf_url: result.pdfUrl,
             provider_raw_response: result.raw
           })
-        } as Prisma.InputJsonValue
-      }
+          } as Prisma.InputJsonValue
+        }
+      });
+      const notification = await tx.notification.create({ data: { id: nanoid(), userId: params.userId, type: 'TRANSACTION', title: 'Request completed', body: `${params.description} has been completed successfully.`, data: { transactionId: debit.transaction.id, reference: debit.reference }, dedupeKey: `verification:${debit.transaction.id}:success` } });
+      await enqueueUserNotificationDelivery(tx, notification.id);
     });
 
     // Both providers quote one flat rate per slip family, already stored as
@@ -627,7 +653,8 @@ async function purchaseSlip(params: {
       } as Prisma.InputJsonValue
     }
   });
-  const refunded = await refundWallet({ transactionId: debit.transaction.id, userId: params.userId });
+  await refundWallet({ transactionId: debit.transaction.id, userId: params.userId, reason: result.message });
+  const refunded = await prisma.transaction.findFirstOrThrow({ where: { relatedTransactionId: debit.transaction.id, type: TransactionType.REFUND } });
 
   return {
     status: false,
@@ -1046,6 +1073,7 @@ async function submitAsyncService(params: {
     const metadata = debit.transaction.metadata as Record<string, unknown> | null;
     const ticketId = metadata?.ticket_id?.toString();
     if (ticketId) {
+      if (metadata?.provider_outcome !== 'unconfirmed') return { reference: debit.reference, ticketId, balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo) };
       return { reference: debit.reference, ticketId, balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo) };
     }
     if (price.provider === 'hubbu') {
@@ -1073,8 +1101,16 @@ async function submitAsyncService(params: {
   let result: TechhubAsyncSubmitResult;
   try { result = await timedVerificationCall(params.service, 'submit', call); }
   catch (error) {
-    if (price.provider !== 'hubbu') throw error;
     const previous = debit.transaction.metadata as Record<string, unknown> | null;
+    if (price.provider !== 'hubbu') {
+      const ticketId = `RECONCILE-${debit.reference}`;
+      await prisma.transaction.update({ where: { id: debit.transaction.id }, data: {
+        provider: price.provider, providerRef: ticketId,
+        metadata: { ...(previous ?? {}), ticket_id: ticketId, provider_outcome: 'unconfirmed',
+          reconciliation: { flaggedAt: new Date().toISOString(), providerMessage: error instanceof Error ? error.message : 'Provider response could not be confirmed', rawStatus: null } } as Prisma.InputJsonValue
+      } });
+      return { reference: debit.reference, ticketId, balanceAfter: debit.balanceAfter };
+    }
     await prisma.transaction.update({ where: { id: debit.transaction.id }, data: {
       provider: 'hubbu', providerRef: hubbuReconciliationRef,
       metadata: { ...(previous ?? {}), hubbu_submission_state: 'unknown', ticket_id: hubbuReconciliationRef, ...(hubbuHash ? { hubbu_request_hash: hubbuHash } : {}),
@@ -1085,7 +1121,7 @@ async function submitAsyncService(params: {
 
   const hubbuUnknownResponse = price.provider === 'hubbu'
     && (result.raw as Record<string, unknown> | null)?.__classifiedState === 'unknown';
-  if (price.provider === 'hubbu' && result.accepted && !result.ticketId || hubbuUnknownResponse) {
+  if (result.accepted && !result.ticketId || hubbuUnknownResponse) {
     const previous = debit.transaction.metadata as Record<string, unknown> | null;
     await prisma.transaction.update({ where: { id: debit.transaction.id }, data: {
       provider: 'hubbu', providerRef: hubbuReconciliationRef,
@@ -1095,6 +1131,17 @@ async function submitAsyncService(params: {
     return { reference: debit.reference, ticketId: hubbuReconciliationRef, balanceAfter: debit.balanceAfter };
   }
 
+  if ((!result.ok && result.pending) || (!result.ticketId && result.ok)) {
+    const existing = debit.transaction.metadata as Record<string, unknown> | null;
+    const ticketId = `RECONCILE-${debit.reference}`;
+    await prisma.transaction.update({ where: { id: debit.transaction.id }, data: {
+      provider: price.provider, providerRef: ticketId,
+      metadata: { ...(existing ?? {}), ticket_id: ticketId, provider_outcome: 'unconfirmed',
+        reconciliation: { flaggedAt: new Date().toISOString(), providerMessage: result.message, rawStatus: result.raw },
+        pii: mergeSealedPII(existing?.pii, { submit_raw: result.raw }) } as Prisma.InputJsonValue
+    } });
+    return { reference: debit.reference, ticketId, balanceAfter: debit.balanceAfter };
+  }
   if (!result.ok || !result.ticketId) {
     await prisma.transaction.update({
       where: { id: debit.transaction.id },
@@ -1165,16 +1212,27 @@ async function checkAsyncServiceStatus(params: {
   }
 
   const metadata = (transaction.metadata as Record<string, unknown> | null) ?? {};
+  const existingMetadata = metadata;
   const service = typeof metadata.service === 'string' ? metadata.service : transaction.type.toLowerCase();
-  const result = await timedVerificationCall(service, 'status', () => call(params.ticketId));
-  const existingMetadata = (transaction.metadata as Record<string, unknown> | null) ?? {};
+  if (metadata.provider_outcome === 'unconfirmed') return { ticketId: params.ticketId, status: 'pending', response: null };
+  let result: TechhubAsyncStatusResult;
+  try {
+    result = await timedVerificationCall(service, 'status', () => call(params.ticketId));
+  } catch (error) {
+    await prisma.transaction.update({ where: { id: transaction.id }, data: { metadata: {
+      ...existingMetadata, provider_status_error: error instanceof Error ? error.message : 'Provider status could not be confirmed', provider_status_checked_at: new Date().toISOString()
+    } as Prisma.InputJsonValue } });
+    return { ticketId: params.ticketId, status: 'pending', response: null };
+  }
 
   if (result.status === 'pending') {
+    await prisma.transaction.update({ where: { id: transaction.id }, data: { metadata: { ...existingMetadata, provider_status_checked_at: new Date().toISOString() } as Prisma.InputJsonValue } });
     return { ticketId: result.ticketId, status: 'pending', response: null };
   }
 
   if (result.status === 'success') {
-    await prisma.transaction.update({
+    await prisma.$transaction(async (tx) => {
+      await tx.transaction.update({
       where: { id: transaction.id },
       data: {
         status: TransactionStatus.SUCCESS,
@@ -1183,6 +1241,12 @@ async function checkAsyncServiceStatus(params: {
           pii: mergeSealedPII(existingMetadata.pii, { response: result.response, check_raw: result.raw })
         } as Prisma.InputJsonValue
       }
+      });
+      const notification = await tx.notification.upsert({ where: { dedupeKey: `verification:${transaction.id}:success` }, create: {
+        id: nanoid(), userId: params.userId, type: 'TRANSACTION', title: 'Request completed', body: `${transaction.description} has been completed successfully.`,
+        data: { transactionId: transaction.id, reference: transaction.reference }, dedupeKey: `verification:${transaction.id}:success`
+      }, update: {} });
+      await enqueueUserNotificationDelivery(tx, notification.id);
     });
 
     // costKobo was captured at submit time in submitAsyncService() above
@@ -1208,7 +1272,8 @@ async function checkAsyncServiceStatus(params: {
   // that on our side by refunding the user's MDL wallet the moment we learn
   // the outcome (which may be well after the original submit, hence this
   // living here rather than in submitAsyncService above).
-  await prisma.transaction.update({
+  await prisma.$transaction(async (tx) => {
+    await tx.transaction.update({
     where: { id: transaction.id },
     data: {
       status: TransactionStatus.FAILED,
@@ -1217,8 +1282,18 @@ async function checkAsyncServiceStatus(params: {
         pii: mergeSealedPII(existingMetadata.pii, { response: result.status === 'failed' ? { message: publicVerificationMessage(result.response?.message, 'Your request could not be completed. Please check the details and try again.') } : result.response, check_raw: result.raw })
       } as Prisma.InputJsonValue
     }
+    });
+    const notification = await tx.notification.upsert({ where: { dedupeKey: `verification:${transaction.id}:failure` }, create: {
+      id: nanoid(), userId: params.userId, type: 'TRANSACTION', title: 'Request failed and was refunded',
+      body: `${transaction.description} could not be completed. Your wallet refund is being processed.`,
+      data: { transactionId: transaction.id, reference: transaction.reference, status: 'reversed' }, dedupeKey: `verification:${transaction.id}:failure`
+    }, update: {} });
+    await enqueueUserNotificationDelivery(tx, notification.id);
   });
   await refundWallet({ transactionId: transaction.id, userId: params.userId });
+  await notifyUser({ userId: params.userId, type: 'TRANSACTION', title: 'Request failed and was refunded',
+    body: `${transaction.description} could not be completed. Your wallet has been refunded.`,
+    data: { transactionId: transaction.id, reference: transaction.reference, status: 'reversed' }, dedupeKey: `verification:${transaction.id}:failure` });
   return { ticketId: result.ticketId, status: 'failed', response: { message: publicVerificationMessage(result.response?.message, 'Your request could not be completed. Please check the details and try again.') } };
 }
 

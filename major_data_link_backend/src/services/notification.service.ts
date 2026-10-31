@@ -71,7 +71,7 @@ export const PROMO_ILLUSTRATIONS = [
  */
 export const ANDROID_NOTIFICATION_CHANNEL_ID = 'major_datalink_notifications';
 
-export async function pushToTokens(tokens: string[], title: string, body: string, data?: Record<string, string>) {
+export async function pushToTokens(tokens: string[], title: string, body: string, data?: Record<string, string>, throwOnError = false) {
   if (tokens.length === 0) return;
   if (!env.FIREBASE_SERVICE_ACCOUNT_BASE64) return; // push not configured — DB row still saved
 
@@ -115,11 +115,15 @@ export async function pushToTokens(tokens: string[], title: string, body: string
           }
         }
       });
+      if (throwOnError && result.failureCount > 0) {
+        throw new Error(`${result.failureCount} push delivery attempt(s) failed`);
+      }
       if (deadTokens.length > 0) {
         await prisma.deviceToken.deleteMany({ where: { token: { in: deadTokens } } });
       }
     } catch (error) {
       console.error('[notifications] push send failed for a chunk', error);
+      if (throwOnError) throw error;
     }
   }
 }
@@ -135,29 +139,18 @@ export async function notifyUser(params: {
   title: string;
   body: string;
   data?: Prisma.InputJsonValue;
+  dedupeKey?: string;
 }) {
-  const notification = await prisma.notification.create({
-    data: {
-      id: nanoid(),
-      userId: params.userId,
-      type: params.type,
-      title: params.title,
-      body: params.body,
-      data: params.data
-    }
-  });
+  const notification = params.dedupeKey
+    ? await prisma.notification.upsert({ where: { dedupeKey: params.dedupeKey }, create: {
+        id: nanoid(), userId: params.userId, type: params.type, title: params.title, body: params.body, data: params.data, dedupeKey: params.dedupeKey
+      }, update: {} })
+    : await prisma.notification.create({ data: { id: nanoid(), userId: params.userId, type: params.type, title: params.title, body: params.body, data: params.data } });
 
-  const devices = await prisma.deviceToken.findMany({
-    where: { userId: params.userId },
-    select: { token: true }
-  });
-
-  await pushToTokens(
-    devices.map((d) => d.token),
-    params.title,
-    params.body,
-    { type: params.type, notificationId: notification.id }
-  );
+  if (!params.dedupeKey) {
+    const devices = await prisma.deviceToken.findMany({ where: { userId: params.userId }, select: { token: true } });
+    await pushToTokens(devices.map((d) => d.token), params.title, params.body, { type: params.type, notificationId: notification.id });
+  }
 
   return notification;
 }
@@ -313,23 +306,14 @@ export async function notifyPartner(params: {
   title: string;
   body: string;
   data?: Prisma.InputJsonValue;
+  dedupeKey?: string;
 }) {
-  const row = await prisma.partnerNotification.create({
-    data: {
-      id: nanoid(),
-      partnerId: params.partnerId,
-      type: params.type,
-      title: params.title,
-      body: params.body,
-      data: params.data
-    }
-  });
-  pushToPartners([params.partnerId], {
-    title: params.title,
-    body: params.body,
-    url: PARTNER_PORTAL_PATH,
-    tag: 'partner-notification'
-  });
+  const row = params.dedupeKey
+    ? await prisma.partnerNotification.upsert({ where: { dedupeKey: params.dedupeKey }, create: {
+        id: nanoid(), partnerId: params.partnerId, type: params.type, title: params.title, body: params.body, data: params.data, dedupeKey: params.dedupeKey
+      }, update: {} })
+    : await prisma.partnerNotification.create({ data: { id: nanoid(), partnerId: params.partnerId, type: params.type, title: params.title, body: params.body, data: params.data } });
+  if (!params.dedupeKey) pushToPartners([params.partnerId], { title: params.title, body: params.body, url: PARTNER_PORTAL_PATH, tag: 'partner-notification' });
   return row;
 }
 
@@ -337,8 +321,13 @@ export async function notifyPartner(params: {
  * notifyPartner() for call sites where a failed notification must never break
  * the business action it reports (a completed request, a credited deposit).
  */
-export function notifyPartnerSafely(params: Parameters<typeof notifyPartner>[0]) {
-  void notifyPartner(params).catch((error) => console.error('[partner-notify] could not notify partner', error));
+export async function notifyPartnerSafely(params: Parameters<typeof notifyPartner>[0]) {
+  try {
+    return await notifyPartner(params);
+  } catch (error) {
+    console.error('[partner-notify] could not notify partner', error);
+    return null;
+  }
 }
 
 /**

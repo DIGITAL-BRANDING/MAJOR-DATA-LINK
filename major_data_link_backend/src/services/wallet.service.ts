@@ -8,6 +8,7 @@ import { prisma } from '../lib/prisma.js';
 import { clearLockout, isLocked, recordFailure } from '../lib/lockout.js';
 import { ledgerBalanceKobo } from './wallet-ledger.js';
 import { notifyUser } from './notification.service.js';
+import { emailAdminsForManualRequest, isManualRequestSubmission } from './manual-request-admin-email.service.js';
 
 function formatNaira(kobo: bigint) {
   return `NGN${koboToNaira(kobo).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -178,7 +179,7 @@ export async function debitWallet(params: {
   const amountKobo = nairaToKobo(params.amount);
   const reference = `IDS-${Date.now()}-${nanoid(8).toUpperCase()}`;
 
-  return prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     const before = await tx.user.findUnique({ where: { id: params.userId } });
     if (!before) throw new ApiError(404, 'User not found', 'USER_NOT_FOUND');
 
@@ -231,6 +232,11 @@ export async function debitWallet(params: {
       reused: false
     };
   });
+  if (!result.reused && isManualRequestSubmission({ type: result.transaction.type, provider: result.transaction.provider, metadata: result.transaction.metadata })) {
+    void emailAdminsForManualRequest({ source: 'Customer', reference: result.transaction.reference, type: result.transaction.type,
+      description: result.transaction.description, createdAt: result.transaction.createdAt });
+  }
+  return result;
 }
 
 /**

@@ -212,8 +212,10 @@ function networkId(network: string): number {
  * to manual admin reconciliation instead of auto-refunding.
  */
 function normalize(body: BilalResponse): NormalizedProviderResponse {
-  const success = body.status === 'success';
-  const pending = !success && body.status === 'process';
+  const rawStatus = String(body.status ?? '').trim().toLowerCase();
+  const success = ['success', 'successful', 'complete', 'completed'].includes(rawStatus) || body.status === true;
+  const explicitFailure = ['failed', 'failure', 'error', 'rejected', 'declined', 'cancelled', 'canceled', 'unsuccessful'].includes(rawStatus) || body.status === false;
+  const pending = !success && !explicitFailure;
   const oldbal = body.oldbal !== undefined ? Number(body.oldbal) : undefined;
   const newbal = body.newbal !== undefined ? Number(body.newbal) : undefined;
   if (newbal !== undefined && Number.isFinite(newbal)) {
@@ -231,7 +233,8 @@ function normalize(body: BilalResponse): NormalizedProviderResponse {
     pending,
     providerRef: body['request-id'],
     message: body.message ?? (success ? 'Transaction processed' : pending ? 'Transaction is still processing' : 'Transaction failed'),
-    costKobo
+    costKobo,
+    raw: body
   };
 }
 

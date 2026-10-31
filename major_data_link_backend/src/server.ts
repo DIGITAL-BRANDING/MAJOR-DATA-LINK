@@ -45,8 +45,10 @@ async function startServer() {
     console.log('[server] Creating Express app');
     const app = createApp();
     const { startPartnerWebhookWorker } = await import('./services/partner-webhook.service.js');
+    const { startUserNotificationDeliveryWorker } = await import('./services/notification-delivery.service.js');
     const { reconcilePendingPartnerVerificationTickets } = await import('./services/partner-verification.service.js');
     const stopPartnerWebhookWorker = startPartnerWebhookWorker();
+    const stopUserNotificationDeliveryWorker = startUserNotificationDeliveryWorker();
     let partnerTicketReconciliationRunning = false;
     const reconcilePartnerTickets = () => {
       if (partnerTicketReconciliationRunning) return;
@@ -104,6 +106,7 @@ async function startServer() {
         console.log(`[server] Received ${signal}, shutting down gracefully`);
         server.close(async () => {
           stopPartnerWebhookWorker();
+          stopUserNotificationDeliveryWorker();
           clearInterval(partnerTicketTimer);
           await prisma.$disconnect();
           console.log('[server] Server closed, database disconnected');

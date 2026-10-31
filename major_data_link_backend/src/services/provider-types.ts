@@ -31,6 +31,8 @@ export type NormalizedProviderResponse = {
    * would be wrong.
    */
   pending?: boolean;
+  /** Raw provider payload retained only for encrypted reconciliation diagnostics. */
+  raw?: unknown;
 };
 
 export type NormalizedResultPinResponse = NormalizedProviderResponse & {

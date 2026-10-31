@@ -3,6 +3,7 @@ import { ApiError } from '../middleware/error.js';
 import { koboToNaira } from '../lib/money.js';
 import { prisma } from '../lib/prisma.js';
 import { completePartnerPurchase, reversePartnerPurchase } from './partner-wallet.service.js';
+import { notifyPartnerSafely } from './notification.service.js';
 
 /**
  * Manual reconciliation for partner data/airtime purchases left PENDING by
@@ -24,6 +25,7 @@ export async function flagPartnerPendingReconciliation(params: {
   providerRef?: string;
   providerMessage?: string;
   rawStatus?: unknown;
+  userMessage?: string;
 }) {
   const existing = await prisma.partnerTransaction.findUniqueOrThrow({ where: { id: params.transactionId } });
   const existingMetadata = (existing.metadata as Record<string, unknown> | null) ?? {};
@@ -43,6 +45,17 @@ export async function flagPartnerPendingReconciliation(params: {
       } as Prisma.InputJsonValue
     }
   });
+
+  if (existing.status === TransactionStatus.PENDING) {
+    notifyPartnerSafely({
+      partnerId: existing.partnerId,
+      type: 'TRANSACTION',
+      title: 'Purchase is being confirmed',
+      body: params.userMessage ?? `${existing.description} is waiting for the provider to confirm the result. Your request will not be submitted again.`,
+      data: { reference: existing.reference, status: 'pending', provider: params.provider },
+      dedupeKey: `reconciliation:${existing.id}:pending`
+    });
+  }
 
   console.error(
     `[reconcile][partner][${params.provider}] partner transaction ${params.transactionId} left PENDING - provider returned an ambiguous in-progress status, needs manual review at /admin/provider-reconciliation`
@@ -117,7 +130,10 @@ export async function resolvePartnerReconciliationAsSuccess(params: {
     }
   });
 
-  const updated = await completePartnerPurchase(transaction.id, resolvedProvider, params.providerRef ?? transaction.providerRef ?? undefined, finalCostKobo);
+  const updated = await completePartnerPurchase(transaction.id, resolvedProvider, params.providerRef ?? transaction.providerRef ?? undefined, finalCostKobo,
+    { state: 'complete', reconciledAt: new Date().toISOString(), note: params.note ?? null }, {
+      reconciliation: { ...((existingMetadata.reconciliation as Record<string, unknown> | undefined) ?? {}), resolvedAt: new Date().toISOString(), resolvedByAdminId: params.adminId, resolvedAs: 'success', note: params.note ?? null }
+    });
   return { transaction: updated, alreadyResolved: false as const };
 }
 
