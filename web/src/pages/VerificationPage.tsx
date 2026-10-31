@@ -15,6 +15,7 @@ import {
   XCircle,
   Clock,
   AlertTriangle,
+  Layers3,
 } from 'lucide-react';
 import AppShell from '../components/AppShell';
 import { api, ApiError } from '../lib/api';
@@ -205,7 +206,7 @@ const tierLabel = (option: string) => TIER_LABELS[option] ?? `${option[0].toUppe
 
 type SlipResult = { user_data?: Record<string, unknown>; reference: string; transaction_id: string; document_available: boolean };
 type AsyncResult = { ticket_id: string; reference: string };
-type TicketStatus = { ticket_id: string; status: 'pending' | 'success' | 'failed'; response: Record<string, unknown> | null };
+type TicketStatus = { ticket_id: string; status: 'pending' | 'processing' | 'success' | 'failed'; response: Record<string, unknown> | null; admin_note?: string | null; details?: Record<string, unknown>; delivered_file?: { base64: string; file_name: string; mime_type: string } | null };
 type VerificationHistory = {
   transaction_id: string;
   reference: string;
@@ -226,6 +227,11 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
   // ordinary tile that has no `methods` (see `leaf` below).
   const [method, setMethod] = useState<Leaf | null>(null);
   const [values, setValues] = useState<Record<string, string>>({});
+  const [bulkMode, setBulkMode] = useState(false);
+  const [bulkEntries, setBulkEntries] = useState('');
+  const [showBulkPin, setShowBulkPin] = useState(false);
+  const [bulkSubmitting, setBulkSubmitting] = useState(false);
+  const [bulkResults, setBulkResults] = useState<{ entry: string; ok: boolean; message: string }[]>([]);
   const [tier, setTier] = useState('premium');
   const [showPin, setShowPin] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -313,6 +319,11 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
         : ''
     : '';
   const selectedAvailable = selected ? isItemAvailable(selected) : true;
+  const bulkLines = bulkEntries.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const bulkPrice = selected?.id === 'validation'
+    ? prices[validationServiceKey(values.validation_type)]
+    : selected?.id === 'personalization' ? prices.NIN_PERSONALIZATION
+      : selected?.id === 'ipe' ? prices.IPE_CLEARANCE : undefined;
 
   // Stable across renders (selectedServiceKey only changes when the user
   // picks a different service) so it's safe to call directly from submit()
@@ -357,6 +368,7 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
   // Set of ticket_ids currently being checked, so only that row's button
   // shows a spinner (not every row in the list).
   const [checkingTicket, setCheckingTicket] = useState<Set<string>>(new Set());
+  const [adminResults, setAdminResults] = useState<Record<string, { status: string; note: string | null; details: Record<string, unknown>; file: { base64: string; file_name: string; mime_type: string } | null }>>({});
 
   // Async services (NIN Validation, Personalization, Delinking, IPE
   // Clearance, BVN Retrieval) only ever get their status updated when
@@ -375,6 +387,14 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
       setCheckingTicket((prev) => new Set(prev).add(entry.ticket_id!));
       try {
         await api.get(`${leaf.path}/${entry.ticket_id}`);
+        const result = await api.get<{ data: { status: string; admin_note?: string | null; details?: Record<string, unknown>; delivered_file_base64?: string | null; delivered_file_name?: string | null; delivered_file_mime?: string | null } }>(`/verification/history/${encodeURIComponent(entry.reference)}`);
+        const data = result.data;
+        setAdminResults((current) => ({ ...current, [entry.reference]: {
+          status: data.status,
+          note: data.admin_note ?? null,
+          details: data.details ?? {},
+          file: data.delivered_file_base64 ? { base64: data.delivered_file_base64, file_name: data.delivered_file_name ?? 'result', mime_type: data.delivered_file_mime ?? 'application/octet-stream' } : null
+        } }));
       } catch {
         // Swallow - a transient failure here just means the row keeps
         // showing its last known status; the user can press the button again.
@@ -396,6 +416,9 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
       return;
     }
     resetResult();
+    setBulkMode(false);
+    setBulkEntries('');
+    setBulkResults([]);
     setSelected(item);
     // A methods-bearing tile opens on its method picker, not a form - the
     // picker itself calls chooseMethod() once the user picks one.
@@ -540,6 +563,34 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
     setShowPin(true);
   }
 
+  async function submitBulk(pin: string) {
+    if (!leaf || !selected?.async || bulkLines.length === 0 || bulkLines.length > 50) return;
+    setShowBulkPin(false);
+    setBulkSubmitting(true);
+    setBulkResults([]);
+    const results: { entry: string; ok: boolean; message: string }[] = [];
+    for (const entry of bulkLines) {
+      const body: Record<string, string> = { pin };
+      if (leaf.id === 'validation') {
+        body.nin = entry;
+        body.validation_type = values.validation_type || 'nin_validation';
+      } else {
+        body.tracking_id = entry;
+        if (leaf.id === 'ipe') body.ipe_type = values.ipe_type || 'inprocessing_error';
+      }
+      try {
+        const response = await api.post<{ status: boolean; message: string; data?: { ticket_id?: string } }>(leaf.path, body);
+        if (!response.status) throw new Error(response.message);
+        results.push({ entry, ok: true, message: response.data?.ticket_id ? `Submitted · ${response.data.ticket_id}` : 'Submitted' });
+      } catch (error) {
+        results.push({ entry, ok: false, message: error instanceof ApiError ? error.message : error instanceof Error ? error.message : 'Request failed' });
+      }
+      setBulkResults([...results]);
+    }
+    setBulkSubmitting(false);
+    refreshHistory();
+  }
+
   return (
     <AppShell>
       <div className="mx-auto max-w-6xl">
@@ -674,6 +725,24 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
             )}
 
             {selectedAvailable && !slipResult && !asyncResult && (
+              selected.async ? (
+              <div className="mt-5">
+                <div className="grid grid-cols-2 gap-1 rounded-xl border border-parchment-line bg-cream p-1">
+                  <button type="button" onClick={() => { setBulkMode(false); setBulkResults([]); }} className={`rounded-lg py-3 font-body text-sm font-semibold ${!bulkMode ? 'bg-white text-ink shadow-sm' : 'text-ink-600'}`}>Single Submit</button>
+                  <button type="button" onClick={() => { setBulkMode(true); setBulkResults([]); }} className={`flex items-center justify-center gap-2 rounded-lg py-3 font-body text-sm font-semibold ${bulkMode ? 'bg-sky-700 text-white shadow-sm' : 'text-ink-600'}`}><Layers3 size={16}/> Bulk Submit</button>
+                </div>
+                {bulkMode ? (
+                  <div className="mt-5 space-y-4">
+                    {leaf.id === 'validation' && <label className="block font-body text-sm font-medium text-ink-600">Validation type<select className="mt-1 w-full rounded-xl border border-parchment-line bg-cream p-3" value={values.validation_type ?? 'nin_validation'} onChange={(e) => setValues((v) => ({ ...v, validation_type: e.target.value }))}>{VALIDATION_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label} — {money(prices[t.serviceKey])}</option>)}</select></label>}
+                    {leaf.id === 'ipe' && <label className="block font-body text-sm font-medium text-ink-600">IPE type<select className="mt-1 w-full rounded-xl border border-parchment-line bg-cream p-3" value={values.ipe_type ?? 'inprocessing_error'} onChange={(e) => setValues((v) => ({ ...v, ipe_type: e.target.value }))}>{IPE_TYPES.map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}</select></label>}
+                    <label className="block font-body text-sm font-medium text-ink-600">{leaf.id === 'validation' ? 'Enter NINs (one per line)' : 'Enter Tracking IDs (one per line)'}
+                      <textarea required rows={7} value={bulkEntries} onChange={(e) => setBulkEntries(e.target.value)} placeholder={leaf.id === 'validation' ? 'Enter one NIN per line' : 'Enter one Tracking ID per line\nTRACK001\nTRACK002\nTRACK003'} className="mt-2 w-full rounded-xl border border-parchment-line bg-cream p-3 font-mono text-sm outline-none focus:border-gold-500" />
+                    </label>
+                    <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-ink-600"><span>IDs entered: <strong className="text-sky-700">{bulkLines.length}</strong> / 50 max</span><span className="rounded-lg bg-sky-50 px-3 py-2 font-semibold text-sky-800">Total: {bulkPrice === undefined ? 'Price unavailable' : money(bulkPrice * bulkLines.length)}</span></div>
+                    <button type="button" onClick={() => setShowBulkPin(true)} disabled={bulkSubmitting || bulkLines.length < 1 || bulkLines.length > 50 || bulkPrice === undefined} className="flex w-full items-center justify-center gap-2 rounded-xl bg-sky-700 py-3 font-display font-semibold text-white disabled:opacity-50">{bulkSubmitting ? <><Loader2 size={16} className="animate-spin"/>Submitting…</> : <><Layers3 size={16}/>Submit All</>}</button>
+                    {bulkResults.length > 0 && <div aria-live="polite" className="divide-y divide-parchment-line rounded-xl border border-parchment-line">{bulkResults.map((result, index) => <div key={`${result.entry}-${index}`} className="flex flex-wrap justify-between gap-2 p-3 text-sm"><span className="font-mono">{result.entry}</span><span className={result.ok ? 'text-emerald-700' : 'text-rose-700'}>{result.message}</span></div>)}</div>}
+                  </div>
+                ) : (
               <form onSubmit={prepare} className="mt-5 grid gap-4 sm:grid-cols-2">
                 {leaf.fields.map((field) => (
                   <label key={field} className="font-body text-sm font-medium text-ink-600">
@@ -770,6 +839,31 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
                   {message && <p className="mt-3 rounded-lg bg-cream p-3 font-body text-sm text-ink-600">{message}</p>}
                 </div>
               </form>
+                )}
+              </div>
+              ) : (
+              <form onSubmit={prepare} className="mt-5 grid gap-4 sm:grid-cols-2">
+                {leaf.fields.map((field) => (
+                  <label key={field} className="font-body text-sm font-medium text-ink-600">
+                    {labels[field]}
+                    {field === 'gender' ? (
+                      <select required className="mt-1 w-full rounded-xl border border-parchment-line bg-cream p-3 text-ink outline-none focus:border-gold-500" value={values[field] ?? ''} onChange={(e) => setValues((v) => ({ ...v, [field]: e.target.value }))}><option value="">Select gender</option><option value="MALE">Male</option><option value="FEMALE">Female</option></select>
+                    ) : field === 'validation_type' ? (
+                      <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">{VALIDATION_TYPES.map((t) => <button key={t.value} type="button" onClick={() => setValues((v) => ({ ...v, [field]: t.value }))} className={`rounded-xl border p-3 text-left text-xs font-semibold transition ${values[field] === t.value || (!values[field] && t.value === 'nin_validation') ? 'border-[#8b6914] bg-[#6b4f0b] text-white' : 'border-parchment-line bg-cream text-ink hover:border-gold-500'}`}><span className="block">{t.label}</span><span className="mt-1 block text-[11px] font-bold">{money(prices[t.serviceKey])}</span></button>)}</div>
+                    ) : field === 'ipe_type' ? (
+                      <select required className="mt-1 w-full rounded-xl border border-parchment-line bg-cream p-3 text-ink outline-none focus:border-gold-500" value={values[field] ?? ''} onChange={(e) => setValues((v) => ({ ...v, [field]: e.target.value }))}><option value="">Select IPE type</option>{IPE_TYPES.map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}</select>
+                    ) : field === 'geo_political_zone' ? (
+                      <select required className="mt-1 w-full rounded-xl border border-parchment-line bg-cream p-3 text-ink outline-none focus:border-gold-500" value={values[field] ?? ''} onChange={(e) => setValues((v) => ({ ...v, [field]: e.target.value }))}><option value="">Select your zone</option>{GEO_POLITICAL_ZONES.map((zone) => <option key={zone} value={zone}>{zone}</option>)}</select>
+                    ) : (
+                      <input required type={field === 'dob' || field === 'date_of_birth' ? 'date' : field === 'email' ? 'email' : 'text'} inputMode={field === 'agent_bvn' || field === 'account_number' || field === 'phone_number' ? 'numeric' : undefined} maxLength={field === 'agent_bvn' || field === 'phone_number' ? 11 : field === 'account_number' ? 12 : undefined} placeholder={field === 'agent_bvn' ? '11-digit BVN' : field === 'account_number' ? 'Account number' : undefined} className="mt-1 w-full rounded-xl border border-parchment-line bg-cream p-3 text-ink outline-none focus:border-gold-500" value={values[field] ?? ''} onChange={(e) => setValues((v) => ({ ...v, [field]: e.target.value }))} />
+                    )}
+                  </label>
+                ))}
+                {leaf.tiers && <div className="sm:col-span-2 font-body text-sm font-medium text-ink-600"><span>Slip type</span><div className={`mt-2 grid grid-cols-2 gap-3 sm:grid-cols-3 ${leaf.tiers.length > 5 ? 'lg:grid-cols-4' : 'lg:grid-cols-5'}`}>{leaf.tiers.map((option) => <button key={option} type="button" onClick={() => setTier(option)} className={`rounded-xl border p-3 text-center transition hover:-translate-y-0.5 ${tier === option ? 'border-[#8b6914] bg-[#6b4f0b] text-white shadow-md' : 'border-parchment-line bg-cream text-ink hover:border-gold-500'}`}><img src={(leaf.id === 'v2-by-nin' ? NIN_SLIP_IMAGES_V2 : NIN_SLIP_IMAGES)[option]} alt={`${tierLabel(option)} preview`} className="mx-auto h-14 w-full rounded-lg bg-white object-contain p-1"/><span className="mt-2 block font-semibold">{tierLabel(option)}</span><span className="mt-1 block text-xs font-bold">{money(prices[keyFor(leaf, option)])}</span></button>)}</div></div>}
+                {leaf.id === 'license-onboarding' && <label className="sm:col-span-2 flex items-start gap-3 rounded-xl border border-parchment-line bg-cream p-4 font-body text-sm text-ink-600"><input required type="checkbox" checked={licenseConsent} onChange={(e) => setLicenseConsent(e.target.checked)} className="mt-0.5 h-4 w-4 accent-[#b8941f]"/><span>I confirm that the information is accurate and I authorize K-Tech Solutions to submit this BVN Licence onboarding request on my behalf.</span></label>}
+                <div className="sm:col-span-2"><button disabled={busy} className="flex w-full items-center justify-center gap-2 rounded-xl bg-gold-500 py-3 font-display font-semibold text-ink disabled:opacity-60">{busy ? <><Loader2 size={16} className="animate-spin" /> Verifying your request…</> : 'Continue to PIN confirmation'}</button>{busy && <p role="status" className="mt-3 text-center font-body text-sm text-ink-600">This may take a few seconds. Please do not close this page.</p>}{message && <p className="mt-3 rounded-lg bg-cream p-3 font-body text-sm text-ink-600">{message}</p>}</div>
+              </form>
+              )
             )}
 
             {slipResult && (
@@ -811,6 +905,7 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
 
             <VerificationHistoryView
               history={history}
+              adminResults={adminResults}
               loading={loadingHistory}
               checkingRef={checkingTicket}
               onCheckStatus={(entry) => void checkHistoryStatus(entry)}
@@ -820,6 +915,7 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
       </div>
 
       <PinConfirmDialog open={showPin} onClose={() => setShowPin(false)} onVerified={submit} />
+      <PinConfirmDialog open={showBulkPin} onClose={() => setShowBulkPin(false)} onVerified={submitBulk} />
       <NinValidationNotice open={showValidationNotice} onClose={() => setShowValidationNotice(false)} />
     </AppShell>
   );
@@ -852,11 +948,13 @@ function NinValidationNotice({ open, onClose }: { open: boolean; onClose: () => 
 
 function VerificationHistoryView({
   history,
+  adminResults,
   loading,
   checkingRef,
   onCheckStatus,
 }: {
   history: VerificationHistory[];
+  adminResults: Record<string, { status: string; note: string | null; details: Record<string, unknown>; file: { base64: string; file_name: string; mime_type: string } | null }>;
   loading: boolean;
   checkingRef: Set<string>;
   onCheckStatus: (entry: VerificationHistory) => void;
@@ -883,12 +981,15 @@ function VerificationHistoryView({
             // A terminal status (success/failed) is also excluded: it's
             // already final, nothing left to check.
             const canCheckStatus = Boolean(entry.ticket_id) && entry.status !== 'success' && entry.status !== 'failed';
+            const visibleStatus = entry.status === 'processing' ? 'Processing' : entry.status === 'pending' ? 'Pending review' : entry.status;
+            const adminResult = adminResults[entry.reference];
             const isChecking = entry.ticket_id ? checkingRef.has(entry.ticket_id) : false;
             return (
               <div key={entry.reference} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
                 <div>
                   <p className="font-mono text-xs font-semibold text-ink">{entry.reference}</p>
                   <p className="mt-1 font-body text-xs text-ink-600">{new Date(entry.created_at).toLocaleString()}</p>
+                  {adminResult && <div className="mt-3 rounded-lg border border-success-500/30 bg-success-500/5 p-3"><p className="font-body text-sm font-bold text-success-700">{adminResult.status === 'success' ? 'Completed' : visibleStatus}</p>{adminResult.note && <p className="mt-1 text-sm text-ink-600">{adminResult.note}</p>}{Object.entries(adminResult.details).map(([key, value]) => <p key={key} className="mt-1 text-xs text-ink-600"><strong className="capitalize">{key.replace(/_/g, ' ')}:</strong> {String(value)}</p>)}{adminResult.file && <button type="button" onClick={() => downloadInlineResult(adminResult.file!.base64, adminResult.file!.file_name, adminResult.file!.mime_type)} className="mt-2 rounded-lg bg-sky-700 px-3 py-2 text-xs font-bold text-white">View result file</button>}</div>}
                 </div>
                 {entry.delivery_id ? (
                   <button
@@ -908,7 +1009,7 @@ function VerificationHistoryView({
                   </button>
                 ) : canCheckStatus ? (
                   <div className="flex items-center gap-3">
-                    <span className="font-body text-xs font-semibold capitalize text-ink-600">{entry.status}</span>
+                    <span className="font-body text-xs font-semibold capitalize text-ink-600">{visibleStatus}</span>
                     <button
                       type="button"
                       disabled={isChecking}
@@ -920,7 +1021,7 @@ function VerificationHistoryView({
                     </button>
                   </div>
                 ) : (
-                  <span className="font-body text-xs font-semibold capitalize text-ink-600">{entry.status}</span>
+                  <span className="font-body text-xs font-semibold capitalize text-ink-600">{visibleStatus}</span>
                 )}
               </div>
             );
@@ -1001,6 +1102,16 @@ async function downloadServiceDocument(transactionId: string, reference: string)
   } catch {
     window.alert('Could not download this slip. Please try again from Service History.');
   }
+}
+
+function downloadInlineResult(base64: string, fileName: string, mimeType: string) {
+  const bytes = Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
+  const url = URL.createObjectURL(new Blob([bytes], { type: mimeType }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = fileName;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 // For requests an admin completed by hand and attached a result file to

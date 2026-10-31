@@ -541,7 +541,7 @@ export default function PartnerDashboardPage() {
   // a partner still has an in-progress call, refresh the ledger quietly so a
   // completed request becomes SUCCESS without requiring a page reload.
   useEffect(() => {
-    if (!partner || !transactions.some((transaction) => transaction.status === 'pending')) return;
+    if (!partner || !transactions.some((transaction) => transaction.status === 'pending' || transaction.status === 'processing')) return;
     const timer = window.setInterval(() => void loadTransactions(), 15_000);
     return () => window.clearInterval(timer);
     // loadTransactions intentionally stays stable with the current portal session.
@@ -894,7 +894,7 @@ export default function PartnerDashboardPage() {
               </tr></thead>
               <tbody className="divide-y divide-slate-200">
                 {transactions.map((tx) => {
-                  const statusColor = tx.status === 'success' ? 'bg-emerald-100 text-emerald-700' : tx.status === 'pending' ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700';
+                  const statusColor = tx.status === 'success' ? 'bg-emerald-100 text-emerald-700' : tx.status === 'processing' ? 'bg-sky-100 text-sky-700' : tx.status === 'pending' ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700';
                   const isNinRequest = tx.type.toLowerCase().includes('nin') || tx.description.toLowerCase().includes('nin');
                   return <tr key={tx.reference} className="transition-colors hover:bg-blue-50/50">
                     <td className="px-3 py-3.5"><button type="button" onClick={() => void openTransaction(tx.reference)} className="max-w-[220px] truncate font-mono text-xs text-brand-800 hover:underline" title={tx.reference}>{tx.reference}</button></td>

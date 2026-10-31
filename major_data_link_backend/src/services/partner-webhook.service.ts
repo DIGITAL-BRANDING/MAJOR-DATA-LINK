@@ -109,7 +109,7 @@ function payloadFor(tx: PartnerTransaction, eventId: string) {
 
 /** Writes a terminal transaction event into the transactional outbox. */
 export async function enqueuePartnerTransactionWebhook(tx: PartnerTransaction) {
-  if (tx.status === TransactionStatus.PENDING) return;
+  if (tx.status === TransactionStatus.PENDING || tx.status === TransactionStatus.PROCESSING) return;
   const eventId = randomUUID();
   await enqueuePartnerWebhookEvent(tx.partnerId, 'transaction.updated', `${tx.id}:${tx.status}`, payloadFor(tx, eventId), eventId);
 }
@@ -147,7 +147,7 @@ export async function enqueuePartnerRequestUpdateWebhook(params: {
  * example, a webhook was configured after the request was completed).
  */
 export async function resendPartnerTransactionWebhook(tx: PartnerTransaction, failedDeliveryId?: string) {
-  if (tx.status === TransactionStatus.PENDING) {
+  if (tx.status === TransactionStatus.PENDING || tx.status === TransactionStatus.PROCESSING) {
     throw new ApiError(422, 'Only a resolved transaction can be resent', 'TRANSACTION_STILL_PENDING');
   }
   if (failedDeliveryId) {

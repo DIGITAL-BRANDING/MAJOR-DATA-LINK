@@ -568,6 +568,7 @@ partnerApiRoutes.get('/identity/requests/:reference', async (req, res) => {
       reference: transaction.reference,
       type: transaction.type.toLowerCase(),
       status: transaction.status.toLowerCase(),
+      status_label: transaction.status === TransactionStatus.PROCESSING ? 'Processing' : transaction.status === TransactionStatus.SUCCESS ? 'Completed' : transaction.status === TransactionStatus.FAILED || transaction.status === TransactionStatus.REVERSED ? 'Failed' : 'Pending',
       created_at: transaction.createdAt.toISOString(),
       submission_pdf_base64: (pdf_base64 as string | undefined) ?? (submission_pdf_base64 as string | undefined) ?? null,
       delivered_file_base64: (delivered_file_base64 as string | undefined) ?? null,

@@ -251,6 +251,22 @@ verificationRoutes.get('/history', async (req, res) => {
   res.json({ status: true, data });
 });
 
+verificationRoutes.get('/history/:reference', async (req, res) => {
+  const transaction = await prisma.transaction.findFirst({ where: { userId: req.user!.id, reference: req.params.reference } });
+  if (!transaction) return res.status(404).json({ status: false, message: 'Request not found.' });
+  const metadata = transaction.metadata as Record<string, unknown> | null;
+  const pii = decryptTransactionPII(metadata) ?? {};
+  res.set('Cache-Control', 'no-store');
+  res.json({ status: true, data: {
+    status: transaction.status.toLowerCase(),
+    admin_note: typeof pii.admin_note === 'string' ? pii.admin_note : null,
+    details: Object.fromEntries(Object.entries(pii).filter(([key, value]) => !key.includes('base64') && key !== 'admin_note' && key !== 'delivery_id' && typeof value !== 'object')),
+    delivered_file_base64: typeof pii.delivered_file_base64 === 'string' ? pii.delivered_file_base64 : null,
+    delivered_file_name: typeof pii.delivered_file_name === 'string' ? pii.delivered_file_name : null,
+    delivered_file_mime: typeof pii.delivered_file_mime === 'string' ? pii.delivered_file_mime : null
+  } });
+});
+
 // ── Slip lookups (synchronous) ────────────────────────────────────
 
 verificationRoutes.post('/nin/by-nin', async (req, res) => {

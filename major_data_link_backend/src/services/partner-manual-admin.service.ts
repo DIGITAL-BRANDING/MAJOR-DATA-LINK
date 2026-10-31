@@ -4,6 +4,7 @@ import { prisma } from '../lib/prisma.js';
 import { openPII, mergeSealedPII } from '../lib/pii.js';
 import { ApiError } from '../middleware/error.js';
 import { completePartnerPurchase, reversePartnerPurchase } from './partner-wallet.service.js';
+import { enqueuePartnerRequestUpdateWebhook, deliverDuePartnerWebhooks } from './partner-webhook.service.js';
 
 /**
  * Every manual/non-instant service a partner can submit (see
@@ -67,8 +68,8 @@ export async function completePartnerManualRequest(params: {
   if (!transaction || !isAdminManageablePartnerRequest(transaction)) {
     throw new ApiError(404, 'Manual service request not found', 'MANUAL_REQUEST_NOT_FOUND');
   }
-  if (transaction.status !== TransactionStatus.PENDING) {
-    throw new ApiError(422, 'Only a pending request can be marked complete', 'INVALID_STATUS');
+  if (transaction.status !== TransactionStatus.PENDING && transaction.status !== TransactionStatus.PROCESSING) {
+    throw new ApiError(422, 'Only an active request can be marked complete', 'INVALID_STATUS');
   }
 
   const existingMetadata = (transaction.metadata as Record<string, unknown> | null) ?? {};
@@ -98,14 +99,49 @@ export async function completePartnerManualRequest(params: {
   return prisma.partnerTransaction.findUniqueOrThrow({ where: { id: transaction.id } });
 }
 
+/** Marks a manually handled partner request as in progress and notifies the partner via API/webhook. */
+export async function markPartnerManualRequestProcessing(params: { transactionId: string; note?: string }) {
+  const transaction = await prisma.partnerTransaction.findUnique({ where: { id: params.transactionId } });
+  if (!transaction || !isAdminManageablePartnerRequest(transaction)) {
+    throw new ApiError(404, 'Manual service request not found', 'MANUAL_REQUEST_NOT_FOUND');
+  }
+  if (transaction.status !== TransactionStatus.PENDING && transaction.status !== TransactionStatus.PROCESSING) {
+    throw new ApiError(422, 'Only an active request can be marked processing', 'INVALID_STATUS');
+  }
+  const updated = await prisma.partnerTransaction.update({
+    where: { id: transaction.id },
+    data: { status: TransactionStatus.PROCESSING }
+  });
+  const message = params.note?.trim() || 'Your request is now being processed.';
+  const update = await prisma.partnerRequestUpdate.create({
+    data: { partnerId: updated.partnerId, partnerTransactionId: updated.id, message }
+  });
+  await enqueuePartnerRequestUpdateWebhook({
+    partnerId: updated.partnerId,
+    reference: updated.reference,
+    updateId: update.id,
+    message,
+    status: TransactionStatus.PROCESSING
+  });
+  void deliverDuePartnerWebhooks(1).catch((error) => console.error('[partner-webhooks] could not deliver processing update', error));
+  notifyPartnerSafely({
+    partnerId: updated.partnerId,
+    type: 'TRANSACTION',
+    title: 'Request is processing',
+    body: `${updated.description} (${updated.reference}) is now being processed.`,
+    data: { reference: updated.reference, status: 'processing' }
+  });
+  return updated;
+}
+
 /** Declines a pending manual-service request and refunds the partner's wallet, via the exact same reversePartnerPurchase() every async verification submit failure already uses. */
 export async function declinePartnerManualRequest(params: { transactionId: string; reason: string }) {
   const transaction = await prisma.partnerTransaction.findUnique({ where: { id: params.transactionId } });
   if (!transaction || !isAdminManageablePartnerRequest(transaction)) {
     throw new ApiError(404, 'Manual service request not found', 'MANUAL_REQUEST_NOT_FOUND');
   }
-  if (transaction.status !== TransactionStatus.PENDING) {
-    throw new ApiError(422, 'Only a pending request can be declined', 'INVALID_STATUS');
+  if (transaction.status !== TransactionStatus.PENDING && transaction.status !== TransactionStatus.PROCESSING) {
+    throw new ApiError(422, 'Only an active request can be declined', 'INVALID_STATUS');
   }
   await reversePartnerPurchase(transaction.id, params.reason);
   notifyPartnerSafely({

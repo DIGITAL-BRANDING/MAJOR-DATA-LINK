@@ -13,6 +13,7 @@ import {
 import { createPartnerApiKey } from '../lib/partner-api-key.js';
 import { getPartnerActivitySummary } from '../services/partner-wallet.service.js';
 import { requirePartnerSession } from '../middleware/partner-auth.js';
+import { decryptPartnerManualPII, isAdminManageablePartnerRequest } from '../services/partner-manual-admin.service.js';
 import { ApiError } from '../middleware/error.js';
 import {
   configurePartnerWebhook,
@@ -748,7 +749,15 @@ partnerPortalRoutes.get('/transactions/:reference', requirePartnerSession, async
     status: true,
     data: {
       ...transactionResponse(transaction),
-      request_updates: transaction.requestUpdates.map((update) => ({ id: update.id, message: update.message, created_at: update.createdAt.toISOString() }))
+      request_updates: transaction.requestUpdates.map((update) => ({ id: update.id, message: update.message, created_at: update.createdAt.toISOString() })),
+      ...(isAdminManageablePartnerRequest(transaction) ? (() => {
+        const pii = decryptPartnerManualPII(transaction) ?? {};
+        return { completion: transaction.status === TransactionStatus.SUCCESS ? {
+          note: typeof pii.admin_note === 'string' ? pii.admin_note : null,
+          attachment: typeof pii.delivered_file_base64 === 'string' ? { available: true, file_name: typeof pii.delivered_file_name === 'string' ? pii.delivered_file_name : 'document', mime_type: typeof pii.delivered_file_mime === 'string' ? pii.delivered_file_mime : 'application/octet-stream' } : null,
+          details: Object.fromEntries(Object.entries(pii).filter(([key, value]) => !key.includes('base64') && key !== 'admin_note' && key !== 'delivered_file_name' && key !== 'delivered_file_mime' && typeof value !== 'object'))
+        } : null };
+      })() : {})
     }
   });
 });

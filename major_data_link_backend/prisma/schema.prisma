@@ -39,6 +39,7 @@ enum KycStatus {
 
 enum TransactionStatus {
   PENDING
+  PROCESSING
   SUCCESS
   FAILED
   /// Finance confirmed this pending funding row is not applicable (for
