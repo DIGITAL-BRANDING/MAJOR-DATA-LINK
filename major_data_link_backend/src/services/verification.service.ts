@@ -483,20 +483,20 @@ async function purchaseSlip(params: {
     };
   }
 
-  const hubbuReconciliationRef = `HUBBU-RECONCILE-${debit.reference}`;
-  if (debit.reused && price.provider === 'hubbu') {
-    // A previous attempt may have reached Hubbu but lost its response. Never
-    // submit the same paid request again; let an admin reconcile it instead.
-    if (!debit.transaction.providerRef || debit.transaction.provider !== 'hubbu') {
-      const previous = debit.transaction.metadata as Record<string, unknown> | null;
-      await prisma.transaction.update({ where: { id: debit.transaction.id }, data: {
-        provider: 'hubbu', providerRef: hubbuReconciliationRef,
-        metadata: { ...(previous ?? {}), hubbu_submission_state: 'submitting', ...(hubbuHash ? { hubbu_request_hash: hubbuHash } : {}) } as Prisma.InputJsonValue
-      } });
-    }
-    return { status: true, message: 'Request is being reconciled with Hubbu. It has not been resubmitted.', reference: debit.reference, transactionId: debit.transaction.id, balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo) };
+  // A timed-out synchronous lookup may already have been charged upstream.
+  // Replaying the same key must never trigger a second provider lookup/charge.
+  if (debit.reused) {
+    return {
+      status: false,
+      pending: true,
+      message: `An karɓi buƙatarka amma ba a tabbatar da sakamakon ba tukuna. Kada ka sake biya; tuntuɓi support da reference ${debit.reference}.`,
+      reference: debit.reference,
+      transactionId: debit.transaction.id,
+      balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo)
+    };
   }
 
+  const hubbuReconciliationRef = `HUBBU-RECONCILE-${debit.reference}`;
   if (price.provider === 'hubbu') {
     const existingMetadata = debit.transaction.metadata as Record<string, unknown> | null;
     await prisma.transaction.update({ where: { id: debit.transaction.id }, data: {
@@ -520,14 +520,14 @@ async function purchaseSlip(params: {
         metadata: { ...(previous ?? {}), provider_outcome: 'unconfirmed', provider_error: error instanceof Error ? error.message : 'Provider response could not be confirmed',
           reconciliation: { flaggedAt: new Date().toISOString(), providerMessage: 'Provider response could not be confirmed', rawStatus: null } } as Prisma.InputJsonValue
       } });
-      return { status: true, pending: true, message: 'Ba a samu tabbacin sakamakon provider ba. An ajiye request domin a bincika, ba tare da sake tura shi ba.', reference: debit.reference, transactionId: debit.transaction.id, balanceAfter: debit.balanceAfter };
+      return { status: false, pending: true, message: `An karɓi buƙatarka amma ba a tabbatar da sakamakon ba tukuna. Kada ka sake biya; tuntuɓi support da reference ${debit.reference}.`, reference: debit.reference, transactionId: debit.transaction.id, balanceAfter: debit.balanceAfter };
     }
     const previous = debit.transaction.metadata as Record<string, unknown> | null;
     await prisma.transaction.update({ where: { id: debit.transaction.id }, data: {
       provider: 'hubbu', providerRef: hubbuReconciliationRef,
       metadata: { ...(previous ?? {}), hubbu_submission_state: 'unknown', ...(hubbuHash ? { hubbu_request_hash: hubbuHash } : {}), pii: mergeSealedPII(previous?.pii, { hubbu_error: error instanceof Error ? error.message : 'Unknown network error' }) } as Prisma.InputJsonValue
     } });
-    return { status: true, pending: true, message: 'Hubbu bai dawo da tabbatacciyar amsa ba. An ajiye request domin admin ya bincika; ba a sake tura shi ba.', reference: debit.reference, transactionId: debit.transaction.id, balanceAfter: debit.balanceAfter };
+    return { status: false, pending: true, message: `Ba a tabbatar da sakamakon buƙatarka ba tukuna. Kada ka sake biya; tuntuɓi support da reference ${debit.reference}.`, reference: debit.reference, transactionId: debit.transaction.id, balanceAfter: debit.balanceAfter };
   }
 
   if (price.provider === 'hubbu' && result.pending) {
@@ -536,7 +536,7 @@ async function purchaseSlip(params: {
       provider: 'hubbu', providerRef: hubbuReconciliationRef,
       metadata: { ...(previous ?? {}), hubbu_submission_state: 'pending_reconciliation', ...(hubbuHash ? { hubbu_request_hash: hubbuHash } : {}), pii: mergeSealedPII(previous?.pii, { ...params.pii, provider_raw_response: result.raw }) } as Prisma.InputJsonValue
     } });
-    return { status: true, pending: true, message: 'An karɓi request amma sakamakon Hubbu bai cika ba. An ajiye shi domin a tabbatar da shi.', reference: debit.reference, transactionId: debit.transaction.id, balanceAfter: debit.balanceAfter };
+    return { status: false, pending: true, message: `Ba a tabbatar da sakamakon buƙatarka ba tukuna. Kada ka sake biya; tuntuɓi support da reference ${debit.reference}.`, reference: debit.reference, transactionId: debit.transaction.id, balanceAfter: debit.balanceAfter };
   }
 
   const noRecord = !result.ok && /\b(?:no\s+record\s+found|record\s+not\s+found|no\s+match\s+found|data\s+not\s+found)\b/i.test(result.message);
@@ -559,7 +559,7 @@ async function purchaseSlip(params: {
       metadata: { ...(previous ?? {}), provider_outcome: 'unconfirmed', reconciliation: { flaggedAt: new Date().toISOString(), providerMessage: result.message, rawStatus: result.raw },
         pii: mergeSealedPII(previous?.pii, { ...params.pii, provider_raw_response: result.raw }) } as Prisma.InputJsonValue
     } });
-    return { status: true, pending: true, message: 'Provider bai tabbatar da result ba. An ajiye request domin admin ya duba kafin a yanke hukunci kan kuɗi.', reference: debit.reference, transactionId: debit.transaction.id, balanceAfter: debit.balanceAfter };
+    return { status: false, pending: true, message: `Ba a tabbatar da sakamakon buƙatarka ba tukuna. Kada ka sake biya; tuntuɓi support da reference ${debit.reference}.`, reference: debit.reference, transactionId: debit.transaction.id, balanceAfter: debit.balanceAfter };
   }
 
   if (result.ok) {
@@ -609,8 +609,8 @@ async function purchaseSlip(params: {
     // (already just logged on failure, never surfaced to the caller) and was
     // sitting on the response critical path right after a slow upstream
     // provider call. With FranceVerified/Techhub already able to take up to
-    // TECHHUB_REQUEST_TIMEOUT_MS/PROVIDER_TIMEOUT_MS (20s) and the web
-    // client's own request timeout only 25s, this extra DB round trip was
+    // TECHHUB_REQUEST_TIMEOUT_MS/PROVIDER_TIMEOUT_MS (90s) and the web
+    // client's own slip timeout is 120s, this extra DB round trip was
     // eating into an already thin margin and contributed to the frontend's
     // "request is taking too long" timeout even on responses that had, in
     // fact, succeeded.

@@ -15,8 +15,9 @@ abstract class AirtimeRemoteDataSource {
 }
 
 class AirtimeRemoteDataSourceImpl implements AirtimeRemoteDataSource {
-  const AirtimeRemoteDataSourceImpl(this._dio);
+  AirtimeRemoteDataSourceImpl(this._dio);
   final Dio _dio;
+  final Map<String, String> _purchaseKeys = {};
 
   @override
   Future<PurchaseResult> purchaseAirtime({
@@ -26,6 +27,8 @@ class AirtimeRemoteDataSourceImpl implements AirtimeRemoteDataSource {
     required String pin,
   }) async {
     try {
+      final fingerprint = '${network.code}|${phone.trim()}|$amount';
+      final key = _purchaseKeys.putIfAbsent(fingerprint, () => const Uuid().v4());
       final response = await _dio.post(
         AppEndpoints.purchaseAirtime,
         data: {
@@ -34,9 +37,11 @@ class AirtimeRemoteDataSourceImpl implements AirtimeRemoteDataSource {
           'amount': amount,
           'pin': pin,
         },
-        options: Options(headers: {'Idempotency-Key': const Uuid().v4()}),
+        options: Options(headers: {'Idempotency-Key': key}, receiveTimeout: const Duration(seconds: 45)),
       );
-      return PurchaseResult.fromJson(response.data as Map<String, dynamic>);
+      final result = PurchaseResult.fromJson(response.data as Map<String, dynamic>);
+      if (!result.confirmationRequired) _purchaseKeys.remove(fingerprint);
+      return result;
     } on DioException catch (e) {
       throw ErrorHandler.handleException(e);
     }

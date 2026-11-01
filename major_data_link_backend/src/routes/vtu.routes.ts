@@ -98,6 +98,20 @@ export async function processProviderPurchase(params: {
       status: debit.transaction.status === TransactionStatus.SUCCESS ? ('success' as const) : false,
       message: 'Transaction already processed',
       reference: debit.reference,
+      transactionId: debit.transaction.id,
+      balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo)
+    };
+  }
+
+  // An earlier call may have reached the provider before our connection was
+  // interrupted. Never submit a charged, unresolved transaction a second time.
+  if (debit.reused) {
+    return {
+      status: false as const,
+      pending: true,
+      message: `An karɓi buƙatarka amma ba a tabbatar da sakamakon ba tukuna. Kada ka sake biya; tuntuɓi support da reference ${debit.reference}.`,
+      reference: debit.reference,
+      transactionId: debit.transaction.id,
       balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo)
     };
   }
@@ -111,7 +125,7 @@ export async function processProviderPurchase(params: {
       metadata: { ...metadata, provider_outcome: 'unconfirmed', reconciliation: { flaggedAt: new Date().toISOString(), providerMessage: error instanceof Error ? error.message : 'Provider response could not be confirmed', rawStatus: null } } as Prisma.InputJsonValue
     } });
     await flagPendingReconciliation({ transactionId: debit.transaction.id, provider: params.provider, providerRef: debit.reference, providerMessage: 'Provider response could not be confirmed' });
-    return { status: false as const, pending: true, message: 'Your request is awaiting provider confirmation. It will not be submitted again.', reference: debit.reference, balanceAfter: debit.balanceAfter };
+    return { status: false as const, pending: true, message: `An karɓi buƙatarka amma ba a tabbatar da sakamakon ba tukuna. Kada ka sake biya; tuntuɓi support da reference ${debit.reference}.`, reference: debit.reference, transactionId: debit.transaction.id, balanceAfter: debit.balanceAfter };
   }
 
   if (provider.status) {    const finalCostKobo = provider.costKobo ?? params.costKobo;
@@ -162,6 +176,7 @@ export async function processProviderPurchase(params: {
       status: 'success' as const,
       message: provider.message ?? 'Transaction processed',
       reference: debit.reference,
+      transactionId: debit.transaction.id,
       balanceAfter: debit.balanceAfter
     };
   }
@@ -182,8 +197,10 @@ export async function processProviderPurchase(params: {
     });
     return {
       status: false as const,
-      message: 'Your purchase is still being confirmed by the provider. If it does not complete shortly, please contact support with your reference.',
+      pending: true,
+      message: `Ba a tabbatar da sakamakon buƙatarka ba tukuna. Kada ka sake biya; tuntuɓi support da reference ${debit.reference}.`,
       reference: debit.reference,
+      transactionId: debit.transaction.id,
       balanceAfter: debit.balanceAfter
     };
   }
@@ -213,6 +230,7 @@ export async function processProviderPurchase(params: {
     status: false as const,
     message: failure,
     reference: debit.reference,
+    transactionId: debit.transaction.id,
     balanceAfter: koboToNaira(refunded.balanceAfterKobo)
   };
 }
@@ -294,7 +312,8 @@ vtuRoutes.post('/data/purchase', async (req, res) => {
   res.json({
     status: result.status,
     message: result.message,
-    data: { reference: result.reference, balance_after: result.balanceAfter }
+    confirmation_required: result.pending === true,
+    data: { reference: result.reference, transaction_id: result.transactionId, balance_after: result.balanceAfter }
   });
 });
 
@@ -341,6 +360,7 @@ vtuRoutes.post('/airtime/purchase', async (req, res) => {
   res.json({
     status: result.status,
     message: result.message,
-    data: { reference: result.reference, balance_after: result.balanceAfter }
+    confirmation_required: result.pending === true,
+    data: { reference: result.reference, transaction_id: result.transactionId, balance_after: result.balanceAfter }
   });
 });

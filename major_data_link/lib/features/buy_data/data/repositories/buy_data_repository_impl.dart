@@ -143,6 +143,7 @@ class BuyDataRepositoryImpl implements BuyDataRepository {
         reference: result.reference,
         message: result.message,
         balanceAfter: result.balanceAfter,
+        confirmationRequired: result.confirmationRequired,
       ));
     } on AppException catch (e) {
       return Left(ErrorHandler.exceptionToFailure(e));

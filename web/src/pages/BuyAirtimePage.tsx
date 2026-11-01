@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useRef, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, CheckCircle2, ReceiptText } from 'lucide-react';
 import AppShell from '../components/AppShell';
@@ -25,9 +25,36 @@ export default function BuyAirtimePage() {
   const [success, setSuccess] = useState<string | null>(null);
   const [receiptId, setReceiptId] = useState<string | null>(null);
   const [showPin, setShowPin] = useState(false);
+  const purchaseKey = useRef<{ fingerprint: string; key: string } | null>(null);
 
   function handleSubmit(e: FormEvent) { e.preventDefault(); setShowPin(true); }
-  async function purchase(pin: string) { setShowPin(false); setError(null); setIsSubmitting(true); try { const res = await api.post<{ status: boolean; message: string }>('/airtime/purchase', { network, phone, amount: Number(amount), pin }); if (res.status) { setSuccess(res.message || 'Airtime delivered successfully'); findLatestTransactionId().then(setReceiptId); } else setError(res.message || 'Purchase failed'); } catch (err) { setError(err instanceof ApiError ? err.message : 'Something went wrong. Please try again.'); } finally { setIsSubmitting(false); } }
+  async function purchase(pin: string) {
+    setShowPin(false);
+    setError(null);
+    setReceiptId(null);
+    setIsSubmitting(true);
+    const payload = { network, phone: phone.trim(), amount: Number(amount) };
+    const fingerprint = JSON.stringify(payload);
+    if (!purchaseKey.current || purchaseKey.current.fingerprint !== fingerprint) {
+      purchaseKey.current = { fingerprint, key: api.newIdempotencyKey() };
+    }
+    try {
+      const res = await api.postPurchase<{ status: boolean; message: string; confirmation_required?: boolean; data?: { transaction_id?: string } }>('/airtime/purchase', { ...payload, pin }, purchaseKey.current.key);
+      if (!res.confirmation_required) purchaseKey.current = null;
+      if (res.status) {
+        setSuccess(res.message || 'Airtime delivered successfully');
+        setReceiptId(res.data?.transaction_id ?? null);
+        if (!res.data?.transaction_id) void findLatestTransactionId().then(setReceiptId);
+      } else {
+        if (res.confirmation_required) setReceiptId(res.data?.transaction_id ?? null);
+        setError(res.message || 'Purchase failed');
+      }
+    } catch (err) {
+      setError(err instanceof ApiError && err.code === 'REQUEST_TIMEOUT'
+        ? 'We could not confirm the result yet. Do not pay again; check transaction history or contact support before retrying.'
+        : err instanceof ApiError ? err.message : 'Something went wrong. Please check transaction history before trying again.');
+    } finally { setIsSubmitting(false); }
+  }
 
   if (success) {
     return (
@@ -144,9 +171,10 @@ export default function BuyAirtimePage() {
         </div>
 
         {error && (
-          <p className="rounded-lg bg-ember-500/10 px-3 py-2 font-body text-sm text-ember-600">
-            {error}
-          </p>
+          <div className="rounded-lg bg-ember-500/10 px-3 py-2 font-body text-sm text-ember-600">
+            <p>{error}</p>
+            {receiptId && <Link to={`/receipt/${receiptId}`} className="mt-2 inline-block font-semibold underline">View transaction</Link>}
+          </div>
         )}
 
         <button

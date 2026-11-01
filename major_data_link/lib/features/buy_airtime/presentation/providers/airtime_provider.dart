@@ -98,6 +98,10 @@ class AirtimeNotifier extends StateNotifier<AirtimeState> {
         return null;
       },
       (purchaseResult) async {
+        if (!purchaseResult.success) {
+          state = state.copyWith(isProcessing: false, errorMessage: purchaseResult.message);
+          return purchaseResult;
+        }
         if (purchaseResult.success && state.saveAsBeneficiary) {
           await repository.saveBeneficiary(phone: state.phone, network: network);
         }

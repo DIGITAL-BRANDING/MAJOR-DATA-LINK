@@ -137,13 +137,13 @@ async function request<T>(
     auth?: boolean;
     retryOnNetworkError?: boolean;
     // Slip-purchase calls (Techhub/FranceVerified) route through a slow
-    // third-party lookup - up to 20s of provider time alone (see
+    // third-party lookup - up to 90s of provider time alone (see
     // TECHHUB_REQUEST_TIMEOUT_MS / PROVIDER_TIMEOUT_MS server-side) - and
     // the flat 25s default here left almost no margin for the surrounding
     // wallet debit/PDF/DB work, so a perfectly successful backend response
     // could still race past this timeout and surface as "taking too long"
     // even though the money had already moved. Callers on that path pass a
-    // longer value.
+    // longer value (120s for the synchronous slip endpoints).
     timeoutMs?: number;
     // Set on money-moving POSTs so a client-side timeout followed by a
     // user-initiated retry replays the *same* transaction server-side
@@ -292,7 +292,11 @@ export const api = {
   // take, plus a stable Idempotency-Key so a retry after a timeout replays
   // the original transaction instead of creating a second one. Reuse the
   // key only for that same request payload.
-  postSlip: <T>(path: string, body: unknown, idempotencyKey: string, timeoutMs = 45_000) =>
+  postSlip: <T>(path: string, body: unknown, idempotencyKey: string, timeoutMs = 120_000) =>
+    request<T>(path, { method: 'POST', body, auth: true, timeoutMs, idempotencyKey }),
+  // Wallet purchases wait longer than ordinary API calls and always carry a
+  // stable key so a lost response cannot debit the same purchase twice.
+  postPurchase: <T>(path: string, body: unknown, idempotencyKey: string, timeoutMs = 45_000) =>
     request<T>(path, { method: 'POST', body, auth: true, timeoutMs, idempotencyKey }),
   postIdempotent: <T>(path: string, body: unknown, idempotencyKey: string) =>
     request<T>(path, { method: 'POST', body, auth: true, idempotencyKey }),

@@ -15,12 +15,14 @@ class AirtimePurchaseResult {
     required this.reference,
     required this.message,
     this.balanceAfter,
+    this.confirmationRequired = false,
   });
 
   final bool success;
   final String reference;
   final String message;
   final double? balanceAfter;
+  final bool confirmationRequired;
 }
 
 abstract class AirtimeRepository {
@@ -79,6 +81,7 @@ class AirtimeRepositoryImpl implements AirtimeRepository {
         reference: result.reference,
         message: result.message,
         balanceAfter: result.balanceAfter,
+        confirmationRequired: result.confirmationRequired,
       ));
     } on AppException catch (e) {
       return Left(ErrorHandler.exceptionToFailure(e));

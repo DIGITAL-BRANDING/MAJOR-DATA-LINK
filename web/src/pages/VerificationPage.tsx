@@ -477,6 +477,7 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
       let result: {
         status: boolean;
         message: string;
+        confirmation_required?: boolean;
         data?: { reference: string; tracking_id?: string; transaction_id?: string; document_available?: boolean; user_data?: Record<string, unknown>; ticket_id?: string };
       };
       if (isSlipPurchase) {
@@ -487,11 +488,12 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
         result = await api.postSlip<{
             status: boolean;
             message: string;
+            confirmation_required?: boolean;
             data?: { reference: string; tracking_id?: string; transaction_id?: string; document_available?: boolean; user_data?: Record<string, unknown>; ticket_id?: string };
           }>(leaf.path, data, idempotencyKeyRef.current.key);
-        // We received a definitive API response (success or provider-level
-        // failure), so the next deliberate lookup must be a new transaction.
-        idempotencyKeyRef.current = null;
+        // Keep the same key only when the provider result is ambiguous. This
+        // lets a user safely repeat the exact request without another debit.
+        if (!result.confirmation_required) idempotencyKeyRef.current = null;
       } else {
         result = await api.post<{
           status: boolean;
@@ -981,7 +983,9 @@ function VerificationHistoryView({
             // A terminal status (success/failed) is also excluded: it's
             // already final, nothing left to check.
             const canCheckStatus = Boolean(entry.ticket_id) && entry.status !== 'success' && entry.status !== 'failed';
-            const visibleStatus = entry.status === 'processing' ? 'Processing' : entry.status === 'pending' ? 'Pending review' : entry.status;
+            const visibleStatus = entry.status === 'processing' ? 'Processing'
+              : entry.status === 'confirmation_required' ? 'Contact support'
+                : entry.status === 'pending' ? 'Pending review' : entry.status;
             const adminResult = adminResults[entry.reference];
             const isChecking = entry.ticket_id ? checkingRef.has(entry.ticket_id) : false;
             return (

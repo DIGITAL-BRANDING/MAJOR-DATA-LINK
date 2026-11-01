@@ -336,7 +336,9 @@ class VerificationHistoryCard extends ConsumerWidget {
                               )
                             else
                               Text(
-                                item.status,
+                                item.status == 'confirmation_required'
+                                    ? 'Contact support'
+                                    : item.status,
                                 style: const TextStyle(
                                   fontSize: 12,
                                   color: AppColors.neutral500,

@@ -3,7 +3,9 @@ import { publicVerificationMessage } from '../../lib/public-verification-message
 
 // Return a clear provider error instead of leaving customers on a loading
 // state when an upstream request stalls.
-const PROVIDER_TIMEOUT_MS = 20_000;
+// Allow slow identity lookups enough time to finish before treating the
+// provider outcome as unknown and handing the transaction to reconciliation.
+const PROVIDER_TIMEOUT_MS = 90_000;
 
 export type FranceVerifiedResult = {
   ok: boolean;

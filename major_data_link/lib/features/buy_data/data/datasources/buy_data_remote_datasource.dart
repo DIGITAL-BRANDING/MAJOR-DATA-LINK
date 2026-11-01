@@ -25,12 +25,14 @@ class PurchaseResult {
     required this.reference,
     required this.message,
     this.balanceAfter,
+    this.confirmationRequired = false,
   });
 
   final bool success;
   final String reference;
   final String message;
   final double? balanceAfter;
+  final bool confirmationRequired;
 
   factory PurchaseResult.fromJson(Map<String, dynamic> json) {
     final data = json['data'] as Map<String, dynamic>? ?? json;
@@ -40,6 +42,7 @@ class PurchaseResult {
           data['transaction_id']?.toString() ??
           '',
       message: json['message']?.toString() ?? 'Transaction successful',
+      confirmationRequired: json['confirmation_required'] == true,
       balanceAfter: data['balance_after'] != null
           ? double.tryParse(data['balance_after'].toString())
           : null,
@@ -70,8 +73,9 @@ abstract class BuyDataRemoteDataSource {
 }
 
 class BuyDataRemoteDataSourceImpl implements BuyDataRemoteDataSource {
-  const BuyDataRemoteDataSourceImpl(this._dio);
+  BuyDataRemoteDataSourceImpl(this._dio);
   final Dio _dio;
+  final Map<String, String> _purchaseKeys = {};
 
   @override
   Future<List<DataPlanEntity>> getDataPlans(
@@ -128,6 +132,8 @@ class BuyDataRemoteDataSourceImpl implements BuyDataRemoteDataSource {
     String? provider,
   }) async {
     try {
+      final fingerprint = '${network.code}|$planId|${phone.trim()}|$amount|${provider ?? ''}';
+      final key = _purchaseKeys.putIfAbsent(fingerprint, () => const Uuid().v4());
       final response = await _dio.post(
         AppEndpoints.purchaseData,
         data: {
@@ -138,9 +144,11 @@ class BuyDataRemoteDataSourceImpl implements BuyDataRemoteDataSource {
           'pin': pin,
           if (provider != null && provider.isNotEmpty) 'provider': provider,
         },
-        options: Options(headers: {'Idempotency-Key': const Uuid().v4()}),
+        options: Options(headers: {'Idempotency-Key': key}, receiveTimeout: const Duration(seconds: 45)),
       );
-      return PurchaseResult.fromJson(response.data as Map<String, dynamic>);
+      final result = PurchaseResult.fromJson(response.data as Map<String, dynamic>);
+      if (!result.confirmationRequired) _purchaseKeys.remove(fingerprint);
+      return result;
     } on DioException catch (e) {
       throw ErrorHandler.handleException(e);
     }

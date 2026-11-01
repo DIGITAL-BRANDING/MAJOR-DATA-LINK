@@ -10,12 +10,14 @@ class DataPurchaseResult {
     required this.reference,
     required this.message,
     this.balanceAfter,
+    this.confirmationRequired = false,
   });
 
   final bool success;
   final String reference;
   final String message;
   final double? balanceAfter;
+  final bool confirmationRequired;
 }
 
 abstract class BuyDataRepository {

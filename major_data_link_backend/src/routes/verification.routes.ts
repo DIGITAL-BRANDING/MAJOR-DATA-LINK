@@ -107,6 +107,7 @@ function slipResponse(result: Awaited<ReturnType<typeof purchaseNinByNin>>) {
   return {
     status: result.status,
     message: result.message,
+    confirmation_required: result.pending === true,
     data: {
       reference: result.reference,
       transaction_id: result.transactionId,
@@ -228,7 +229,14 @@ verificationRoutes.get('/history', async (req, res) => {
       return {
         transaction_id: transaction.id,
         reference: transaction.reference,
-        status: transaction.status.toLowerCase(),
+        // A synchronous provider lookup is not an admin review workflow.
+        // Keep the ledger's internal state, but don't present it to customers
+        // as a normal verification status when its result is unconfirmed.
+        status: transaction.status === TransactionStatus.PENDING &&
+          (transaction.type === TransactionType.NIN_VERIFICATION || transaction.type === TransactionType.BVN_VERIFICATION) &&
+          transaction.provider !== 'manual'
+          ? 'confirmation_required'
+          : transaction.status.toLowerCase(),
         created_at: transaction.createdAt.toISOString(),
         // Do not return identity details here. The PDF itself is the
         // retrievable document and the rest remains sealed in storage.

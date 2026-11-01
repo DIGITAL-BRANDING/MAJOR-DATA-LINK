@@ -68,6 +68,7 @@ const STATUS_META: Record<string, { label: string; icon: typeof CheckCircle2; cl
   failed: { label: 'Failed', icon: XCircle, className: 'text-rose-600 bg-rose-50 border-rose-200' },
   reversed: { label: 'Reversed', icon: RotateCcw, className: 'text-slate-600 bg-slate-100 border-slate-200' },
 };
+const INSTANT_PURCHASE_TYPES = new Set(['data_purchase', 'airtime_purchase', 'nin_verification', 'bvn_verification']);
 
 // Credits add to the balance, debits subtract - this decides the "+"/"-"
 // prefix and green/ink amount color. Matches the schema comment in
@@ -124,7 +125,10 @@ export default function ReceiptPage() {
   }
 
   const typeMeta = TYPE_META[tx.type] ?? { label: tx.type.replace(/_/g, ' '), icon: ReceiptText };
-  const statusMeta = STATUS_META[tx.status] ?? STATUS_META.pending;
+  const needsConfirmation = tx.status === 'pending' && INSTANT_PURCHASE_TYPES.has(tx.type);
+  const statusMeta = needsConfirmation
+    ? { label: 'Review required', icon: Clock, className: 'text-amber-600 bg-amber-50 border-amber-200' }
+    : STATUS_META[tx.status] ?? STATUS_META.pending;
   const TypeIcon = typeMeta.icon;
   const StatusIcon = statusMeta.icon;
   const transferMeta = tx.metadata?.wallet_transfer as { direction?: string; counterparty_name?: string } | undefined;
@@ -173,6 +177,7 @@ export default function ReceiptPage() {
 
         {/* Details table */}
         <div className="space-y-0 px-6 py-6 sm:px-10">
+          {needsConfirmation && <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-left font-body text-sm leading-relaxed text-amber-800">We could not confirm the provider result automatically. Do not submit or pay for this request again. Contact support and quote the reference below.</p>}
           <ReceiptRow label="Description" value={tx.description} />
           {tx.type === 'wallet_transfer' && transferMeta?.counterparty_name && (
             <ReceiptRow label={transferMeta.direction === 'incoming' ? 'Received from' : 'Sent to'} value={transferMeta.counterparty_name} />

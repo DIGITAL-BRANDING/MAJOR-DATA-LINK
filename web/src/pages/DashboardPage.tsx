@@ -420,7 +420,7 @@ export default function DashboardPage() {
                   <p className="font-mono text-sm font-semibold text-ink-900">
                     ₦{t.amount.toLocaleString()}
                   </p>
-                  <StatusBadge status={t.status} />
+                  <StatusBadge status={t.status} type={t.type} />
                 </div>
               </Link>
             ))}
@@ -499,15 +499,17 @@ function ServiceTile({
   );
 }
 
-function StatusBadge({ status }: { status: string }) {
+function StatusBadge({ status, type }: { status: string; type: string }) {
   const styles: Record<string, string> = {
     success: 'text-emerald-600',
     pending: 'text-amber-600',
     failed: 'text-rose-600',
   };
+  const instantPurchase = ['data_purchase', 'airtime_purchase', 'nin_verification', 'bvn_verification'].includes(type);
+  const label = status === 'pending' && instantPurchase ? 'Review required' : status;
   return (
     <span className={`font-mono text-[10px] uppercase ${styles[status] ?? 'text-slate-500'}`}>
-      {status}
+      {label}
     </span>
   );
 }

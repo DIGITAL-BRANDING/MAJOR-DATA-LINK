@@ -7,7 +7,10 @@ import { extractPhotoFromPdf } from '../lib/pdf-photo-extract.js';
 import { collectObjects, findEmbeddedImage, findEmbeddedPdf } from '../lib/provider-response-scan.js';
 
 // No upstream verification call may wait indefinitely.
-const TECHHUB_REQUEST_TIMEOUT_MS = 20_000;
+// Identity lookups can take over a minute while the upstream provider queues
+// and renders a slip. Keep the client timeout longer than this so the backend
+// can persist the final provider result before the request is abandoned.
+const TECHHUB_REQUEST_TIMEOUT_MS = 90_000;
 
 /**
  * Techhubltd — NIN / BVN identity verification provider.

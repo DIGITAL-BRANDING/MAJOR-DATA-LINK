@@ -211,6 +211,7 @@ class SlipApiResult {
     this.pdfUrl,
     this.transactionId,
     this.documentAvailable = false,
+    this.confirmationRequired = false,
   });
 
   final bool success;
@@ -225,6 +226,7 @@ class SlipApiResult {
   /// a potentially large identity PDF in the purchase response.
   final String? transactionId;
   final bool documentAvailable;
+  final bool confirmationRequired;
 
   factory SlipApiResult.fromJson(Map<String, dynamic> json) {
     final data = json['data'] as Map<String, dynamic>? ?? const {};
@@ -240,6 +242,7 @@ class SlipApiResult {
       pdfUrl: data['pdf_url']?.toString(),
       transactionId: data['transaction_id']?.toString(),
       documentAvailable: data['document_available'] == true,
+      confirmationRequired: json['confirmation_required'] == true,
     );
   }
 }
@@ -348,11 +351,18 @@ final verificationRemoteProvider = Provider((ref) {
 });
 
 class VerificationRemote {
-  const VerificationRemote(this._dio);
+  VerificationRemote(this._dio);
   final Dio _dio;
+  final Map<String, String> _slipKeys = {};
 
-  Options get _idempotent =>
-      Options(headers: {'Idempotency-Key': const Uuid().v4()});
+  Options _idempotent(String endpoint, Map<String, dynamic> body) {
+    final fingerprint = '$endpoint|${body.entries.where((entry) => entry.key != 'pin').map((entry) => '${entry.key}=${entry.value}').join('|')}';
+    final key = _slipKeys.putIfAbsent(fingerprint, () => const Uuid().v4());
+    return Options(
+      headers: {'Idempotency-Key': key},
+      receiveTimeout: const Duration(seconds: 120),
+    );
+  }
 
   Future<Map<String, double>> getPrices() async {
     try {
@@ -489,12 +499,15 @@ class VerificationRemote {
     Map<String, dynamic> body,
   ) async {
     try {
+      final fingerprint = '$endpoint|${body.entries.where((entry) => entry.key != 'pin').map((entry) => '${entry.key}=${entry.value}').join('|')}';
       final response = await _dio.post(
         endpoint,
         data: body,
-        options: _idempotent,
+        options: _idempotent(endpoint, body),
       );
-      return SlipApiResult.fromJson(response.data as Map<String, dynamic>);
+      final result = SlipApiResult.fromJson(response.data as Map<String, dynamic>);
+      if (!result.confirmationRequired) _slipKeys.remove(fingerprint);
+      return result;
     } on DioException catch (e) {
       throw ErrorHandler.handleException(e);
     }
