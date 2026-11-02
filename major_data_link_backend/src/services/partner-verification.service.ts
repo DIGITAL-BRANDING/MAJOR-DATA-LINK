@@ -223,6 +223,9 @@ export async function purchasePartnerSlip(params: {
   partnerId: string; service: VerificationServiceKey; type: TransactionType;
   description: string; operational: Record<string, unknown>; pii: Record<string, unknown>;
   idempotencyKey: string;
+  providerOverride?: VerificationProvider;
+  fallbackProvider?: VerificationProvider;
+  fallbackService?: VerificationServiceKey;
   // One call per provider this service could be routed to - same dispatch
   // shape as purchaseSlip() in verification.service.ts. Previously this
   // took a single hardcoded `call` (always techhubService.xxx), which meant
@@ -232,7 +235,12 @@ export async function purchasePartnerSlip(params: {
   callByProvider: Partial<Record<VerificationProvider, () => ReturnType<typeof techhubService.ninByNin>>>;
 }): Promise<PartnerSlipResult> {
   const price = await getVerificationPrice(params.service, { forPartner: true });
-  if (price.provider === 'manual') {
+  const primaryProvider = params.providerOverride ?? price.provider;
+  const instantNinLookup = params.type === TransactionType.NIN_VERIFICATION && params.operational.mode === 'by_nin';
+  const fallbackPrice = params.fallbackService
+    ? await getVerificationPrice(params.fallbackService, { forPartner: true })
+    : undefined;
+  if (primaryProvider === 'manual') {
     const debit = await debitPartnerWallet({
       partnerId: params.partnerId, amount: price.unitPrice, type: params.type, description: params.description,
       idempotencyKey: params.idempotencyKey,
@@ -245,11 +253,11 @@ export async function purchasePartnerSlip(params: {
     }
     return { status: true, message: 'Request received and queued for manual admin processing.', reference: debit.transaction.reference, balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo) };
   }
-  const call = params.callByProvider[price.provider];
+  const call = params.callByProvider[primaryProvider];
   if (!call) {
     throw new ApiError(
       500,
-      `${price.label} has no implementation for provider "${price.provider}" - check the NIN/BVN Provider admin page`,
+      `${price.label} has no implementation for provider "${primaryProvider}" - check the NIN/BVN Provider admin page`,
       'PROVIDER_NOT_IMPLEMENTED'
     );
   }
@@ -280,28 +288,66 @@ export async function purchasePartnerSlip(params: {
       balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo), userData: pii?.user_data, pdfBase64: pii?.pdf_base64, pdfUrl: pii?.pdf_url };
   }
   let provider: Awaited<ReturnType<typeof call>>;
+  let actualProvider = primaryProvider;
+  const fallbackCall = params.fallbackProvider ? params.callByProvider[params.fallbackProvider] : undefined;
   try { provider = await call(); }
   catch (error) {
-    const current = await prisma.partnerTransaction.findUniqueOrThrow({ where: { id: debit.transaction.id } });
-    const ticketId = `RECONCILE-${debit.transaction.reference}`;
-    await flagPartnerPendingReconciliation({ transactionId: current.id, provider: price.provider, providerRef: ticketId,
-      providerMessage: error instanceof Error ? error.message : 'Provider response could not be confirmed',
-      userMessage: `${params.description} is awaiting provider confirmation. It will not be submitted again.` });
-    await prisma.partnerTransaction.update({ where: { id: current.id }, data: { metadata: {
-      ...((current.metadata as Record<string, unknown> | null) ?? {}), provider_outcome: 'unconfirmed'
-    } as Prisma.InputJsonValue } });
-    return { status: 'pending', message: 'Request is awaiting provider confirmation.', reference: debit.transaction.reference, balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo) };
+    if (fallbackCall && fallbackPrice && params.fallbackProvider) {
+      try {
+        provider = await fallbackCall();
+        actualProvider = params.fallbackProvider;
+      } catch (fallbackError) {
+        const message = fallbackError instanceof Error ? fallbackError.message : 'The fallback provider could not complete the NIN lookup.';
+        const reversed = await reversePartnerPurchase(debit.transaction.id, message);
+        return { status: false, message, reference: reversed.reference, balanceAfter: koboToNaira(reversed.balanceAfterKobo) };
+      }
+    } else {
+      if (instantNinLookup) {
+        const message = error instanceof Error ? error.message : 'The provider could not confirm this NIN lookup. Your payment has been refunded.';
+        const reversed = await reversePartnerPurchase(debit.transaction.id, message);
+        return { status: false, message, reference: reversed.reference, balanceAfter: koboToNaira(reversed.balanceAfterKobo) };
+      }
+      const current = await prisma.partnerTransaction.findUniqueOrThrow({ where: { id: debit.transaction.id } });
+      const ticketId = `RECONCILE-${debit.transaction.reference}`;
+      await flagPartnerPendingReconciliation({ transactionId: current.id, provider: primaryProvider, providerRef: ticketId,
+        providerMessage: error instanceof Error ? error.message : 'Provider response could not be confirmed',
+        userMessage: `${params.description} is awaiting provider confirmation. It will not be submitted again.` });
+      await prisma.partnerTransaction.update({ where: { id: current.id }, data: { metadata: {
+        ...((current.metadata as Record<string, unknown> | null) ?? {}), provider_outcome: 'unconfirmed'
+      } as Prisma.InputJsonValue } });
+      return { status: 'pending', message: 'Request is awaiting provider confirmation.', reference: debit.transaction.reference, balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo) };
+    }
+  }
+  // NIN by-NIN lookups are synchronous and read-only. A Techhub timeout or
+  // an unconfirmed response should still get the configured FranceVerified
+  // attempt instead of leaving the partner request in the manual queue.
+  if (!provider.ok && fallbackCall && fallbackPrice && params.fallbackProvider && actualProvider === primaryProvider) {
+    try {
+      provider = await fallbackCall();
+      actualProvider = params.fallbackProvider;
+    } catch (fallbackError) {
+      const message = fallbackError instanceof Error ? fallbackError.message : 'The fallback provider could not complete the NIN lookup.';
+      const reversed = await reversePartnerPurchase(debit.transaction.id, message);
+      return { status: false, message, reference: reversed.reference, balanceAfter: koboToNaira(reversed.balanceAfterKobo) };
+    }
   }
   if (!provider.ok) {
     if (provider.pending) {
+      // NIN-by-NIN requests are instant lookups. Close an unconfirmed result
+      // and refund instead of leaving the partner request for admin review.
+      if (instantNinLookup) {
+        const message = provider.message || 'The provider could not confirm this NIN lookup. Your payment has been refunded.';
+        const reversed = await reversePartnerPurchase(debit.transaction.id, message);
+        return { status: false, message, reference: reversed.reference, balanceAfter: koboToNaira(reversed.balanceAfterKobo) };
+      }
       const current = debit.transaction.metadata as Record<string, unknown> | null;
       await prisma.partnerTransaction.update({ where: { id: debit.transaction.id }, data: {
-        provider: price.provider,
+        provider: actualProvider,
         metadata: { service: params.service, ...params.operational, unit_price: koboToNaira(debit.transaction.amountKobo),
         provider_outcome: 'unconfirmed', reconciliation: { flaggedAt: new Date().toISOString(), providerMessage: provider.message, rawStatus: provider.raw },
         pii: mergeSealedPII(current?.pii, { ...params.pii, submit_raw: provider.raw }) } as Prisma.InputJsonValue
       }});
-      await flagPartnerPendingReconciliation({ transactionId: debit.transaction.id, provider: price.provider,
+      await flagPartnerPendingReconciliation({ transactionId: debit.transaction.id, provider: actualProvider,
         providerRef: `RECONCILE-${debit.transaction.reference}`, providerMessage: provider.message, rawStatus: { outcome: 'unconfirmed', service: params.service },
         userMessage: `${params.description} is awaiting provider confirmation. It will not be submitted again.` });
       return { status: 'pending', message: provider.message, reference: debit.transaction.reference,
@@ -313,16 +359,40 @@ export async function purchasePartnerSlip(params: {
   // Record the provider that ACTUALLY fulfilled this request, not a hardcoded 'techhub'.
   const completionMetadata = { service: params.service, unit_price: koboToNaira(debit.transaction.amountKobo),
     pii: mergeSealedPII((debit.transaction.metadata as Record<string, unknown> | null)?.pii, { ...params.pii, user_data: provider.userData, pdf_base64: provider.pdfBase64, pdf_url: provider.pdfUrl, provider_raw_response: provider.raw }) };
-  const transaction = await completePartnerPurchase(debit.transaction.id, price.provider, provider.providerRef, price.providerCostKobo, undefined, completionMetadata);
+  const transaction = await completePartnerPurchase(
+    debit.transaction.id,
+    actualProvider,
+    provider.providerRef,
+    actualProvider === params.fallbackProvider ? fallbackPrice?.providerCostKobo : price.providerCostKobo,
+    undefined,
+    completionMetadata
+  );
   return { status: true, message: provider.message, reference: transaction.reference, balanceAfter: koboToNaira(transaction.balanceAfterKobo), userData: provider.userData, pdfBase64: provider.pdfBase64, pdfUrl: provider.pdfUrl };
 }
 
 export const partnerVerification = {
-  ninByNin: (partnerId: string, nin: string, tier: TechhubSlipTier, idempotencyKey: string) => purchasePartnerSlip({
-    partnerId, service: ({ premium: 'NIN_SLIP_PREMIUM', standard: 'NIN_SLIP_STANDARD', regular: 'NIN_SLIP_REGULAR', vnin: 'NIN_SLIP_VNIN' } as const)[tier], type: TransactionType.NIN_VERIFICATION,
-    description: `NIN slip (${tier}) by NIN`, operational: { mode: 'by_nin', tier }, pii: { nin }, idempotencyKey,
-    callByProvider: { techhub: () => techhubService.ninByNin(nin, tier), franceverified: () => franceverifiedSlipAdapter.ninByNin(nin, tier === 'premium' ? 'premium' : undefined) }
-  }),
+  ninByNin: (partnerId: string, nin: string, tier: TechhubSlipTier, idempotencyKey: string, version: 'v1' | 'v2' = 'v1') => {
+    const v1Services: Record<TechhubSlipTier, VerificationServiceKey> = {
+      premium: 'NIN_VERIFICATION_V1_PREMIUM', standard: 'NIN_VERIFICATION_V1_STANDARD',
+      regular: 'NIN_VERIFICATION_V1_REGULAR', vnin: 'NIN_VERIFICATION_V1_VNIN'
+    };
+    const v2Services: Record<TechhubSlipTier, VerificationServiceKey> = {
+      premium: 'NIN_VERIFICATION_V2_PREMIUM', standard: 'NIN_VERIFICATION_V2_STANDARD',
+      regular: 'NIN_VERIFICATION_V2_REGULAR', vnin: 'NIN_VERIFICATION_V2_VNIN'
+    };
+    const service = version === 'v1' ? v1Services[tier] : v2Services[tier];
+    return purchasePartnerSlip({
+      partnerId, service, type: TransactionType.NIN_VERIFICATION,
+      description: `NIN Verification ${version.toUpperCase()} (${tier}) by NIN`,
+      operational: { mode: 'by_nin', tier, version }, pii: { nin }, idempotencyKey,
+      providerOverride: version === 'v1' ? 'techhub' : 'franceverified',
+      ...(version === 'v1' ? { fallbackProvider: 'franceverified' as const, fallbackService: v2Services[tier] } : {}),
+      callByProvider: {
+        techhub: () => techhubService.ninByNin(nin, tier),
+        franceverified: () => franceverifiedSlipAdapter.ninByNin(nin, tier === 'premium' ? 'premium' : undefined)
+      }
+    });
+  },
   ninByPhone: (partnerId: string, phone: string, tier: Exclude<TechhubSlipTier, 'vnin'>, idempotencyKey: string) => purchasePartnerSlip({
     partnerId, service: ({ premium: 'NIN_PHONE_SLIP_PREMIUM', standard: 'NIN_PHONE_SLIP_STANDARD', regular: 'NIN_PHONE_SLIP_REGULAR' } as const)[tier], type: TransactionType.NIN_VERIFICATION,
     description: `NIN slip (${tier}) by phone`, operational: { mode: 'by_phone', tier }, pii: { phone }, idempotencyKey,

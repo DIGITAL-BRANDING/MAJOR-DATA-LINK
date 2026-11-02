@@ -1,7 +1,10 @@
 import { franceVerifiedGet, franceVerifiedPost } from './client.js';
 
 export function verifyNin(nin: string) {
-  return franceVerifiedPost('/nin/verify/nin', { nin });
+  // The FranceVerified docs show a `provider` selector on this endpoint
+  // (v1/v2/v3). Pin V2 so the endpoint does not depend on an upstream default
+  // that may route to an unavailable legacy lookup provider.
+  return franceVerifiedPost('/nin/verify/nin', { nin, provider: 'v2' });
 }
 
 export function verifyNinByPhone(phone: string) {

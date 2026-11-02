@@ -436,6 +436,7 @@ async function purchaseSlip(params: {
   operational: Record<string, unknown>;
   pii: Record<string, unknown>;
   idempotencyKey?: string;
+  providerOverride?: VerificationProvider;
   // One call per provider this service could be routed to. Only the branch
   // matching the resolved ServicePricing.provider is ever invoked - see
   // slipCallFor() usage at each call site below for which providers a given
@@ -446,7 +447,8 @@ async function purchaseSlip(params: {
   retryNoRecordWith?: Partial<Record<VerificationProvider, () => Promise<TechhubSlipResult>>>;
 }): Promise<SlipPurchaseResult> {
   const price = await getVerificationPrice(params.service);
-  if (price.provider === 'manual') {
+  const primaryProvider = params.providerOverride ?? price.provider;
+  if (primaryProvider === 'manual') {
     const debit = await debitWallet({
       userId: params.userId, amount: price.unitPrice, type: params.transactionType, description: params.description,
       metadata: { service: params.service, ...params.operational, unit_price: price.unitPrice, manual_processing: true, pii: sealPII(params.pii) } as Prisma.InputJsonValue,
@@ -460,7 +462,7 @@ async function purchaseSlip(params: {
     }
     return { status: true, message: 'Request received and queued for manual admin processing.', reference: debit.reference, transactionId: debit.transaction.id, balanceAfter: debit.balanceAfter };
   }
-  const call = params.callByProvider[price.provider];
+  const call = params.callByProvider[primaryProvider];
   if (!call) {
     // Admin pointed this service at a provider that has no implementation
     // for it yet (e.g. NIN Personalization has no FranceVerified
@@ -473,7 +475,7 @@ async function purchaseSlip(params: {
     );
   }
 
-  const hubbuHash = price.provider === 'hubbu' ? hubbuRequestHash(params.userId, params.service, { ...params.operational, ...params.pii }) : undefined;
+  const hubbuHash = primaryProvider === 'hubbu' ? hubbuRequestHash(params.userId, params.service, { ...params.operational, ...params.pii }) : undefined;
   if (hubbuHash) {
     const prior = await findPendingHubbuRequest(params.userId, params.transactionType, hubbuHash);
     if (prior) {
@@ -501,7 +503,7 @@ async function purchaseSlip(params: {
     // comment above) - fixed and known up front, no balance-delta correction
     // needed either way.
     costKobo: price.providerCostKobo,
-    provider: price.provider === 'hubbu' ? 'hubbu' : undefined
+    provider: primaryProvider === 'hubbu' ? 'hubbu' : undefined
   });
 
   if (debit.reused && debit.transaction.status !== TransactionStatus.PENDING) {
@@ -526,12 +528,12 @@ async function purchaseSlip(params: {
     if (realProviderTicket(metadata)) {
       return { status: false, pending: true, message: 'Your request is being processed by the provider.', reference: debit.reference, transactionId: debit.transaction.id, balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo) };
     }
-    const balanceAfterKobo = await failSlipAndRefund({ transactionId: debit.transaction.id, userId: params.userId, provider: price.provider, message: 'The provider did not return a ticket or completed result; your payment has been refunded.', metadata });
+    const balanceAfterKobo = await failSlipAndRefund({ transactionId: debit.transaction.id, userId: params.userId, provider: primaryProvider, message: 'The provider did not return a ticket or completed result; your payment has been refunded.', metadata });
     return { status: false, message: 'The provider did not return a completed result; your payment has been refunded.', reference: debit.reference, transactionId: debit.transaction.id, balanceAfter: koboToNaira(balanceAfterKobo) };
   }
 
   const hubbuReconciliationRef = `HUBBU-RECONCILE-${debit.reference}`;
-  if (price.provider === 'hubbu') {
+  if (primaryProvider === 'hubbu') {
     const existingMetadata = debit.transaction.metadata as Record<string, unknown> | null;
     await prisma.transaction.update({ where: { id: debit.transaction.id }, data: {
       provider: 'hubbu', providerRef: hubbuReconciliationRef,
@@ -539,17 +541,17 @@ async function purchaseSlip(params: {
     } });
   }
 
-  let actualProvider = price.provider;
+  let actualProvider = primaryProvider;
   let result: TechhubSlipResult;
   try {
     result = await timedVerificationCall(params.service, 'lookup', call, {
-      provider: price.provider,
+      provider: primaryProvider,
       succeeded: (response) => typeof response === 'object' && response !== null && 'ok' in response && response.ok === true
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'The provider could not complete the request.';
     const previous = debit.transaction.metadata as Record<string, unknown> | null;
-    const balanceAfterKobo = await failSlipAndRefund({ transactionId: debit.transaction.id, userId: params.userId, provider: price.provider, message, metadata: previous, raw: { error: message } });
+    const balanceAfterKobo = await failSlipAndRefund({ transactionId: debit.transaction.id, userId: params.userId, provider: primaryProvider, message, metadata: previous, raw: { error: message } });
     return { status: false, message: 'The verification provider could not complete the request; your payment has been refunded.', reference: debit.reference, transactionId: debit.transaction.id, balanceAfter: koboToNaira(balanceAfterKobo) };
   }
 
@@ -558,7 +560,7 @@ async function purchaseSlip(params: {
     if (ticketId && !/^(?:RECONCILE|HUBBU-RECONCILE)-/i.test(ticketId)) {
       const previous = debit.transaction.metadata as Record<string, unknown> | null;
       await prisma.transaction.update({ where: { id: debit.transaction.id }, data: {
-        provider: price.provider, providerRef: ticketId,
+        provider: primaryProvider, providerRef: ticketId,
         metadata: { ...(previous ?? {}), ticket_id: ticketId, ...(hubbuHash ? { hubbu_request_hash: hubbuHash } : {}), pii: mergeSealedPII(previous?.pii, { ...params.pii, provider_raw_response: result.raw }) } as Prisma.InputJsonValue
       } });
       return { status: false, pending: true, message: 'Your request is being processed by the provider.', reference: debit.reference, transactionId: debit.transaction.id, balanceAfter: debit.balanceAfter };
@@ -567,10 +569,10 @@ async function purchaseSlip(params: {
   }
 
   const noRecord = !result.ok && /\b(?:no\s+record\s+found|record\s+not\s+found|no\s+match\s+found|data\s+not\s+found)\b/i.test(result.message);
-  const fallbackProvider: VerificationProvider = price.provider === 'techhub' ? 'franceverified' : 'techhub';
+  const fallbackProvider: VerificationProvider = primaryProvider === 'techhub' ? 'franceverified' : 'techhub';
   const fallbackCall = noRecord ? params.retryNoRecordWith?.[fallbackProvider] : undefined;
   if (fallbackCall) {
-    console.info(`[verification] ${params.service} returned no record from ${price.provider}; retrying ${fallbackProvider}`);
+    console.info(`[verification] ${params.service} returned no record from ${primaryProvider}; retrying ${fallbackProvider}`);
     actualProvider = fallbackProvider;
     try {
       result = await timedVerificationCall(params.service, 'lookup', fallbackCall, {
@@ -755,6 +757,7 @@ export function purchaseNinByNin(params: { userId: string; nin: string; tier: Ni
     operational: { mode: 'by_nin', tier: params.tier },
     pii: { nin: params.nin },
     idempotencyKey: params.idempotencyKey,
+    providerOverride: 'techhub',
     // FranceVerified's /nin/verify/nin has no premium/standard/regular/vnin
     // concept of its own - whichever tier's ServicePricing row is pointed at
     // franceverified calls the same underlying endpoint, and the tier picks
@@ -815,6 +818,7 @@ export function purchaseNinVerificationV1(params: { userId: string; nin: string;
     operational: { mode: 'by_nin', tier: params.tier },
     pii: { nin: params.nin },
     idempotencyKey: params.idempotencyKey,
+    providerOverride: 'techhub',
     callByProvider: {
       techhub: () => params.tier === 'personal'
         ? techhubService.ninPersonalInfoByNin(params.nin)
@@ -834,6 +838,7 @@ export function purchaseNinVerificationV2(params: { userId: string; nin: string;
     operational: { mode: 'by_nin', tier: params.tier },
     pii: { nin: params.nin },
     idempotencyKey: params.idempotencyKey,
+    providerOverride: 'franceverified',
     callByProvider: {
       franceverified: () => franceverifiedSlipAdapter.ninByNin(
         params.nin,

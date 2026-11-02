@@ -322,8 +322,12 @@ function asyncVerificationResponse(result: { reference: string; ticketId: string
 }
 
 partnerApiRoutes.post('/verification/nin/by-nin', async (req, res) => {
-  const body = z.object({ nin: z.string().trim().length(11), tier: z.enum(['premium', 'standard', 'regular', 'vnin']) }).parse(req.body);
-  const result = await partnerVerification.ninByNin(req.partner!.id, body.nin, body.tier, idempotencyKeyFrom(req));
+  const body = z.object({
+    nin: z.string().trim().length(11),
+    tier: z.enum(['premium', 'standard', 'regular', 'vnin']),
+    version: z.enum(['v1', 'v2']).default('v1')
+  }).parse(req.body);
+  const result = await partnerVerification.ninByNin(req.partner!.id, body.nin, body.tier, idempotencyKeyFrom(req), body.version);
   res.set('Cache-Control', 'no-store');
   res.json(verificationResponse(result));
 });

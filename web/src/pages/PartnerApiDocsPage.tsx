@@ -159,6 +159,7 @@ export default function PartnerApiDocsPage() {
 
         <Section id="nin" icon={Fingerprint} title={t('partnerPortal.docs.sections.nin')}>
           <p className="text-slate-600">{t('partnerPortal.docs.nin.intro')}</p>
+          <p className="mt-2 text-sm text-slate-600"><strong>Version routing:</strong> V1 uses the V1 partner price and checks Techhub first, then tries FranceVerified if Techhub does not return a successful lookup. V2 uses the V2 partner price and calls FranceVerified directly. Omit <code>version</code> to use V1.</p>
           <TieredEndpointCard
             method="POST"
             path="/verification/nin/by-nin"
@@ -166,7 +167,8 @@ export default function PartnerApiDocsPage() {
             tiers={['premium', 'standard', 'regular', 'vnin']}
             rows={[
               { name: 'nin', type: 'string', required: true, desc: '11-digit NIN' },
-              { name: 'tier', type: 'string', required: true, desc: 'premium, standard, regular, or vnin' }
+              { name: 'tier', type: 'string', required: true, desc: 'premium, standard, regular, or vnin' },
+              { name: 'version', type: 'string', required: false, desc: 'v1 (Techhub first, then FranceVerified if Techhub does not succeed; default) or v2 (FranceVerified directly). Each version uses its own partner price.' }
             ]}
           />
           <TieredEndpointCard

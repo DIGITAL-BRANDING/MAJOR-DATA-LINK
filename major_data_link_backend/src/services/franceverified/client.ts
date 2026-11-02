@@ -67,7 +67,14 @@ async function franceVerifiedRequest(path: string, init: { method: 'GET' | 'POST
   const successful = response.ok && (envelope.success === true || envelope.ok === true || status === true || status === 'success' || status === 'successful' || status === 'pending' || (!('success' in envelope) && !('ok' in envelope) && !('status' in envelope)));
   const data = asRecord(envelope.data) ?? asRecord(envelope.response) ?? (successful ? envelope : undefined);
 
-  console.info('[franceverified] response', JSON.stringify({ endpoint: path, http_status: response.status, outcome: successful && Boolean(data) ? 'success' : 'failed' }));
+  console.info('[franceverified] response', JSON.stringify({
+    endpoint: path,
+    http_status: response.status,
+    provider_status: typeof status === 'string' || typeof status === 'boolean' ? status : undefined,
+    response_fields: Object.keys(envelope).sort(),
+    data_fields: data ? Object.keys(data).sort() : [],
+    outcome: successful && Boolean(data) ? 'success' : 'failed'
+  }));
 
   if (!successful || !data) {
     return { ok: false, message: publicVerificationMessage(envelope.message, 'Your request could not be completed. Please check the details and try again.'), raw };
