@@ -157,7 +157,7 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
                                   final tx = state.transactions[index];
                                   return TransactionTile(
                                     title: tx.title,
-                                    subtitle: tx.subtitle,
+                                    subtitle: tx.failureReason ?? tx.subtitle,
                                     amount: tx.amount,
                                     date: tx.date,
                                     status: _mapStatus(tx.status),

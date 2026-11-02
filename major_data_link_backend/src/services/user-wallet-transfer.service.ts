@@ -4,10 +4,6 @@ import { koboToNaira } from '../lib/money.js';
 import { prisma } from '../lib/prisma.js';
 import { ApiError } from '../middleware/error.js';
 
-function transferMetadata(direction: 'incoming' | 'outgoing', transferReference: string, counterpartyName: string) {
-  return { wallet_transfer: { direction, transfer_reference: transferReference, counterparty_name: counterpartyName } };
-}
-
 function sameRequest(transaction: { amountKobo: bigint; metadata: Prisma.JsonValue | null }, amountKobo: bigint, recipientId: string) {
   if (transaction.amountKobo !== amountKobo || !transaction.metadata || typeof transaction.metadata !== 'object' || Array.isArray(transaction.metadata)) return false;
   const transfer = (transaction.metadata as Record<string, unknown>).wallet_transfer;
@@ -20,6 +16,14 @@ function transferReferenceOf(metadata: Prisma.JsonValue | null, fallback: string
   if (!transfer || typeof transfer !== 'object' || Array.isArray(transfer)) return fallback;
   const reference = (transfer as Record<string, unknown>).transfer_reference;
   return typeof reference === 'string' ? reference : fallback;
+}
+
+async function recipientTransferTransactionId(recipientId: string, transferReference: string) {
+  const transaction = await prisma.transaction.findFirst({
+    where: { userId: recipientId, reference: `${transferReference}-IN`, type: TransactionType.WALLET_TRANSFER },
+    select: { id: true }
+  });
+  return transaction?.id;
 }
 
 async function findRecipientByPhone(phone: string) {
@@ -61,9 +65,12 @@ export async function transferWalletToUser(params: {
     if (!sameRequest(previous, params.amountKobo, recipient.id)) {
       throw new ApiError(409, 'This transfer key was already used for different details', 'IDEMPOTENCY_KEY_REUSED');
     }
+    const transferReference = transferReferenceOf(previous.metadata, previous.reference);
     return {
       reference: previous.reference,
-      transferReference: transferReferenceOf(previous.metadata, previous.reference),
+      transactionId: previous.id,
+      recipientTransactionId: await recipientTransferTransactionId(recipient.id, transferReference),
+      transferReference,
       balanceAfter: koboToNaira(previous.balanceAfterKobo),
       recipientName: recipient.fullName,
       recipientId: recipient.id,
@@ -81,6 +88,8 @@ export async function transferWalletToUser(params: {
     recipientName: string;
     recipientId: string;
     senderName: string;
+    transactionId: string;
+    recipientTransactionId?: string;
     reused: boolean;
   };
 
@@ -115,22 +124,34 @@ export async function transferWalletToUser(params: {
       const recipientBeforeKobo = recipientAfter.walletBalanceKobo - params.amountKobo;
       const senderReference = `${transferReference}-OUT`;
       const recipientReference = `${transferReference}-IN`;
+      const senderTransactionId = nanoid();
+      const recipientTransactionId = nanoid();
 
       const outgoingMetadata = {
-        wallet_transfer: { direction: 'outgoing', transfer_reference: transferReference, counterparty_name: recipient.fullName, recipient_id: recipient.id }
+        wallet_transfer: {
+          direction: 'outgoing', transfer_reference: transferReference,
+          counterparty_name: recipient.fullName, sender_name: senderBefore.fullName,
+          recipient_name: recipient.fullName, sender_id: params.senderId, recipient_id: recipient.id
+        }
       };
-      const incomingMetadata = transferMetadata('incoming', transferReference, senderBefore.fullName);
+      const incomingMetadata = {
+        wallet_transfer: {
+          direction: 'incoming', transfer_reference: transferReference,
+          counterparty_name: senderBefore.fullName, sender_name: senderBefore.fullName,
+          recipient_name: recipient.fullName, sender_id: params.senderId, recipient_id: recipient.id
+        }
+      };
 
       await tx.transaction.createMany({
         data: [
           {
-            id: nanoid(), userId: params.senderId, type: TransactionType.WALLET_TRANSFER, status: TransactionStatus.SUCCESS,
+            id: senderTransactionId, userId: params.senderId, type: TransactionType.WALLET_TRANSFER, status: TransactionStatus.SUCCESS,
             amountKobo: params.amountKobo, balanceBeforeKobo: senderBeforeKobo, balanceAfterKobo: senderAfter.walletBalanceKobo,
             reference: senderReference, idempotencyKey: params.idempotencyKey,
             description: `Transfer to ${recipient.fullName}`, metadata: outgoingMetadata
           },
           {
-            id: nanoid(), userId: recipient.id, type: TransactionType.WALLET_TRANSFER, status: TransactionStatus.SUCCESS,
+            id: recipientTransactionId, userId: recipient.id, type: TransactionType.WALLET_TRANSFER, status: TransactionStatus.SUCCESS,
             amountKobo: params.amountKobo, balanceBeforeKobo: recipientBeforeKobo, balanceAfterKobo: recipientAfter.walletBalanceKobo,
             reference: recipientReference,
             description: `Transfer from ${senderBefore.fullName}`, metadata: incomingMetadata
@@ -140,6 +161,8 @@ export async function transferWalletToUser(params: {
 
       return {
         reference: senderReference,
+        transactionId: senderTransactionId,
+        recipientTransactionId,
         transferReference,
         balanceAfter: koboToNaira(senderAfter.walletBalanceKobo),
         recipientName: recipient.fullName,
@@ -162,6 +185,8 @@ export async function transferWalletToUser(params: {
         }
         return {
           reference: duplicate.reference,
+          transactionId: duplicate.id,
+          recipientTransactionId: await recipientTransferTransactionId(recipient.id, transferReferenceOf(duplicate.metadata, duplicate.reference)),
           transferReference: transferReferenceOf(duplicate.metadata, duplicate.reference),
           balanceAfter: koboToNaira(duplicate.balanceAfterKobo),
           recipientName: recipient.fullName,

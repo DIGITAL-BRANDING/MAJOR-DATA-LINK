@@ -665,6 +665,10 @@ async function purchaseSlip(params: {
   }
 
   const existingMetadata = debit.transaction.metadata as Record<string, unknown> | null;
+  const failureReason = publicVerificationMessage(
+    result.message,
+    'Your request could not be completed. Please check the details and try again.'
+  );
   await prisma.transaction.update({
     where: { id: debit.transaction.id },
     data: {
@@ -674,20 +678,21 @@ async function purchaseSlip(params: {
         service: params.service,
         ...params.operational,
         unit_price: price.unitPrice,
+        failure_reason: failureReason,
         pii: mergeSealedPII(existingMetadata?.pii, {
           ...params.pii,
-          response: { message: result.message },
+          response: { message: failureReason },
           provider_raw_response: result.raw
         })
       } as Prisma.InputJsonValue
     }
   });
-  await refundWallet({ transactionId: debit.transaction.id, userId: params.userId, reason: result.message });
+  await refundWallet({ transactionId: debit.transaction.id, userId: params.userId, reason: failureReason });
   const refunded = await prisma.transaction.findFirstOrThrow({ where: { relatedTransactionId: debit.transaction.id, type: TransactionType.REFUND } });
 
   return {
     status: false,
-    message: result.message,
+    message: failureReason,
     reference: debit.reference,
     transactionId: debit.transaction.id,
     balanceAfter: koboToNaira(refunded.balanceAfterKobo)

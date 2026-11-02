@@ -17,6 +17,7 @@ class ReceiptData {
     required this.status,
     required this.details, // ordered key-value pairs
     this.balanceAfter,
+    this.watermark = false,
   });
 
   final String title;
@@ -26,6 +27,7 @@ class ReceiptData {
   final String status;
   final List<MapEntry<String, String>> details;
   final double? balanceAfter;
+  final bool watermark;
 }
 
 class ReceiptService {
@@ -45,9 +47,32 @@ class ReceiptService {
         pageFormat: PdfPageFormat.a5,
         margin: const pw.EdgeInsets.all(28),
         build: (context) {
-          return pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
+          return pw.Stack(
             children: [
+              if (data.watermark)
+                pw.Positioned.fill(
+                  child: pw.Center(
+                    child: pw.Transform.rotate(
+                      angle: -0.52,
+                      child: pw.Opacity(
+                        opacity: 0.07,
+                        child: pw.Text(
+                          'K-TECH SOLUTIONS',
+                          textAlign: pw.TextAlign.center,
+                          style: pw.TextStyle(
+                            fontSize: 31,
+                            fontWeight: pw.FontWeight.bold,
+                            letterSpacing: 2,
+                            color: PdfColor.fromInt(0xFF123B78),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
               // Header
               pw.Row(
                 mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
@@ -212,6 +237,8 @@ class ReceiptService {
                   AppConfig.supportEmail,
                   style: pw.TextStyle(fontSize: 9, color: _neutral500),
                 ),
+              ),
+                ],
               ),
             ],
           );

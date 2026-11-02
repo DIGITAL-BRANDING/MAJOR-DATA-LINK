@@ -211,9 +211,9 @@ walletRoutes.post('/transfer', async (req, res) => {
   if (!result.reused) {
     const amountLabel = `₦${body.amount.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     void Promise.allSettled([
-      notifyUser({ userId: req.user!.id, type: NotificationType.WALLET, title: 'Wallet transfer sent', body: `${amountLabel} was sent to ${result.recipientName}. Reference: ${result.transferReference}.`, data: { reference: result.reference, transfer_reference: result.transferReference } }),
-      notifyUser({ userId: result.recipientId, type: NotificationType.WALLET, title: 'Wallet transfer received', body: `You received ${amountLabel} from ${result.senderName}. Reference: ${result.transferReference}.`, data: { transfer_reference: result.transferReference } })
+      notifyUser({ userId: req.user!.id, type: NotificationType.WALLET, title: 'Wallet transfer sent', body: `${amountLabel} was sent to ${result.recipientName}. Your receipt is ready in Wallet History. Reference: ${result.transferReference}.`, data: { reference: result.reference, transaction_id: result.transactionId, transfer_reference: result.transferReference } }),
+      notifyUser({ userId: result.recipientId, type: NotificationType.WALLET, title: 'Wallet transfer received', body: `You received ${amountLabel} from ${result.senderName}. Your receipt is ready in Wallet History. Reference: ${result.transferReference}.`, data: { transaction_id: result.recipientTransactionId, transfer_reference: result.transferReference } })
     ]).then((settled) => settled.filter((item) => item.status === 'rejected').forEach((item) => console.warn('[wallet transfer] notification failed', item.reason)));
   }
-  res.json({ status: true, message: result.reused ? 'This transfer was already completed' : 'Transfer sent successfully', data: { reference: result.reference, transfer_reference: result.transferReference, recipient_name: result.recipientName, amount: body.amount, balance_after: result.balanceAfter, reused: result.reused } });
+  res.json({ status: true, message: result.reused ? 'This transfer was already completed' : 'Transfer sent successfully', data: { transaction_id: result.transactionId, recipient_transaction_id: result.recipientTransactionId, reference: result.reference, transfer_reference: result.transferReference, recipient_name: result.recipientName, amount: body.amount, balance_after: result.balanceAfter, reused: result.reused } });
 });

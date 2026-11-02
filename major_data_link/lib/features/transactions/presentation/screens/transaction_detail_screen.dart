@@ -13,11 +13,11 @@ import '../../data/datasources/transactions_remote_datasource.dart';
 import '../../domain/entities/transaction_entity.dart';
 import '../providers/transactions_provider.dart';
 
-final _transactionDetailProvider =
-    FutureProvider.autoDispose.family<TransactionEntity, String>((ref, id) async {
-  final ds = ref.read(transactionsRemoteDataSourceProvider);
-  return ds.getTransactionDetail(id);
-});
+final _transactionDetailProvider = FutureProvider.autoDispose
+    .family<TransactionEntity, String>((ref, id) async {
+      final ds = ref.read(transactionsRemoteDataSourceProvider);
+      return ds.getTransactionDetail(id);
+    });
 
 class TransactionDetailScreen extends ConsumerWidget {
   const TransactionDetailScreen({super.key, required this.transactionId});
@@ -108,6 +108,11 @@ class _TxDetailBody extends StatelessWidget {
   }
 
   ReceiptData _buildReceiptData() {
+    final transferMeta = tx.metadata?['wallet_transfer'];
+    final transfer = transferMeta is Map<String, dynamic> ? transferMeta : null;
+    final senderName = transfer?['sender_name']?.toString();
+    final recipientName = transfer?['recipient_name']?.toString();
+    final isTransfer = tx.type == TxType.transfer;
     return ReceiptData(
       title: tx.title,
       amount: tx.amount,
@@ -115,12 +120,20 @@ class _TxDetailBody extends StatelessWidget {
       date: tx.date,
       status: _statusLabel,
       details: [
-        if (tx.subtitle.isNotEmpty)
+        if (isTransfer && senderName != null && senderName.isNotEmpty)
+          MapEntry('Sender', senderName),
+        if (isTransfer && recipientName != null && recipientName.isNotEmpty)
+          MapEntry('Recipient', recipientName),
+        if ((!isTransfer || (senderName == null && recipientName == null)) &&
+            tx.subtitle.isNotEmpty)
           MapEntry('Recipient', tx.subtitle),
+        if (tx.failureReason != null && tx.failureReason!.isNotEmpty)
+          MapEntry('Failure reason', tx.failureReason!),
         if (tx.network != null) MapEntry('Network', tx.network!),
         MapEntry('Type', tx.type.name.capitalize),
       ],
       balanceAfter: tx.balanceAfter,
+      watermark: isTransfer,
     );
   }
 
@@ -150,7 +163,9 @@ class _TxDetailBody extends StatelessWidget {
                       const SizedBox(height: 10),
                       Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 14, vertical: 6),
+                          horizontal: 14,
+                          vertical: 6,
+                        ),
                         decoration: BoxDecoration(
                           color: _statusBg,
                           borderRadius: BorderRadius.circular(20),
@@ -179,21 +194,27 @@ class _TxDetailBody extends StatelessWidget {
                   child: Column(
                     children: [
                       _Row('Description', tx.title),
+                      if (tx.failureReason != null &&
+                          tx.failureReason!.isNotEmpty)
+                        _Row('Failure reason', tx.failureReason!),
                       if (tx.subtitle.isNotEmpty)
                         _Row('Recipient / Detail', tx.subtitle),
-                      if (tx.network != null)
-                        _Row('Network', tx.network!),
+                      if (tx.network != null) _Row('Network', tx.network!),
                       _Row('Type', tx.type.name.capitalize),
                       const Divider(height: 24),
                       if (tx.reference != null)
                         _Row('Reference', tx.reference!),
                       _Row('Transaction ID', tx.id),
                       if (tx.balanceBefore != null)
-                        _Row('Balance before',
-                            AppFormatters.formatAmount(tx.balanceBefore!)),
+                        _Row(
+                          'Balance before',
+                          AppFormatters.formatAmount(tx.balanceBefore!),
+                        ),
                       if (tx.balanceAfter != null)
-                        _Row('Balance after',
-                            AppFormatters.formatAmount(tx.balanceAfter!)),
+                        _Row(
+                          'Balance after',
+                          AppFormatters.formatAmount(tx.balanceAfter!),
+                        ),
                     ],
                   ),
                 ),
@@ -205,7 +226,11 @@ class _TxDetailBody extends StatelessWidget {
         // ── Actions ─────────────────────────────────────────
         Padding(
           padding: const EdgeInsets.fromLTRB(
-              AppDimensions.screenPaddingH, 0, AppDimensions.screenPaddingH, 24),
+            AppDimensions.screenPaddingH,
+            0,
+            AppDimensions.screenPaddingH,
+            24,
+          ),
           child: SafeArea(
             top: false,
             child: Column(

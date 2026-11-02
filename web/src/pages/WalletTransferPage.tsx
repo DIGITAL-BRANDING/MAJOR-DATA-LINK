@@ -8,6 +8,7 @@ import { ApiError, api } from '../lib/api';
 type Recipient = { full_name: string; phone_last4: string };
 type Balance = { balance: number };
 type TransferResult = {
+  transaction_id: string;
   reference: string;
   transfer_reference: string;
   recipient_name: string;
@@ -114,7 +115,7 @@ export default function WalletTransferPage() {
           </header>
 
           <div className="space-y-5 p-5 sm:p-7">
-            {message && <div role="status" className="flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-semibold text-emerald-800"><CheckCircle2 size={18} className="mt-0.5 shrink-0" />{message}{result && <span className="block font-mono text-xs">Reference: {result.transfer_reference}</span>}</div>}
+            {message && <div role="status" className="flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-semibold text-emerald-800"><CheckCircle2 size={18} className="mt-0.5 shrink-0" /><div>{message}{result && <><span className="mt-1 block font-mono text-xs">Reference: {result.transfer_reference}</span><Link to={`/receipt/${result.transaction_id}`} className="mt-3 inline-flex items-center gap-1 rounded-lg bg-emerald-700 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-800">View / share receipt</Link><span className="mt-2 block text-xs font-medium">The recipient can also view their receipt in Wallet History.</span></>}</div></div>}
             {error && <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm font-semibold text-rose-700">{error}</p>}
 
             <form onSubmit={findRecipient} className="space-y-3">

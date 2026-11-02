@@ -36,6 +36,7 @@ type Transaction = {
   balance_after: number;
   description: string;
   created_at: string;
+  failure_reason?: string;
   metadata: Record<string, unknown> | null;
 };
 
@@ -131,7 +132,7 @@ export default function ReceiptPage() {
     : STATUS_META[tx.status] ?? STATUS_META.pending;
   const TypeIcon = typeMeta.icon;
   const StatusIcon = statusMeta.icon;
-  const transferMeta = tx.metadata?.wallet_transfer as { direction?: string; counterparty_name?: string } | undefined;
+  const transferMeta = tx.metadata?.wallet_transfer as { direction?: string; counterparty_name?: string; sender_name?: string; recipient_name?: string } | undefined;
   const isCredit = tx.type === 'wallet_transfer'
     ? transferMeta?.direction === 'incoming'
     : CREDIT_TYPES.has(tx.type);
@@ -144,9 +145,12 @@ export default function ReceiptPage() {
         k-tech.up.railway.app/receipt/{tx.id}
       </p>
 
-      <div className="receipt-card overflow-hidden rounded-2xl border border-parchment-line bg-white shadow-xl print:border-0 print:shadow-none">
+      <div className="receipt-card relative isolate overflow-hidden rounded-2xl border border-parchment-line bg-white shadow-xl print:border-0 print:shadow-none">
+        <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center overflow-hidden">
+          <span className="-rotate-[30deg] select-none whitespace-nowrap font-display text-5xl font-black tracking-widest text-brand-800/[0.055] sm:text-6xl">K-TECH SOLUTIONS</span>
+        </div>
         {/* Ink header band */}
-        <div className="bg-ink px-6 py-6 text-center sm:px-10 sm:py-8">
+        <div className="relative z-10 bg-ink px-6 py-6 text-center sm:px-10 sm:py-8">
           <Logo dark className="justify-center" />
           <p className="mt-4 font-body text-[11px] uppercase tracking-[0.2em] text-cream/50">
             Transaction Receipt
@@ -154,7 +158,7 @@ export default function ReceiptPage() {
         </div>
 
         {/* Status + amount hero */}
-        <div className="border-b border-dashed border-parchment-line px-6 py-8 text-center sm:px-10">
+        <div className="relative z-10 border-b border-dashed border-parchment-line bg-white/85 px-6 py-8 text-center sm:px-10">
           <div
             className={`mx-auto flex h-14 w-14 items-center justify-center rounded-full border ${statusMeta.className}`}
           >
@@ -176,10 +180,14 @@ export default function ReceiptPage() {
         </div>
 
         {/* Details table */}
-        <div className="space-y-0 px-6 py-6 sm:px-10">
+        <div className="relative z-10 space-y-0 bg-white/75 px-6 py-6 sm:px-10">
           {needsConfirmation && <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-left font-body text-sm leading-relaxed text-amber-800">We could not confirm the provider result automatically. Do not submit or pay for this request again. Contact support and quote the reference below.</p>}
           <ReceiptRow label="Description" value={tx.description} />
-          {tx.type === 'wallet_transfer' && transferMeta?.counterparty_name && (
+          {tx.failure_reason && <ReceiptRow label="Failure reason" value={tx.failure_reason} />}
+          {tx.type === 'wallet_transfer' && (transferMeta?.sender_name || transferMeta?.recipient_name) ? <>
+            {transferMeta?.sender_name && <ReceiptRow label="Sender" value={transferMeta.sender_name} />}
+            {transferMeta?.recipient_name && <ReceiptRow label="Recipient" value={transferMeta.recipient_name} />}
+          </> : tx.type === 'wallet_transfer' && transferMeta?.counterparty_name && (
             <ReceiptRow label={transferMeta.direction === 'incoming' ? 'Received from' : 'Sent to'} value={transferMeta.counterparty_name} />
           )}
           <ReceiptRow
@@ -204,7 +212,7 @@ export default function ReceiptPage() {
         </div>
 
         {/* Footer */}
-        <div className="border-t border-parchment-line bg-parchment/50 px-6 py-5 text-center sm:px-10">
+        <div className="relative z-10 border-t border-parchment-line bg-parchment/85 px-6 py-5 text-center sm:px-10">
           <p className="font-body text-xs leading-relaxed text-ink-600">
             This is an automatically generated receipt from K-Tech Solutions. Keep it for your
             records — quote the reference above if you ever need support with this transaction.

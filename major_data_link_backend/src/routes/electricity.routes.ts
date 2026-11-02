@@ -182,7 +182,15 @@ electricityRoutes.post('/purchase', async (req, res) => {
 
   await prisma.transaction.update({
     where: { id: debit.transaction.id },
-    data: { status: TransactionStatus.FAILED, provider: 'bilalsadasub', providerRef: provider.providerRef ?? null }
+    data: {
+      status: TransactionStatus.FAILED,
+      provider: 'bilalsadasub',
+      providerRef: provider.providerRef ?? null,
+      metadata: {
+        ...((debit.transaction.metadata as Record<string, unknown> | null) ?? {}),
+        fulfillment: { state: 'failed', message: provider.message ?? 'Electricity purchase failed and was refunded', recordedAt: new Date().toISOString() }
+      } as Prisma.InputJsonValue
+    }
   });
   const refunded = await refundWallet({ transactionId: debit.transaction.id, userId: req.user!.id });
 

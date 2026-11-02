@@ -21,6 +21,15 @@ export function publicVerificationMessage(value: unknown, fallback: string) {
   if (/\b(bvn|bank verification number)\b.*\b(must|should|needs? to|has to)\b.*\b(?:exactly\s+)?(11|eleven)\b.*\b(digit|number|character)/.test(normalized) || /\b(11|eleven)\s+digits?\b.*\b(bvn|bank verification number)\b/.test(normalized)) {
     return 'BVN must be 11 digits.';
   }
+  if (/\b(nin|national identity number)\b.*\b(?:does not exist|doesn't exist|not exist|nonexistent|not registered)\b|\b(?:does not exist|doesn't exist|not exist|nonexistent|not registered)\b.*\b(nin|national identity number)\b/.test(normalized)) {
+    return 'This NIN does not exist in the provider records. Please check the number and try again.';
+  }
+  if (/\b(bvn|bank verification number)\b.*\b(?:does not exist|doesn't exist|not exist|nonexistent|not registered)\b|\b(?:does not exist|doesn't exist|not exist|nonexistent|not registered)\b.*\b(bvn|bank verification number)\b/.test(normalized)) {
+    return 'This BVN does not exist in the provider records. Please check the number and try again.';
+  }
+  if (/\b(?:id|identifier|identity number)\b.*\b(?:does not exist|doesn't exist|not exist|nonexistent|not registered)\b|\b(?:does not exist|doesn't exist|not exist|nonexistent|not registered)\b.*\b(?:id|identifier|identity number)\b/.test(normalized)) {
+    return 'The ID provided does not exist in the provider records. Please check it and try again.';
+  }
   if (/\b(invalid|incorrect|not valid|wrong)\b.*\b(nin|national identity number)\b|\b(nin|national identity number)\b.*\b(invalid|incorrect|not valid|wrong)\b/.test(normalized)) {
     return 'Invalid NIN. Please check the number and try again.';
   }
@@ -31,6 +40,20 @@ export function publicVerificationMessage(value: unknown, fallback: string) {
     return 'Record not found. Please check the details and try again.';
   }
 
-  // Never echo arbitrary upstream text. The fallback is written by this app.
+  // Pass through a plain-language provider reason so the customer can fix
+  // their input. Do not expose payloads, HTML, URLs, credentials, or stack
+  // details from upstream responses.
+  const safeMessage = message
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/https?:\/\/\S+/gi, '')
+    .replace(/[\r\n\t]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (
+    safeMessage.length > 0 && safeMessage.length <= 220 &&
+    !/[{}<>]/.test(safeMessage) &&
+    !/\b(api key|access token|authorization|stack trace|exception|sql error|internal server)\b/i.test(safeMessage)
+  ) return safeMessage;
+
   return fallback;
 }

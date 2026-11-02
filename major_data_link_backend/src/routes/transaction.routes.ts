@@ -7,6 +7,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { assertSafeWebhookUrl } from '../services/partner-webhook.service.js';
 import { ApiError } from '../middleware/error.js';
 import { refundWallet } from '../services/wallet.service.js';
+import { publicVerificationMessage } from '../lib/public-verification-message.js';
 
 export const transactionRoutes = Router();
 
@@ -143,6 +144,28 @@ function safeIdentitySlipSummary(metadata: unknown, updatedAt: Date): IdentitySl
   }
 }
 
+function transactionFailureReason(metadata: unknown, status: TransactionStatus): string | undefined {
+  if (status !== TransactionStatus.FAILED || typeof metadata !== 'object' || metadata === null || Array.isArray(metadata)) return undefined;
+  try {
+    const record = metadata as Record<string, unknown>;
+    const fulfillment = record.fulfillment && typeof record.fulfillment === 'object'
+      ? record.fulfillment as Record<string, unknown>
+      : null;
+    let message = firstString(record, ['failure_reason', 'provider_error'])
+      ?? firstString(fulfillment, ['message']);
+    if (!message) {
+      const pii = openPII<Record<string, unknown>>(record.pii);
+      const piiResponse = pii?.response && typeof pii.response === 'object'
+        ? pii.response as Record<string, unknown>
+        : null;
+      message = firstString(piiResponse, ['message']);
+    }
+    return publicVerificationMessage(message, 'The provider could not complete this request. Please check the details and try again.');
+  } catch {
+    return 'The provider could not complete this request. Please check the details and try again.';
+  }
+}
+
 function documentBuffer(base64: string): Buffer | null {
   const value = base64.replace(/^data:application\/pdf(?:;[^,]*)?,/i, '').trim();
   if (!value) return null;
@@ -182,18 +205,22 @@ transactionRoutes.get('/', async (req, res) => {
 
   res.json({
     status: true,
-    data: transactions.map((tx) => ({
-      id: tx.id,
-      reference: tx.reference,
-      type: tx.type.toLowerCase(),
-      status: tx.status.toLowerCase(),
-      amount: koboToNaira(tx.amountKobo),
-      balance_after: koboToNaira(tx.balanceAfterKobo),
-      description: tx.description,
-      created_at: tx.createdAt.toISOString(),
-      document_available: hasStoredServiceDocument(tx.metadata),
-      ...walletTransferSummary(tx.metadata)
-    }))
+    data: transactions.map((tx) => {
+      const failureReason = transactionFailureReason(tx.metadata, tx.status);
+      return {
+        id: tx.id,
+        reference: tx.reference,
+        type: tx.type.toLowerCase(),
+        status: tx.status.toLowerCase(),
+        amount: koboToNaira(tx.amountKobo),
+        balance_after: koboToNaira(tx.balanceAfterKobo),
+        description: tx.description,
+        created_at: tx.createdAt.toISOString(),
+        ...(failureReason ? { failure_reason: failureReason } : {}),
+        document_available: hasStoredServiceDocument(tx.metadata),
+        ...walletTransferSummary(tx.metadata)
+      };
+    })
   });
 });
 
@@ -318,7 +345,7 @@ transactionRoutes.get('/services', async (req, res) => {
   // metadata.service / metadata.tier are the plaintext operational half of
   // metadata (never the sealed PII half - see sealPII/pii.ts), so Postgres
   // can extract just those two short strings without sending the blob.
-  type PlainRow = { id: string; service: string | null; tier: string | null };
+  type PlainRow = { id: string; service: string | null; tier: string | null; failure_reason: string | null };
   // This is deliberately best-effort. A database/proxy incompatibility in
   // the JSON projection must never make the whole Service History page fail;
   // the ordinary transaction fields below are enough to render every row.
@@ -326,7 +353,8 @@ transactionRoutes.get('/services', async (req, res) => {
   if (ids.length) {
     try {
       plainFields = await prisma.$queryRaw<PlainRow[]>`
-        SELECT "id", "metadata"->>'service' AS "service", "metadata"->>'tier' AS "tier"
+        SELECT "id", "metadata"->>'service' AS "service", "metadata"->>'tier' AS "tier",
+          COALESCE("metadata"->>'failure_reason', "metadata"->'fulfillment'->>'message') AS "failure_reason"
         FROM "Transaction"
         WHERE "id" = ANY(${ids})`;
     } catch (error) {
@@ -389,6 +417,9 @@ transactionRoutes.get('/services', async (req, res) => {
         balance_after: koboToNaira(tx.balanceAfterKobo),
         description: tx.description,
         created_at: tx.createdAt.toISOString(),
+        ...(tx.status === TransactionStatus.FAILED && plainById.get(tx.id)?.failure_reason
+          ? { failure_reason: publicVerificationMessage(plainById.get(tx.id)?.failure_reason, 'The provider could not complete this request. Please check the details and try again.') }
+          : {}),
         document_available: enrichment?.document_available ?? false,
         ...(enrichment?.summary ?? {})
       };
@@ -400,6 +431,7 @@ transactionRoutes.get('/:id', async (req, res) => {
   const tx = await prisma.transaction.findFirstOrThrow({
     where: { id: req.params.id, userId: req.user!.id }
   });
+  const failureReason = transactionFailureReason(tx.metadata, tx.status);
 
   res.json({
     id: tx.id,
@@ -410,6 +442,7 @@ transactionRoutes.get('/:id', async (req, res) => {
     balance_after: koboToNaira(tx.balanceAfterKobo),
     description: tx.description,
     created_at: tx.createdAt.toISOString(),
+    ...(failureReason ? { failure_reason: failureReason } : {}),
     metadata: tx.metadata
   });
 });

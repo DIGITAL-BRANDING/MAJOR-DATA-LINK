@@ -35,6 +35,7 @@ class TransactionEntity extends Equatable {
     this.balanceBefore,
     this.balanceAfter,
     this.metadata,
+    this.failureReason,
   });
 
   final String id;
@@ -51,6 +52,7 @@ class TransactionEntity extends Equatable {
   final double? balanceBefore;
   final double? balanceAfter;
   final Map<String, dynamic>? metadata;
+  final String? failureReason;
 
   factory TransactionEntity.fromJson(Map<String, dynamic> json) {
     return TransactionEntity(
@@ -58,17 +60,21 @@ class TransactionEntity extends Equatable {
       type: _parseType(json['type']?.toString()),
       status: _parseStatus(json['status']?.toString()),
       title: json['title']?.toString() ?? json['description']?.toString() ?? '',
-      subtitle: json['subtitle']?.toString() ??
+      subtitle:
+          json['subtitle']?.toString() ??
           json['recipient']?.toString() ??
           json['phone']?.toString() ??
           '',
       amount: _toDouble(json['amount']),
-      isCredit: json['is_credit'] == true ||
+      isCredit:
+          json['is_credit'] == true ||
           json['type']?.toString() == 'fund' ||
           json['type']?.toString() == 'referral' ||
           (json['type']?.toString().toLowerCase() == 'wallet_transfer' &&
-              json['transfer_direction']?.toString().toLowerCase() == 'incoming'),
-      date: DateTime.tryParse(json['created_at']?.toString() ?? '') ??
+              json['transfer_direction']?.toString().toLowerCase() ==
+                  'incoming'),
+      date:
+          DateTime.tryParse(json['created_at']?.toString() ?? '') ??
           DateTime.now(),
       reference: json['reference']?.toString(),
       recipientPhone: json['phone']?.toString(),
@@ -80,6 +86,7 @@ class TransactionEntity extends Equatable {
           ? _toDouble(json['balance_after'])
           : null,
       metadata: json['metadata'] as Map<String, dynamic>?,
+      failureReason: json['failure_reason']?.toString(),
     );
   }
 
@@ -147,18 +154,19 @@ class TransactionEntity extends Equatable {
 
   @override
   List<Object?> get props => [
-        id,
-        type,
-        status,
-        title,
-        subtitle,
-        amount,
-        isCredit,
-        date,
-        reference,
-        recipientPhone,
-        network,
-        balanceBefore,
-        balanceAfter,
-      ];
+    id,
+    type,
+    status,
+    title,
+    subtitle,
+    amount,
+    isCredit,
+    date,
+    reference,
+    recipientPhone,
+    network,
+    balanceBefore,
+    balanceAfter,
+    failureReason,
+  ];
 }
