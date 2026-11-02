@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { env } from '../config/env.js';
 import { ApiError } from '../middleware/error.js';
+import { renderPersonalInformationSlipPdf, type IdentitySlipField } from '../lib/render-identity-slip-pdf.js';
 import type { TechhubAsyncSubmitResult, TechhubSlipResult } from './techhub.service.js';
 
 const TIMEOUT_MS = 20_000;
@@ -45,6 +46,33 @@ function responseLayers(raw: HubbuResponse): Json[] {
 function firstValue(layers: Json[], keys: string[]) {
   for (const layer of layers) for (const key of keys) if (layer[key] !== undefined && layer[key] !== null && layer[key] !== '') return layer[key];
   return undefined;
+}
+
+function stringValue(value: unknown) { return value === undefined || value === null ? undefined : String(value); }
+
+function identityFields(value: Json): IdentitySlipField[] {
+  const first = stringValue(firstValue([value], ['first_name', 'firstName', 'firstname', 'given_name', 'givenName']));
+  const middle = stringValue(firstValue([value], ['middle_name', 'middleName', 'other_names', 'otherNames']));
+  const last = stringValue(firstValue([value], ['last_name', 'lastName', 'surname', 'family_name', 'familyName']));
+  const nin = stringValue(firstValue([value], ['nin', 'nin_number', 'ninNumber', 'id_number', 'idNumber']));
+  const phone = stringValue(firstValue([value], ['phone', 'phone_number', 'phoneNumber', 'mobile']));
+  const dob = stringValue(firstValue([value], ['date_of_birth', 'dateOfBirth', 'dob', 'birthdate']));
+  const gender = stringValue(firstValue([value], ['gender', 'sex']));
+  return [
+    { label: 'First Name', value: first },
+    { label: 'Middle Name', value: middle },
+    { label: 'Last Name', value: last },
+    { label: 'NIN', value: nin },
+    { label: 'Phone Number', value: phone },
+    { label: 'Date of Birth', value: dob },
+    { label: 'Gender', value: gender }
+  ];
+}
+
+function isIdentityData(value: Json) {
+  return identityFields(value).some(({ label, value: fieldValue }) =>
+    (label === 'First Name' || label === 'Last Name' || label === 'NIN') && fieldValue !== undefined && String(fieldValue).trim() !== ''
+  );
 }
 
 function successState(raw: HubbuResponse): 'success' | 'failure' | 'pending' | 'unknown' {
@@ -168,11 +196,12 @@ async function downloadPdf(token: string): Promise<string | undefined> {
   finally { clearTimeout(timer); }
 }
 
-async function extractSlipResult(raw: HubbuResponse, fallback: string): Promise<TechhubSlipResult> {
+async function extractSlipResult(raw: HubbuResponse, fallback: string, title: 'NIN Slip' | 'BVN Slip'): Promise<TechhubSlipResult> {
   const layers = responseLayers(raw);
   let state = successState(raw);
   const rawData = firstValue(layers, ['result', 'user_data', 'userData', 'profile', 'record', 'response', 'payload']);
-  const userData = Object.keys(record(rawData)).length ? record(rawData) : undefined;
+  const userData = (isIdentityData(record(rawData)) ? record(rawData) : undefined)
+    ?? layers.find(isIdentityData);
   const pdf = firstValue(layers, ['pdf_base64', 'pdf', 'pdfBase64']);
   const downloadUrl = firstValue(layers, ['download_url', 'pdf_url', 'slip_url', 'downloadUrl']);
   let base64 = nonEmpty(pdf) ? pdf.replace(/^data:application\/pdf;base64,/i, '').replace(/\s/g, '') : undefined;
@@ -182,6 +211,18 @@ async function extractSlipResult(raw: HubbuResponse, fallback: string): Promise<
     const token = downloadToken(downloadUrl);
     if (token) base64 = await downloadPdf(token);
     if (!base64) downloadError = 'Hubbu PDF download was unavailable or failed validation';
+  }
+  if (!base64 && userData && isIdentityData(userData)) {
+    try {
+      base64 = await renderPersonalInformationSlipPdf({
+        title,
+        subtitle: 'Verified identity details',
+        fields: identityFields(userData),
+        issuedAt: new Date()
+      });
+    } catch (error) {
+      console.error('[hubbu] could not render a report from verified identity data:', error);
+    }
   }
   if (state === 'success' && !userData && !base64) state = 'unknown';
   return {
@@ -197,10 +238,10 @@ async function extractSlipResult(raw: HubbuResponse, fallback: string): Promise<
 
 export const hubbuService = {
   async verifyNin(input: { method: 'nin' | 'phone' | 'tracking' | 'demo'; nin?: string; phone?: string; tracking_id?: string; first_name?: string; last_name?: string; dob?: string; gender?: string; slip_type?: string }): Promise<TechhubSlipResult> {
-    return extractSlipResult(await request('/nin/verify', input as Json), 'Hubbu could not verify this NIN.');
+    return extractSlipResult(await request('/nin/verify', input as Json), 'Hubbu could not verify this NIN.', 'NIN Slip');
   },
   async verifyBvn(bvn: string, slipType: string): Promise<TechhubSlipResult> {
-    return extractSlipResult(await request('/bvn/verify', { bvn, slip_type: slipType }), 'Hubbu could not verify this BVN.');
+    return extractSlipResult(await request('/bvn/verify', { bvn, slip_type: slipType }), 'Hubbu could not verify this BVN.', 'BVN Slip');
   },
   async submit(path: '/ipe/clearance' | '/bvn/retrieval' | '/nin/modification' | '/nin/personalization' | '/bvn/modification', body: Json): Promise<TechhubAsyncSubmitResult> {
     const raw = await request(path, body);
