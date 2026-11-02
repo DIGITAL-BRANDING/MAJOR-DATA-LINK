@@ -577,10 +577,13 @@ async function purchaseSlip(params: {
       );
     }
     const existingMetadata = debit.transaction.metadata as Record<string, unknown> | null;
-    await prisma.$transaction(async (tx) => {
-      await tx.transaction.update({
-        where: { id: debit.transaction.id },
-        data: {
+    // Commit the paid provider result before attempting notification work.
+    // If notification queueing fails, rolling this update back leaves the
+    // wallet debited and the provider successful while the user only sees
+    // "Contact support" on a PENDING transaction.
+    await prisma.transaction.update({
+      where: { id: debit.transaction.id },
+      data: {
         status: TransactionStatus.SUCCESS,
         provider: actualProvider,
         metadata: {
@@ -594,12 +597,18 @@ async function purchaseSlip(params: {
             pdf_url: result.pdfUrl,
             provider_raw_response: result.raw
           })
-          } as Prisma.InputJsonValue
-        }
-      });
-      const notification = await tx.notification.create({ data: { id: nanoid(), userId: params.userId, type: 'TRANSACTION', title: 'Request completed', body: `${params.description} has been completed successfully.`, data: { transactionId: debit.transaction.id, reference: debit.reference }, dedupeKey: `verification:${debit.transaction.id}:success` } });
-      await enqueueUserNotificationDelivery(tx, notification.id);
+        } as Prisma.InputJsonValue
+      }
     });
+
+    try {
+      await prisma.$transaction(async (tx) => {
+        const notification = await tx.notification.create({ data: { id: nanoid(), userId: params.userId, type: 'TRANSACTION', title: 'Request completed', body: `${params.description} has been completed successfully.`, data: { transactionId: debit.transaction.id, reference: debit.reference }, dedupeKey: `verification:${debit.transaction.id}:success` } });
+        await enqueueUserNotificationDelivery(tx, notification.id);
+      });
+    } catch (error) {
+      console.error('[verification] result saved but success notification could not be queued for', debit.transaction.id, error);
+    }
 
     // Both providers quote one flat rate per slip family, already stored as
     // price.providerCostKobo above - no balance-delta correction available

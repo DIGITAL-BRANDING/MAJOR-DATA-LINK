@@ -416,18 +416,18 @@ export class TechhubService {
     // `success: true`) as a completed, chargeable request.  A mismatch here
     // used to trigger a wallet refund even when Techhub had already produced
     // and charged for a Premium slip.
-    const nestedData = asRecord(data.data);
-    const nestedStatus = typeof nestedData?.status === 'string' ? nestedData.status.trim().toLowerCase() : nestedData?.status;
+    // Techhub has returned its completed status at several envelope depths
+    // (`data.status`, `response.status`, `result.status`, and nested payloads).
+    // The API dashboard records these as successful even when the outer JSON
+    // only says `success: true`; inspect all provider objects before treating
+    // an already-billed lookup as uncertain and sending the user to support.
+    const responseRecords = collectObjects(data);
+    const isSuccess = responseRecords.some((record) => {
+      const status = typeof record.status === 'string' ? record.status.trim().toLowerCase() : record.status;
+      const responseCode = typeof record.response_code === 'string' ? record.response_code.trim() : record.response_code;
+      return record.success === true || status === true || status === 'success' || status === 'successful' || responseCode === '00';
+    });
     const providerStatus = typeof data.status === 'string' ? data.status.trim().toLowerCase() : data.status;
-    const isSuccess =
-      data.success === true ||
-      providerStatus === true ||
-      providerStatus === 'success' ||
-      providerStatus === 'successful' ||
-      nestedStatus === true ||
-      nestedStatus === 'success' ||
-      nestedStatus === 'successful' ||
-      data.response_code === '00';
 
     console.info('[techhub] slip response', JSON.stringify({ endpoint: path, http_status: response.status, outcome: isSuccess ? 'success' : 'unconfirmed' }));
 
@@ -456,11 +456,15 @@ export class TechhubService {
     // Premium-slip responses have appeared in both shapes below:
     // { pdf_base64: ... } and { user_data: { pdf_base64: ... } }. The latter
     // must become a downloadable document, not a raw field in the UI.
-    const userData = data.user_data ?? nestedRecord?.user_data ?? responseRecord ?? nestedRecord;
+    const userData = responseRecords.map((record) => asRecord(record.user_data)).find(Boolean)
+      ?? responseRecords.find((record) => hasPersonalInfoFields(personalInfoFields(record, body)))
+      ?? responseRecord
+      ?? nestedRecord
+      ?? data.user_data;
     const userDataRecord = asRecord(userData);
-    const records = [data as Record<string, unknown>, nestedRecord, responseRecord, userDataRecord];
+    const records = [...responseRecords, userDataRecord];
     // Key names have varied, so also accept any base64 PDF found anywhere in the reply.
-    const pdfBase64 = firstNonEmptyString(records, ['pdf_base64', 'pdf', 'pdf_data']) ?? findEmbeddedPdf(data);
+    let pdfBase64 = firstNonEmptyString(records, ['pdf_base64', 'pdf', 'pdf_data']) ?? findEmbeddedPdf(data);
     // Some Techhub slip variants return a ready-to-download URL instead of
     // embedding the PDF.  Preserve it for the user dashboard rather than
     // showing a misleading success without a document.
@@ -527,9 +531,27 @@ export class TechhubService {
       return { ok: false, message: 'The provider did not return enough information to prepare a Personal Info slip. Please try again later.', raw: data };
     }
 
+    let message = publicVerificationMessage(data.message, 'Verification completed successfully');
+    if (!pdfBase64 && !pdfUrl && userDataRecord) {
+      const fields = personalInfoFields(userDataRecord, body, responseRecords);
+      if (hasPersonalInfoFields(fields)) {
+        try {
+          pdfBase64 = await renderPersonalInformationSlipPdf({
+            title: options.service === 'bvn' ? 'BVN Slip' : 'NIN Slip',
+            subtitle: 'Verified identity details',
+            fields,
+            issuedAt: new Date()
+          });
+          message = 'Verification completed successfully. A report was generated from the verified provider details.';
+        } catch (error) {
+          console.error(`[techhub] could not render a report from verified identity data (path=${path}):`, error);
+        }
+      }
+    }
+
     return {
       ok: true,
-      message: publicVerificationMessage(data.message, 'Verification completed successfully'),
+      message,
       userData: userDataRecord,
       pdfBase64,
       pdfUrl,
