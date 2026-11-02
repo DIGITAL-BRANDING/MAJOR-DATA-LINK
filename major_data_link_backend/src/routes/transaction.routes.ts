@@ -1,10 +1,12 @@
 import { Router } from 'express';
+import { Prisma, TransactionStatus } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { koboToNaira } from '../lib/money.js';
 import { openPII } from '../lib/pii.js';
 import { requireAuth } from '../middleware/auth.js';
 import { assertSafeWebhookUrl } from '../services/partner-webhook.service.js';
 import { ApiError } from '../middleware/error.js';
+import { refundWallet } from '../services/wallet.service.js';
 
 export const transactionRoutes = Router();
 
@@ -279,6 +281,38 @@ transactionRoutes.get('/services', async (req, res) => {
     }
   });
 
+  // Older automatic requests may have been left PENDING by a deployment
+  // before ticket-based pending was enforced. Let the provider response
+  // window expire, then close and refund any such request without a real
+  // provider ticket so it no longer appears as Contact Support.
+  const expiredPending = await prisma.transaction.findMany({
+    where: {
+      userId: req.user!.id,
+      status: TransactionStatus.PENDING,
+      createdAt: { lt: new Date(Date.now() - 3 * 60 * 1000) },
+      type: { notIn: ['WALLET_FUNDING', 'WALLET_TRANSFER', 'WITHDRAWAL', 'REFERRAL_COMMISSION', 'MANUAL_ADJUSTMENT', 'COUPON_REDEMPTION', 'REFUND', 'WALLET_FUNDING_FEE'] },
+      OR: [{ provider: { not: 'manual' } }, { provider: null }]
+    },
+    select: { id: true, userId: true, type: true, provider: true, providerRef: true, reference: true, metadata: true }
+  });
+  const autoFailedIds = new Set<string>();
+  for (const transaction of expiredPending) {
+    const metadata = (transaction.metadata as Record<string, unknown> | null) ?? {};
+    if (metadata.manual_processing === true) continue;
+    const metadataTicket = typeof metadata.ticket_id === 'string' ? metadata.ticket_id.trim() : '';
+    const providerRef = transaction.providerRef?.trim() ?? '';
+    const realTicket = metadataTicket && !/^(?:RECONCILE|HUBBU-RECONCILE|MANUAL)-/i.test(metadataTicket)
+      ? metadataTicket
+      : providerRef && providerRef !== transaction.reference && !/^(?:RECONCILE|HUBBU-RECONCILE|MANUAL)-/i.test(providerRef) ? providerRef : '';
+    if (realTicket) continue;
+    await prisma.transaction.update({ where: { id: transaction.id }, data: {
+      status: TransactionStatus.FAILED,
+      metadata: { ...metadata, provider_outcome: 'failed', fulfillment: { state: 'failed', message: 'No provider ticket was returned before the request expired.', recordedAt: new Date().toISOString() } } as Prisma.InputJsonValue
+    } });
+    await refundWallet({ transactionId: transaction.id, userId: transaction.userId, reason: 'No provider ticket was returned before the request expired.' });
+    autoFailedIds.add(transaction.id);
+  }
+
   const ids = transactions.map((tx) => tx.id);
 
   // metadata.service / metadata.tier are the plaintext operational half of
@@ -350,7 +384,7 @@ transactionRoutes.get('/services', async (req, res) => {
         reference: tx.reference,
         type: tx.type.toLowerCase(),
         service,
-        status: tx.status.toLowerCase(),
+        status: autoFailedIds.has(tx.id) ? 'failed' : tx.status.toLowerCase(),
         amount: koboToNaira(tx.amountKobo),
         balance_after: koboToNaira(tx.balanceAfterKobo),
         description: tx.description,

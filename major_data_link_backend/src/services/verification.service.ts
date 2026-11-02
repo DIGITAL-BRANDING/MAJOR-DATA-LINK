@@ -380,6 +380,37 @@ export type SlipPurchaseResult = {
   balanceAfter: number;
 };
 
+function realProviderTicket(metadata: Record<string, unknown> | null | undefined) {
+  const ticket = metadata?.ticket_id;
+  return typeof ticket === 'string' && ticket.trim() && !/^(?:RECONCILE|HUBBU-RECONCILE|MANUAL)-/i.test(ticket.trim())
+    ? ticket.trim()
+    : undefined;
+}
+
+async function failSlipAndRefund(params: {
+  transactionId: string;
+  userId: string;
+  provider: VerificationProvider;
+  message: string;
+  metadata?: Record<string, unknown> | null;
+  raw?: unknown;
+}) {
+  await prisma.transaction.update({
+    where: { id: params.transactionId },
+    data: {
+      status: TransactionStatus.FAILED,
+      provider: params.provider,
+      metadata: {
+        ...(params.metadata ?? {}),
+        provider_outcome: 'failed',
+        fulfillment: { state: 'failed', message: params.message, raw: params.raw ?? null, recordedAt: new Date().toISOString() }
+      } as Prisma.InputJsonValue
+    }
+  });
+  const refunded = await refundWallet({ transactionId: params.transactionId, userId: params.userId, reason: params.message });
+  return refunded.balanceAfterKobo;
+}
+
 /**
  * Shared by all four slip flows (NIN-by-NIN, NIN-by-Phone, NIN-by-Demographic,
  * BVN Slip): debit first, call Techhub, refund on failure. Exactly the same
@@ -445,7 +476,12 @@ async function purchaseSlip(params: {
   const hubbuHash = price.provider === 'hubbu' ? hubbuRequestHash(params.userId, params.service, { ...params.operational, ...params.pii }) : undefined;
   if (hubbuHash) {
     const prior = await findPendingHubbuRequest(params.userId, params.transactionType, hubbuHash);
-    if (prior) return { status: true, pending: true, message: 'A request with the same details is already awaiting Hubbu reconciliation; it was not submitted again.', reference: prior.reference, transactionId: prior.id, balanceAfter: koboToNaira(prior.balanceAfterKobo) };
+    if (prior) {
+      const metadata = prior.metadata as Record<string, unknown> | null;
+      if (realProviderTicket(metadata)) return { status: true, pending: true, message: 'Your request is being processed by the provider.', reference: prior.reference, transactionId: prior.id, balanceAfter: koboToNaira(prior.balanceAfterKobo) };
+      const balanceAfterKobo = await failSlipAndRefund({ transactionId: prior.id, userId: params.userId, provider: 'hubbu', message: 'The provider did not return a ticket or completed result; your payment has been refunded.', metadata });
+      return { status: false, message: 'The provider did not return a completed result; your payment has been refunded.', reference: prior.reference, transactionId: prior.id, balanceAfter: koboToNaira(balanceAfterKobo) };
+    }
   }
 
   const debit = await debitWallet({
@@ -483,17 +519,15 @@ async function purchaseSlip(params: {
     };
   }
 
-  // A timed-out synchronous lookup may already have been charged upstream.
-  // Replaying the same key must never trigger a second provider lookup/charge.
+  // A replay of an unresolved automatic lookup is never submitted twice.
+  // Keep it pending only when the provider supplied a real ticket ID.
   if (debit.reused) {
-    return {
-      status: false,
-      pending: true,
-      message: `An karɓi buƙatarka amma ba a tabbatar da sakamakon ba tukuna. Kada ka sake biya; tuntuɓi support da reference ${debit.reference}.`,
-      reference: debit.reference,
-      transactionId: debit.transaction.id,
-      balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo)
-    };
+    const metadata = debit.transaction.metadata as Record<string, unknown> | null;
+    if (realProviderTicket(metadata)) {
+      return { status: false, pending: true, message: 'Your request is being processed by the provider.', reference: debit.reference, transactionId: debit.transaction.id, balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo) };
+    }
+    const balanceAfterKobo = await failSlipAndRefund({ transactionId: debit.transaction.id, userId: params.userId, provider: price.provider, message: 'The provider did not return a ticket or completed result; your payment has been refunded.', metadata });
+    return { status: false, message: 'The provider did not return a completed result; your payment has been refunded.', reference: debit.reference, transactionId: debit.transaction.id, balanceAfter: koboToNaira(balanceAfterKobo) };
   }
 
   const hubbuReconciliationRef = `HUBBU-RECONCILE-${debit.reference}`;
@@ -513,30 +547,23 @@ async function purchaseSlip(params: {
       succeeded: (response) => typeof response === 'object' && response !== null && 'ok' in response && response.ok === true
     });
   } catch (error) {
-    if (price.provider !== 'hubbu') {
-      const previous = debit.transaction.metadata as Record<string, unknown> | null;
-      await prisma.transaction.update({ where: { id: debit.transaction.id }, data: {
-        provider: price.provider,
-        metadata: { ...(previous ?? {}), provider_outcome: 'unconfirmed', provider_error: error instanceof Error ? error.message : 'Provider response could not be confirmed',
-          reconciliation: { flaggedAt: new Date().toISOString(), providerMessage: 'Provider response could not be confirmed', rawStatus: null } } as Prisma.InputJsonValue
-      } });
-      return { status: false, pending: true, message: `An karɓi buƙatarka amma ba a tabbatar da sakamakon ba tukuna. Kada ka sake biya; tuntuɓi support da reference ${debit.reference}.`, reference: debit.reference, transactionId: debit.transaction.id, balanceAfter: debit.balanceAfter };
-    }
+    const message = error instanceof Error ? error.message : 'The provider could not complete the request.';
     const previous = debit.transaction.metadata as Record<string, unknown> | null;
-    await prisma.transaction.update({ where: { id: debit.transaction.id }, data: {
-      provider: 'hubbu', providerRef: hubbuReconciliationRef,
-      metadata: { ...(previous ?? {}), hubbu_submission_state: 'unknown', ...(hubbuHash ? { hubbu_request_hash: hubbuHash } : {}), pii: mergeSealedPII(previous?.pii, { hubbu_error: error instanceof Error ? error.message : 'Unknown network error' }) } as Prisma.InputJsonValue
-    } });
-    return { status: false, pending: true, message: `Ba a tabbatar da sakamakon buƙatarka ba tukuna. Kada ka sake biya; tuntuɓi support da reference ${debit.reference}.`, reference: debit.reference, transactionId: debit.transaction.id, balanceAfter: debit.balanceAfter };
+    const balanceAfterKobo = await failSlipAndRefund({ transactionId: debit.transaction.id, userId: params.userId, provider: price.provider, message, metadata: previous, raw: { error: message } });
+    return { status: false, message: 'The verification provider could not complete the request; your payment has been refunded.', reference: debit.reference, transactionId: debit.transaction.id, balanceAfter: koboToNaira(balanceAfterKobo) };
   }
 
-  if (price.provider === 'hubbu' && result.pending) {
-    const previous = debit.transaction.metadata as Record<string, unknown> | null;
-    await prisma.transaction.update({ where: { id: debit.transaction.id }, data: {
-      provider: 'hubbu', providerRef: hubbuReconciliationRef,
-      metadata: { ...(previous ?? {}), hubbu_submission_state: 'pending_reconciliation', ...(hubbuHash ? { hubbu_request_hash: hubbuHash } : {}), pii: mergeSealedPII(previous?.pii, { ...params.pii, provider_raw_response: result.raw }) } as Prisma.InputJsonValue
-    } });
-    return { status: false, pending: true, message: `Ba a tabbatar da sakamakon buƙatarka ba tukuna. Kada ka sake biya; tuntuɓi support da reference ${debit.reference}.`, reference: debit.reference, transactionId: debit.transaction.id, balanceAfter: debit.balanceAfter };
+  if (result.pending) {
+    const ticketId = result.providerRef?.trim();
+    if (ticketId && !/^(?:RECONCILE|HUBBU-RECONCILE)-/i.test(ticketId)) {
+      const previous = debit.transaction.metadata as Record<string, unknown> | null;
+      await prisma.transaction.update({ where: { id: debit.transaction.id }, data: {
+        provider: price.provider, providerRef: ticketId,
+        metadata: { ...(previous ?? {}), ticket_id: ticketId, ...(hubbuHash ? { hubbu_request_hash: hubbuHash } : {}), pii: mergeSealedPII(previous?.pii, { ...params.pii, provider_raw_response: result.raw }) } as Prisma.InputJsonValue
+      } });
+      return { status: false, pending: true, message: 'Your request is being processed by the provider.', reference: debit.reference, transactionId: debit.transaction.id, balanceAfter: debit.balanceAfter };
+    }
+    result = { ...result, ok: false, pending: false, message: 'The provider did not return a ticket or completed result; your payment has been refunded.' };
   }
 
   const noRecord = !result.ok && /\b(?:no\s+record\s+found|record\s+not\s+found|no\s+match\s+found|data\s+not\s+found)\b/i.test(result.message);
@@ -545,21 +572,14 @@ async function purchaseSlip(params: {
   if (fallbackCall) {
     console.info(`[verification] ${params.service} returned no record from ${price.provider}; retrying ${fallbackProvider}`);
     actualProvider = fallbackProvider;
-    result = await timedVerificationCall(params.service, 'lookup', fallbackCall, {
-      provider: fallbackProvider,
-      succeeded: (response) => typeof response === 'object' && response !== null && 'ok' in response && response.ok === true
-    });
-  }
-
-  if (!result.ok && price.provider !== 'hubbu' && !noRecord) {
-    const previous = debit.transaction.metadata as Record<string, unknown> | null;
-    const ticketId = `RECONCILE-${debit.reference}`;
-    await prisma.transaction.update({ where: { id: debit.transaction.id }, data: {
-      provider: actualProvider, providerRef: ticketId,
-      metadata: { ...(previous ?? {}), provider_outcome: 'unconfirmed', reconciliation: { flaggedAt: new Date().toISOString(), providerMessage: result.message, rawStatus: result.raw },
-        pii: mergeSealedPII(previous?.pii, { ...params.pii, provider_raw_response: result.raw }) } as Prisma.InputJsonValue
-    } });
-    return { status: false, pending: true, message: `Ba a tabbatar da sakamakon buƙatarka ba tukuna. Kada ka sake biya; tuntuɓi support da reference ${debit.reference}.`, reference: debit.reference, transactionId: debit.transaction.id, balanceAfter: debit.balanceAfter };
+    try {
+      result = await timedVerificationCall(params.service, 'lookup', fallbackCall, {
+        provider: fallbackProvider,
+        succeeded: (response) => typeof response === 'object' && response !== null && 'ok' in response && response.ok === true
+      });
+    } catch (error) {
+      result = { ok: false, message: error instanceof Error ? error.message : 'The verification provider could not complete the request.', raw: { error: error instanceof Error ? error.message : 'Unknown provider error' } };
+    }
   }
 
   if (result.ok) {
@@ -1026,7 +1046,14 @@ async function submitAsyncService(params: {
   const hubbuHash = price.provider === 'hubbu' ? hubbuRequestHash(params.userId, params.service, { ...params.operational, ...params.pii }) : undefined;
   if (hubbuHash) {
     const prior = await findPendingHubbuRequest(params.userId, TransactionType.IDENTITY_SERVICE_REQUEST, hubbuHash);
-    if (prior) return { reference: prior.reference, ticketId: prior.providerRef ?? `HUBBU-RECONCILE-${prior.reference}`, balanceAfter: koboToNaira(prior.balanceAfterKobo) };
+    if (prior) {
+      const metadata = prior.metadata as Record<string, unknown> | null;
+      const ticketId = realProviderTicket(metadata);
+      if (ticketId) return { reference: prior.reference, ticketId, balanceAfter: koboToNaira(prior.balanceAfterKobo) };
+      await prisma.transaction.update({ where: { id: prior.id }, data: { status: TransactionStatus.FAILED, metadata: { ...(metadata ?? {}), provider_outcome: 'failed', fulfillment: { state: 'failed', message: 'Provider did not return a ticket ID.' } } as Prisma.InputJsonValue } });
+      await refundWallet({ transactionId: prior.id, userId: params.userId, reason: 'Provider did not return a ticket ID.' });
+      throw new ApiError(502, 'The provider did not return a ticket ID; your payment has been refunded.', 'VERIFICATION_SUBMIT_FAILED');
+    }
   }
   // Manual routing deliberately does not call an upstream. The paid request
   // remains PENDING for an authorised admin to fulfil from the transaction
@@ -1080,22 +1107,13 @@ async function submitAsyncService(params: {
 
   if (debit.reused) {
     const metadata = debit.transaction.metadata as Record<string, unknown> | null;
-    const ticketId = metadata?.ticket_id?.toString();
-    if (ticketId) {
-      if (metadata?.provider_outcome !== 'unconfirmed') return { reference: debit.reference, ticketId, balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo) };
-      return { reference: debit.reference, ticketId, balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo) };
+    const ticketId = realProviderTicket(metadata);
+    if (ticketId) return { reference: debit.reference, ticketId, balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo) };
+    if (debit.transaction.status === TransactionStatus.PENDING) {
+      await prisma.transaction.update({ where: { id: debit.transaction.id }, data: { status: TransactionStatus.FAILED, metadata: { ...(metadata ?? {}), provider_outcome: 'failed', fulfillment: { state: 'failed', message: 'Provider did not return a ticket ID.' } } as Prisma.InputJsonValue } });
+      await refundWallet({ transactionId: debit.transaction.id, userId: params.userId, reason: 'Provider did not return a ticket ID.' });
     }
-    if (price.provider === 'hubbu') {
-      const ticketId = debit.transaction.providerRef ?? `HUBBU-RECONCILE-${debit.reference}`;
-      const previous = debit.transaction.metadata as Record<string, unknown> | null;
-      await prisma.transaction.update({ where: { id: debit.transaction.id }, data: {
-        provider: 'hubbu', providerRef: ticketId,
-        metadata: { ...(previous ?? {}), hubbu_submission_state: 'submitting', ticket_id: ticketId, ...(hubbuHash ? { hubbu_request_hash: hubbuHash } : {}) } as Prisma.InputJsonValue
-      } });
-      return { reference: debit.reference, ticketId, balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo) };
-    }
-    // Reused but never actually reached the provider (submit failed last
-    // time, already refunded) - fall through and retry the submission below.
+    throw new ApiError(502, 'The provider did not return a ticket ID; your payment has been refunded.', 'VERIFICATION_SUBMIT_FAILED');
   }
 
   const hubbuReconciliationRef = `HUBBU-RECONCILE-${debit.reference}`;
@@ -1111,53 +1129,24 @@ async function submitAsyncService(params: {
   try { result = await timedVerificationCall(params.service, 'submit', call); }
   catch (error) {
     const previous = debit.transaction.metadata as Record<string, unknown> | null;
-    if (price.provider !== 'hubbu') {
-      const ticketId = `RECONCILE-${debit.reference}`;
-      await prisma.transaction.update({ where: { id: debit.transaction.id }, data: {
-        provider: price.provider, providerRef: ticketId,
-        metadata: { ...(previous ?? {}), ticket_id: ticketId, provider_outcome: 'unconfirmed',
-          reconciliation: { flaggedAt: new Date().toISOString(), providerMessage: error instanceof Error ? error.message : 'Provider response could not be confirmed', rawStatus: null } } as Prisma.InputJsonValue
-      } });
-      return { reference: debit.reference, ticketId, balanceAfter: debit.balanceAfter };
-    }
+    const message = error instanceof Error ? error.message : 'Provider response could not be confirmed.';
     await prisma.transaction.update({ where: { id: debit.transaction.id }, data: {
-      provider: 'hubbu', providerRef: hubbuReconciliationRef,
-      metadata: { ...(previous ?? {}), hubbu_submission_state: 'unknown', ticket_id: hubbuReconciliationRef, ...(hubbuHash ? { hubbu_request_hash: hubbuHash } : {}),
-        pii: mergeSealedPII(previous?.pii, { hubbu_error: error instanceof Error ? error.message : 'Unknown network error' }) } as Prisma.InputJsonValue
+      status: TransactionStatus.FAILED, provider: price.provider,
+      metadata: { ...(previous ?? {}), provider_outcome: 'failed', provider_error: message } as Prisma.InputJsonValue
     } });
-    return { reference: debit.reference, ticketId: hubbuReconciliationRef, balanceAfter: debit.balanceAfter };
+    await refundWallet({ transactionId: debit.transaction.id, userId: params.userId, reason: message });
+    throw new ApiError(502, 'The provider could not return a ticket; your payment has been refunded.', 'VERIFICATION_SUBMIT_FAILED');
   }
 
-  const hubbuUnknownResponse = price.provider === 'hubbu'
-    && (result.raw as Record<string, unknown> | null)?.__classifiedState === 'unknown';
-  if (result.accepted && !result.ticketId || hubbuUnknownResponse) {
-    const previous = debit.transaction.metadata as Record<string, unknown> | null;
-    await prisma.transaction.update({ where: { id: debit.transaction.id }, data: {
-      provider: 'hubbu', providerRef: hubbuReconciliationRef,
-      metadata: { ...(previous ?? {}), hubbu_submission_state: 'unknown', ticket_id: hubbuReconciliationRef, ...(hubbuHash ? { hubbu_request_hash: hubbuHash } : {}),
-        pii: mergeSealedPII(previous?.pii, { submit_raw: result.raw }) } as Prisma.InputJsonValue
-    } });
-    return { reference: debit.reference, ticketId: hubbuReconciliationRef, balanceAfter: debit.balanceAfter };
-  }
-
-  if ((!result.ok && result.pending) || (!result.ticketId && result.ok)) {
+  if (!result.ok || !result.ticketId || result.pending) {
     const existing = debit.transaction.metadata as Record<string, unknown> | null;
-    const ticketId = `RECONCILE-${debit.reference}`;
     await prisma.transaction.update({ where: { id: debit.transaction.id }, data: {
-      provider: price.provider, providerRef: ticketId,
-      metadata: { ...(existing ?? {}), ticket_id: ticketId, provider_outcome: 'unconfirmed',
-        reconciliation: { flaggedAt: new Date().toISOString(), providerMessage: result.message, rawStatus: result.raw },
+      status: TransactionStatus.FAILED, provider: price.provider,
+      metadata: { ...(existing ?? {}), provider_outcome: 'failed', provider_message: result.message,
         pii: mergeSealedPII(existing?.pii, { submit_raw: result.raw }) } as Prisma.InputJsonValue
     } });
-    return { reference: debit.reference, ticketId, balanceAfter: debit.balanceAfter };
-  }
-  if (!result.ok || !result.ticketId) {
-    await prisma.transaction.update({
-      where: { id: debit.transaction.id },
-      data: { status: TransactionStatus.FAILED, provider: price.provider }
-    });
-    await refundWallet({ transactionId: debit.transaction.id, userId: params.userId });
-    throw new ApiError(502, result.message, 'VERIFICATION_SUBMIT_FAILED');
+    await refundWallet({ transactionId: debit.transaction.id, userId: params.userId, reason: result.message });
+    throw new ApiError(502, 'The provider did not return a ticket ID; your payment has been refunded.', 'VERIFICATION_SUBMIT_FAILED');
   }
 
   const existingMetadata = debit.transaction.metadata as Record<string, unknown> | null;
@@ -1223,6 +1212,15 @@ async function checkAsyncServiceStatus(params: {
   const metadata = (transaction.metadata as Record<string, unknown> | null) ?? {};
   const existingMetadata = metadata;
   const service = typeof metadata.service === 'string' ? metadata.service : transaction.type.toLowerCase();
+  if (metadata.provider_outcome === 'unconfirmed' && !realProviderTicket(metadata)) {
+    await prisma.transaction.update({ where: { id: transaction.id }, data: { status: TransactionStatus.FAILED, metadata: {
+      ...existingMetadata,
+      provider_outcome: 'failed',
+      fulfillment: { state: 'failed', message: 'The provider did not return a ticket ID.', recordedAt: new Date().toISOString() }
+    } as Prisma.InputJsonValue } });
+    await refundWallet({ transactionId: transaction.id, userId: params.userId, reason: 'The provider did not return a ticket ID.' });
+    return { ticketId: params.ticketId, status: 'failed', response: { message: 'The provider did not return a ticket ID; your payment has been refunded.' } };
+  }
   if (metadata.provider_outcome === 'unconfirmed') return { ticketId: params.ticketId, status: 'pending', response: null };
   let result: TechhubAsyncStatusResult;
   try {

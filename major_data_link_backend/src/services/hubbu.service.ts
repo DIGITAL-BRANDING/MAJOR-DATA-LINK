@@ -4,7 +4,10 @@ import { ApiError } from '../middleware/error.js';
 import { renderPersonalInformationSlipPdf, type IdentitySlipField } from '../lib/render-identity-slip-pdf.js';
 import type { TechhubAsyncSubmitResult, TechhubSlipResult } from './techhub.service.js';
 
-const TIMEOUT_MS = 20_000;
+// Keep synchronous identity lookups alive long enough for the provider to
+// finish its verification and render the slip. The web client allows 120s.
+const LOOKUP_TIMEOUT_MS = 90_000;
+const DOWNLOAD_TIMEOUT_MS = 20_000;
 const MAX_PDF_BYTES = 12 * 1024 * 1024;
 const MAX_RESPONSE_BYTES = 20 * 1024 * 1024;
 type Json = Record<string, unknown>;
@@ -98,7 +101,7 @@ function safeMessage(raw: HubbuResponse, fallback: string) {
 async function request(path: string, body?: Json): Promise<HubbuResponse> {
   if (!env.HUBBU_API_KEY) throw new ApiError(503, 'Hubbu provider is not configured.', 'PROVIDER_NOT_CONFIGURED');
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), LOOKUP_TIMEOUT_MS);
   let response: Response;
   try {
     response = await fetch(new URL(path, env.HUBBU_BASE_URL.endsWith('/') ? env.HUBBU_BASE_URL : `${env.HUBBU_BASE_URL}/`), {
@@ -172,7 +175,7 @@ async function downloadPdf(token: string): Promise<string | undefined> {
   const url = new URL('/slips/download', env.HUBBU_BASE_URL.endsWith('/') ? env.HUBBU_BASE_URL : `${env.HUBBU_BASE_URL}/`);
   url.searchParams.set('file', token);
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), DOWNLOAD_TIMEOUT_MS);
   try {
     const response = await fetch(url, { headers: { 'X-API-KEY': env.HUBBU_API_KEY, Accept: 'application/pdf' }, signal: controller.signal, redirect: 'error' });
     if (!response.ok || !response.body) return undefined;
@@ -224,10 +227,17 @@ async function extractSlipResult(raw: HubbuResponse, fallback: string, title: 'N
       console.error('[hubbu] could not render a report from verified identity data:', error);
     }
   }
+  // Some Hubbu deployments return the verified identity payload without a
+  // top-level success flag. A usable identity record is a completed result.
+  if (state === 'unknown' && ((userData && isIdentityData(userData)) || base64)) state = 'success';
   if (state === 'success' && !userData && !base64) state = 'unknown';
   return {
     ok: state === 'success',
     pending: state === 'pending' || state === 'unknown',
+    providerRef: (() => {
+      const ticket = firstValue(layers, ['ticket_id', 'request_id', 'reference']);
+      return nonEmpty(ticket) || typeof ticket === 'number' ? String(ticket) : undefined;
+    })(),
     message: safeMessage(raw, state === 'success' ? 'Verification successful' : fallback),
     userData, pdfBase64: base64,
     // Never pass an untrusted provider URL to the browser; PDF bytes are

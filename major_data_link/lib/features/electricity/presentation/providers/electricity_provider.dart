@@ -92,6 +92,7 @@ class _ElectricityRemoteDataSource {
           'meter_type': meterType.name,
           'amount': amount,
         },
+        options: Options(receiveTimeout: const Duration(seconds: 120)),
       );
       return response.data as Map<String, dynamic>;
     } on DioException catch (e) {

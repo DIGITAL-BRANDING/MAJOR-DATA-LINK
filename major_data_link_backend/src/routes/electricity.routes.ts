@@ -105,13 +105,24 @@ electricityRoutes.post('/purchase', async (req, res) => {
     });
   }
 
-  const provider = await bilalsadasub.buyElectricity({
-    disco: body.disco,
-    meterType: body.meter_type,
-    meter: body.meter_number,
-    amount: body.amount,
-    reference: debit.reference
-  });
+  let provider: Awaited<ReturnType<typeof bilalsadasub.buyElectricity>>;
+  if (debit.reused) {
+    const previous = debit.transaction.metadata as Record<string, unknown> | null;
+    const metadataTicket = typeof previous?.ticket_id === 'string' ? previous.ticket_id.trim() : '';
+    const providerTicket = debit.transaction.providerRef?.trim() ?? '';
+    const ticket = metadataTicket && !/^(?:RECONCILE|HUBBU-RECONCILE)-/i.test(metadataTicket)
+      ? metadataTicket
+      : providerTicket && providerTicket !== debit.reference && !/^(?:RECONCILE|HUBBU-RECONCILE)-/i.test(providerTicket) ? providerTicket : '';
+    if (ticket) {
+      return res.json({ status: false, confirmation_required: true, message: 'Your request is being processed by the provider.', reference: debit.reference, balance_after: koboToNaira(debit.transaction.balanceAfterKobo) });
+    }
+    provider = { status: false, message: 'The provider did not return a ticket or completed result; your payment has been refunded.' } as typeof provider;
+  } else {
+    try { provider = await bilalsadasub.buyElectricity({
+      disco: body.disco, meterType: body.meter_type, meter: body.meter_number, amount: body.amount, reference: debit.reference
+    }); }
+    catch (error) { provider = { status: false, message: error instanceof Error ? error.message : 'Provider request failed.' } as typeof provider; }
+  }
 
   if (provider.status) {
     await prisma.transaction.update({
@@ -155,23 +166,19 @@ electricityRoutes.post('/purchase', async (req, res) => {
     });
   }
 
-  // Same reasoning as cable.routes.ts's equivalent branch - "process" is not
-  // a confirmed failure, so don't auto-refund. Left PENDING for
-  // /admin/provider-reconciliation.
-  if (provider.pending) {
-    await flagPendingReconciliation({
-      transactionId: debit.transaction.id,
-      provider: 'bilalsadasub',
-      providerRef: provider.providerRef,
-      providerMessage: provider.message
-    });
-    return res.json({
-      status: false,
-      message: 'Your electricity purchase is still being confirmed by the provider. If your token does not arrive shortly, please contact support with your reference.',
-      reference: debit.reference,
-      balance_after: koboToNaira(debit.transaction.balanceAfterKobo)
-    });
+  // A processing response can stay pending only when the provider returned
+  // a ticket ID that identifies this request.
+  const providerTicket = provider.providerRef?.trim();
+  if (provider.pending && providerTicket && !/^(?:RECONCILE|HUBBU-RECONCILE)-/i.test(providerTicket)) {
+    const metadata = (debit.transaction.metadata as Record<string, unknown> | null) ?? {};
+    await prisma.transaction.update({ where: { id: debit.transaction.id }, data: {
+      provider: 'bilalsadasub', providerRef: providerTicket,
+      metadata: { ...metadata, ticket_id: providerTicket, provider_outcome: 'pending' } as Prisma.InputJsonValue
+    } });
+    await flagPendingReconciliation({ transactionId: debit.transaction.id, provider: 'bilalsadasub', providerRef: providerTicket, providerMessage: provider.message, rawStatus: provider.raw ?? null });
+    return res.json({ status: false, confirmation_required: true, message: 'Your request is being processed by the provider.', reference: debit.reference, balance_after: koboToNaira(debit.transaction.balanceAfterKobo) });
   }
+  if (provider.pending) provider = { ...provider, pending: false, message: 'The provider did not return a ticket or completed result; your payment has been refunded.' };
 
   await prisma.transaction.update({
     where: { id: debit.transaction.id },

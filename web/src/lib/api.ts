@@ -296,7 +296,7 @@ export const api = {
     request<T>(path, { method: 'POST', body, auth: true, timeoutMs, idempotencyKey }),
   // Wallet purchases wait longer than ordinary API calls and always carry a
   // stable key so a lost response cannot debit the same purchase twice.
-  postPurchase: <T>(path: string, body: unknown, idempotencyKey: string, timeoutMs = 45_000) =>
+  postPurchase: <T>(path: string, body: unknown, idempotencyKey: string, timeoutMs = 120_000) =>
     request<T>(path, { method: 'POST', body, auth: true, timeoutMs, idempotencyKey }),
   postIdempotent: <T>(path: string, body: unknown, idempotencyKey: string) =>
     request<T>(path, { method: 'POST', body, auth: true, idempotencyKey }),

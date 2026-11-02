@@ -86,8 +86,8 @@ type TechhubAsyncStatusResponse = {
 export type TechhubSlipResult = {
   ok: boolean;
   providerRef?: string;
-  /** The provider may have charged/accepted the lookup, but we could not
-   * establish its result. Callers must retain the debit for reconciliation. */
+  /** True only when the provider is still processing; callers retain the
+   * debit only when providerRef contains a provider-issued ticket ID. */
   pending?: boolean;
   message: string;
   userData?: Record<string, unknown>;

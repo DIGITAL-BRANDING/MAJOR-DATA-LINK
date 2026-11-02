@@ -37,7 +37,7 @@ class AirtimeRemoteDataSourceImpl implements AirtimeRemoteDataSource {
           'amount': amount,
           'pin': pin,
         },
-        options: Options(headers: {'Idempotency-Key': key}, receiveTimeout: const Duration(seconds: 45)),
+        options: Options(headers: {'Idempotency-Key': key}, receiveTimeout: const Duration(seconds: 120)),
       );
       final result = PurchaseResult.fromJson(response.data as Map<String, dynamic>);
       if (!result.confirmationRequired) _purchaseKeys.remove(fingerprint);

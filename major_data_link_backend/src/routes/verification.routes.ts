@@ -1,10 +1,11 @@
 import { Router, type Request } from 'express';
 import { z } from 'zod';
-import { TransactionStatus, TransactionType } from '@prisma/client';
+import { Prisma, TransactionStatus, TransactionType } from '@prisma/client';
 import { requireAuth } from '../middleware/auth.js';
 import { GEO_POLITICAL_ZONES, submitBvnLicense, listBvnLicensePriceForCustomers } from '../services/bvn-license-onboarding.service.js';
 import { pinField, requirePinConfirmation } from '../lib/require-pin.js';
 import { prisma } from '../lib/prisma.js';
+import { refundWallet } from '../services/wallet.service.js';
 import {
   checkBvnRetrievalStatus,
   checkDelinkingStatus,
@@ -169,6 +170,33 @@ verificationRoutes.get('/bvn/license-onboarding/history', async (req, res) => {
 verificationRoutes.get('/history', async (req, res) => {
   const service = z.string().trim().min(1).max(60).parse(req.query.service);
   const since = new Date(Date.now() - 48 * 60 * 60 * 1000);
+  const expiredAutomatic = await prisma.transaction.findMany({
+    where: {
+      userId: req.user!.id,
+      createdAt: { lt: new Date(Date.now() - 3 * 60 * 1000) },
+      status: TransactionStatus.PENDING,
+      type: { in: [TransactionType.NIN_VERIFICATION, TransactionType.BVN_VERIFICATION, TransactionType.IDENTITY_SERVICE_REQUEST] },
+      OR: [{ provider: { not: 'manual' } }, { provider: null }]
+    },
+    select: { id: true, userId: true, reference: true, provider: true, providerRef: true, metadata: true }
+  });
+  const autoFailedIds = new Set<string>();
+  for (const transaction of expiredAutomatic) {
+    const metadata = (transaction.metadata as Record<string, unknown> | null) ?? {};
+    if (metadata.manual_processing === true) continue;
+    const metadataTicket = typeof metadata.ticket_id === 'string' ? metadata.ticket_id.trim() : '';
+    const providerRef = transaction.providerRef?.trim() ?? '';
+    const hasTicket = metadataTicket && !/^(?:RECONCILE|HUBBU-RECONCILE|MANUAL)-/i.test(metadataTicket)
+      ? metadataTicket
+      : providerRef && providerRef !== transaction.reference && !/^(?:RECONCILE|HUBBU-RECONCILE|MANUAL)-/i.test(providerRef) ? providerRef : '';
+    if (hasTicket) continue;
+    await prisma.transaction.update({ where: { id: transaction.id }, data: {
+      status: TransactionStatus.FAILED,
+      metadata: { ...metadata, provider_outcome: 'failed', fulfillment: { state: 'failed', message: 'No provider ticket was returned before the request expired.', recordedAt: new Date().toISOString() } } as Prisma.InputJsonValue
+    } });
+    await refundWallet({ transactionId: transaction.id, userId: transaction.userId, reason: 'No provider ticket was returned before the request expired.' });
+    autoFailedIds.add(transaction.id);
+  }
   const transactions = await prisma.transaction.findMany({
     where: {
       userId: req.user!.id,
@@ -211,6 +239,13 @@ verificationRoutes.get('/history', async (req, res) => {
     .slice(0, 10)
     .map((transaction) => {
       const metadata = transaction.metadata as Record<string, unknown> | null;
+      const metadataTicket = typeof metadata?.ticket_id === 'string' && metadata.ticket_id.trim() && !/^(?:RECONCILE|HUBBU-RECONCILE|MANUAL)-/i.test(metadata.ticket_id.trim())
+        ? metadata.ticket_id.trim()
+        : undefined;
+      const providerTicket = transaction.providerRef && transaction.providerRef !== transaction.reference && !/^(?:RECONCILE|HUBBU-RECONCILE|MANUAL)-/i.test(transaction.providerRef)
+        ? transaction.providerRef
+        : undefined;
+      const ticketId = metadataTicket ?? providerTicket ?? null;
       const pii = decryptTransactionPII(metadata);
       // Older successful Techhub responses stored the provider payload under
       // `user_data`, including its own `pdf_base64`.  Read that nested shape
@@ -229,19 +264,19 @@ verificationRoutes.get('/history', async (req, res) => {
       return {
         transaction_id: transaction.id,
         reference: transaction.reference,
-        // A synchronous provider lookup is not an admin review workflow.
-        // Keep the ledger's internal state, but don't present it to customers
-        // as a normal verification status when its result is unconfirmed.
-        status: transaction.status === TransactionStatus.PENDING &&
-          (transaction.type === TransactionType.NIN_VERIFICATION || transaction.type === TransactionType.BVN_VERIFICATION) &&
+        // An automatic request without a provider ticket is still inside
+        // the response window. Show it as processing briefly; the expired
+        // request sweep above makes it terminal and refunds it afterward.
+        status: autoFailedIds.has(transaction.id) ? 'failed' : transaction.status === TransactionStatus.PENDING &&
+          (transaction.type === TransactionType.NIN_VERIFICATION || transaction.type === TransactionType.BVN_VERIFICATION || transaction.type === TransactionType.IDENTITY_SERVICE_REQUEST) &&
           transaction.provider !== 'manual'
-          ? 'confirmation_required'
+          ? (ticketId ? 'pending' : 'processing')
           : transaction.status.toLowerCase(),
         created_at: transaction.createdAt.toISOString(),
         // Do not return identity details here. The PDF itself is the
         // retrievable document and the rest remains sealed in storage.
         document_available: documentAvailable,
-        ticket_id: typeof metadata?.ticket_id === 'string' ? metadata.ticket_id : null,
+        ticket_id: ticketId,
         // Set when an admin completed a manual request (see
         // completeRequest() in admin/manual-verification.ts) and attached a
         // result file through the UserDelivery system - a completely

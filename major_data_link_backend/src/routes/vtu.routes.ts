@@ -103,29 +103,23 @@ export async function processProviderPurchase(params: {
     };
   }
 
-  // An earlier call may have reached the provider before our connection was
-  // interrupted. Never submit a charged, unresolved transaction a second time.
-  if (debit.reused) {
-    return {
-      status: false as const,
-      pending: true,
-      message: `An karɓi buƙatarka amma ba a tabbatar da sakamakon ba tukuna. Kada ka sake biya; tuntuɓi support da reference ${debit.reference}.`,
-      reference: debit.reference,
-      transactionId: debit.transaction.id,
-      balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo)
-    };
-  }
-
   let provider: NormalizedProviderResponse;
-  try { provider = await params.callProvider(debit.reference); }
-  catch (error) {
-    const metadata = (debit.transaction.metadata as Record<string, unknown> | null) ?? {};
-    await prisma.transaction.update({ where: { id: debit.transaction.id }, data: {
-      provider: params.provider, providerRef: debit.reference,
-      metadata: { ...metadata, provider_outcome: 'unconfirmed', reconciliation: { flaggedAt: new Date().toISOString(), providerMessage: error instanceof Error ? error.message : 'Provider response could not be confirmed', rawStatus: null } } as Prisma.InputJsonValue
-    } });
-    await flagPendingReconciliation({ transactionId: debit.transaction.id, provider: params.provider, providerRef: debit.reference, providerMessage: 'Provider response could not be confirmed' });
-    return { status: false as const, pending: true, message: `An karɓi buƙatarka amma ba a tabbatar da sakamakon ba tukuna. Kada ka sake biya; tuntuɓi support da reference ${debit.reference}.`, reference: debit.reference, transactionId: debit.transaction.id, balanceAfter: debit.balanceAfter };
+  if (debit.reused) {
+    const previous = debit.transaction.metadata as Record<string, unknown> | null;
+    const metadataTicket = typeof previous?.ticket_id === 'string' ? previous.ticket_id.trim() : '';
+    const providerTicket = debit.transaction.providerRef?.trim() ?? '';
+    const ticketId = metadataTicket && !/^(?:RECONCILE|HUBBU-RECONCILE)-/i.test(metadataTicket)
+      ? metadataTicket
+      : providerTicket && providerTicket !== debit.reference && !/^(?:RECONCILE|HUBBU-RECONCILE)-/i.test(providerTicket) ? providerTicket : '';
+    if (ticketId) {
+      return { status: false as const, pending: true, message: 'Your request is being processed by the provider.', reference: debit.reference, transactionId: debit.transaction.id, balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo) };
+    }
+    provider = { status: false, message: 'The provider did not return a ticket or completed result; your payment has been refunded.' };
+  } else {
+    try { provider = await params.callProvider(debit.reference); }
+    catch (error) {
+      provider = { status: false, message: error instanceof Error ? error.message : 'The provider could not complete the request.' };
+    }
   }
 
   if (provider.status) {    const finalCostKobo = provider.costKobo ?? params.costKobo;
@@ -181,29 +175,19 @@ export async function processProviderPurchase(params: {
     };
   }
 
-  // A provider's ambiguous "in progress" status - not a confirmed failure,
-  // so DON'T auto-refund (see flagPendingReconciliation()'s doc-comment for
-  // why). Only BilalSadaSub sets `pending` today; Alrahuz's
-  // provider.service.ts never does, so this branch is currently
-  // unreachable when params.provider === 'alrahuz' - existing Alrahuz
-  // behavior is unchanged.
-  if (provider.pending) {
-    await flagPendingReconciliation({
-      transactionId: debit.transaction.id,
+  // Only a provider-issued ticket can keep an automatic purchase pending.
+  const providerTicket = provider.providerRef?.trim();
+  if (provider.pending && providerTicket && !/^(?:RECONCILE|HUBBU-RECONCILE)-/i.test(providerTicket)) {
+    const metadata = (debit.transaction.metadata as Record<string, unknown> | null) ?? {};
+    await prisma.transaction.update({ where: { id: debit.transaction.id }, data: {
       provider: params.provider,
-      providerRef: provider.providerRef ?? debit.reference,
-      providerMessage: provider.message,
-      rawStatus: provider.raw ?? null
-    });
-    return {
-      status: false as const,
-      pending: true,
-      message: `Ba a tabbatar da sakamakon buƙatarka ba tukuna. Kada ka sake biya; tuntuɓi support da reference ${debit.reference}.`,
-      reference: debit.reference,
-      transactionId: debit.transaction.id,
-      balanceAfter: debit.balanceAfter
-    };
+      providerRef: providerTicket,
+      metadata: { ...metadata, ticket_id: providerTicket, provider_outcome: 'pending' } as Prisma.InputJsonValue
+    } });
+    await flagPendingReconciliation({ transactionId: debit.transaction.id, provider: params.provider, providerRef: providerTicket, providerMessage: provider.message, rawStatus: provider.raw ?? null });
+    return { status: false as const, pending: true, message: 'Your request is being processed by the provider.', reference: debit.reference, transactionId: debit.transaction.id, balanceAfter: debit.balanceAfter };
   }
+  if (provider.pending) provider = { ...provider, pending: false, message: 'The provider did not return a ticket or completed result; your payment has been refunded.' };
 
   // Provider failed: reverse the debit so the user isn't charged for nothing.
   await prisma.transaction.update({

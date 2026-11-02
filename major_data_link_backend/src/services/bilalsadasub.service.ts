@@ -198,18 +198,10 @@ function networkId(network: string): number {
  * numbers inconsistently across the doc's own examples, hence Number(...)
  * rather than assuming either.
  *
- * "process" is NOT a confirmed success (`status` stays `false`), but it is
- * also NOT a confirmed failure - BilalSadaSub is telling us the request is
- * still being worked on their end, and this app has no requery endpoint
- * confirmed/available to poll it later (see provider-reconciliation.service.ts's
- * doc-comment). Treating it the same as an outright "fail" - i.e. refunding
- * the customer immediately - risks the provider ALSO fulfilling the
- * purchase afterward: the customer gets both a refund and the data/token/
- * cable renewal, and the company eats the cost with no transaction to
- * charge it against. So `pending: true` is set here instead, and every
- * caller (cable.routes.ts, electricity.routes.ts, vtu.routes.ts's
- * processProviderPurchase, result-pin.service.ts) must check it and route
- * to manual admin reconciliation instead of auto-refunding.
+ * "process" is not a completed result. Callers may retain the debit only
+ * when the response includes BilalSadaSub's request ID, which can identify
+ * the pending work for reconciliation. Without that ticket, the automatic
+ * request is failed and refunded after the provider response window.
  */
 function normalize(body: BilalResponse): NormalizedProviderResponse {
   const rawStatus = String(body.status ?? '').trim().toLowerCase();
