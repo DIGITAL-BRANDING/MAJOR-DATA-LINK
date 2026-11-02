@@ -354,7 +354,8 @@ export function registerPartnerManualRequestRoutes(router: Router) {
         await completePartnerManualRequest({ transactionId, fileBase64, fileName, fileMime, note: note || undefined });
         await logAdminAction({ adminId: admin.id, action: 'COMPLETE_PARTNER_MANUAL_REQUEST', targetType: 'PartnerTransaction', targetId: transactionId, metadata: { fileName: fileName ?? null, batch: true } });
         completed += 1;
-      } catch {
+      } catch (error) {
+        console.error('[partner-manual-requests] batch action failed', transactionId, error);
         failures += 1;
       }
     }

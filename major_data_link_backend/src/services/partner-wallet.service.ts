@@ -107,10 +107,19 @@ export async function completePartnerPurchase(
         ...(costKobo !== undefined ? { costKobo } : {})
       }
     });
-    const { enqueuePartnerTransactionWebhook } = await import('./partner-webhook.service.js');
-    await enqueuePartnerTransactionWebhook(updated, tx);
     return updated;
   });
+  // Persist the financial result before queueing its notification. A webhook
+  // outbox error must not roll back a completed partner request and leave it
+  // looking pending (the refund/decline path is a separate transaction).
+  try {
+    const { enqueuePartnerTransactionWebhook } = await import('./partner-webhook.service.js');
+    await enqueuePartnerTransactionWebhook(transaction);
+  } catch (error) {
+    // queueMissingPartnerTransactionWebhooks() will recover a terminal row
+    // that did not get its first outbox event.
+    console.error('[partner-webhooks] completed transaction saved but success event could not be queued', transaction.id, error);
+  }
   if (costKobo !== undefined && costKobo > 0n) {
     const { recordProviderDebit } = await import('./provider-ledger.service.js');
     await recordProviderDebit({
