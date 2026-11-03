@@ -22,6 +22,23 @@ export type PartnerAsyncStatusResult = { reference: string; ticketId: string; st
 const FRANCEVERIFIED_STATUS_POLL_INTERVAL_MS = 5 * 60_000;
 const TECHHUB_STATUS_POLL_INTERVAL_MS = 60_000;
 const franceVerifiedChecksInFlight = new Set<string>();
+const VERIFICATION_REPLAY_GRACE_MS = 120_000;
+const STALE_VERIFICATION_LOOKUP_MS = 5 * 60_000;
+
+async function callPartnerSlipProvider<T>(service: string, provider: VerificationProvider, call: () => Promise<T>): Promise<T> {
+  const startedAt = Date.now();
+  try {
+    const result = await call();
+    const outcome = typeof result === 'object' && result !== null && 'ok' in result
+      ? ((result as { ok?: unknown }).ok === true ? 'success' : 'failed')
+      : 'completed';
+    console.info('[partner-verification] provider timing', JSON.stringify({ service, provider, duration_ms: Date.now() - startedAt, outcome }));
+    return result;
+  } catch (error) {
+    console.warn('[partner-verification] provider timing', JSON.stringify({ service, provider, duration_ms: Date.now() - startedAt, outcome: 'error' }));
+    throw error;
+  }
+}
 
 /**
  * Partner equivalent of the retail async verification workflow. Partner
@@ -236,7 +253,6 @@ export async function purchasePartnerSlip(params: {
 }): Promise<PartnerSlipResult> {
   const price = await getVerificationPrice(params.service, { forPartner: true });
   const primaryProvider = params.providerOverride ?? price.provider;
-  const instantNinLookup = params.type === TransactionType.NIN_VERIFICATION && params.operational.mode === 'by_nin';
   const fallbackPrice = params.fallbackService
     ? await getVerificationPrice(params.fallbackService, { forPartner: true })
     : undefined;
@@ -268,18 +284,14 @@ export async function purchasePartnerSlip(params: {
     metadata: { service: params.service, ...params.operational, unit_price: price.unitPrice, pii: sealPII(params.pii) } as Prisma.InputJsonValue
   });
   if (debit.reused && debit.transaction.status === TransactionStatus.PENDING) {
-    // A previous call may have reached Techhub even if our server lost the
-    // response. Never submit the same paid request upstream a second time.
-    const previous = (debit.transaction.metadata as Record<string, unknown> | null) ?? {};
-    if (debit.transaction.providerRef && (debit.transaction.provider === 'manual' || previous.provider_outcome !== 'unconfirmed')) return { status: 'pending', message: 'Request is awaiting provider status.', reference: debit.transaction.reference,
-      balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo) };
-    if (previous.provider_outcome === 'unconfirmed') return { status: 'pending', message: 'Request is awaiting provider confirmation.', reference: debit.transaction.reference,
-      balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo) };
-    const ticketId = `RECONCILE-${debit.transaction.reference}`;
-    await flagPartnerPendingReconciliation({ transactionId: debit.transaction.id, provider: price.provider, providerRef: ticketId,
-      providerMessage: 'Previous submission outcome is unknown; request was not submitted again.', userMessage: `${params.description} is awaiting provider confirmation. It will not be submitted again.` });
-    await prisma.partnerTransaction.update({ where: { id: debit.transaction.id }, data: { metadata: { ...previous, provider_outcome: 'unconfirmed' } as Prisma.InputJsonValue } });
-    return { status: 'pending', message: 'Request is awaiting provider confirmation.', reference: debit.transaction.reference, balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo) };
+    // Slip lookups are synchronous. A repeated idempotency key must not expose
+    // a stale pending verification or submit a second paid lookup upstream.
+    if (Date.now() - debit.transaction.createdAt.getTime() < VERIFICATION_REPLAY_GRACE_MS) {
+      throw new ApiError(409, 'This verification request is still being submitted. Wait for its original response before retrying.', 'VERIFICATION_REQUEST_IN_PROGRESS');
+    }
+    const message = 'The previous verification attempt did not save a completed result. The payment has been refunded; submit a new request.';
+    const reversed = await reversePartnerPurchase(debit.transaction.id, message);
+    return { status: false, message, reference: reversed.reference, balanceAfter: koboToNaira(reversed.balanceAfterKobo) };
   }
   if (debit.reused && debit.transaction.status !== TransactionStatus.PENDING) {
     const metadata = debit.transaction.metadata as Record<string, unknown> | null;
@@ -290,11 +302,11 @@ export async function purchasePartnerSlip(params: {
   let provider: Awaited<ReturnType<typeof call>>;
   let actualProvider = primaryProvider;
   const fallbackCall = params.fallbackProvider ? params.callByProvider[params.fallbackProvider] : undefined;
-  try { provider = await call(); }
+  try { provider = await callPartnerSlipProvider(params.service, primaryProvider, call); }
   catch (error) {
     if (fallbackCall && fallbackPrice && params.fallbackProvider) {
       try {
-        provider = await fallbackCall();
+        provider = await callPartnerSlipProvider(params.service, params.fallbackProvider, fallbackCall);
         actualProvider = params.fallbackProvider;
       } catch (fallbackError) {
         const message = fallbackError instanceof Error ? fallbackError.message : 'The fallback provider could not complete the NIN lookup.';
@@ -302,28 +314,16 @@ export async function purchasePartnerSlip(params: {
         return { status: false, message, reference: reversed.reference, balanceAfter: koboToNaira(reversed.balanceAfterKobo) };
       }
     } else {
-      if (instantNinLookup) {
-        const message = error instanceof Error ? error.message : 'The provider could not confirm this NIN lookup. Your payment has been refunded.';
-        const reversed = await reversePartnerPurchase(debit.transaction.id, message);
-        return { status: false, message, reference: reversed.reference, balanceAfter: koboToNaira(reversed.balanceAfterKobo) };
-      }
-      const current = await prisma.partnerTransaction.findUniqueOrThrow({ where: { id: debit.transaction.id } });
-      const ticketId = `RECONCILE-${debit.transaction.reference}`;
-      await flagPartnerPendingReconciliation({ transactionId: current.id, provider: primaryProvider, providerRef: ticketId,
-        providerMessage: error instanceof Error ? error.message : 'Provider response could not be confirmed',
-        userMessage: `${params.description} is awaiting provider confirmation. It will not be submitted again.` });
-      await prisma.partnerTransaction.update({ where: { id: current.id }, data: { metadata: {
-        ...((current.metadata as Record<string, unknown> | null) ?? {}), provider_outcome: 'unconfirmed'
-      } as Prisma.InputJsonValue } });
-      return { status: 'pending', message: 'Request is awaiting provider confirmation.', reference: debit.transaction.reference, balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo) };
+      const message = error instanceof Error ? error.message : 'The verification provider could not complete this lookup. Your payment has been refunded.';
+      const reversed = await reversePartnerPurchase(debit.transaction.id, message);
+      return { status: false, message, reference: reversed.reference, balanceAfter: koboToNaira(reversed.balanceAfterKobo) };
     }
   }
-  // NIN by-NIN lookups are synchronous and read-only. A Techhub timeout or
-  // an unconfirmed response should still get the configured FranceVerified
-  // attempt instead of leaving the partner request in the manual queue.
+  // NIN/BVN lookups are synchronous and read-only. A Techhub timeout or an
+  // unconfirmed response should still get the configured fallback attempt.
   if (!provider.ok && fallbackCall && fallbackPrice && params.fallbackProvider && actualProvider === primaryProvider) {
     try {
-      provider = await fallbackCall();
+      provider = await callPartnerSlipProvider(params.service, params.fallbackProvider, fallbackCall);
       actualProvider = params.fallbackProvider;
     } catch (fallbackError) {
       const message = fallbackError instanceof Error ? fallbackError.message : 'The fallback provider could not complete the NIN lookup.';
@@ -333,25 +333,9 @@ export async function purchasePartnerSlip(params: {
   }
   if (!provider.ok) {
     if (provider.pending) {
-      // NIN-by-NIN requests are instant lookups. Close an unconfirmed result
-      // and refund instead of leaving the partner request for admin review.
-      if (instantNinLookup) {
-        const message = provider.message || 'The provider could not confirm this NIN lookup. Your payment has been refunded.';
-        const reversed = await reversePartnerPurchase(debit.transaction.id, message);
-        return { status: false, message, reference: reversed.reference, balanceAfter: koboToNaira(reversed.balanceAfterKobo) };
-      }
-      const current = debit.transaction.metadata as Record<string, unknown> | null;
-      await prisma.partnerTransaction.update({ where: { id: debit.transaction.id }, data: {
-        provider: actualProvider,
-        metadata: { service: params.service, ...params.operational, unit_price: koboToNaira(debit.transaction.amountKobo),
-        provider_outcome: 'unconfirmed', reconciliation: { flaggedAt: new Date().toISOString(), providerMessage: provider.message, rawStatus: provider.raw },
-        pii: mergeSealedPII(current?.pii, { ...params.pii, submit_raw: provider.raw }) } as Prisma.InputJsonValue
-      }});
-      await flagPartnerPendingReconciliation({ transactionId: debit.transaction.id, provider: actualProvider,
-        providerRef: `RECONCILE-${debit.transaction.reference}`, providerMessage: provider.message, rawStatus: { outcome: 'unconfirmed', service: params.service },
-        userMessage: `${params.description} is awaiting provider confirmation. It will not be submitted again.` });
-      return { status: 'pending', message: provider.message, reference: debit.transaction.reference,
-        balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo) };
+      const message = provider.message || 'The verification provider did not return a completed result. Your payment has been refunded.';
+      const reversed = await reversePartnerPurchase(debit.transaction.id, message);
+      return { status: false, message, reference: reversed.reference, balanceAfter: koboToNaira(reversed.balanceAfterKobo) };
     }
     const reversed = await reversePartnerPurchase(debit.transaction.id, provider.message);
     return { status: false, message: provider.message, reference: reversed.reference, balanceAfter: koboToNaira(reversed.balanceAfterKobo) };
@@ -368,6 +352,31 @@ export async function purchasePartnerSlip(params: {
     completionMetadata
   );
   return { status: true, message: provider.message, reference: transaction.reference, balanceAfter: koboToNaira(transaction.balanceAfterKobo), userData: provider.userData, pdfBase64: provider.pdfBase64, pdfUrl: provider.pdfUrl };
+}
+
+/** Close abandoned synchronous partner NIN/BVN lookups automatically. */
+export async function reconcileStalePartnerVerificationLookups(limit = 50) {
+  const cutoff = new Date(Date.now() - STALE_VERIFICATION_LOOKUP_MS);
+  const rows = await prisma.partnerTransaction.findMany({
+    where: {
+      status: TransactionStatus.PENDING,
+      type: { in: [TransactionType.NIN_VERIFICATION, TransactionType.BVN_VERIFICATION] },
+      updatedAt: { lte: cutoff }
+    },
+    orderBy: { updatedAt: 'asc' },
+    take: limit
+  });
+  for (const row of rows) {
+    const metadata = row.metadata as Record<string, unknown> | null;
+    if (row.provider === 'manual' || metadata?.manual_processing === true) continue;
+    const message = 'The verification provider did not save a final result within 5 minutes. The payment has been refunded; submit a new request.';
+    try {
+      await reversePartnerPurchase(row.id, message);
+      console.warn('[partner-verification] stale automatic lookup closed and refunded', JSON.stringify({ reference: row.reference, age_ms: Date.now() - row.updatedAt.getTime() }));
+    } catch (error) {
+      console.error('[partner-verification] could not close stale automatic lookup', row.reference, error);
+    }
+  }
 }
 
 export const partnerVerification = {

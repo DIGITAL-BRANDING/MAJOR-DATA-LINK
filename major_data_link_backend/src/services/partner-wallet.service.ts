@@ -94,11 +94,15 @@ export async function completePartnerPurchase(
   fulfillment?: Record<string, unknown>,
   statusMetadata?: Record<string, unknown>
 ) {
-  const transaction = await prisma.$transaction(async (tx) => {
+  const completion = await prisma.$transaction(async (tx) => {
     const current = await tx.partnerTransaction.findUniqueOrThrow({ where: { id: transactionId } });
+    if (current.status === TransactionStatus.SUCCESS) return { transaction: current, changed: false };
+    if (current.status !== TransactionStatus.PENDING) {
+      throw new ApiError(409, 'This transaction has already been reversed and cannot be completed.', 'TRANSACTION_ALREADY_FINALIZED');
+    }
     const existingMetadata = (current.metadata as Record<string, unknown> | null) ?? {};
-    const updated = await tx.partnerTransaction.update({
-      where: { id: transactionId },
+    const claim = await tx.partnerTransaction.updateMany({
+      where: { id: transactionId, status: TransactionStatus.PENDING },
       data: {
         status: TransactionStatus.SUCCESS,
         provider,
@@ -107,33 +111,36 @@ export async function completePartnerPurchase(
         ...(costKobo !== undefined ? { costKobo } : {})
       }
     });
-    return updated;
+    if (claim.count === 0) {
+      const latest = await tx.partnerTransaction.findUniqueOrThrow({ where: { id: transactionId } });
+      if (latest.status === TransactionStatus.SUCCESS) return { transaction: latest, changed: false };
+      throw new ApiError(409, 'This transaction has already been reversed and cannot be completed.', 'TRANSACTION_ALREADY_FINALIZED');
+    }
+    return { transaction: await tx.partnerTransaction.findUniqueOrThrow({ where: { id: transactionId } }), changed: true };
   });
+  const { transaction, changed } = completion;
+  if (!changed) return transaction;
   // Persist the financial result before queueing its notification. A webhook
   // outbox error must not roll back a completed partner request and leave it
   // looking pending (the refund/decline path is a separate transaction).
-  try {
-    const { enqueuePartnerTransactionWebhook } = await import('./partner-webhook.service.js');
-    await enqueuePartnerTransactionWebhook(transaction);
-  } catch (error) {
-    // queueMissingPartnerTransactionWebhooks() will recover a terminal row
-    // that did not get its first outbox event.
-    console.error('[partner-webhooks] completed transaction saved but success event could not be queued', transaction.id, error);
-  }
+  // The transaction is already terminal before any delivery side effects run.
+  // Keep the provider response path short; the webhook worker recovers terminal
+  // transactions that did not get an outbox row after a process restart.
+  void import('./partner-webhook.service.js')
+    .then(async ({ enqueuePartnerTransactionWebhook, deliverDuePartnerWebhooks }) => {
+      await enqueuePartnerTransactionWebhook(transaction);
+      return deliverDuePartnerWebhooks(1);
+    })
+    .catch((error) => console.error('[partner-webhooks] completed transaction saved but success event could not be queued', transaction.id, error));
   if (costKobo !== undefined && costKobo > 0n) {
-    const { recordProviderDebit } = await import('./provider-ledger.service.js');
-    await recordProviderDebit({
-      provider,
-      amountKobo: costKobo,
-      relatedTransactionId: transaction.id,
-      description: `${transaction.description} (partner API)`
-    }).catch((error) => console.error('[provider-ledger] failed to record debit for', transaction.id, error));
-  }
-  try {
-    const { deliverDuePartnerWebhooks } = await import('./partner-webhook.service.js');
-    void deliverDuePartnerWebhooks(1).catch((error) => console.error('[partner-webhooks] delivery attempt failed', error));
-  } catch (error) {
-    console.error('[partner-webhooks] could not queue success event', error);
+    void import('./provider-ledger.service.js')
+      .then(({ recordProviderDebit }) => recordProviderDebit({
+        provider,
+        amountKobo: costKobo,
+        relatedTransactionId: transaction.id,
+        description: `${transaction.description} (partner API)`
+      }))
+      .catch((error) => console.error('[provider-ledger] failed to record debit for', transaction.id, error));
   }
   return transaction;
 }
@@ -142,17 +149,19 @@ export async function reversePartnerPurchase(transactionId: string, message: str
   const transaction = await prisma.$transaction(async (tx) => {
     const original = await tx.partnerTransaction.findUniqueOrThrow({ where: { id: transactionId } });
     if (original.status !== TransactionStatus.PENDING) return original;
+    const existingMetadata = (original.metadata as Record<string, unknown> | null) ?? {};
+    const claim = await tx.partnerTransaction.updateMany({ where: { id: original.id, status: TransactionStatus.PENDING }, data: {
+      status: TransactionStatus.REVERSED,
+      metadata: { ...existingMetadata, failure_reason: message, failed_at: new Date().toISOString() } as Prisma.InputJsonValue
+    } });
+    if (claim.count === 0) return tx.partnerTransaction.findUniqueOrThrow({ where: { id: original.id } });
     const partner = await tx.partner.findUniqueOrThrow({ where: { id: original.partnerId } });
     const balanceAfterKobo = partner.walletBalanceKobo + original.amountKobo;
     await tx.partner.update({ where: { id: partner.id }, data: { walletBalanceKobo: balanceAfterKobo } });
     // Keep the reason on the original API call, not only on the separate
     // REFUND entry. The partner's transaction-history endpoint can then
     // explain exactly why a request failed without exposing provider raw data.
-    const existingMetadata = (original.metadata as Record<string, unknown> | null) ?? {};
-    const reversed = await tx.partnerTransaction.update({ where: { id: original.id }, data: {
-      status: TransactionStatus.REVERSED,
-      metadata: { ...existingMetadata, failure_reason: message, failed_at: new Date().toISOString() } as Prisma.InputJsonValue
-    } });
+    const reversed = await tx.partnerTransaction.findUniqueOrThrow({ where: { id: original.id } });
     const { enqueuePartnerTransactionWebhook } = await import('./partner-webhook.service.js');
     await enqueuePartnerTransactionWebhook(reversed, tx);
     await tx.partnerTransaction.create({

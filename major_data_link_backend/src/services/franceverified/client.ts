@@ -36,6 +36,7 @@ export async function franceVerifiedGet(path: string, query?: Record<string, str
 }
 
 async function franceVerifiedRequest(path: string, init: { method: 'GET' | 'POST'; body?: string }): Promise<FranceVerifiedResult> {
+  const startedAt = Date.now();
   if (!env.FRANCEVERIFIED_API_KEY) {
     return { ok: false, message: 'Verification service is temporarily unavailable. Please try again later.', raw: null };
   }
@@ -64,12 +65,14 @@ async function franceVerifiedRequest(path: string, init: { method: 'GET' | 'POST
   // responses use a boolean `status: true` alongside the same `data` object.
   // HTTP 200 alone is not enough to accept a lookup: explicit false/error
   // envelopes must still fail and be refunded by purchaseSlip().
-  const successful = response.ok && (envelope.success === true || envelope.ok === true || status === true || status === 'success' || status === 'successful' || status === 'pending' || (!('success' in envelope) && !('ok' in envelope) && !('status' in envelope)));
+  const successFlag = envelope.success === true || (typeof envelope.success === 'string' && /^(?:true|1|yes|success|successful)$/i.test(envelope.success.trim()));
+  const successful = response.ok && (successFlag || envelope.ok === true || status === true || status === 'success' || status === 'successful' || status === 'complete' || status === 'completed' || (!('success' in envelope) && !('ok' in envelope) && !('status' in envelope)));
   const data = asRecord(envelope.data) ?? asRecord(envelope.response) ?? (successful ? envelope : undefined);
 
   console.info('[franceverified] response', JSON.stringify({
     endpoint: path,
     http_status: response.status,
+    duration_ms: Date.now() - startedAt,
     provider_status: typeof status === 'string' || typeof status === 'boolean' ? status : undefined,
     response_fields: Object.keys(envelope).sort(),
     data_fields: data ? Object.keys(data).sort() : [],

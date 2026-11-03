@@ -46,7 +46,8 @@ async function startServer() {
     const app = createApp();
     const { startPartnerWebhookWorker } = await import('./services/partner-webhook.service.js');
     const { startUserNotificationDeliveryWorker } = await import('./services/notification-delivery.service.js');
-    const { reconcilePendingPartnerVerificationTickets } = await import('./services/partner-verification.service.js');
+    const { reconcilePendingPartnerVerificationTickets, reconcileStalePartnerVerificationLookups } = await import('./services/partner-verification.service.js');
+    const { reconcileStaleVerificationLookups } = await import('./services/verification.service.js');
     const stopPartnerWebhookWorker = startPartnerWebhookWorker();
     const stopUserNotificationDeliveryWorker = startUserNotificationDeliveryWorker();
     let partnerTicketReconciliationRunning = false;
@@ -60,6 +61,23 @@ async function startServer() {
     reconcilePartnerTickets();
     const partnerTicketTimer = setInterval(reconcilePartnerTickets, 60_000);
     partnerTicketTimer.unref();
+
+    let staleVerificationCleanupRunning = false;
+    const reconcileStaleVerificationRequests = () => {
+      if (staleVerificationCleanupRunning) return;
+      staleVerificationCleanupRunning = true;
+      void Promise.allSettled([
+        reconcileStaleVerificationLookups(),
+        reconcileStalePartnerVerificationLookups()
+      ]).then((results) => {
+        for (const result of results) if (result.status === 'rejected') {
+          console.error('[verification] stale request cleanup failed', result.reason);
+        }
+      }).finally(() => { staleVerificationCleanupRunning = false; });
+    };
+    reconcileStaleVerificationRequests();
+    const staleVerificationCleanupTimer = setInterval(reconcileStaleVerificationRequests, 60_000);
+    staleVerificationCleanupTimer.unref();
 
     // Watchdog: logs loudly if any wallet stops matching its ledger.
     const { startWalletDriftMonitor } = await import('./services/wallet-drift.service.js');

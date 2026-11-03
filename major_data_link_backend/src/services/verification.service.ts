@@ -23,6 +23,9 @@ import { hubbuService, hubbuIdempotencyKey, hubbuRequestHash } from './hubbu.ser
 import { notifyUser } from './notification.service.js';
 import { enqueueUserNotificationDelivery } from './notification-delivery.service.js';
 
+const VERIFICATION_REPLAY_GRACE_MS = 120_000;
+const STALE_VERIFICATION_LOOKUP_MS = 5 * 60_000;
+
 /**
  * Which upstream API actually fulfils a given ServicePricing row right now -
  * admin-editable per service, NOT a global switch. See the `provider` column
@@ -411,6 +414,33 @@ async function failSlipAndRefund(params: {
   return refunded.balanceAfterKobo;
 }
 
+/** Auto-close abandoned synchronous NIN/BVN lookups instead of leaving them
+ * visible as pending for support to review. Manual requests and ticketed
+ * IDENTITY_SERVICE_REQUEST workflows are intentionally outside this sweep. */
+export async function reconcileStaleVerificationLookups(limit = 50) {
+  const cutoff = new Date(Date.now() - STALE_VERIFICATION_LOOKUP_MS);
+  const rows = await prisma.transaction.findMany({
+    where: {
+      status: TransactionStatus.PENDING,
+      type: { in: [TransactionType.NIN_VERIFICATION, TransactionType.BVN_VERIFICATION] },
+      updatedAt: { lte: cutoff }
+    },
+    orderBy: { updatedAt: 'asc' },
+    take: limit
+  });
+  for (const row of rows) {
+    const metadata = row.metadata as Record<string, unknown> | null;
+    if (row.provider === 'manual' || metadata?.manual_processing === true) continue;
+    const reason = 'The verification provider did not save a final result within 5 minutes. Your payment has been refunded; please submit a new request.';
+    try {
+      await failSlipAndRefund({ transactionId: row.id, userId: row.userId, provider: (row.provider ?? 'techhub') as VerificationProvider, message: reason, metadata });
+      console.warn('[verification] stale automatic lookup closed and refunded', JSON.stringify({ reference: row.reference, age_ms: Date.now() - row.updatedAt.getTime() }));
+    } catch (error) {
+      console.error('[verification] could not close stale automatic lookup', row.reference, error);
+    }
+  }
+}
+
 /**
  * Shared by all four slip flows (NIN-by-NIN, NIN-by-Phone, NIN-by-Demographic,
  * BVN Slip): debit first, call Techhub, refund on failure. Exactly the same
@@ -480,9 +510,12 @@ async function purchaseSlip(params: {
     const prior = await findPendingHubbuRequest(params.userId, params.transactionType, hubbuHash);
     if (prior) {
       const metadata = prior.metadata as Record<string, unknown> | null;
-      if (realProviderTicket(metadata)) return { status: true, pending: true, message: 'Your request is being processed by the provider.', reference: prior.reference, transactionId: prior.id, balanceAfter: koboToNaira(prior.balanceAfterKobo) };
-      const balanceAfterKobo = await failSlipAndRefund({ transactionId: prior.id, userId: params.userId, provider: 'hubbu', message: 'The provider did not return a ticket or completed result; your payment has been refunded.', metadata });
-      return { status: false, message: 'The provider did not return a completed result; your payment has been refunded.', reference: prior.reference, transactionId: prior.id, balanceAfter: koboToNaira(balanceAfterKobo) };
+      if (Date.now() - prior.createdAt.getTime() < VERIFICATION_REPLAY_GRACE_MS) {
+        throw new ApiError(409, 'This verification request is still being submitted. Wait for its original response before retrying.', 'VERIFICATION_REQUEST_IN_PROGRESS');
+      }
+      const message = 'The provider did not return a completed verification result. Your payment has been refunded.';
+      const balanceAfterKobo = await failSlipAndRefund({ transactionId: prior.id, userId: params.userId, provider: 'hubbu', message, metadata });
+      return { status: false, message, reference: prior.reference, transactionId: prior.id, balanceAfter: koboToNaira(balanceAfterKobo) };
     }
   }
 
@@ -521,15 +554,17 @@ async function purchaseSlip(params: {
     };
   }
 
-  // A replay of an unresolved automatic lookup is never submitted twice.
-  // Keep it pending only when the provider supplied a real ticket ID.
+  // Verification lookups are synchronous customer products. A replay must
+  // never leave the customer waiting on a ticket or send the same lookup to
+  // the provider a second time.
   if (debit.reused) {
     const metadata = debit.transaction.metadata as Record<string, unknown> | null;
-    if (realProviderTicket(metadata)) {
-      return { status: false, pending: true, message: 'Your request is being processed by the provider.', reference: debit.reference, transactionId: debit.transaction.id, balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo) };
+    if (Date.now() - debit.transaction.createdAt.getTime() < VERIFICATION_REPLAY_GRACE_MS) {
+      throw new ApiError(409, 'This verification request is still being submitted. Wait for its original response before retrying.', 'VERIFICATION_REQUEST_IN_PROGRESS');
     }
-    const balanceAfterKobo = await failSlipAndRefund({ transactionId: debit.transaction.id, userId: params.userId, provider: primaryProvider, message: 'The provider did not return a ticket or completed result; your payment has been refunded.', metadata });
-    return { status: false, message: 'The provider did not return a completed result; your payment has been refunded.', reference: debit.reference, transactionId: debit.transaction.id, balanceAfter: koboToNaira(balanceAfterKobo) };
+    const message = 'The previous verification attempt did not save a completed result. Your payment has been refunded; please submit a new request.';
+    const balanceAfterKobo = await failSlipAndRefund({ transactionId: debit.transaction.id, userId: params.userId, provider: primaryProvider, message, metadata });
+    return { status: false, message, reference: debit.reference, transactionId: debit.transaction.id, balanceAfter: koboToNaira(balanceAfterKobo) };
   }
 
   const hubbuReconciliationRef = `HUBBU-RECONCILE-${debit.reference}`;
@@ -556,16 +591,7 @@ async function purchaseSlip(params: {
   }
 
   if (result.pending) {
-    const ticketId = result.providerRef?.trim();
-    if (ticketId && !/^(?:RECONCILE|HUBBU-RECONCILE)-/i.test(ticketId)) {
-      const previous = debit.transaction.metadata as Record<string, unknown> | null;
-      await prisma.transaction.update({ where: { id: debit.transaction.id }, data: {
-        provider: primaryProvider, providerRef: ticketId,
-        metadata: { ...(previous ?? {}), ticket_id: ticketId, ...(hubbuHash ? { hubbu_request_hash: hubbuHash } : {}), pii: mergeSealedPII(previous?.pii, { ...params.pii, provider_raw_response: result.raw }) } as Prisma.InputJsonValue
-      } });
-      return { status: false, pending: true, message: 'Your request is being processed by the provider.', reference: debit.reference, transactionId: debit.transaction.id, balanceAfter: debit.balanceAfter };
-    }
-    result = { ...result, ok: false, pending: false, message: 'The provider did not return a ticket or completed result; your payment has been refunded.' };
+    result = { ...result, ok: false, pending: false, message: result.message || 'The provider did not return a completed verification result. Your payment has been refunded.' };
   }
 
   const noRecord = !result.ok && /\b(?:no\s+record\s+found|record\s+not\s+found|no\s+match\s+found|data\s+not\s+found)\b/i.test(result.message);
@@ -623,14 +649,12 @@ async function purchaseSlip(params: {
       }
     });
 
-    try {
-      await prisma.$transaction(async (tx) => {
-        const notification = await tx.notification.create({ data: { id: nanoid(), userId: params.userId, type: 'TRANSACTION', title: 'Request completed', body: `${params.description} has been completed successfully.`, data: { transactionId: debit.transaction.id, reference: debit.reference }, dedupeKey: `verification:${debit.transaction.id}:success` } });
-        await enqueueUserNotificationDelivery(tx, notification.id);
-      });
-    } catch (error) {
+    void prisma.$transaction(async (tx) => {
+      const notification = await tx.notification.create({ data: { id: nanoid(), userId: params.userId, type: 'TRANSACTION', title: 'Request completed', body: `${params.description} has been completed successfully.`, data: { transactionId: debit.transaction.id, reference: debit.reference }, dedupeKey: `verification:${debit.transaction.id}:success` } });
+      await enqueueUserNotificationDelivery(tx, notification.id);
+    }).catch((error) => {
       console.error('[verification] result saved but success notification could not be queued for', debit.transaction.id, error);
-    }
+    });
 
     // Both providers quote one flat rate per slip family, already stored as
     // price.providerCostKobo above - no balance-delta correction available

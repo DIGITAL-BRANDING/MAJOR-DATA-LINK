@@ -361,6 +361,7 @@ export class TechhubService {
   }
 
   private async postSlip(path: string, body: Record<string, unknown>, options: { personalInfoSlip?: boolean; service: 'nin' | 'bvn' }): Promise<TechhubSlipResult> {
+    const startedAt = Date.now();
     if (env.MOCK_TECHHUB) {
       const userData = { first_name: 'JOHN', last_name: 'DOE', gender: 'MALE', ...body };
       if (options?.personalInfoSlip) {
@@ -425,18 +426,19 @@ export class TechhubService {
     const isSuccess = responseRecords.some((record) => {
       const status = typeof record.status === 'string' ? record.status.trim().toLowerCase() : record.status;
       const responseCode = typeof record.response_code === 'string' ? record.response_code.trim() : record.response_code;
-      return record.success === true || status === true || status === 'success' || status === 'successful' || responseCode === '00';
+      const successFlag = record.success === true || (typeof record.success === 'string' && /^(?:true|1|yes|success|successful)$/i.test(record.success.trim()));
+      return successFlag || status === true || status === 'success' || status === 'successful' || status === 'complete' || status === 'completed' || responseCode === '00';
     });
     const providerStatus = typeof data.status === 'string' ? data.status.trim().toLowerCase() : data.status;
 
-    console.info('[techhub] slip response', JSON.stringify({ endpoint: path, http_status: response.status, outcome: isSuccess ? 'success' : 'unconfirmed' }));
+    const explicitFailure = providerStatus === 'error' || providerStatus === 'failed' || data.success === false ||
+      Boolean(data.error_code) || (response.status >= 400 && response.status < 500);
+    console.info('[techhub] slip response', JSON.stringify({ endpoint: path, http_status: response.status, duration_ms: Date.now() - startedAt, outcome: isSuccess ? 'success' : explicitFailure ? 'failed' : 'unconfirmed' }));
 
     // An explicit provider success is authoritative even if its web server
     // returned an unusual HTTP status after completing the lookup.
     if (!isSuccess) {
       console.error(`[techhub] slip lookup failed (path=${path}, http=${response.status}):`, JSON.stringify(data));
-      const explicitFailure = providerStatus === 'error' || providerStatus === 'failed' || data.success === false ||
-        Boolean(data.error_code) || (response.status >= 400 && response.status < 500);
       if (!explicitFailure) {
         return { ok: false, pending: true, message: 'The provider response is uncertain. The request is being held for status reconciliation.', raw: data };
       }
