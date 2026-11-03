@@ -224,7 +224,7 @@ export async function purchasePartnerSlip(params: {
   description: string; operational: Record<string, unknown>; pii: Record<string, unknown>;
   idempotencyKey: string;
   providerOverride?: VerificationProvider;
-  fallbackProvider?: VerificationProvider;
+  fallbackProvider?: Exclude<VerificationProvider, 'manual'>;
   fallbackService?: VerificationServiceKey;
   // One call per provider this service could be routed to - same dispatch
   // shape as purchaseSlip() in verification.service.ts. Previously this
