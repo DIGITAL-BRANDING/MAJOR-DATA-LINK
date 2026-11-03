@@ -73,7 +73,13 @@ export async function debitPartnerWallet(input: {
       }
     });
     return { transaction, reused: false };
-  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  }, {
+    isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+    // Wallet operations are short, but should tolerate brief pool contention
+    // instead of failing immediately before the provider is called.
+    maxWait: 10_000,
+    timeout: 15_000
+  });
   if (!result.reused && isManualRequestSubmission({ type: result.transaction.type, provider: result.transaction.provider, metadata: result.transaction.metadata })) {
     void emailAdminsForManualRequest({ source: 'Partner', reference: result.transaction.reference, type: result.transaction.type,
       description: result.transaction.description, createdAt: result.transaction.createdAt });
@@ -162,8 +168,6 @@ export async function reversePartnerPurchase(transactionId: string, message: str
     // REFUND entry. The partner's transaction-history endpoint can then
     // explain exactly why a request failed without exposing provider raw data.
     const reversed = await tx.partnerTransaction.findUniqueOrThrow({ where: { id: original.id } });
-    const { enqueuePartnerTransactionWebhook } = await import('./partner-webhook.service.js');
-    await enqueuePartnerTransactionWebhook(reversed, tx);
     await tx.partnerTransaction.create({
       data: {
         partnerId: original.partnerId,
@@ -184,12 +188,20 @@ export async function reversePartnerPurchase(transactionId: string, message: str
       balanceAfterKobo,
       metadata: { ...existingMetadata, failure_reason: message }
     };
-  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
-  try {
-    const { deliverDuePartnerWebhooks } = await import('./partner-webhook.service.js');
-    void deliverDuePartnerWebhooks(1).catch((error) => console.error('[partner-webhooks] reversal delivery attempt failed', error));
-  } catch (error) {
-    console.error('[partner-webhooks] could not queue reversal event', error);
+  }, {
+    isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+    maxWait: 10_000,
+    timeout: 15_000
+  });
+  if (transaction.status === TransactionStatus.REVERSED) {
+    // Keep the wallet reversal transaction short. The webhook worker also
+    // scans terminal transactions whose outbox event is missing.
+    void import('./partner-webhook.service.js')
+      .then(async ({ enqueuePartnerTransactionWebhook, deliverDuePartnerWebhooks }) => {
+        await enqueuePartnerTransactionWebhook(transaction);
+        return deliverDuePartnerWebhooks(1);
+      })
+      .catch((error) => console.error('[partner-webhooks] reversal delivery attempt failed', error));
   }
   return transaction;
 }

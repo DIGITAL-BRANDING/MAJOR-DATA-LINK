@@ -355,12 +355,13 @@ export async function purchasePartnerSlip(params: {
 }
 
 /** Close abandoned synchronous partner NIN/BVN lookups automatically. */
-export async function reconcileStalePartnerVerificationLookups(limit = 50) {
+export async function reconcileStalePartnerVerificationLookups(limit = 2) {
   const cutoff = new Date(Date.now() - STALE_VERIFICATION_LOOKUP_MS);
   const rows = await prisma.partnerTransaction.findMany({
     where: {
       status: TransactionStatus.PENDING,
       type: { in: [TransactionType.NIN_VERIFICATION, TransactionType.BVN_VERIFICATION] },
+      OR: [{ provider: null }, { provider: { not: 'manual' } }],
       updatedAt: { lte: cutoff }
     },
     orderBy: { updatedAt: 'asc' },

@@ -417,12 +417,13 @@ async function failSlipAndRefund(params: {
 /** Auto-close abandoned synchronous NIN/BVN lookups instead of leaving them
  * visible as pending for support to review. Manual requests and ticketed
  * IDENTITY_SERVICE_REQUEST workflows are intentionally outside this sweep. */
-export async function reconcileStaleVerificationLookups(limit = 50) {
+export async function reconcileStaleVerificationLookups(limit = 2) {
   const cutoff = new Date(Date.now() - STALE_VERIFICATION_LOOKUP_MS);
   const rows = await prisma.transaction.findMany({
     where: {
       status: TransactionStatus.PENDING,
       type: { in: [TransactionType.NIN_VERIFICATION, TransactionType.BVN_VERIFICATION] },
+      OR: [{ provider: null }, { provider: { not: 'manual' } }],
       updatedAt: { lte: cutoff }
     },
     orderBy: { updatedAt: 'asc' },

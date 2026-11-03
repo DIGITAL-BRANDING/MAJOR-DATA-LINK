@@ -66,17 +66,14 @@ async function startServer() {
     const reconcileStaleVerificationRequests = () => {
       if (staleVerificationCleanupRunning) return;
       staleVerificationCleanupRunning = true;
-      void Promise.allSettled([
-        reconcileStaleVerificationLookups(),
-        reconcileStalePartnerVerificationLookups()
-      ]).then((results) => {
-        for (const result of results) if (result.status === 'rejected') {
-          console.error('[verification] stale request cleanup failed', result.reason);
-        }
-      }).finally(() => { staleVerificationCleanupRunning = false; });
+      void reconcileStaleVerificationLookups(2)
+        .then(() => reconcileStalePartnerVerificationLookups(2))
+        .catch((error) => console.error('[verification] stale request cleanup failed', error))
+        .finally(() => { staleVerificationCleanupRunning = false; });
     };
-    reconcileStaleVerificationRequests();
-    const staleVerificationCleanupTimer = setInterval(reconcileStaleVerificationRequests, 60_000);
+    // Process only a few old rows per instance at a low cadence. A large
+    // historical backlog must not compete with live wallet transactions.
+    const staleVerificationCleanupTimer = setInterval(reconcileStaleVerificationRequests, 5 * 60_000);
     staleVerificationCleanupTimer.unref();
 
     // Watchdog: logs loudly if any wallet stops matching its ledger.
