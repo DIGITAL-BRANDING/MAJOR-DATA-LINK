@@ -88,6 +88,10 @@ class AppEndpoints {
       '$_base/verification/nin/verification-v1';
   static String get ninVerificationV2 =>
       '$_base/verification/nin/verification-v2';
+  static String get ninVerificationV3 =>
+      '$_base/verification/nin/verification-v3';
+  static String get ninVerificationV4 =>
+      '$_base/verification/nin/verification-v4';
   static String get ninByPhone => '$_base/verification/nin/by-phone';
   static String get ninByDemographic =>
       '$_base/verification/nin/by-demographic';

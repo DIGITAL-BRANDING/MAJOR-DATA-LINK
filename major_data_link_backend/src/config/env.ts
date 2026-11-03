@@ -95,6 +95,10 @@ const EnvSchema = z.object({
   // fail outright - fixed.
   FRANCEVERIFIED_BASE_URL: z.string().url().default('https://franceverified.com/api/v1'),
   FRANCEVERIFIED_API_KEY: z.string().optional(),
+  // AbjikTech is a synchronous NIN/BVN slip provider authenticated with a
+  // server-side API key in JSON request bodies.
+  ABJIKTECH_BASE_URL: z.string().url().default('https://abjiktech.com.ng/api/verification/'),
+  ABJIKTECH_API_KEY: z.string().optional(),
   // Hubbu identity verification API. Keep credentials server-side; endpoints
   // are rooted at HUBBU_BASE_URL and authenticated with X-API-KEY.
   HUBBU_BASE_URL: z.string().url().default('https://hubbu.com.ng'),

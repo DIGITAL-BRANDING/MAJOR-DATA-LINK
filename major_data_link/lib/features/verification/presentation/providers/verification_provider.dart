@@ -147,6 +147,16 @@ enum VerificationService {
   ninVerificationV2Regular,
   ninVerificationV2Vnin,
   ninVerificationV2Personal,
+  ninVerificationV3Premium,
+  ninVerificationV3Standard,
+  ninVerificationV3Regular,
+  ninVerificationV3Vnin,
+  ninVerificationV3Personal,
+  ninVerificationV4Premium,
+  ninVerificationV4Standard,
+  ninVerificationV4Regular,
+  ninVerificationV4Vnin,
+  ninVerificationV4Personal,
 }
 
 extension VerificationServiceX on VerificationService {
@@ -193,6 +203,24 @@ extension VerificationServiceX on VerificationService {
     VerificationService.ninVerificationV2Vnin => 'NIN_VERIFICATION_V2_VNIN',
     VerificationService.ninVerificationV2Personal =>
       'NIN_VERIFICATION_V2_PERSONAL',
+    VerificationService.ninVerificationV3Premium =>
+      'NIN_VERIFICATION_V3_PREMIUM',
+    VerificationService.ninVerificationV3Standard =>
+      'NIN_VERIFICATION_V3_STANDARD',
+    VerificationService.ninVerificationV3Regular =>
+      'NIN_VERIFICATION_V3_REGULAR',
+    VerificationService.ninVerificationV3Vnin => 'NIN_VERIFICATION_V3_VNIN',
+    VerificationService.ninVerificationV3Personal =>
+      'NIN_VERIFICATION_V3_PERSONAL',
+    VerificationService.ninVerificationV4Premium =>
+      'NIN_VERIFICATION_V4_PREMIUM',
+    VerificationService.ninVerificationV4Standard =>
+      'NIN_VERIFICATION_V4_STANDARD',
+    VerificationService.ninVerificationV4Regular =>
+      'NIN_VERIFICATION_V4_REGULAR',
+    VerificationService.ninVerificationV4Vnin => 'NIN_VERIFICATION_V4_VNIN',
+    VerificationService.ninVerificationV4Personal =>
+      'NIN_VERIFICATION_V4_PERSONAL',
   };
 }
 
@@ -455,6 +483,26 @@ class VerificationRemote {
     required SlipTier tier,
     required String pin,
   }) => _postSlip(AppEndpoints.ninVerificationV2, {
+    'nin': nin,
+    'tier': tier.apiValue,
+    'pin': pin,
+  });
+
+  Future<SlipApiResult> ninVerificationV3({
+    required String nin,
+    required SlipTier tier,
+    required String pin,
+  }) => _postSlip(AppEndpoints.ninVerificationV3, {
+    'nin': nin,
+    'tier': tier.apiValue,
+    'pin': pin,
+  });
+
+  Future<SlipApiResult> ninVerificationV4({
+    required String nin,
+    required SlipTier tier,
+    required String pin,
+  }) => _postSlip(AppEndpoints.ninVerificationV4, {
     'nin': nin,
     'tier': tier.apiValue,
     'pin': pin,

@@ -4,6 +4,7 @@ import { mergeSealedPII, openPII, sealPII } from '../lib/pii.js';
 import { getVerificationPrice, type IpeClearanceType, type VerificationServiceKey, type VerificationProvider } from './verification.service.js';
 import { techhubService, type TechhubBvnTier, type TechhubSlipTier } from './techhub.service.js';
 import { franceverifiedSlipAdapter } from './franceverified-slip-adapter.service.js';
+import { abjikTechService } from './abjiktech.service.js';
 import { submitNinValidationFV, checkNinValidationFV } from './franceverified-nin-validation-adapter.service.js';
 import { checkIpeClearanceFV, submitIpeClearanceFV } from './franceverified-ipe-adapter.service.js';
 import { completePartnerPurchase, debitPartnerWallet, reversePartnerPurchase } from './partner-wallet.service.js';
@@ -396,10 +397,11 @@ export const partnerVerification = {
       partnerId, service, type: TransactionType.NIN_VERIFICATION,
       description: `NIN Verification ${version.toUpperCase()} (${tier}) by NIN`,
       operational: { mode: 'by_nin', tier, version }, pii: { nin }, idempotencyKey,
-      providerOverride: version === 'v1' ? 'techhub' : 'franceverified',
+      providerOverride: version === 'v1' ? 'techhub' : 'abjiktech',
       ...(version === 'v1' ? { fallbackProvider: 'franceverified' as const, fallbackService: v2Services[tier] } : {}),
       callByProvider: {
         techhub: () => techhubService.ninByNin(nin, tier),
+        abjiktech: () => abjikTechService.ninByNin(nin, tier),
         franceverified: () => franceverifiedSlipAdapter.ninByNin(nin, tier === 'premium' ? 'premium' : undefined)
       }
     });
@@ -407,7 +409,7 @@ export const partnerVerification = {
   ninByPhone: (partnerId: string, phone: string, tier: Exclude<TechhubSlipTier, 'vnin'>, idempotencyKey: string) => purchasePartnerSlip({
     partnerId, service: ({ premium: 'NIN_PHONE_SLIP_PREMIUM', standard: 'NIN_PHONE_SLIP_STANDARD', regular: 'NIN_PHONE_SLIP_REGULAR' } as const)[tier], type: TransactionType.NIN_VERIFICATION,
     description: `NIN slip (${tier}) by phone`, operational: { mode: 'by_phone', tier }, pii: { phone }, idempotencyKey,
-    callByProvider: { techhub: () => techhubService.ninByPhone(phone, tier), franceverified: () => franceverifiedSlipAdapter.ninByPhone(phone, tier === 'premium' ? 'premium' : undefined) }
+    callByProvider: { techhub: () => techhubService.ninByPhone(phone, tier), abjiktech: () => abjikTechService.ninByPhone(phone, tier), franceverified: () => franceverifiedSlipAdapter.ninByPhone(phone, tier === 'premium' ? 'premium' : undefined) }
   }),
   // Personal Information slip: same provider call as the retail "personal"
   // tier (see purchaseNinByNin / purchaseNinByPhone in verification.service.ts).
@@ -419,22 +421,22 @@ export const partnerVerification = {
   ninPersonalInfo: (partnerId: string, nin: string, idempotencyKey: string) => purchasePartnerSlip({
     partnerId, service: 'NIN_PERSONAL_INFO_SLIP', type: TransactionType.NIN_VERIFICATION,
     description: 'NIN personal information slip by NIN', operational: { mode: 'by_nin', tier: 'personal' }, pii: { nin }, idempotencyKey,
-    callByProvider: { techhub: () => techhubService.ninPersonalInfoByNin(nin), franceverified: () => franceverifiedSlipAdapter.ninByNin(nin, undefined, true) }
+    callByProvider: { techhub: () => techhubService.ninPersonalInfoByNin(nin), abjiktech: () => abjikTechService.ninByNin(nin, 'regular', true), franceverified: () => franceverifiedSlipAdapter.ninByNin(nin, undefined, true) }
   }),
   ninPersonalInfoByPhone: (partnerId: string, phone: string, idempotencyKey: string) => purchasePartnerSlip({
     partnerId, service: 'NIN_PHONE_PERSONAL_INFO_SLIP', type: TransactionType.NIN_VERIFICATION,
     description: 'NIN personal information slip by phone', operational: { mode: 'by_phone', tier: 'personal' }, pii: { phone }, idempotencyKey,
-    callByProvider: { techhub: () => techhubService.ninPersonalInfoByPhone(phone), franceverified: () => franceverifiedSlipAdapter.ninByPhone(phone, undefined, true) }
+    callByProvider: { techhub: () => techhubService.ninPersonalInfoByPhone(phone), abjiktech: () => abjikTechService.ninByPhone(phone, 'regular', true), franceverified: () => franceverifiedSlipAdapter.ninByPhone(phone, undefined, true) }
   }),
   ninByDemographic: (partnerId: string, values: { firstname: string; lastname: string; dob: string; gender?: string }, idempotencyKey: string) => purchasePartnerSlip({
     partnerId, service: 'NIN_DEMOGRAPHIC', type: TransactionType.NIN_VERIFICATION,
     description: 'NIN slip by demographic details', operational: { mode: 'by_demographic' }, pii: values, idempotencyKey,
-    callByProvider: { techhub: () => techhubService.ninByDemographic(values), franceverified: () => franceverifiedSlipAdapter.ninByDemographic(values) }
+    callByProvider: { techhub: () => techhubService.ninByDemographic(values), abjiktech: () => abjikTechService.ninByDemographic(values), franceverified: () => franceverifiedSlipAdapter.ninByDemographic(values) }
   }),
   bvnSlip: (partnerId: string, bvn: string, tier: TechhubBvnTier, idempotencyKey: string) => purchasePartnerSlip({
     partnerId, service: ({ premium: 'BVN_SLIP_PREMIUM', standard: 'BVN_SLIP_STANDARD' } as const)[tier], type: TransactionType.BVN_VERIFICATION,
     description: `BVN slip (${tier})`, operational: { tier }, pii: { bvn }, idempotencyKey,
-    callByProvider: { techhub: () => techhubService.bvnSlip(bvn, tier), franceverified: () => franceverifiedSlipAdapter.bvnSlip(bvn, tier) }
+    callByProvider: { techhub: () => techhubService.bvnSlip(bvn, tier), abjiktech: () => abjikTechService.bvnSlip(bvn, tier), franceverified: () => franceverifiedSlipAdapter.bvnSlip(bvn, tier) }
   }),
   submitNinValidation: (partnerId: string, nin: string, validationType: string | undefined, idempotencyKey: string) => {
     const services: Record<string, VerificationServiceKey> = { nin_validation: 'NIN_VALIDATION_GENERAL', no_record: 'NIN_VALIDATION_NO_RECORD', sim: 'NIN_VALIDATION_SIM', bank_validation: 'NIN_VALIDATION_BANK', update_records: 'NIN_VALIDATION_UPDATE_RECORDS', modification: 'NIN_VALIDATION_MODIFICATION', photo_error: 'NIN_VALIDATION_PHOTO_ERROR', 'v.nin_validation': 'NIN_VALIDATION_VNIN' };

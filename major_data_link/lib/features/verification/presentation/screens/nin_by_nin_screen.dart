@@ -12,7 +12,7 @@ import '../providers/verification_provider.dart';
 import '../widgets/tier_selector.dart';
 import '../widgets/verification_result_cards.dart';
 
-enum NinVerificationVariant { defaultRoute, v1, v2 }
+enum NinVerificationVariant { defaultRoute, v1, v2, v3, v4 }
 
 const _normalPriceKeyFor = {
   SlipTier.premium: VerificationService.ninSlipPremium,
@@ -38,6 +38,22 @@ const _v2PriceKeyFor = {
   SlipTier.personal: VerificationService.ninVerificationV2Personal,
 };
 
+const _v3PriceKeyFor = {
+  SlipTier.premium: VerificationService.ninVerificationV3Premium,
+  SlipTier.standard: VerificationService.ninVerificationV3Standard,
+  SlipTier.regular: VerificationService.ninVerificationV3Regular,
+  SlipTier.vnin: VerificationService.ninVerificationV3Vnin,
+  SlipTier.personal: VerificationService.ninVerificationV3Personal,
+};
+
+const _v4PriceKeyFor = {
+  SlipTier.premium: VerificationService.ninVerificationV4Premium,
+  SlipTier.standard: VerificationService.ninVerificationV4Standard,
+  SlipTier.regular: VerificationService.ninVerificationV4Regular,
+  SlipTier.vnin: VerificationService.ninVerificationV4Vnin,
+  SlipTier.personal: VerificationService.ninVerificationV4Personal,
+};
+
 class NinByNinScreen extends ConsumerStatefulWidget {
   const NinByNinScreen({
     super.key,
@@ -60,12 +76,16 @@ class _NinByNinScreenState extends ConsumerState<NinByNinScreen>
         NinVerificationVariant.defaultRoute => _normalPriceKeyFor,
         NinVerificationVariant.v1 => _v1PriceKeyFor,
         NinVerificationVariant.v2 => _v2PriceKeyFor,
+        NinVerificationVariant.v3 => _v3PriceKeyFor,
+        NinVerificationVariant.v4 => _v4PriceKeyFor,
       };
 
   String get _title => switch (widget.variant) {
     NinVerificationVariant.defaultRoute => 'NIN by NIN',
     NinVerificationVariant.v1 => 'NIN Verification V1',
     NinVerificationVariant.v2 => 'NIN Verification V2',
+    NinVerificationVariant.v3 => 'NIN Verification V3',
+    NinVerificationVariant.v4 => 'NIN Verification V4',
   };
 
   @override
@@ -102,6 +122,16 @@ class _NinByNinScreenState extends ConsumerState<NinByNinScreen>
           tier: _tier,
           pin: pin,
         ),
+        NinVerificationVariant.v3 => remote.ninVerificationV3(
+          nin: _ninController.text.trim(),
+          tier: _tier,
+          pin: pin,
+        ),
+        NinVerificationVariant.v4 => remote.ninVerificationV4(
+          nin: _ninController.text.trim(),
+          tier: _tier,
+          pin: pin,
+        ),
       };
     });
   }
@@ -117,6 +147,8 @@ class _NinByNinScreenState extends ConsumerState<NinByNinScreen>
     final family = switch (widget.variant) {
       NinVerificationVariant.v1 => 'NIN_VERIFICATION_V1',
       NinVerificationVariant.v2 => 'NIN_VERIFICATION_V2',
+      NinVerificationVariant.v3 => 'NIN_VERIFICATION_V3',
+      NinVerificationVariant.v4 => 'NIN_VERIFICATION_V4',
       NinVerificationVariant.defaultRoute => null,
     };
     final variantAvailable =

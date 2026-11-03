@@ -48,6 +48,8 @@ abstract class RouteNames {
   static const ninByNin = '/home/services/nin/by-nin';
   static const ninVerificationV1 = '/home/services/nin/verification-v1';
   static const ninVerificationV2 = '/home/services/nin/verification-v2';
+  static const ninVerificationV3 = '/home/services/nin/verification-v3';
+  static const ninVerificationV4 = '/home/services/nin/verification-v4';
   static const ninByPhone = '/home/services/nin/by-phone';
   static const ninByDemographic = '/home/services/nin/by-demographic';
   static const ninDelinking = '/home/services/nin/delinking';

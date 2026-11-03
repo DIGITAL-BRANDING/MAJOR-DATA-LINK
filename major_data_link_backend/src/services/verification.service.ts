@@ -16,6 +16,7 @@ import {
   type TechhubAsyncStatusResult
 } from './techhub.service.js';
 import { franceverifiedSlipAdapter } from './franceverified-slip-adapter.service.js';
+import { abjikTechService } from './abjiktech.service.js';
 import type { IdentitySlipTier } from '../lib/render-identity-slip-pdf.js';
 import { submitNinValidationFV, checkNinValidationFV } from './franceverified-nin-validation-adapter.service.js';
 import { checkIpeClearanceFV, submitIpeClearanceFV } from './franceverified-ipe-adapter.service.js';
@@ -36,7 +37,7 @@ const STALE_VERIFICATION_LOOKUP_MS = 5 * 60_000;
  * franceverified-slip-adapter.service.ts).
  */
 /** `manual` keeps an accepted request in our encrypted queue for an admin. */
-export type VerificationProvider = 'techhub' | 'franceverified' | 'hubbu' | 'manual';
+export type VerificationProvider = 'techhub' | 'abjiktech' | 'franceverified' | 'hubbu' | 'manual';
 
 /**
  * Emits operational timing and the selected service provider: no user ID,
@@ -96,15 +97,10 @@ const SERVICE_KEYS = [
   'IPE_CLEARANCE_TRACKING_IS_BEING_PROCESSED',
   'IPE_CLEARANCE_MODIFICATION_IPE',
   'IPE_CLEARANCE_HIT_BLOCKED',
-  // Two user-facing, single-provider-locked tiles (see purchaseNinVerificationV1/V2
-  // below) - NOT admin-switchable like every other service above. The whole
-  // point is that the END USER picks which upstream API to hit (V1=Techhub,
-  // V2=FranceVerified) when one of them is having network trouble, instead of
-  // an admin having to reconfigure ServicePricing.provider under pressure
-  // during an outage and remembering to flip it back after. V1/V2 use the
-  // same five customer-facing tiers as a normal NIN-by-NIN verification.
-  // Keeping a price row per tier is important: an administrator can set the
-  // exact retail/partner price of every selectable option in either app.
+  // User-facing provider-pinned tiles: V1=Techhub, V2=AbjikTech,
+  // V3=FranceVerified and V4=Hubbu. Each version has independent prices.
+  // These provider-pinned choices let users select among providers during
+  // outages, with an independent retail and partner price per slip tier.
   'NIN_VERIFICATION_V1_PREMIUM',
   'NIN_VERIFICATION_V1_STANDARD',
   'NIN_VERIFICATION_V1_REGULAR',
@@ -114,11 +110,12 @@ const SERVICE_KEYS = [
   'NIN_VERIFICATION_V2_STANDARD',
   'NIN_VERIFICATION_V2_REGULAR',
   'NIN_VERIFICATION_V2_VNIN',
-  // France-only slip looks (Techhub has no equivalent, so no V1 counterpart).
-  'NIN_VERIFICATION_V2_SMART',
-  'NIN_VERIFICATION_V2_PORTRAIT',
+  // FranceVerified-only slip looks.
   'NIN_VERIFICATION_V2_PERSONAL',
-  // Same provider-pinned pattern as NIN_VERIFICATION_V1/V2 above, extended to
+  'NIN_VERIFICATION_V3_PREMIUM', 'NIN_VERIFICATION_V3_STANDARD', 'NIN_VERIFICATION_V3_REGULAR',
+  'NIN_VERIFICATION_V3_VNIN', 'NIN_VERIFICATION_V3_SMART', 'NIN_VERIFICATION_V3_PORTRAIT', 'NIN_VERIFICATION_V3_PERSONAL',
+  'NIN_VERIFICATION_V4_PREMIUM', 'NIN_VERIFICATION_V4_STANDARD', 'NIN_VERIFICATION_V4_REGULAR', 'NIN_VERIFICATION_V4_VNIN', 'NIN_VERIFICATION_V4_PERSONAL',
+  // Same provider-pinned pattern as the NIN verification tiles above, extended to
   // the By-Phone and By-Demographic lookups - a customer can route around a
   // Techhub outage on these too instead of being stuck on the single
   // admin-routed NIN_PHONE_SLIP_*/NIN_DEMOGRAPHIC service, which has no
@@ -133,8 +130,10 @@ const SERVICE_KEYS = [
   'NIN_PHONE_SLIP_V2_STANDARD',
   'NIN_PHONE_SLIP_V2_REGULAR',
   'NIN_PHONE_SLIP_V2_PERSONAL',
+  'NIN_PHONE_SLIP_V3_PREMIUM', 'NIN_PHONE_SLIP_V3_STANDARD', 'NIN_PHONE_SLIP_V3_REGULAR', 'NIN_PHONE_SLIP_V3_PERSONAL',
+  'NIN_PHONE_SLIP_V4_PREMIUM', 'NIN_PHONE_SLIP_V4_STANDARD', 'NIN_PHONE_SLIP_V4_REGULAR', 'NIN_PHONE_SLIP_V4_PERSONAL',
   'NIN_DEMOGRAPHIC_V1',
-  'NIN_DEMOGRAPHIC_V2'
+  'NIN_DEMOGRAPHIC_V2', 'NIN_DEMOGRAPHIC_V3', 'NIN_DEMOGRAPHIC_V4'
 ] as const;
 
 export type VerificationServiceKey = (typeof SERVICE_KEYS)[number];
@@ -218,23 +217,43 @@ const DEFAULTS: Record<VerificationServiceKey, { label: string; price: number; p
   NIN_VERIFICATION_V1_REGULAR: { label: 'NIN Verification V1 (Regular)', price: 120, provider: 'techhub' },
   NIN_VERIFICATION_V1_VNIN: { label: 'NIN Verification V1 (VNIN)', price: 120, provider: 'techhub' },
   NIN_VERIFICATION_V1_PERSONAL: { label: 'NIN Verification V1 (Personal Info)', price: 120, provider: 'techhub' },
-  NIN_VERIFICATION_V2_PREMIUM: { label: 'NIN Verification V2 (Premium)', price: 120, provider: 'franceverified' },
-  NIN_VERIFICATION_V2_STANDARD: { label: 'NIN Verification V2 (Standard)', price: 120, provider: 'franceverified' },
-  NIN_VERIFICATION_V2_REGULAR: { label: 'NIN Verification V2 (Regular)', price: 120, provider: 'franceverified' },
-  NIN_VERIFICATION_V2_VNIN: { label: 'NIN Verification V2 (VNIN)', price: 120, provider: 'franceverified' },
-  NIN_VERIFICATION_V2_SMART: { label: 'NIN Verification V2 (Smart ID Card)', price: 120, provider: 'franceverified' },
-  NIN_VERIFICATION_V2_PORTRAIT: { label: 'NIN Verification V2 (Premium Portrait)', price: 120, provider: 'franceverified' },
-  NIN_VERIFICATION_V2_PERSONAL: { label: 'NIN Verification V2 (Personal Info)', price: 120, provider: 'franceverified' },
+  NIN_VERIFICATION_V2_PREMIUM: { label: 'NIN Verification V2 (Premium)', price: 120, provider: 'abjiktech' },
+  NIN_VERIFICATION_V2_STANDARD: { label: 'NIN Verification V2 (Standard)', price: 120, provider: 'abjiktech' },
+  NIN_VERIFICATION_V2_REGULAR: { label: 'NIN Verification V2 (Regular)', price: 120, provider: 'abjiktech' },
+  NIN_VERIFICATION_V2_VNIN: { label: 'NIN Verification V2 (VNIN)', price: 120, provider: 'abjiktech' },
+  NIN_VERIFICATION_V2_PERSONAL: { label: 'NIN Verification V2 (Personal Info)', price: 120, provider: 'abjiktech' },
+  NIN_VERIFICATION_V3_PREMIUM: { label: 'NIN Verification V3 (Premium)', price: 120, provider: 'franceverified' },
+  NIN_VERIFICATION_V3_STANDARD: { label: 'NIN Verification V3 (Standard)', price: 120, provider: 'franceverified' },
+  NIN_VERIFICATION_V3_REGULAR: { label: 'NIN Verification V3 (Regular)', price: 120, provider: 'franceverified' },
+  NIN_VERIFICATION_V3_VNIN: { label: 'NIN Verification V3 (VNIN)', price: 120, provider: 'franceverified' },
+  NIN_VERIFICATION_V3_SMART: { label: 'NIN Verification V3 (Smart ID Card)', price: 120, provider: 'franceverified' },
+  NIN_VERIFICATION_V3_PORTRAIT: { label: 'NIN Verification V3 (Premium Portrait)', price: 120, provider: 'franceverified' },
+  NIN_VERIFICATION_V3_PERSONAL: { label: 'NIN Verification V3 (Personal Info)', price: 120, provider: 'franceverified' },
+  NIN_VERIFICATION_V4_PREMIUM: { label: 'NIN Verification V4 (Premium)', price: 120, provider: 'hubbu' },
+  NIN_VERIFICATION_V4_STANDARD: { label: 'NIN Verification V4 (Standard)', price: 120, provider: 'hubbu' },
+  NIN_VERIFICATION_V4_REGULAR: { label: 'NIN Verification V4 (Regular)', price: 120, provider: 'hubbu' },
+  NIN_VERIFICATION_V4_VNIN: { label: 'NIN Verification V4 (VNIN)', price: 120, provider: 'hubbu' },
+  NIN_VERIFICATION_V4_PERSONAL: { label: 'NIN Verification V4 (Personal Info)', price: 120, provider: 'hubbu' },
   NIN_PHONE_SLIP_V1_PREMIUM: { label: 'NIN Slip V1 (Premium) — by Phone', price: 130, provider: 'techhub' },
   NIN_PHONE_SLIP_V1_STANDARD: { label: 'NIN Slip V1 (Standard) — by Phone', price: 130, provider: 'techhub' },
   NIN_PHONE_SLIP_V1_REGULAR: { label: 'NIN Slip V1 (Regular) — by Phone', price: 130, provider: 'techhub' },
   NIN_PHONE_SLIP_V1_PERSONAL: { label: 'NIN Personal Information Slip V1 — by Phone', price: 130, provider: 'techhub' },
-  NIN_PHONE_SLIP_V2_PREMIUM: { label: 'NIN Slip V2 (Premium) — by Phone', price: 130, provider: 'franceverified' },
-  NIN_PHONE_SLIP_V2_STANDARD: { label: 'NIN Slip V2 (Standard) — by Phone', price: 130, provider: 'franceverified' },
-  NIN_PHONE_SLIP_V2_REGULAR: { label: 'NIN Slip V2 (Regular) — by Phone', price: 130, provider: 'franceverified' },
-  NIN_PHONE_SLIP_V2_PERSONAL: { label: 'NIN Personal Information Slip V2 — by Phone', price: 130, provider: 'franceverified' },
+  NIN_PHONE_SLIP_V2_PREMIUM: { label: 'NIN Slip V2 (Premium) — by Phone', price: 130, provider: 'abjiktech' },
+  NIN_PHONE_SLIP_V2_STANDARD: { label: 'NIN Slip V2 (Standard) — by Phone', price: 130, provider: 'abjiktech' },
+  NIN_PHONE_SLIP_V2_REGULAR: { label: 'NIN Slip V2 (Regular) — by Phone', price: 130, provider: 'abjiktech' },
+  NIN_PHONE_SLIP_V2_PERSONAL: { label: 'NIN Personal Information Slip V2 — by Phone', price: 130, provider: 'abjiktech' },
+  NIN_PHONE_SLIP_V3_PREMIUM: { label: 'NIN Slip V3 (Premium) — by Phone', price: 130, provider: 'franceverified' },
+  NIN_PHONE_SLIP_V3_STANDARD: { label: 'NIN Slip V3 (Standard) — by Phone', price: 130, provider: 'franceverified' },
+  NIN_PHONE_SLIP_V3_REGULAR: { label: 'NIN Slip V3 (Regular) — by Phone', price: 130, provider: 'franceverified' },
+  NIN_PHONE_SLIP_V3_PERSONAL: { label: 'NIN Personal Information Slip V3 — by Phone', price: 130, provider: 'franceverified' },
+  NIN_PHONE_SLIP_V4_PREMIUM: { label: 'NIN Slip V4 (Premium) — by Phone', price: 130, provider: 'hubbu' },
+  NIN_PHONE_SLIP_V4_STANDARD: { label: 'NIN Slip V4 (Standard) — by Phone', price: 130, provider: 'hubbu' },
+  NIN_PHONE_SLIP_V4_REGULAR: { label: 'NIN Slip V4 (Regular) — by Phone', price: 130, provider: 'hubbu' },
+  NIN_PHONE_SLIP_V4_PERSONAL: { label: 'NIN Personal Information Slip V4 — by Phone', price: 130, provider: 'hubbu' },
   NIN_DEMOGRAPHIC_V1: { label: 'NIN Slip V1 — by Demographic', price: 130, provider: 'techhub' },
-  NIN_DEMOGRAPHIC_V2: { label: 'NIN Slip V2 — by Demographic', price: 130, provider: 'franceverified' }
+  NIN_DEMOGRAPHIC_V2: { label: 'NIN Slip V2 — by Demographic', price: 130, provider: 'abjiktech' },
+  NIN_DEMOGRAPHIC_V3: { label: 'NIN Slip V3 — by Demographic', price: 130, provider: 'franceverified' },
+  NIN_DEMOGRAPHIC_V4: { label: 'NIN Slip V4 — by Demographic', price: 130, provider: 'hubbu' }
 };
 
 // Maps the validation_type string Techhub's API (and our own zod enum in
@@ -761,8 +780,8 @@ const NIN_SLIP_SERVICE_BY_TIER: Record<TechhubSlipTier, VerificationServiceKey> 
 
 type NinSlipChoice = TechhubSlipTier | 'personal';
 type NinPhoneSlipChoice = Exclude<TechhubSlipTier, 'vnin'> | 'personal';
-/** V2 (FranceVerified) has two layouts Techhub doesn't: the smart card and the portrait slip. */
-type NinV2SlipChoice = NinSlipChoice | 'smart' | 'portrait';
+/** FranceVerified supports two layouts Techhub and AbjikTech don't: smart and portrait. */
+type NinV3SlipChoice = NinSlipChoice | 'smart' | 'portrait';
 
 /**
  * FranceVerified returns data only, so we draw the PDF ourselves and the tier
@@ -770,7 +789,7 @@ type NinV2SlipChoice = NinSlipChoice | 'smart' | 'portrait';
  * identity-slip-layouts.ts). 'personal' has its own report renderer, which
  * takes no tier.
  */
-function franceSlipTier(tier: NinV2SlipChoice): IdentitySlipTier | undefined {
+function franceSlipTier(tier: NinV3SlipChoice): IdentitySlipTier | undefined {
   return tier === 'personal' ? undefined : tier;
 }
 
@@ -793,6 +812,14 @@ const NIN_PHONE_SLIP_V2_SERVICE_BY_TIER: Record<NinPhoneSlipChoice, Verification
   regular: 'NIN_PHONE_SLIP_V2_REGULAR',
   personal: 'NIN_PHONE_SLIP_V2_PERSONAL'
 };
+const NIN_PHONE_SLIP_V3_SERVICE_BY_TIER: Record<NinPhoneSlipChoice, VerificationServiceKey> = {
+  premium: 'NIN_PHONE_SLIP_V3_PREMIUM', standard: 'NIN_PHONE_SLIP_V3_STANDARD',
+  regular: 'NIN_PHONE_SLIP_V3_REGULAR', personal: 'NIN_PHONE_SLIP_V3_PERSONAL'
+};
+const NIN_PHONE_SLIP_V4_SERVICE_BY_TIER: Record<NinPhoneSlipChoice, VerificationServiceKey> = {
+  premium: 'NIN_PHONE_SLIP_V4_PREMIUM', standard: 'NIN_PHONE_SLIP_V4_STANDARD',
+  regular: 'NIN_PHONE_SLIP_V4_REGULAR', personal: 'NIN_PHONE_SLIP_V4_PERSONAL'
+};
 
 const BVN_SLIP_SERVICE_BY_TIER: Record<TechhubBvnTier, VerificationServiceKey> = {
   premium: 'BVN_SLIP_PREMIUM',
@@ -808,7 +835,6 @@ export function purchaseNinByNin(params: { userId: string; nin: string; tier: Ni
     operational: { mode: 'by_nin', tier: params.tier },
     pii: { nin: params.nin },
     idempotencyKey: params.idempotencyKey,
-    providerOverride: 'techhub',
     // FranceVerified's /nin/verify/nin has no premium/standard/regular/vnin
     // concept of its own - whichever tier's ServicePricing row is pointed at
     // franceverified calls the same underlying endpoint, and the tier picks
@@ -816,6 +842,7 @@ export function purchaseNinByNin(params: { userId: string; nin: string; tier: Ni
     // each tier differently.
     callByProvider: {
       techhub: () => params.tier === 'personal' ? techhubService.ninPersonalInfoByNin(params.nin) : techhubService.ninByNin(params.nin, params.tier),
+      abjiktech: () => abjikTechService.ninByNin(params.nin, params.tier === 'personal' ? 'regular' : params.tier, params.tier === 'personal'),
       hubbu: () => hubbuService.verifyNin({ method: 'nin', nin: params.nin, slip_type: params.tier === 'personal' ? 'standard' : params.tier }),
       // Same data for every tier; only the rendered layout differs.
       franceverified: () => franceverifiedSlipAdapter.ninByNin(params.nin, franceSlipTier(params.tier), params.tier === 'personal')
@@ -826,15 +853,15 @@ export function purchaseNinByNin(params: { userId: string; nin: string; tier: Ni
     // errors keep their original message and never fan out a second lookup.
     retryNoRecordWith: {
       techhub: () => params.tier === 'personal' ? techhubService.ninPersonalInfoByNin(params.nin) : techhubService.ninByNin(params.nin, params.tier),
+      abjiktech: () => abjikTechService.ninByNin(params.nin, params.tier === 'personal' ? 'regular' : params.tier, params.tier === 'personal'),
       franceverified: () => franceverifiedSlipAdapter.ninByNin(params.nin, franceSlipTier(params.tier), params.tier === 'personal')
     }
   });
 }
 
 /**
- * "NIN Verification V1" - the user-facing tile that is always Techhub, full
- * stop. See the SERVICE_KEYS comment on NIN_VERIFICATION_V1/V2: this and
- * purchaseNinVerificationV2 exist specifically so a customer can route
+ * "NIN Verification V1" - the user-facing tile that is always Techhub. These
+ * provider-pinned versions let customers route around outages by choice.
  * around a provider outage themselves (pick the other tile) instead of
  * waiting on an admin to notice and flip ServicePricing.provider on the
  * shared by-NIN service. Only the 'techhub' branch is implemented on
@@ -850,14 +877,21 @@ const NIN_VERIFICATION_V1_SERVICE_BY_TIER: Record<NinSlipChoice, VerificationSer
   personal: 'NIN_VERIFICATION_V1_PERSONAL'
 };
 
-const NIN_VERIFICATION_V2_SERVICE_BY_TIER: Record<NinV2SlipChoice, VerificationServiceKey> = {
+const NIN_VERIFICATION_V2_SERVICE_BY_TIER: Record<NinSlipChoice, VerificationServiceKey> = {
   premium: 'NIN_VERIFICATION_V2_PREMIUM',
   standard: 'NIN_VERIFICATION_V2_STANDARD',
   regular: 'NIN_VERIFICATION_V2_REGULAR',
   vnin: 'NIN_VERIFICATION_V2_VNIN',
-  smart: 'NIN_VERIFICATION_V2_SMART',
-  portrait: 'NIN_VERIFICATION_V2_PORTRAIT',
   personal: 'NIN_VERIFICATION_V2_PERSONAL'
+};
+const NIN_VERIFICATION_V3_SERVICE_BY_TIER: Record<NinV3SlipChoice, VerificationServiceKey> = {
+  premium: 'NIN_VERIFICATION_V3_PREMIUM', standard: 'NIN_VERIFICATION_V3_STANDARD',
+  regular: 'NIN_VERIFICATION_V3_REGULAR', vnin: 'NIN_VERIFICATION_V3_VNIN',
+  smart: 'NIN_VERIFICATION_V3_SMART', portrait: 'NIN_VERIFICATION_V3_PORTRAIT', personal: 'NIN_VERIFICATION_V3_PERSONAL'
+};
+const NIN_VERIFICATION_V4_SERVICE_BY_TIER: Record<NinSlipChoice, VerificationServiceKey> = {
+  premium: 'NIN_VERIFICATION_V4_PREMIUM', standard: 'NIN_VERIFICATION_V4_STANDARD',
+  regular: 'NIN_VERIFICATION_V4_REGULAR', vnin: 'NIN_VERIFICATION_V4_VNIN', personal: 'NIN_VERIFICATION_V4_PERSONAL'
 };
 
 export function purchaseNinVerificationV1(params: { userId: string; nin: string; tier: NinSlipChoice; idempotencyKey?: string }) {
@@ -879,24 +913,44 @@ export function purchaseNinVerificationV1(params: { userId: string; nin: string;
   });
 }
 
-/** "NIN Verification V2" - the FranceVerified-only counterpart to V1 above. */
-export function purchaseNinVerificationV2(params: { userId: string; nin: string; tier: NinV2SlipChoice; idempotencyKey?: string }) {
+/** V2 uses AbjikTech; FranceVerified moved to V3. */
+export function purchaseNinVerificationV2(params: { userId: string; nin: string; tier: NinSlipChoice; idempotencyKey?: string }) {
   return purchaseSlip({
     userId: params.userId,
     service: NIN_VERIFICATION_V2_SERVICE_BY_TIER[params.tier],
     transactionType: TransactionType.NIN_VERIFICATION,
-    description: `NIN Verification (V2 - FranceVerified, ${params.tier})`,
+    description: `NIN Verification (V2 - AbjikTech, ${params.tier})`,
     operational: { mode: 'by_nin', tier: params.tier },
     pii: { nin: params.nin },
     idempotencyKey: params.idempotencyKey,
-    providerOverride: 'franceverified',
+    providerOverride: 'abjiktech',
     callByProvider: {
-      franceverified: () => franceverifiedSlipAdapter.ninByNin(
-        params.nin,
-        franceSlipTier(params.tier),
-        params.tier === 'personal'
-      )
+      abjiktech: () => abjikTechService.ninByNin(params.nin, params.tier === 'personal' ? 'regular' : params.tier, params.tier === 'personal')
     }
+  });
+}
+
+/** V3 retains FranceVerified tiers, including its smart/portrait layouts. */
+export function purchaseNinVerificationV3(params: { userId: string; nin: string; tier: NinV3SlipChoice; idempotencyKey?: string }) {
+  return purchaseSlip({
+    userId: params.userId, service: NIN_VERIFICATION_V3_SERVICE_BY_TIER[params.tier],
+    transactionType: TransactionType.NIN_VERIFICATION,
+    description: `NIN Verification (V3 - FranceVerified, ${params.tier})`,
+    operational: { mode: 'by_nin', tier: params.tier }, pii: { nin: params.nin }, idempotencyKey: params.idempotencyKey,
+    providerOverride: 'franceverified',
+    callByProvider: { franceverified: () => franceverifiedSlipAdapter.ninByNin(params.nin, franceSlipTier(params.tier), params.tier === 'personal') }
+  });
+}
+
+/** V4 routes synchronous NIN lookups to Hubbu. */
+export function purchaseNinVerificationV4(params: { userId: string; nin: string; tier: NinSlipChoice; idempotencyKey?: string }) {
+  return purchaseSlip({
+    userId: params.userId, service: NIN_VERIFICATION_V4_SERVICE_BY_TIER[params.tier],
+    transactionType: TransactionType.NIN_VERIFICATION,
+    description: `NIN Verification (V4 - Hubbu, ${params.tier})`,
+    operational: { mode: 'by_nin', tier: params.tier }, pii: { nin: params.nin }, idempotencyKey: params.idempotencyKey,
+    providerOverride: 'hubbu',
+    callByProvider: { hubbu: () => hubbuService.verifyNin({ method: 'nin', nin: params.nin, slip_type: params.tier === 'personal' ? 'standard' : params.tier }) }
   });
 }
 
@@ -916,6 +970,7 @@ export function purchaseNinByPhone(params: {
     idempotencyKey: params.idempotencyKey,
     callByProvider: {
       techhub: () => params.tier === 'personal' ? techhubService.ninPersonalInfoByPhone(params.phone) : techhubService.ninByPhone(params.phone, params.tier),
+      abjiktech: () => abjikTechService.ninByPhone(params.phone, params.tier === 'personal' ? 'regular' : params.tier, params.tier === 'personal'),
       hubbu: () => hubbuService.verifyNin({ method: 'phone', phone: params.phone, slip_type: params.tier === 'personal' ? 'standard' : params.tier }),
       franceverified: () => franceverifiedSlipAdapter.ninByPhone(params.phone, franceSlipTier(params.tier), params.tier === 'personal')
     }
@@ -925,8 +980,8 @@ export function purchaseNinByPhone(params: {
 /**
  * "NIN by Phone V1"/"V2" - the same user-picked-provider pattern as
  * NIN_VERIFICATION_V1/V2 above, applied to the by-phone lookup. Lets a
- * customer route a by-phone request straight to FranceVerified (V2) when
- * Techhub's by-phone endpoint (V1) is down, instead of being stuck on
+ * customer route a by-phone request to another provider when Techhub's
+ * by-phone endpoint is down, instead of being stuck on
  * whichever provider the admin last configured for the generic
  * NIN_PHONE_SLIP_* service above.
  */
@@ -939,9 +994,10 @@ export function purchaseNinByPhoneV1(params: { userId: string; phone: string; ti
     operational: { mode: 'by_phone', tier: params.tier },
     pii: { phone: params.phone },
     idempotencyKey: params.idempotencyKey,
+    providerOverride: 'techhub',
     callByProvider: {
-      techhub: () => params.tier === 'personal' ? techhubService.ninPersonalInfoByPhone(params.phone) : techhubService.ninByPhone(params.phone, params.tier)
-      ,hubbu: () => hubbuService.verifyNin({ method: 'phone', phone: params.phone, slip_type: params.tier === 'personal' ? 'standard' : params.tier })
+      techhub: () => params.tier === 'personal' ? techhubService.ninPersonalInfoByPhone(params.phone) : techhubService.ninByPhone(params.phone, params.tier),
+      hubbu: () => hubbuService.verifyNin({ method: 'phone', phone: params.phone, slip_type: params.tier === 'personal' ? 'standard' : params.tier })
     }
   });
 }
@@ -951,13 +1007,32 @@ export function purchaseNinByPhoneV2(params: { userId: string; phone: string; ti
     userId: params.userId,
     service: NIN_PHONE_SLIP_V2_SERVICE_BY_TIER[params.tier],
     transactionType: TransactionType.NIN_VERIFICATION,
-    description: `NIN slip (V2 - FranceVerified, ${params.tier}) by Phone`,
+    description: `NIN slip (V2 - AbjikTech, ${params.tier}) by Phone`,
     operational: { mode: 'by_phone', tier: params.tier },
     pii: { phone: params.phone },
     idempotencyKey: params.idempotencyKey,
+    providerOverride: 'abjiktech',
     callByProvider: {
-      franceverified: () => franceverifiedSlipAdapter.ninByPhone(params.phone, franceSlipTier(params.tier), params.tier === 'personal')
+      abjiktech: () => abjikTechService.ninByPhone(params.phone, params.tier === 'personal' ? 'regular' : params.tier, params.tier === 'personal')
     }
+  });
+}
+
+export function purchaseNinByPhoneV3(params: { userId: string; phone: string; tier: NinPhoneSlipChoice; idempotencyKey?: string }) {
+  return purchaseSlip({
+    userId: params.userId, service: NIN_PHONE_SLIP_V3_SERVICE_BY_TIER[params.tier], transactionType: TransactionType.NIN_VERIFICATION,
+    description: `NIN slip (V3 - FranceVerified, ${params.tier}) by Phone`, operational: { mode: 'by_phone', tier: params.tier },
+    pii: { phone: params.phone }, idempotencyKey: params.idempotencyKey, providerOverride: 'franceverified',
+    callByProvider: { franceverified: () => franceverifiedSlipAdapter.ninByPhone(params.phone, franceSlipTier(params.tier), params.tier === 'personal') }
+  });
+}
+
+export function purchaseNinByPhoneV4(params: { userId: string; phone: string; tier: NinPhoneSlipChoice; idempotencyKey?: string }) {
+  return purchaseSlip({
+    userId: params.userId, service: NIN_PHONE_SLIP_V4_SERVICE_BY_TIER[params.tier], transactionType: TransactionType.NIN_VERIFICATION,
+    description: `NIN slip (V4 - Hubbu, ${params.tier}) by Phone`, operational: { mode: 'by_phone', tier: params.tier },
+    pii: { phone: params.phone }, idempotencyKey: params.idempotencyKey, providerOverride: 'hubbu',
+    callByProvider: { hubbu: () => hubbuService.verifyNin({ method: 'phone', phone: params.phone, slip_type: params.tier === 'personal' ? 'standard' : params.tier }) }
   });
 }
 
@@ -996,8 +1071,9 @@ export function purchaseNinByDemographic(params: {
           lastname: params.lastname,
           dob: params.dob,
           gender: params.gender
-        })
-      ,hubbu: () => hubbuService.verifyNin({ method: 'demo', first_name: params.firstname, last_name: params.lastname, dob: params.dob, gender: params.gender })
+        }),
+      abjiktech: () => abjikTechService.ninByDemographic({ firstname: params.firstname, lastname: params.lastname, dob: params.dob, gender: params.gender }),
+      hubbu: () => hubbuService.verifyNin({ method: 'demo', first_name: params.firstname, last_name: params.lastname, dob: params.dob, gender: params.gender })
     }
   });
 }
@@ -1012,6 +1088,7 @@ export function purchaseNinByDemographicV1(params: { userId: string; firstname: 
     operational: { mode: 'by_demographic' },
     pii: { firstname: params.firstname, lastname: params.lastname, dob: params.dob, gender: params.gender },
     idempotencyKey: params.idempotencyKey,
+    providerOverride: 'techhub',
     callByProvider: {
       techhub: () =>
         techhubService.ninByDemographic({
@@ -1029,19 +1106,34 @@ export function purchaseNinByDemographicV2(params: { userId: string; firstname: 
     userId: params.userId,
     service: 'NIN_DEMOGRAPHIC_V2',
     transactionType: TransactionType.NIN_VERIFICATION,
-    description: 'NIN slip by demographic details (V2 - FranceVerified)',
+    description: 'NIN slip by demographic details (V2 - AbjikTech)',
     operational: { mode: 'by_demographic' },
     pii: { firstname: params.firstname, lastname: params.lastname, dob: params.dob, gender: params.gender },
     idempotencyKey: params.idempotencyKey,
+    providerOverride: 'abjiktech',
     callByProvider: {
-      franceverified: () =>
-        franceverifiedSlipAdapter.ninByDemographic({
-          firstname: params.firstname,
-          lastname: params.lastname,
-          dob: params.dob,
-          gender: params.gender
-        })
+      abjiktech: () => abjikTechService.ninByDemographic({ firstname: params.firstname, lastname: params.lastname, dob: params.dob, gender: params.gender })
     }
+  });
+}
+
+export function purchaseNinByDemographicV3(params: { userId: string; firstname: string; lastname: string; dob: string; gender?: string; idempotencyKey?: string }) {
+  return purchaseSlip({
+    userId: params.userId, service: 'NIN_DEMOGRAPHIC_V3', transactionType: TransactionType.NIN_VERIFICATION,
+    description: 'NIN slip by demographic details (V3 - FranceVerified)', operational: { mode: 'by_demographic' },
+    pii: { firstname: params.firstname, lastname: params.lastname, dob: params.dob, gender: params.gender }, idempotencyKey: params.idempotencyKey,
+    providerOverride: 'franceverified',
+    callByProvider: { franceverified: () => franceverifiedSlipAdapter.ninByDemographic({ firstname: params.firstname, lastname: params.lastname, dob: params.dob, gender: params.gender }) }
+  });
+}
+
+export function purchaseNinByDemographicV4(params: { userId: string; firstname: string; lastname: string; dob: string; gender?: string; idempotencyKey?: string }) {
+  return purchaseSlip({
+    userId: params.userId, service: 'NIN_DEMOGRAPHIC_V4', transactionType: TransactionType.NIN_VERIFICATION,
+    description: 'NIN slip by demographic details (V4 - Hubbu)', operational: { mode: 'by_demographic' },
+    pii: { firstname: params.firstname, lastname: params.lastname, dob: params.dob, gender: params.gender }, idempotencyKey: params.idempotencyKey,
+    providerOverride: 'hubbu',
+    callByProvider: { hubbu: () => hubbuService.verifyNin({ method: 'demo', first_name: params.firstname, last_name: params.lastname, dob: params.dob, gender: params.gender }) }
   });
 }
 
@@ -1056,6 +1148,7 @@ export function purchaseBvnSlip(params: { userId: string; bvn: string; tier: Tec
     idempotencyKey: params.idempotencyKey,
     callByProvider: {
       techhub: () => techhubService.bvnSlip(params.bvn, params.tier),
+      abjiktech: () => abjikTechService.bvnSlip(params.bvn, params.tier),
       hubbu: () => hubbuService.verifyBvn(params.bvn, params.tier),
       franceverified: () => franceverifiedSlipAdapter.bvnSlip(params.bvn, params.tier)
     }

@@ -260,6 +260,18 @@ final routerProvider = Provider<GoRouter>((ref) {
                         ),
                       ),
                       GoRoute(
+                        path: 'verification-v3',
+                        builder: (_, __) => const NinByNinScreen(
+                          variant: NinVerificationVariant.v3,
+                        ),
+                      ),
+                      GoRoute(
+                        path: 'verification-v4',
+                        builder: (_, __) => const NinByNinScreen(
+                          variant: NinVerificationVariant.v4,
+                        ),
+                      ),
+                      GoRoute(
                         path: 'by-phone',
                         builder: (_, __) => const NinByPhoneScreen(),
                       ),
