@@ -40,8 +40,8 @@ type Item = Leaf & {
    * When set, this tile isn't itself submittable - opening it shows a
    * method picker (By NIN / By Phone / By Demographic) first, and the
    * chosen entry becomes the active `leaf` for pricing/submission. Used by
-   * "NIN Verification V1"/"V2" so a customer picks ONE tile per provider
-   * (Techhub vs FranceVerified) and chooses the lookup method inside it,
+   * "NIN Verification V1" through "V4" so a customer picks ONE tile per
+   * provider and chooses the lookup method inside it,
    * instead of six separate tiles cluttering the grid. This Item's own
    * `path`/`fields` are unused placeholders in that case.
    */
@@ -79,6 +79,22 @@ const nin: Item[] = [
       { id: 'v2-by-nin', label: 'By NIN', path: '/verification/nin/verification-v2', fields: ['nin'], icon: IdCard, tiers: ['premium', 'standard', 'regular', 'vnin', 'smart', 'portrait', 'personal'] },
       { id: 'v2-by-phone', label: 'By Phone', path: '/verification/nin/by-phone-v2', fields: ['phone'], icon: Phone, tiers: ['premium', 'standard', 'regular', 'personal'] },
       { id: 'v2-by-demographic', label: 'By Demographic', path: '/verification/nin/by-demographic-v2', fields: ['firstname', 'lastname', 'dob', 'gender'], icon: UserRoundCheck },
+    ],
+  },
+  {
+    id: 'verification-v3', label: 'NIN Verification V3', path: '', fields: [], icon: SearchCheck,
+    methods: [
+      { id: 'v3-by-nin', label: 'By NIN', path: '/verification/nin/verification-v3', fields: ['nin'], icon: IdCard, tiers: ['premium', 'standard', 'regular', 'vnin', 'smart', 'portrait', 'personal'] },
+      { id: 'v3-by-phone', label: 'By Phone', path: '/verification/nin/by-phone-v3', fields: ['phone'], icon: Phone, tiers: ['premium', 'standard', 'regular', 'personal'] },
+      { id: 'v3-by-demographic', label: 'By Demographic', path: '/verification/nin/by-demographic-v3', fields: ['firstname', 'lastname', 'dob', 'gender'], icon: UserRoundCheck },
+    ],
+  },
+  {
+    id: 'verification-v4', label: 'NIN Verification V4', path: '', fields: [], icon: SearchCheck,
+    methods: [
+      { id: 'v4-by-nin', label: 'By NIN', path: '/verification/nin/verification-v4', fields: ['nin'], icon: IdCard, tiers: ['premium', 'standard', 'regular', 'vnin', 'personal'] },
+      { id: 'v4-by-phone', label: 'By Phone', path: '/verification/nin/by-phone-v4', fields: ['phone'], icon: Phone, tiers: ['premium', 'standard', 'regular', 'personal'] },
+      { id: 'v4-by-demographic', label: 'By Demographic', path: '/verification/nin/by-demographic-v4', fields: ['firstname', 'lastname', 'dob', 'gender'], icon: UserRoundCheck },
     ],
   },
   { id: 'by-phone', label: 'NIN by Phone', path: '/verification/nin/by-phone', fields: ['phone'], icon: Phone, tiers: ['premium', 'standard', 'regular', 'personal'] },
@@ -150,14 +166,20 @@ function keyFor(item: { id: string }, tier = 'premium') {
   if (item.id === 'by-phone') return tier === 'personal' ? 'NIN_PHONE_PERSONAL_INFO_SLIP' : `NIN_PHONE_SLIP_${name}`;
   if (item.id === 'v1-by-nin') return `NIN_VERIFICATION_V1_${tier === 'personal' ? 'PERSONAL' : name}`;
   if (item.id === 'v2-by-nin') return `NIN_VERIFICATION_V2_${tier === 'personal' ? 'PERSONAL' : name}`;
+  if (item.id === 'v3-by-nin') return `NIN_VERIFICATION_V3_${tier === 'personal' ? 'PERSONAL' : name}`;
+  if (item.id === 'v4-by-nin') return `NIN_VERIFICATION_V4_${tier === 'personal' ? 'PERSONAL' : name}`;
   if (item.id === 'v1-by-phone') return `NIN_PHONE_SLIP_V1_${tier === 'personal' ? 'PERSONAL' : name}`;
   if (item.id === 'v2-by-phone') return `NIN_PHONE_SLIP_V2_${tier === 'personal' ? 'PERSONAL' : name}`;
+  if (item.id === 'v3-by-phone') return `NIN_PHONE_SLIP_V3_${tier === 'personal' ? 'PERSONAL' : name}`;
+  if (item.id === 'v4-by-phone') return `NIN_PHONE_SLIP_V4_${tier === 'personal' ? 'PERSONAL' : name}`;
   if (item.id === 'slip') return `BVN_SLIP_${name}`;
   return (
     {
       demographic: 'NIN_DEMOGRAPHIC',
       'v1-by-demographic': 'NIN_DEMOGRAPHIC_V1',
       'v2-by-demographic': 'NIN_DEMOGRAPHIC_V2',
+      'v3-by-demographic': 'NIN_DEMOGRAPHIC_V3',
+      'v4-by-demographic': 'NIN_DEMOGRAPHIC_V4',
       // 'validation' has no single key any more - each of the 8
       // validation_type choices is its own priced service (see
       // VALIDATION_TYPES above). Resolved separately in selectedPrice below.
@@ -183,7 +205,7 @@ const NIN_SLIP_IMAGES: Record<string, string> = {
   personal: '/branding/information slip.jpg',
 };
 
-// NIN Verification V2 (FranceVerified) slips are drawn by us, so their tiles
+// NIN Verification V3 (FranceVerified) slips are drawn by us, so their tiles
 // preview those K-TECH layouts (specimen data) instead of the Techhub slips
 // shown for V1. Generated from the real renderer - see web/public/branding/v2-*.jpg.
 const NIN_SLIP_IMAGES_V2: Record<string, string> = {
@@ -279,7 +301,7 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
       });
   }, []);
 
-  // A methods-bearing tile (V1/V2) is greyed out on the grid only if an
+  // A methods-bearing tile (V1-V4) is greyed out on the grid only if an
   // admin has disabled EVERY one of its underlying services (all 3 lookup
   // methods, every tier) - any one still active keeps the tile usable, since
   // the method picker inside it will simply only offer the working ones.
@@ -293,6 +315,16 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
       'NIN_VERIFICATION_V2_PREMIUM', 'NIN_VERIFICATION_V2_STANDARD', 'NIN_VERIFICATION_V2_REGULAR', 'NIN_VERIFICATION_V2_VNIN', 'NIN_VERIFICATION_V2_SMART', 'NIN_VERIFICATION_V2_PORTRAIT', 'NIN_VERIFICATION_V2_PERSONAL',
       'NIN_PHONE_SLIP_V2_PREMIUM', 'NIN_PHONE_SLIP_V2_STANDARD', 'NIN_PHONE_SLIP_V2_REGULAR', 'NIN_PHONE_SLIP_V2_PERSONAL',
       'NIN_DEMOGRAPHIC_V2',
+    ],
+    'verification-v3': [
+      'NIN_VERIFICATION_V3_PREMIUM', 'NIN_VERIFICATION_V3_STANDARD', 'NIN_VERIFICATION_V3_REGULAR', 'NIN_VERIFICATION_V3_VNIN', 'NIN_VERIFICATION_V3_SMART', 'NIN_VERIFICATION_V3_PORTRAIT', 'NIN_VERIFICATION_V3_PERSONAL',
+      'NIN_PHONE_SLIP_V3_PREMIUM', 'NIN_PHONE_SLIP_V3_STANDARD', 'NIN_PHONE_SLIP_V3_REGULAR', 'NIN_PHONE_SLIP_V3_PERSONAL',
+      'NIN_DEMOGRAPHIC_V3',
+    ],
+    'verification-v4': [
+      'NIN_VERIFICATION_V4_PREMIUM', 'NIN_VERIFICATION_V4_STANDARD', 'NIN_VERIFICATION_V4_REGULAR', 'NIN_VERIFICATION_V4_VNIN', 'NIN_VERIFICATION_V4_PERSONAL',
+      'NIN_PHONE_SLIP_V4_PREMIUM', 'NIN_PHONE_SLIP_V4_STANDARD', 'NIN_PHONE_SLIP_V4_REGULAR', 'NIN_PHONE_SLIP_V4_PERSONAL',
+      'NIN_DEMOGRAPHIC_V4',
     ],
   };
   function isItemAvailable(item: Item) {
@@ -814,7 +846,7 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
                   <div className="sm:col-span-2 font-body text-sm font-medium text-ink-600">
                     <span>Slip type</span>
                     <div className={`mt-2 grid grid-cols-2 gap-3 sm:grid-cols-3 ${leaf.tiers.length > 5 ? 'lg:grid-cols-4' : 'lg:grid-cols-5'}`}>
-                      {leaf.tiers.map((option) => <button key={option} type="button" onClick={() => setTier(option)} className={`rounded-xl border p-3 text-center transition hover:-translate-y-0.5 ${tier === option ? 'border-[#8b6914] bg-[#6b4f0b] text-white shadow-md' : 'border-parchment-line bg-cream text-ink hover:border-gold-500'}`}><img src={(leaf.id === 'v2-by-nin' ? NIN_SLIP_IMAGES_V2 : NIN_SLIP_IMAGES)[option]} alt={`${tierLabel(option)} preview`} className="mx-auto h-14 w-full rounded-lg bg-white object-contain p-1"/><span className="mt-2 block font-semibold">{tierLabel(option)}</span><span className={`mt-1 block text-xs font-bold ${tier === option ? 'text-[#ffe9a3]' : 'text-gold-700'}`}>{money(prices[keyFor(leaf, option)])}</span></button>)}
+                  {leaf.tiers.map((option) => <button key={option} type="button" onClick={() => setTier(option)} className={`rounded-xl border p-3 text-center transition hover:-translate-y-0.5 ${tier === option ? 'border-[#8b6914] bg-[#6b4f0b] text-white shadow-md' : 'border-parchment-line bg-cream text-ink hover:border-gold-500'}`}><img src={(leaf.id === 'v3-by-nin' ? NIN_SLIP_IMAGES_V2 : NIN_SLIP_IMAGES)[option]} alt={`${tierLabel(option)} preview`} className="mx-auto h-14 w-full rounded-lg bg-white object-contain p-1"/><span className="mt-2 block font-semibold">{tierLabel(option)}</span><span className={`mt-1 block text-xs font-bold ${tier === option ? 'text-[#ffe9a3]' : 'text-gold-700'}`}>{money(prices[keyFor(leaf, option)])}</span></button>)}
                     </div>
                   </div>
                 )}
@@ -861,7 +893,7 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
                     )}
                   </label>
                 ))}
-                {leaf.tiers && <div className="sm:col-span-2 font-body text-sm font-medium text-ink-600"><span>Slip type</span><div className={`mt-2 grid grid-cols-2 gap-3 sm:grid-cols-3 ${leaf.tiers.length > 5 ? 'lg:grid-cols-4' : 'lg:grid-cols-5'}`}>{leaf.tiers.map((option) => <button key={option} type="button" onClick={() => setTier(option)} className={`rounded-xl border p-3 text-center transition hover:-translate-y-0.5 ${tier === option ? 'border-[#8b6914] bg-[#6b4f0b] text-white shadow-md' : 'border-parchment-line bg-cream text-ink hover:border-gold-500'}`}><img src={(leaf.id === 'v2-by-nin' ? NIN_SLIP_IMAGES_V2 : NIN_SLIP_IMAGES)[option]} alt={`${tierLabel(option)} preview`} className="mx-auto h-14 w-full rounded-lg bg-white object-contain p-1"/><span className="mt-2 block font-semibold">{tierLabel(option)}</span><span className="mt-1 block text-xs font-bold">{money(prices[keyFor(leaf, option)])}</span></button>)}</div></div>}
+                {leaf.tiers && <div className="sm:col-span-2 font-body text-sm font-medium text-ink-600"><span>Slip type</span><div className={`mt-2 grid grid-cols-2 gap-3 sm:grid-cols-3 ${leaf.tiers.length > 5 ? 'lg:grid-cols-4' : 'lg:grid-cols-5'}`}>{leaf.tiers.map((option) => <button key={option} type="button" onClick={() => setTier(option)} className={`rounded-xl border p-3 text-center transition hover:-translate-y-0.5 ${tier === option ? 'border-[#8b6914] bg-[#6b4f0b] text-white shadow-md' : 'border-parchment-line bg-cream text-ink hover:border-gold-500'}`}><img src={(leaf.id === 'v3-by-nin' ? NIN_SLIP_IMAGES_V2 : NIN_SLIP_IMAGES)[option]} alt={`${tierLabel(option)} preview`} className="mx-auto h-14 w-full rounded-lg bg-white object-contain p-1"/><span className="mt-2 block font-semibold">{tierLabel(option)}</span><span className="mt-1 block text-xs font-bold">{money(prices[keyFor(leaf, option)])}</span></button>)}</div></div>}
                 {leaf.id === 'license-onboarding' && <label className="sm:col-span-2 flex items-start gap-3 rounded-xl border border-parchment-line bg-cream p-4 font-body text-sm text-ink-600"><input required type="checkbox" checked={licenseConsent} onChange={(e) => setLicenseConsent(e.target.checked)} className="mt-0.5 h-4 w-4 accent-[#b8941f]"/><span>I confirm that the information is accurate and I authorize K-Tech Solutions to submit this BVN Licence onboarding request on my behalf.</span></label>}
                 <div className="sm:col-span-2"><button disabled={busy} className="flex w-full items-center justify-center gap-2 rounded-xl bg-gold-500 py-3 font-display font-semibold text-ink disabled:opacity-60">{busy ? <><Loader2 size={16} className="animate-spin" /> Verifying your request…</> : 'Continue to PIN confirmation'}</button>{busy && <p role="status" className="mt-3 text-center font-body text-sm text-ink-600">This may take a few seconds. Please do not close this page.</p>}{message && <p className="mt-3 rounded-lg bg-cream p-3 font-body text-sm text-ink-600">{message}</p>}</div>
               </form>
