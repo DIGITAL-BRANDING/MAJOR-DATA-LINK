@@ -100,31 +100,59 @@ export async function completePartnerPurchase(
   fulfillment?: Record<string, unknown>,
   statusMetadata?: Record<string, unknown>
 ) {
-  const completion = await prisma.$transaction(async (tx) => {
-    const current = await tx.partnerTransaction.findUniqueOrThrow({ where: { id: transactionId } });
-    if (current.status === TransactionStatus.SUCCESS) return { transaction: current, changed: false };
-    if (current.status !== TransactionStatus.PENDING) {
-      throw new ApiError(409, 'This transaction has already been reversed and cannot be completed.', 'TRANSACTION_ALREADY_FINALIZED');
-    }
-    const existingMetadata = (current.metadata as Record<string, unknown> | null) ?? {};
-    const claim = await tx.partnerTransaction.updateMany({
-      where: { id: transactionId, status: TransactionStatus.PENDING },
-      data: {
-        status: TransactionStatus.SUCCESS,
-        provider,
-        providerRef: providerRef ?? null,
-        metadata: { ...existingMetadata, ...(statusMetadata ?? {}), ...(fulfillment ? { fulfillment } : {}), delivery_state: 'queued' } as Prisma.InputJsonValue,
-        ...(costKobo !== undefined ? { costKobo } : {})
+  // The provider has already completed this lookup. Persist that fact with one
+  // conditional UPDATE instead of opening an interactive transaction, which
+  // can fail to start under pool pressure and leave a paid request PENDING.
+  let transaction: Awaited<ReturnType<typeof prisma.partnerTransaction.findUniqueOrThrow>> | undefined;
+  let changed = false;
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const current = await prisma.partnerTransaction.findUniqueOrThrow({ where: { id: transactionId } });
+      if (current.status === TransactionStatus.SUCCESS) {
+        transaction = current;
+        break;
       }
-    });
-    if (claim.count === 0) {
-      const latest = await tx.partnerTransaction.findUniqueOrThrow({ where: { id: transactionId } });
-      if (latest.status === TransactionStatus.SUCCESS) return { transaction: latest, changed: false };
-      throw new ApiError(409, 'This transaction has already been reversed and cannot be completed.', 'TRANSACTION_ALREADY_FINALIZED');
+      if (current.status !== TransactionStatus.PENDING) {
+        throw new ApiError(409, 'This transaction has already been reversed and cannot be completed.', 'TRANSACTION_ALREADY_FINALIZED');
+      }
+      const existingMetadata = (current.metadata as Record<string, unknown> | null) ?? {};
+      const claim = await prisma.partnerTransaction.updateMany({
+        where: { id: transactionId, status: TransactionStatus.PENDING },
+        data: {
+          status: TransactionStatus.SUCCESS,
+          provider,
+          providerRef: providerRef ?? null,
+          metadata: { ...existingMetadata, ...(statusMetadata ?? {}), ...(fulfillment ? { fulfillment } : {}), delivery_state: 'queued' } as Prisma.InputJsonValue,
+          ...(costKobo !== undefined ? { costKobo } : {})
+        }
+      });
+      if (claim.count > 0) {
+        transaction = await prisma.partnerTransaction.findUniqueOrThrow({ where: { id: transactionId } });
+        changed = true;
+        break;
+      }
+      // A competing completion/reversal won the status transition. Read its
+      // committed state before deciding whether this caller can return.
+      const latest = await prisma.partnerTransaction.findUniqueOrThrow({ where: { id: transactionId } });
+      if (latest.status === TransactionStatus.SUCCESS) {
+        transaction = latest;
+        break;
+      }
+      if (latest.status !== TransactionStatus.PENDING) {
+        throw new ApiError(409, 'This transaction has already been reversed and cannot be completed.', 'TRANSACTION_ALREADY_FINALIZED');
+      }
+    } catch (error) {
+      if (error instanceof ApiError) throw error;
+      lastError = error;
+      if (attempt === 2) throw error;
     }
-    return { transaction: await tx.partnerTransaction.findUniqueOrThrow({ where: { id: transactionId } }), changed: true };
-  });
-  const { transaction, changed } = completion;
+    await new Promise((resolve) => setTimeout(resolve, 150 * (attempt + 1)));
+  }
+  if (!transaction) {
+    if (lastError) throw lastError;
+    throw new ApiError(503, 'Could not persist the completed provider response. Please retry using the same idempotency key.', 'VERIFICATION_RESULT_SAVE_FAILED');
+  }
   if (!changed) return transaction;
   // Persist the financial result before queueing its notification. A webhook
   // outbox error must not roll back a completed partner request and leave it

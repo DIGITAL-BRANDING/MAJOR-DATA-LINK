@@ -25,17 +25,17 @@ const franceVerifiedChecksInFlight = new Set<string>();
 const VERIFICATION_REPLAY_GRACE_MS = 120_000;
 const STALE_VERIFICATION_LOOKUP_MS = 5 * 60_000;
 
-async function callPartnerSlipProvider<T>(service: string, provider: VerificationProvider, call: () => Promise<T>): Promise<T> {
+async function callPartnerSlipProvider<T>(service: string, provider: VerificationProvider, reference: string, call: () => Promise<T>): Promise<T> {
   const startedAt = Date.now();
   try {
     const result = await call();
     const outcome = typeof result === 'object' && result !== null && 'ok' in result
       ? ((result as { ok?: unknown }).ok === true ? 'success' : 'failed')
       : 'completed';
-    console.info('[partner-verification] provider timing', JSON.stringify({ service, provider, duration_ms: Date.now() - startedAt, outcome }));
+    console.info('[partner-verification] provider timing', JSON.stringify({ service, provider, reference, duration_ms: Date.now() - startedAt, outcome }));
     return result;
   } catch (error) {
-    console.warn('[partner-verification] provider timing', JSON.stringify({ service, provider, duration_ms: Date.now() - startedAt, outcome: 'error' }));
+    console.warn('[partner-verification] provider timing', JSON.stringify({ service, provider, reference, duration_ms: Date.now() - startedAt, outcome: 'error' }));
     throw error;
   }
 }
@@ -302,11 +302,11 @@ export async function purchasePartnerSlip(params: {
   let provider: Awaited<ReturnType<typeof call>>;
   let actualProvider = primaryProvider;
   const fallbackCall = params.fallbackProvider ? params.callByProvider[params.fallbackProvider] : undefined;
-  try { provider = await callPartnerSlipProvider(params.service, primaryProvider, call); }
+  try { provider = await callPartnerSlipProvider(params.service, primaryProvider, debit.transaction.reference, call); }
   catch (error) {
     if (fallbackCall && fallbackPrice && params.fallbackProvider) {
       try {
-        provider = await callPartnerSlipProvider(params.service, params.fallbackProvider, fallbackCall);
+        provider = await callPartnerSlipProvider(params.service, params.fallbackProvider, debit.transaction.reference, fallbackCall);
         actualProvider = params.fallbackProvider;
       } catch (fallbackError) {
         const message = fallbackError instanceof Error ? fallbackError.message : 'The fallback provider could not complete the NIN lookup.';
@@ -323,7 +323,7 @@ export async function purchasePartnerSlip(params: {
   // unconfirmed response should still get the configured fallback attempt.
   if (!provider.ok && fallbackCall && fallbackPrice && params.fallbackProvider && actualProvider === primaryProvider) {
     try {
-      provider = await callPartnerSlipProvider(params.service, params.fallbackProvider, fallbackCall);
+      provider = await callPartnerSlipProvider(params.service, params.fallbackProvider, debit.transaction.reference, fallbackCall);
       actualProvider = params.fallbackProvider;
     } catch (fallbackError) {
       const message = fallbackError instanceof Error ? fallbackError.message : 'The fallback provider could not complete the NIN lookup.';
@@ -351,6 +351,7 @@ export async function purchasePartnerSlip(params: {
     undefined,
     completionMetadata
   );
+  console.info('[partner-verification] synchronous lookup saved', JSON.stringify({ reference: transaction.reference, provider: actualProvider, status: transaction.status.toLowerCase() }));
   return { status: true, message: provider.message, reference: transaction.reference, balanceAfter: koboToNaira(transaction.balanceAfterKobo), userData: provider.userData, pdfBase64: provider.pdfBase64, pdfUrl: provider.pdfUrl };
 }
 

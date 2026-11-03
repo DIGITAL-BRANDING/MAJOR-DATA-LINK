@@ -630,25 +630,51 @@ async function purchaseSlip(params: {
     // If notification queueing fails, rolling this update back leaves the
     // wallet debited and the provider successful while the user only sees
     // "Contact support" on a PENDING transaction.
-    await prisma.transaction.update({
-      where: { id: debit.transaction.id },
-      data: {
-        status: TransactionStatus.SUCCESS,
-        provider: actualProvider,
-        metadata: {
-          service: params.service,
-          ...params.operational,
-          unit_price: price.unitPrice,
-          pii: mergeSealedPII(existingMetadata?.pii, {
-            ...params.pii,
-            user_data: result.userData,
-            pdf_base64: result.pdfBase64,
-            pdf_url: result.pdfUrl,
-            provider_raw_response: result.raw
-          })
-        } as Prisma.InputJsonValue
+    const completedMetadata = {
+      service: params.service,
+      ...params.operational,
+      unit_price: price.unitPrice,
+      pii: mergeSealedPII(existingMetadata?.pii, {
+        ...params.pii,
+        user_data: result.userData,
+        pdf_base64: result.pdfBase64,
+        pdf_url: result.pdfUrl,
+        provider_raw_response: result.raw
+      })
+    } as Prisma.InputJsonValue;
+    let resultSaved = false;
+    let saveError: unknown;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        const claim = await prisma.transaction.updateMany({
+          where: { id: debit.transaction.id, status: TransactionStatus.PENDING },
+          data: {
+            status: TransactionStatus.SUCCESS,
+            provider: actualProvider,
+            metadata: completedMetadata
+          }
+        });
+        if (claim.count > 0) {
+          resultSaved = true;
+          break;
+        }
+        const latest = await prisma.transaction.findUniqueOrThrow({ where: { id: debit.transaction.id } });
+        if (latest.status === TransactionStatus.SUCCESS) {
+          resultSaved = true;
+          break;
+        }
+        throw new ApiError(409, 'This verification request was already finalized before its provider result could be saved.', 'TRANSACTION_ALREADY_FINALIZED');
+      } catch (error) {
+        if (error instanceof ApiError) throw error;
+        saveError = error;
+        if (attempt === 2) throw error;
       }
-    });
+      await new Promise((resolve) => setTimeout(resolve, 150 * (attempt + 1)));
+    }
+    if (!resultSaved) {
+      if (saveError) throw saveError;
+      throw new ApiError(503, 'Could not persist the completed provider response. Please retry using the same idempotency key.', 'VERIFICATION_RESULT_SAVE_FAILED');
+    }
 
     void prisma.$transaction(async (tx) => {
       const notification = await tx.notification.create({ data: { id: nanoid(), userId: params.userId, type: 'TRANSACTION', title: 'Request completed', body: `${params.description} has been completed successfully.`, data: { transactionId: debit.transaction.id, reference: debit.reference }, dedupeKey: `verification:${debit.transaction.id}:success` } });
