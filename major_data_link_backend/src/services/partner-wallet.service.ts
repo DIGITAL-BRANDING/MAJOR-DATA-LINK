@@ -107,7 +107,7 @@ export async function completePartnerPurchase(
   let transaction: Awaited<ReturnType<typeof prisma.partnerTransaction.findUniqueOrThrow>> | undefined;
   let changed = false;
   let lastError: unknown;
-  const completableStatuses = allowProcessing
+  const completableStatuses: TransactionStatus[] = allowProcessing
     ? [TransactionStatus.PENDING, TransactionStatus.PROCESSING]
     : [TransactionStatus.PENDING];
   for (let attempt = 0; attempt < 3; attempt += 1) {
