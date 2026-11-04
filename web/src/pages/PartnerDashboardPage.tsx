@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import PromoIllustrationBadge, { isPromoIllustrationKey } from '../components/PromoIllustration';
+import NotificationMessage from '../components/NotificationMessage';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Trans, useTranslation } from 'react-i18next';
 import LanguageSwitcher from '../components/LanguageSwitcher';
@@ -379,20 +380,22 @@ function PartnerNotificationPopup() {
   // Same design as the app's PromoPopupDialog (see components/NotificationPopup.tsx).
   const illustration = isPromoIllustrationKey(notice.image_key) ? notice.image_key : null;
   return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-[#1C1C1E]/60 p-7" role="dialog" aria-modal="true" aria-labelledby="partner-notification-title">
-      <div className="w-full max-w-md rounded-2xl bg-white px-6 pb-6 pt-8 text-center shadow-2xl">
-        {illustration && (
-          <>
-            <PromoIllustrationBadge illustration={illustration} />
-            <div className="h-5" />
-          </>
-        )}
-        <h2 id="partner-notification-title" className="text-[19px] font-extrabold leading-tight text-[#1C1C1E]">{notice.title}</h2>
-        <p className="mt-2.5 whitespace-pre-wrap text-sm leading-6 text-[#636366]">{notice.body}</p>
-        <button type="button" onClick={close} className="mt-6 w-full rounded-xl bg-[#D4AF37] py-3 text-sm font-bold text-white shadow-sm hover:brightness-95 focus:outline-none focus:ring-2 focus:ring-[#F7C948]">
-          Okay
-        </button>
-      </div>
+    <div className="pointer-events-none fixed inset-x-0 top-0 z-[80] flex justify-center p-3 sm:justify-end sm:p-5" role="presentation">
+      <section className="pointer-events-auto flex max-h-[min(82dvh,46rem)] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl" role="dialog" aria-modal="false" aria-labelledby="partner-notification-title">
+        <header className="flex shrink-0 items-start gap-4 border-b border-slate-100 px-5 py-4 sm:px-6">
+          {illustration && <div className="shrink-0"><PromoIllustrationBadge illustration={illustration} /></div>}
+          <h2 id="partner-notification-title" className="min-w-0 flex-1 pt-1 text-left text-lg font-extrabold leading-6 text-slate-900">{notice.title}</h2>
+          <button type="button" onClick={close} aria-label="Close notification" className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-400">
+            <X size={18} />
+          </button>
+        </header>
+        <div className="overflow-y-auto px-5 py-4 sm:px-6"><NotificationMessage body={notice.body} /></div>
+        <footer className="shrink-0 border-t border-slate-100 px-5 py-3 sm:px-6">
+          <button type="button" onClick={close} className="w-full rounded-xl bg-[#D4AF37] py-3 text-sm font-bold text-white shadow-sm hover:brightness-95 focus:outline-none focus:ring-2 focus:ring-[#F7C948] sm:w-auto sm:min-w-32">
+            Okay
+          </button>
+        </footer>
+      </section>
     </div>
   );
 }

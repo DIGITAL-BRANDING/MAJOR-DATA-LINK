@@ -45,7 +45,7 @@ export const partnerNotificationBroadcastResource: ResourceWithOptions = {
     filterProperties: ['audience', 'showAsPopup', 'createdByAdmin', 'createdAt'],
     properties: {
       title: { description: 'Shown as the notification title in the partner portal, e.g. "New API capability".' },
-      body: { description: 'The message body partners will see in the portal’s notification bell/popup.' },
+      body: { description: 'Message shown in the partner portal. Use blank lines for paragraphs, **text** for bold, and lines starting with - for bullet points. Keep it concise; long announcements scroll inside a non-blocking panel.' },
       audience: {
         availableValues: [
           { value: 'ALL_PARTNERS', label: 'All partners' },
@@ -65,7 +65,7 @@ export const partnerNotificationBroadcastResource: ResourceWithOptions = {
       },
       showAsPopup: {
         description:
-          'ON: shows as a full-screen dialog the next time each partner opens the portal (in addition to the notification list). OFF: appears in the notification list only.'
+          'ON: shows as a dismissible, scrollable announcement panel the next time each partner opens the portal (in addition to the notification list). OFF: appears in the notification list only.'
       },
       recipientCount: { isDisabled: true },
       createdByAdmin: { isVisible: { list: true, filter: true, show: true, edit: false } }
