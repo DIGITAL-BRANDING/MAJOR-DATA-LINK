@@ -75,8 +75,9 @@ function payloadFor(tx: PartnerTransaction, eventId: string) {
       : ticketId && service === 'NIN_PERSONALIZATION'
         ? `/verification/nin/personalization/${encodeURIComponent(ticketId)}`
         : `/identity/requests/${encodeURIComponent(tx.reference)}`;
-  const completion = (hasAttachment || typeof pii.admin_note === 'string' || hasResult) ? {
+  const completion = (hasAttachment || typeof pii.admin_note === 'string' || hasResult || tx.provider === 'manual') ? {
     note: typeof pii.admin_note === 'string' ? pii.admin_note : null,
+    service: service || null,
     attachment: hasAttachment ? {
       available: true,
       file_name: typeof pii.delivered_file_name === 'string' ? pii.delivered_file_name : 'document',
@@ -97,6 +98,7 @@ function payloadFor(tx: PartnerTransaction, eventId: string) {
       ...(typeof metadata?.client_reference === 'string' ? { client_reference: metadata.client_reference } : {}),
       // Allows a consuming app to settle the matching pending provider ticket.
       ...(ticketId ? { ticket_id: ticketId } : {}),
+      ...(service ? { service } : {}),
       status: tx.status.toLowerCase(),
       type: tx.type.toLowerCase(),
       amount: koboToNaira(tx.amountKobo),
