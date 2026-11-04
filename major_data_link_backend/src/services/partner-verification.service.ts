@@ -349,12 +349,12 @@ export async function purchasePartnerSlip(params: {
       } catch (fallbackError) {
         const message = fallbackError instanceof Error ? fallbackError.message : 'The fallback provider could not complete the NIN lookup.';
         await leavePartnerSlipForReconciliation(debit.transaction.id, fallbackProvider, message);
-        return { status: 'pending', message: 'We could not confirm the provider result. Your request is being checked; please do not submit it again.', reference: debit.reference, balanceAfter: debit.balanceAfter };
+        return { status: 'pending', message: 'We could not confirm the provider result. Your request is being checked; please do not submit it again.', reference: debit.transaction.reference, balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo) };
       }
     } else {
       const message = error instanceof Error ? error.message : 'The verification provider could not complete this lookup. Your payment has been refunded.';
       await leavePartnerSlipForReconciliation(debit.transaction.id, primaryProvider, message);
-      return { status: 'pending', message: 'We could not confirm the provider result. Your request is being checked; please do not submit it again.', reference: debit.reference, balanceAfter: debit.balanceAfter };
+      return { status: 'pending', message: 'We could not confirm the provider result. Your request is being checked; please do not submit it again.', reference: debit.transaction.reference, balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo) };
     }
   }
   // NIN/BVN lookups are synchronous and read-only. A Techhub timeout or an
@@ -366,14 +366,14 @@ export async function purchasePartnerSlip(params: {
     } catch (fallbackError) {
       const message = fallbackError instanceof Error ? fallbackError.message : 'The fallback provider could not complete the NIN lookup.';
       await leavePartnerSlipForReconciliation(debit.transaction.id, fallbackProvider, message);
-      return { status: 'pending', message: 'We could not confirm the provider result. Your request is being checked; please do not submit it again.', reference: debit.reference, balanceAfter: debit.balanceAfter };
+      return { status: 'pending', message: 'We could not confirm the provider result. Your request is being checked; please do not submit it again.', reference: debit.transaction.reference, balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo) };
     }
   }
   if (!provider.ok) {
     if (provider.pending) {
       const message = provider.message || 'The provider has not confirmed this verification yet.';
       await leavePartnerSlipForReconciliation(debit.transaction.id, actualProvider, message, provider.providerRef);
-      return { status: 'pending', message: 'We could not confirm the provider result. Your request is being checked; please do not submit it again.', reference: debit.reference, balanceAfter: debit.balanceAfter };
+      return { status: 'pending', message: 'We could not confirm the provider result. Your request is being checked; please do not submit it again.', reference: debit.transaction.reference, balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo) };
     }
     const reversed = await reversePartnerPurchase(debit.transaction.id, provider.message);
     return { status: false, message: provider.message, reference: reversed.reference, balanceAfter: koboToNaira(reversed.balanceAfterKobo) };
