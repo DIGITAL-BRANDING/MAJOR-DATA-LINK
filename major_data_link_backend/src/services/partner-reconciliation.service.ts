@@ -30,8 +30,8 @@ export async function flagPartnerPendingReconciliation(params: {
   const existing = await prisma.partnerTransaction.findUniqueOrThrow({ where: { id: params.transactionId } });
   const existingMetadata = (existing.metadata as Record<string, unknown> | null) ?? {};
 
-  await prisma.partnerTransaction.update({
-    where: { id: params.transactionId },
+  const claim = await prisma.partnerTransaction.updateMany({
+    where: { id: params.transactionId, status: TransactionStatus.PENDING },
     data: {
       provider: params.provider,
       providerRef: params.providerRef ?? null,
@@ -45,6 +45,7 @@ export async function flagPartnerPendingReconciliation(params: {
       } as Prisma.InputJsonValue
     }
   });
+  if (!claim.count) return;
 
   if (existing.status === TransactionStatus.PENDING) {
     notifyPartnerSafely({

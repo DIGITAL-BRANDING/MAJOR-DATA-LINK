@@ -670,7 +670,9 @@ function partnerProviderLabel(provider: string | null): string | null {
   if (!provider) return null;
   const key = provider.toLowerCase().replace(/[\s_-]/g, '');
   if (key === 'techhub') return 'K-Tech Solutions / Musa Verification V1';
-  if (key === 'franceverified') return 'Verification V2';
+  if (key === 'abjiktech') return 'Verification V2';
+  if (key === 'franceverified') return 'Verification V3';
+  if (key === 'hubbu') return 'Verification V4';
   return provider;
 }
 

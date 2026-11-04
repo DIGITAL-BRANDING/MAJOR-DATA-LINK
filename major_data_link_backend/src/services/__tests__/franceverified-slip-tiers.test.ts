@@ -27,7 +27,7 @@ beforeEach(() => {
   ninByPhone.mockResolvedValue(okResult);
 });
 
-describe('V2 service keys', () => {
+describe('V3 service keys', () => {
   it.each([['smart', 'NIN_VERIFICATION_V3_SMART'], ['portrait', 'NIN_VERIFICATION_V3_PORTRAIT']] as const)('%s bills its own pricing row', async (tier, service) => {
     await purchaseNinVerificationV3({ userId: 'u1', nin: '12345678901', tier });
     expect(prismaMock.servicePricing.findUnique.mock.calls.some((c) => JSON.stringify(c[0]).includes(service))).toBe(true);
@@ -40,7 +40,7 @@ describe('V3 (FranceVerified) passes the purchased tier through to the slip rend
     expect(ninByNin).toHaveBeenCalledWith('12345678901', tier, false);
   });
 
-  it.each(['premium', 'standard', 'regular'] as const)('NIN by phone V2, %s', async (tier) => {
+  it.each(['premium', 'standard', 'regular'] as const)('NIN by phone V3, %s', async (tier) => {
     await purchaseNinByPhoneV3({ userId: 'u1', phone: '08012345678', tier });
     expect(ninByPhone).toHaveBeenCalledWith('08012345678', tier, false);
   });

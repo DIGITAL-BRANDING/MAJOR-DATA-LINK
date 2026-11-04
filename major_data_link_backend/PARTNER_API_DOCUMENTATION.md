@@ -324,6 +324,19 @@ kuma ana mayar da kuɗi idan lookup ɗin ya gaza. Farashin yana cikin
 { "bvn": "12345678901", "tier": "premium" }
 ```
 
+**Fast submit-and-poll (optional, backward compatible):** Append `?async=1` to
+any of the NIN/BVN slip submit endpoints above. The API immediately returns
+`202 Accepted` with `data.reference` and `data.status: "pending"`; poll
+`GET /verification/slip/{reference}` using the same partner API key until
+`state` is `success`, `failed`, or `review`. A successful poll returns the
+usual `user_data`/`pdf_base64` fields. The reference is scoped to the partner
+that submitted it. Without `?async=1`, the existing synchronous response
+contract remains unchanged. Keep the same `Idempotency-Key` for a retry of the
+same submit, and never submit a second order while the result is pending.
+
+Partner V1 slips try Techhub first, then AbjikTech if Techhub does not return a
+successful result. V2 remains a direct AbjikTech request.
+
 Kowane verification request yana buƙatar `Idempotency-Key`. Response na iya
 ƙunsar `user_data`, `pdf_base64`, ko `pdf_url`; waɗannan bayanai ne masu
 matuƙar sirri. Partner ya adana su ne kawai idan yana da doka/consent, kada ya

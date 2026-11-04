@@ -13,6 +13,7 @@ import {
   checkNinValidationStatus,
   checkPersonalizationStatus,
   decryptTransactionPII,
+  getSlipStatus,
   listVerificationPrices,
   purchaseBvnSlip,
   purchaseNinByDemographic,
@@ -59,6 +60,10 @@ verificationRoutes.use((req, res, next) => {
 function idempotencyKeyFrom(req: Request) {
   const header = req.header('Idempotency-Key');
   return header && header.trim().length > 0 ? header.trim() : undefined;
+}
+
+function wantsBackground(req: Request) {
+  return req.query.async === '1';
 }
 
 const ninSlipTier = z.enum(['premium', 'standard', 'regular', 'vnin', 'personal']);
@@ -115,6 +120,7 @@ function slipResponse(result: Awaited<ReturnType<typeof purchaseNinByNin>>) {
     status: result.status,
     message: result.message,
     confirmation_required: result.pending === true,
+    processing: result.processing === true,
     data: {
       reference: result.reference,
       transaction_id: result.transactionId,
@@ -130,6 +136,25 @@ function slipResponse(result: Awaited<ReturnType<typeof purchaseNinByNin>>) {
 verificationRoutes.get('/prices', async (_req, res) => {
   const [prices, licensePrices] = await Promise.all([listVerificationPrices(), listBvnLicensePriceForCustomers()]);
   res.json({ status: true, data: [...prices, ...licensePrices] });
+});
+
+verificationRoutes.get('/slip/:reference', async (req, res) => {
+  const reference = z.string().trim().min(1).max(80).parse(req.params.reference);
+  const result = await getSlipStatus({ userId: req.user!.id, reference });
+  res.set('Cache-Control', 'no-store');
+  if (result.state === 'success') {
+    return res.json({
+      status: true,
+      state: result.state,
+      data: {
+        reference: result.reference,
+        transaction_id: result.transactionId,
+        user_data: safeSlipPreview(result.userData),
+        document_available: result.documentAvailable
+      }
+    });
+  }
+  res.json({ status: result.state !== 'failed', state: result.state, message: 'message' in result ? result.message : undefined });
 });
 
 verificationRoutes.post('/bvn/license-onboarding', async (req, res) => {
@@ -325,7 +350,8 @@ verificationRoutes.post('/nin/by-nin', async (req, res) => {
     userId: req.user!.id,
     nin: body.nin,
     tier: body.tier,
-    idempotencyKey: idempotencyKeyFrom(req)
+    idempotencyKey: idempotencyKeyFrom(req),
+    background: wantsBackground(req)
   });
   res.json(slipResponse(result));
 });
@@ -341,7 +367,8 @@ verificationRoutes.post('/nin/verification-v1', async (req, res) => {
     userId: req.user!.id,
     nin: body.nin,
     tier: body.tier,
-    idempotencyKey: idempotencyKeyFrom(req)
+    idempotencyKey: idempotencyKeyFrom(req),
+    background: wantsBackground(req)
   });
   res.json(slipResponse(result));
 });
@@ -353,7 +380,8 @@ verificationRoutes.post('/nin/verification-v2', async (req, res) => {
     userId: req.user!.id,
     nin: body.nin,
     tier: body.tier,
-    idempotencyKey: idempotencyKeyFrom(req)
+    idempotencyKey: idempotencyKeyFrom(req),
+    background: wantsBackground(req)
   });
   res.json(slipResponse(result));
 });
@@ -361,14 +389,14 @@ verificationRoutes.post('/nin/verification-v2', async (req, res) => {
 verificationRoutes.post('/nin/verification-v3', async (req, res) => {
   const body = z.object({ nin: z.string().trim().length(11), tier: ninSlipTierV3, ...pinField }).parse(req.body);
   await requirePinConfirmation(req.user!.id, body.pin);
-  const result = await purchaseNinVerificationV3({ userId: req.user!.id, nin: body.nin, tier: body.tier, idempotencyKey: idempotencyKeyFrom(req) });
+  const result = await purchaseNinVerificationV3({ userId: req.user!.id, nin: body.nin, tier: body.tier, idempotencyKey: idempotencyKeyFrom(req), background: wantsBackground(req) });
   res.json(slipResponse(result));
 });
 
 verificationRoutes.post('/nin/verification-v4', async (req, res) => {
   const body = z.object({ nin: z.string().trim().length(11), tier: ninSlipTier, ...pinField }).parse(req.body);
   await requirePinConfirmation(req.user!.id, body.pin);
-  const result = await purchaseNinVerificationV4({ userId: req.user!.id, nin: body.nin, tier: body.tier, idempotencyKey: idempotencyKeyFrom(req) });
+  const result = await purchaseNinVerificationV4({ userId: req.user!.id, nin: body.nin, tier: body.tier, idempotencyKey: idempotencyKeyFrom(req), background: wantsBackground(req) });
   res.json(slipResponse(result));
 });
 
@@ -379,7 +407,8 @@ verificationRoutes.post('/nin/by-phone', async (req, res) => {
     userId: req.user!.id,
     phone: body.phone,
     tier: body.tier,
-    idempotencyKey: idempotencyKeyFrom(req)
+    idempotencyKey: idempotencyKeyFrom(req),
+    background: wantsBackground(req)
   });
   res.json(slipResponse(result));
 });
@@ -401,7 +430,8 @@ verificationRoutes.post('/nin/by-demographic', async (req, res) => {
     lastname: body.lastname,
     dob: body.dob,
     gender: body.gender,
-    idempotencyKey: idempotencyKeyFrom(req)
+    idempotencyKey: idempotencyKeyFrom(req),
+    background: wantsBackground(req)
   });
   res.json(slipResponse(result));
 });
@@ -418,7 +448,8 @@ verificationRoutes.post('/nin/by-phone-v1', async (req, res) => {
     userId: req.user!.id,
     phone: body.phone,
     tier: body.tier,
-    idempotencyKey: idempotencyKeyFrom(req)
+    idempotencyKey: idempotencyKeyFrom(req),
+    background: wantsBackground(req)
   });
   res.json(slipResponse(result));
 });
@@ -430,7 +461,8 @@ verificationRoutes.post('/nin/by-phone-v2', async (req, res) => {
     userId: req.user!.id,
     phone: body.phone,
     tier: body.tier,
-    idempotencyKey: idempotencyKeyFrom(req)
+    idempotencyKey: idempotencyKeyFrom(req),
+    background: wantsBackground(req)
   });
   res.json(slipResponse(result));
 });
@@ -438,14 +470,14 @@ verificationRoutes.post('/nin/by-phone-v2', async (req, res) => {
 verificationRoutes.post('/nin/by-phone-v3', async (req, res) => {
   const body = z.object({ phone: z.string().trim().length(11), tier: ninPhoneSlipTier, ...pinField }).parse(req.body);
   await requirePinConfirmation(req.user!.id, body.pin);
-  const result = await purchaseNinByPhoneV3({ userId: req.user!.id, phone: body.phone, tier: body.tier, idempotencyKey: idempotencyKeyFrom(req) });
+  const result = await purchaseNinByPhoneV3({ userId: req.user!.id, phone: body.phone, tier: body.tier, idempotencyKey: idempotencyKeyFrom(req), background: wantsBackground(req) });
   res.json(slipResponse(result));
 });
 
 verificationRoutes.post('/nin/by-phone-v4', async (req, res) => {
   const body = z.object({ phone: z.string().trim().length(11), tier: ninPhoneSlipTier, ...pinField }).parse(req.body);
   await requirePinConfirmation(req.user!.id, body.pin);
-  const result = await purchaseNinByPhoneV4({ userId: req.user!.id, phone: body.phone, tier: body.tier, idempotencyKey: idempotencyKeyFrom(req) });
+  const result = await purchaseNinByPhoneV4({ userId: req.user!.id, phone: body.phone, tier: body.tier, idempotencyKey: idempotencyKeyFrom(req), background: wantsBackground(req) });
   res.json(slipResponse(result));
 });
 
@@ -466,7 +498,8 @@ verificationRoutes.post('/nin/by-demographic-v1', async (req, res) => {
     lastname: body.lastname,
     dob: body.dob,
     gender: body.gender,
-    idempotencyKey: idempotencyKeyFrom(req)
+    idempotencyKey: idempotencyKeyFrom(req),
+    background: wantsBackground(req)
   });
   res.json(slipResponse(result));
 });
@@ -488,7 +521,8 @@ verificationRoutes.post('/nin/by-demographic-v2', async (req, res) => {
     lastname: body.lastname,
     dob: body.dob,
     gender: body.gender,
-    idempotencyKey: idempotencyKeyFrom(req)
+    idempotencyKey: idempotencyKeyFrom(req),
+    background: wantsBackground(req)
   });
   res.json(slipResponse(result));
 });
@@ -496,14 +530,14 @@ verificationRoutes.post('/nin/by-demographic-v2', async (req, res) => {
 verificationRoutes.post('/nin/by-demographic-v3', async (req, res) => {
   const body = z.object({ firstname: z.string().trim().min(1), lastname: z.string().trim().min(1), dob: z.string().trim().min(1), gender: z.enum(['MALE', 'FEMALE']).optional(), ...pinField }).parse(req.body);
   await requirePinConfirmation(req.user!.id, body.pin);
-  const result = await purchaseNinByDemographicV3({ userId: req.user!.id, firstname: body.firstname, lastname: body.lastname, dob: body.dob, gender: body.gender, idempotencyKey: idempotencyKeyFrom(req) });
+  const result = await purchaseNinByDemographicV3({ userId: req.user!.id, firstname: body.firstname, lastname: body.lastname, dob: body.dob, gender: body.gender, idempotencyKey: idempotencyKeyFrom(req), background: wantsBackground(req) });
   res.json(slipResponse(result));
 });
 
 verificationRoutes.post('/nin/by-demographic-v4', async (req, res) => {
   const body = z.object({ firstname: z.string().trim().min(1), lastname: z.string().trim().min(1), dob: z.string().trim().min(1), gender: z.enum(['MALE', 'FEMALE']).optional(), ...pinField }).parse(req.body);
   await requirePinConfirmation(req.user!.id, body.pin);
-  const result = await purchaseNinByDemographicV4({ userId: req.user!.id, firstname: body.firstname, lastname: body.lastname, dob: body.dob, gender: body.gender, idempotencyKey: idempotencyKeyFrom(req) });
+  const result = await purchaseNinByDemographicV4({ userId: req.user!.id, firstname: body.firstname, lastname: body.lastname, dob: body.dob, gender: body.gender, idempotencyKey: idempotencyKeyFrom(req), background: wantsBackground(req) });
   res.json(slipResponse(result));
 });
 
@@ -514,7 +548,8 @@ verificationRoutes.post('/bvn/slip', async (req, res) => {
     userId: req.user!.id,
     bvn: body.bvn,
     tier: body.tier,
-    idempotencyKey: idempotencyKeyFrom(req)
+    idempotencyKey: idempotencyKeyFrom(req),
+    background: wantsBackground(req)
   });
   res.json(slipResponse(result));
 });

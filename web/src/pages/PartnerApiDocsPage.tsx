@@ -159,7 +159,10 @@ export default function PartnerApiDocsPage() {
 
         <Section id="nin" icon={Fingerprint} title={t('partnerPortal.docs.sections.nin')}>
           <p className="text-slate-600">{t('partnerPortal.docs.nin.intro')}</p>
-          <p className="mt-2 text-sm text-slate-600"><strong>Version routing:</strong> V1 uses the V1 partner price and checks Techhub first, then tries FranceVerified if Techhub does not return a successful lookup. V2 uses the V2 partner price and calls FranceVerified directly. Omit <code>version</code> to use V1.</p>
+          <p className="mt-2 text-sm text-slate-600"><strong>Version routing:</strong> V1 checks Techhub first, then tries AbjikTech if Techhub does not return a successful lookup. V2 calls AbjikTech directly. Omit <code>version</code> to use V1.</p>
+          <Callout>
+            For a faster submit response, append <code>?async=1</code> to any NIN/BVN slip submit endpoint. It returns <code>202 Accepted</code> with a reference; poll <code>GET /verification/slip/:reference</code> until its state is <code>success</code>, <code>failed</code>, or <code>review</code>. The legacy synchronous response remains available when this query is omitted. Keep using the same <code>Idempotency-Key</code> for retries and do not resubmit a pending request.
+          </Callout>
           <TieredEndpointCard
             method="POST"
             path="/verification/nin/by-nin"
@@ -168,7 +171,7 @@ export default function PartnerApiDocsPage() {
             rows={[
               { name: 'nin', type: 'string', required: true, desc: '11-digit NIN' },
               { name: 'tier', type: 'string', required: true, desc: 'premium, standard, regular, or vnin' },
-              { name: 'version', type: 'string', required: false, desc: 'v1 (Techhub first, then FranceVerified if Techhub does not succeed; default) or v2 (FranceVerified directly). Each version uses its own partner price.' }
+              { name: 'version', type: 'string', required: false, desc: 'v1 (Techhub first, then AbjikTech if Techhub does not succeed; default) or v2 (AbjikTech directly). Each version uses its own partner price.' }
             ]}
           />
           <TieredEndpointCard

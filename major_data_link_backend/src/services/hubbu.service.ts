@@ -238,7 +238,13 @@ async function extractSlipResult(raw: HubbuResponse, fallback: string, title: 'N
       const ticket = firstValue(layers, ['ticket_id', 'request_id', 'reference']);
       return nonEmpty(ticket) || typeof ticket === 'number' ? String(ticket) : undefined;
     })(),
-    message: safeMessage(raw, state === 'success' ? 'Verification successful' : fallback),
+    message: state === 'success'
+      ? 'Verification completed successfully. Your document is ready.'
+      : state === 'pending'
+        ? 'Hubbu is still processing this verification. Please check the status shortly.'
+        : state === 'unknown'
+          ? 'We could not confirm Hubbu’s result yet. Your request is being checked; please do not submit it again.'
+          : safeMessage(raw, fallback),
     userData, pdfBase64: base64,
     // Never pass an untrusted provider URL to the browser; PDF bytes are
     // fetched server-side from the documented same-origin download endpoint.

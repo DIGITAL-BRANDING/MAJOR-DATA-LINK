@@ -60,7 +60,7 @@ const nin: Item[] = [
   { id: 'by-nin', label: 'NIN Verification', path: '/verification/nin/by-nin', fields: ['nin'], icon: IdCard, tiers: ['premium', 'standard', 'regular', 'vnin', 'personal'] },
   // Provider-pinned alternative to the generic 'by-nin'/'by-phone'/
   // 'demographic' tiles above and below: ONE tile per provider (Techhub =
-  // V1, FranceVerified = V2); opening it shows a method picker (By NIN / By
+  // V1=Techhub, V2=AbjikTech, V3=FranceVerified, V4=Hubbu); opening it shows a method picker (By NIN / By
   // Phone / By Demographic), so a customer can route around a provider
   // outage on any of the three lookup methods without six separate tiles
   // cluttering the grid. See PINNED_PROVIDERS in admin/nin-bvn-provider.ts
@@ -76,7 +76,7 @@ const nin: Item[] = [
   {
     id: 'verification-v2', label: 'NIN Verification V2', path: '', fields: [], icon: SearchCheck,
     methods: [
-      { id: 'v2-by-nin', label: 'By NIN', path: '/verification/nin/verification-v2', fields: ['nin'], icon: IdCard, tiers: ['premium', 'standard', 'regular', 'vnin', 'smart', 'portrait', 'personal'] },
+      { id: 'v2-by-nin', label: 'By NIN', path: '/verification/nin/verification-v2', fields: ['nin'], icon: IdCard, tiers: ['premium', 'standard', 'regular', 'vnin', 'personal'] },
       { id: 'v2-by-phone', label: 'By Phone', path: '/verification/nin/by-phone-v2', fields: ['phone'], icon: Phone, tiers: ['premium', 'standard', 'regular', 'personal'] },
       { id: 'v2-by-demographic', label: 'By Demographic', path: '/verification/nin/by-demographic-v2', fields: ['firstname', 'lastname', 'dob', 'gender'], icon: UserRoundCheck },
     ],
@@ -208,7 +208,7 @@ const NIN_SLIP_IMAGES: Record<string, string> = {
 // NIN Verification V3 (FranceVerified) slips are drawn by us, so their tiles
 // preview those K-TECH layouts (specimen data) instead of the Techhub slips
 // shown for V1. Generated from the real renderer - see web/public/branding/v2-*.jpg.
-const NIN_SLIP_IMAGES_V2: Record<string, string> = {
+const NIN_SLIP_IMAGES_V3: Record<string, string> = {
   premium: '/branding/v2-premium.jpg',
   standard: '/branding/v2-standard.jpg',
   regular: '/branding/v2-regular.jpg',
@@ -312,7 +312,7 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
       'NIN_DEMOGRAPHIC_V1',
     ],
     'verification-v2': [
-      'NIN_VERIFICATION_V2_PREMIUM', 'NIN_VERIFICATION_V2_STANDARD', 'NIN_VERIFICATION_V2_REGULAR', 'NIN_VERIFICATION_V2_VNIN', 'NIN_VERIFICATION_V2_SMART', 'NIN_VERIFICATION_V2_PORTRAIT', 'NIN_VERIFICATION_V2_PERSONAL',
+      'NIN_VERIFICATION_V2_PREMIUM', 'NIN_VERIFICATION_V2_STANDARD', 'NIN_VERIFICATION_V2_REGULAR', 'NIN_VERIFICATION_V2_VNIN', 'NIN_VERIFICATION_V2_PERSONAL',
       'NIN_PHONE_SLIP_V2_PREMIUM', 'NIN_PHONE_SLIP_V2_STANDARD', 'NIN_PHONE_SLIP_V2_REGULAR', 'NIN_PHONE_SLIP_V2_PERSONAL',
       'NIN_DEMOGRAPHIC_V2',
     ],
@@ -510,6 +510,7 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
         status: boolean;
         message: string;
         confirmation_required?: boolean;
+        processing?: boolean;
         data?: { reference: string; tracking_id?: string; transaction_id?: string; document_available?: boolean; user_data?: Record<string, unknown>; ticket_id?: string };
       };
       if (isSlipPurchase) {
@@ -521,8 +522,9 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
             status: boolean;
             message: string;
             confirmation_required?: boolean;
+            processing?: boolean;
             data?: { reference: string; tracking_id?: string; transaction_id?: string; document_available?: boolean; user_data?: Record<string, unknown>; ticket_id?: string };
-          }>(leaf.path, data, idempotencyKeyRef.current.key);
+          }>(`${leaf.path}?async=1`, data, idempotencyKeyRef.current.key, 30_000);
         // Keep the same key only when the provider result is ambiguous. This
         // lets a user safely repeat the exact request without another debit.
         if (!result.confirmation_required) idempotencyKeyRef.current = null;
@@ -532,6 +534,46 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
           message: string;
           data?: { reference: string; tracking_id?: string; transaction_id?: string; document_available?: boolean; user_data?: Record<string, unknown>; ticket_id?: string };
         }>(leaf.path, data);
+      }
+      if (isSlipPurchase && result.confirmation_required && result.data?.reference) {
+        const reference = result.data.reference;
+        const delays = [1_000, 1_500, 2_000, 3_000, 4_000];
+        const deadline = Date.now() + 4 * 60_000;
+        setMessage(result.message || 'Request accepted. Checking its status…');
+        let finalState: 'processing' | 'review' | 'success' | 'failed' = 'processing';
+        let finalData = result.data;
+        let pollCount = 0;
+        while (Date.now() < deadline) {
+          await new Promise((resolve) => window.setTimeout(resolve, delays[Math.min(pollCount, delays.length - 1)]));
+          pollCount += 1;
+          try {
+            const status = await api.get<{
+              state: 'processing' | 'review' | 'success' | 'failed';
+              message?: string;
+              data?: { reference: string; transaction_id: string; user_data?: Record<string, unknown>; document_available: boolean };
+            }>(`/verification/slip/${encodeURIComponent(reference)}`);
+            finalState = status.state;
+            if (status.state === 'success' && status.data) finalData = status.data;
+            if (status.state === 'failed') {
+              idempotencyKeyRef.current = null;
+              throw new Error(status.message || 'The verification could not be completed.');
+            }
+            if (status.state === 'review') {
+              setMessage(status.message || `Request ${reference} needs provider reconciliation. Please do not submit it again.`);
+              return;
+            }
+            if (status.state === 'success') break;
+          } catch (error) {
+            if (!(error instanceof ApiError) || (error.status !== 0 && error.status !== 408 && error.status < 500)) throw error;
+          }
+          setMessage('Request is still processing. Please keep this page open…');
+        }
+        if (finalState !== 'success') {
+          setMessage(`Request ${reference} is still processing. Check Recent requests; do not submit it again.`);
+          return;
+        }
+        result = { ...result, status: true, data: finalData };
+        idempotencyKeyRef.current = null;
       }
       if (!result.status) throw new Error(result.message);
 
@@ -846,7 +888,7 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
                   <div className="sm:col-span-2 font-body text-sm font-medium text-ink-600">
                     <span>Slip type</span>
                     <div className={`mt-2 grid grid-cols-2 gap-3 sm:grid-cols-3 ${leaf.tiers.length > 5 ? 'lg:grid-cols-4' : 'lg:grid-cols-5'}`}>
-                  {leaf.tiers.map((option) => <button key={option} type="button" onClick={() => setTier(option)} className={`rounded-xl border p-3 text-center transition hover:-translate-y-0.5 ${tier === option ? 'border-[#8b6914] bg-[#6b4f0b] text-white shadow-md' : 'border-parchment-line bg-cream text-ink hover:border-gold-500'}`}><img src={(leaf.id === 'v3-by-nin' ? NIN_SLIP_IMAGES_V2 : NIN_SLIP_IMAGES)[option]} alt={`${tierLabel(option)} preview`} className="mx-auto h-14 w-full rounded-lg bg-white object-contain p-1"/><span className="mt-2 block font-semibold">{tierLabel(option)}</span><span className={`mt-1 block text-xs font-bold ${tier === option ? 'text-[#ffe9a3]' : 'text-gold-700'}`}>{money(prices[keyFor(leaf, option)])}</span></button>)}
+                  {leaf.tiers.map((option) => <button key={option} type="button" onClick={() => setTier(option)} className={`rounded-xl border p-3 text-center transition hover:-translate-y-0.5 ${tier === option ? 'border-[#8b6914] bg-[#6b4f0b] text-white shadow-md' : 'border-parchment-line bg-cream text-ink hover:border-gold-500'}`}><img src={(leaf.id === 'v3-by-nin' ? NIN_SLIP_IMAGES_V3 : NIN_SLIP_IMAGES)[option]} alt={`${tierLabel(option)} preview`} className="mx-auto h-14 w-full rounded-lg bg-white object-contain p-1"/><span className="mt-2 block font-semibold">{tierLabel(option)}</span><span className={`mt-1 block text-xs font-bold ${tier === option ? 'text-[#ffe9a3]' : 'text-gold-700'}`}>{money(prices[keyFor(leaf, option)])}</span></button>)}
                     </div>
                   </div>
                 )}
@@ -893,7 +935,7 @@ export default function VerificationPage({ mode, initialService }: { mode: Mode;
                     )}
                   </label>
                 ))}
-                {leaf.tiers && <div className="sm:col-span-2 font-body text-sm font-medium text-ink-600"><span>Slip type</span><div className={`mt-2 grid grid-cols-2 gap-3 sm:grid-cols-3 ${leaf.tiers.length > 5 ? 'lg:grid-cols-4' : 'lg:grid-cols-5'}`}>{leaf.tiers.map((option) => <button key={option} type="button" onClick={() => setTier(option)} className={`rounded-xl border p-3 text-center transition hover:-translate-y-0.5 ${tier === option ? 'border-[#8b6914] bg-[#6b4f0b] text-white shadow-md' : 'border-parchment-line bg-cream text-ink hover:border-gold-500'}`}><img src={(leaf.id === 'v3-by-nin' ? NIN_SLIP_IMAGES_V2 : NIN_SLIP_IMAGES)[option]} alt={`${tierLabel(option)} preview`} className="mx-auto h-14 w-full rounded-lg bg-white object-contain p-1"/><span className="mt-2 block font-semibold">{tierLabel(option)}</span><span className="mt-1 block text-xs font-bold">{money(prices[keyFor(leaf, option)])}</span></button>)}</div></div>}
+                {leaf.tiers && <div className="sm:col-span-2 font-body text-sm font-medium text-ink-600"><span>Slip type</span><div className={`mt-2 grid grid-cols-2 gap-3 sm:grid-cols-3 ${leaf.tiers.length > 5 ? 'lg:grid-cols-4' : 'lg:grid-cols-5'}`}>{leaf.tiers.map((option) => <button key={option} type="button" onClick={() => setTier(option)} className={`rounded-xl border p-3 text-center transition hover:-translate-y-0.5 ${tier === option ? 'border-[#8b6914] bg-[#6b4f0b] text-white shadow-md' : 'border-parchment-line bg-cream text-ink hover:border-gold-500'}`}><img src={(leaf.id === 'v3-by-nin' ? NIN_SLIP_IMAGES_V3 : NIN_SLIP_IMAGES)[option]} alt={`${tierLabel(option)} preview`} className="mx-auto h-14 w-full rounded-lg bg-white object-contain p-1"/><span className="mt-2 block font-semibold">{tierLabel(option)}</span><span className="mt-1 block text-xs font-bold">{money(prices[keyFor(leaf, option)])}</span></button>)}</div></div>}
                 {leaf.id === 'license-onboarding' && <label className="sm:col-span-2 flex items-start gap-3 rounded-xl border border-parchment-line bg-cream p-4 font-body text-sm text-ink-600"><input required type="checkbox" checked={licenseConsent} onChange={(e) => setLicenseConsent(e.target.checked)} className="mt-0.5 h-4 w-4 accent-[#b8941f]"/><span>I confirm that the information is accurate and I authorize K-Tech Solutions to submit this BVN Licence onboarding request on my behalf.</span></label>}
                 <div className="sm:col-span-2"><button disabled={busy} className="flex w-full items-center justify-center gap-2 rounded-xl bg-gold-500 py-3 font-display font-semibold text-ink disabled:opacity-60">{busy ? <><Loader2 size={16} className="animate-spin" /> Verifying your request…</> : 'Continue to PIN confirmation'}</button>{busy && <p role="status" className="mt-3 text-center font-body text-sm text-ink-600">This may take a few seconds. Please do not close this page.</p>}{message && <p className="mt-3 rounded-lg bg-cream p-3 font-body text-sm text-ink-600">{message}</p>}</div>
               </form>

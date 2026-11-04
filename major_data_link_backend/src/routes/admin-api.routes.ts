@@ -265,11 +265,10 @@ adminApiRoutes.post('/service-prices/bulk', requireFinanceAdmin, async (req, res
   res.json({ status: true, data: { updated: result.count, selling_price: body.selling_price } });
 });
 
-// V1 and V2 are customer-facing provider variants, each made up of five
-// independently-priced tiers. The admin needs one switch per variant rather
-// than having to toggle every tier by hand.
+// Customer-facing NIN verification variants have independently-priced tiers.
+// The admin needs one switch per variant rather than toggling every tier by hand.
 adminApiRoutes.patch('/service-prices/families/:family/availability', requireFinanceAdmin, async (req, res) => {
-  const family = z.enum(['NIN_VERIFICATION_V1', 'NIN_VERIFICATION_V2']).parse(routeParam(req.params.family).toUpperCase());
+  const family = z.enum(['NIN_VERIFICATION_V1', 'NIN_VERIFICATION_V2', 'NIN_VERIFICATION_V3', 'NIN_VERIFICATION_V4']).parse(routeParam(req.params.family).toUpperCase());
   const body = z.object({ is_active: z.boolean() }).parse(req.body);
   const result = await prisma.servicePricing.updateMany({
     where: { service: { startsWith: `${family}_` } },

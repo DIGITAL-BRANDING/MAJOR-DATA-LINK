@@ -55,8 +55,8 @@ export async function flagPendingReconciliation(params: {
   const existing = await prisma.transaction.findUniqueOrThrow({ where: { id: params.transactionId } });
   const existingMetadata = (existing.metadata as Record<string, unknown> | null) ?? {};
 
-  await prisma.transaction.update({
-    where: { id: params.transactionId },
+  const claim = await prisma.transaction.updateMany({
+    where: { id: params.transactionId, status: TransactionStatus.PENDING },
     data: {
       provider: params.provider,
       providerRef: params.providerRef ?? null,
@@ -70,6 +70,7 @@ export async function flagPendingReconciliation(params: {
       } as Prisma.InputJsonValue
     }
   });
+  if (!claim.count) return;
 
   console.error(
     `[reconcile][${params.provider}] transaction ${params.transactionId} left PENDING - provider returned an ambiguous in-progress status, needs manual review at /admin/provider-reconciliation`

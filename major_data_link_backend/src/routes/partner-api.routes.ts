@@ -19,7 +19,7 @@ import type { NormalizedProviderResponse } from '../services/provider-types.js';
 import { listVerificationPricesForPartner } from '../services/verification.service.js';
 import { listPartnerEnterprisePrices } from '../services/partner-enterprise-catalog.service.js';
 import { ensurePartnerEnterpriseOfferCode } from '../services/partner-enterprise-profile.service.js';
-import { partnerVerification } from '../services/partner-verification.service.js';
+import { getPartnerSlipStatus, partnerVerification } from '../services/partner-verification.service.js';
 import { createPartnerDynamicFunding, partnerFundingResponse, partnerBvnFromBody, provisionPartnerVirtualAccount, verifyPartnerFunding } from '../services/partner-funding.service.js';
 import { configurePartnerWebhook, queuePartnerWebhookTest, webhookConfiguration } from '../services/partner-webhook.service.js';
 import { flagPartnerPendingReconciliation } from '../services/partner-reconciliation.service.js';
@@ -309,9 +309,27 @@ function verificationResponse(result: Awaited<ReturnType<typeof partnerVerificat
   return { status: result.status === 'pending' ? true : result.status, message: result.message, data: {
     reference: result.reference, balance_after: result.balanceAfter,
     ...(result.status === 'pending' ? { status: 'pending' as const } : {}),
+    ...(result.processing === undefined ? {} : { processing: result.processing }),
     user_data: result.userData ?? null, pdf_base64: result.pdfBase64 ?? null, pdf_url: result.pdfUrl ?? null
   }};
 }
+
+function partnerSlipAsync(req: Request) {
+  return req.query.async === '1';
+}
+
+partnerApiRoutes.get('/verification/slip/:reference', async (req, res) => {
+  const reference = z.string().trim().min(1).max(80).parse(req.params.reference);
+  const result = await getPartnerSlipStatus({ partnerId: req.partner!.id, reference });
+  res.set('Cache-Control', 'no-store');
+  if (result.state === 'success') {
+    return res.json({ status: true, state: result.state, data: {
+      reference: result.reference, balance_after: result.balanceAfter,
+      user_data: result.userData ?? null, pdf_base64: result.pdfBase64 ?? null, pdf_url: result.pdfUrl ?? null
+    } });
+  }
+  res.json({ status: result.state !== 'failed', state: result.state, message: 'message' in result ? result.message : undefined });
+});
 
 function asyncVerificationResponse(result: { reference: string; ticketId: string; balanceAfter?: number; status: 'pending' | 'success' | 'failed'; response?: Record<string, unknown> | null }) {
   return { status: result.status !== 'failed', data: {
@@ -327,16 +345,16 @@ partnerApiRoutes.post('/verification/nin/by-nin', async (req, res) => {
     tier: z.enum(['premium', 'standard', 'regular', 'vnin']),
     version: z.enum(['v1', 'v2']).default('v1')
   }).parse(req.body);
-  const result = await partnerVerification.ninByNin(req.partner!.id, body.nin, body.tier, idempotencyKeyFrom(req), body.version);
+  const result = await partnerVerification.ninByNin(req.partner!.id, body.nin, body.tier, idempotencyKeyFrom(req), body.version, partnerSlipAsync(req));
   res.set('Cache-Control', 'no-store');
-  res.json(verificationResponse(result));
+  res.status(partnerSlipAsync(req) && result.status === 'pending' ? 202 : 200).json(verificationResponse(result));
 });
 
 partnerApiRoutes.post('/verification/nin/by-phone', async (req, res) => {
   const body = z.object({ phone: z.string().trim().length(11), tier: z.enum(['premium', 'standard', 'regular']) }).parse(req.body);
-  const result = await partnerVerification.ninByPhone(req.partner!.id, body.phone, body.tier, idempotencyKeyFrom(req));
+  const result = await partnerVerification.ninByPhone(req.partner!.id, body.phone, body.tier, idempotencyKeyFrom(req), partnerSlipAsync(req));
   res.set('Cache-Control', 'no-store');
-  res.json(verificationResponse(result));
+  res.status(partnerSlipAsync(req) && result.status === 'pending' ? 202 : 200).json(verificationResponse(result));
 });
 
 // Personal Information slip (identity report with photograph), built from a
@@ -351,17 +369,17 @@ partnerApiRoutes.post('/verification/nin/personal-info', async (req, res) => {
   }).parse(req.body);
   const idempotencyKey = idempotencyKeyFrom(req);
   const result = body.nin
-    ? await partnerVerification.ninPersonalInfo(req.partner!.id, body.nin, idempotencyKey)
-    : await partnerVerification.ninPersonalInfoByPhone(req.partner!.id, body.phone!, idempotencyKey);
+    ? await partnerVerification.ninPersonalInfo(req.partner!.id, body.nin, idempotencyKey, partnerSlipAsync(req))
+    : await partnerVerification.ninPersonalInfoByPhone(req.partner!.id, body.phone!, idempotencyKey, partnerSlipAsync(req));
   res.set('Cache-Control', 'no-store');
-  res.json(verificationResponse(result));
+  res.status(partnerSlipAsync(req) && result.status === 'pending' ? 202 : 200).json(verificationResponse(result));
 });
 
 partnerApiRoutes.post('/verification/nin/by-demographic', async (req, res) => {
   const body = z.object({ firstname: z.string().trim().min(1), lastname: z.string().trim().min(1), dob: z.string().trim().min(1), gender: z.enum(['MALE', 'FEMALE']).optional() }).parse(req.body);
-  const result = await partnerVerification.ninByDemographic(req.partner!.id, body, idempotencyKeyFrom(req));
+  const result = await partnerVerification.ninByDemographic(req.partner!.id, body, idempotencyKeyFrom(req), partnerSlipAsync(req));
   res.set('Cache-Control', 'no-store');
-  res.json(verificationResponse(result));
+  res.status(partnerSlipAsync(req) && result.status === 'pending' ? 202 : 200).json(verificationResponse(result));
 });
 
 // Async NIN services: submit once with Idempotency-Key, then poll the returned
@@ -415,9 +433,9 @@ partnerApiRoutes.get('/verification/nin/personalization/:ticketId', async (req, 
 
 partnerApiRoutes.post('/verification/bvn/slip', async (req, res) => {
   const body = z.object({ bvn: z.string().trim().length(11), tier: z.enum(['premium', 'standard']) }).parse(req.body);
-  const result = await partnerVerification.bvnSlip(req.partner!.id, body.bvn, body.tier, idempotencyKeyFrom(req));
+  const result = await partnerVerification.bvnSlip(req.partner!.id, body.bvn, body.tier, idempotencyKeyFrom(req), partnerSlipAsync(req));
   res.set('Cache-Control', 'no-store');
-  res.json(verificationResponse(result));
+  res.status(partnerSlipAsync(req) && result.status === 'pending' ? 202 : 200).json(verificationResponse(result));
 });
 
 partnerApiRoutes.post('/data/purchase', purchaseLimiter, async (req, res) => {

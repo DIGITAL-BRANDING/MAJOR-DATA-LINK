@@ -7,6 +7,7 @@ import { publicVerificationMessage } from '../lib/public-verification-message.js
 import { ApiError } from '../middleware/error.js';
 import { debitWallet, refundWallet } from './wallet.service.js';
 import { recordProviderDebit } from './provider-ledger.service.js';
+import { flagPendingReconciliation } from './provider-reconciliation.service.js';
 import {
   techhubService,
   type TechhubBvnTier,
@@ -110,7 +111,7 @@ const SERVICE_KEYS = [
   'NIN_VERIFICATION_V2_STANDARD',
   'NIN_VERIFICATION_V2_REGULAR',
   'NIN_VERIFICATION_V2_VNIN',
-  // FranceVerified-only slip looks.
+  // AbjikTech supports the V2 personal-info lookup but not smart/portrait.
   'NIN_VERIFICATION_V2_PERSONAL',
   'NIN_VERIFICATION_V3_PREMIUM', 'NIN_VERIFICATION_V3_STANDARD', 'NIN_VERIFICATION_V3_REGULAR',
   'NIN_VERIFICATION_V3_VNIN', 'NIN_VERIFICATION_V3_SMART', 'NIN_VERIFICATION_V3_PORTRAIT', 'NIN_VERIFICATION_V3_PERSONAL',
@@ -379,7 +380,7 @@ export async function listVerificationPricesForAdmin() {
   return rows.map((row) => ({
     service: row.service,
     label: row.label,
-    provider: row.provider,
+    provider: DEFAULTS[row.service as VerificationServiceKey].provider ?? row.provider,
     provider_cost: koboToNaira(row.providerCostKobo),
     selling_price: row.sellingPriceKobo ? koboToNaira(row.sellingPriceKobo) : null,
     partner_selling_price: row.partnerSellingPriceKobo ? koboToNaira(row.partnerSellingPriceKobo) : null,
@@ -392,6 +393,7 @@ export async function listVerificationPricesForAdmin() {
 export type SlipPurchaseResult = {
   status: boolean;
   pending?: boolean;
+  processing?: boolean;
   message: string;
   reference: string;
   /** Owner-scoped transaction ID used by the authenticated PDF endpoint. */
@@ -451,6 +453,22 @@ export async function reconcileStaleVerificationLookups(limit = 2) {
   for (const row of rows) {
     const metadata = row.metadata as Record<string, unknown> | null;
     if (row.provider === 'manual' || metadata?.manual_processing === true) continue;
+    if (metadata?.slip_processing === 'running') {
+      const message = 'The background verification exceeded its processing window and needs provider reconciliation.';
+      try {
+        const claim = await prisma.transaction.updateMany({
+          where: { id: row.id, status: TransactionStatus.PENDING },
+          data: { metadata: { ...metadata, slip_processing: 'unknown', provider_outcome: 'unknown' } as Prisma.InputJsonValue }
+        });
+        if (!claim.count) continue;
+        await flagPendingReconciliation({ transactionId: row.id, provider: row.provider ?? 'techhub', providerMessage: message });
+        console.warn('[verification] background lookup moved to reconciliation', JSON.stringify({ reference: row.reference, age_ms: Date.now() - row.updatedAt.getTime() }));
+      } catch (error) {
+        console.error('[verification] could not flag stale background lookup', row.reference, error);
+      }
+      continue;
+    }
+    if (metadata?.slip_processing === 'unknown') continue;
     const reason = 'The verification provider did not save a final result within 5 minutes. Your payment has been refunded; please submit a new request.';
     try {
       await failSlipAndRefund({ transactionId: row.id, userId: row.userId, provider: (row.provider ?? 'techhub') as VerificationProvider, message: reason, metadata });
@@ -486,6 +504,7 @@ async function purchaseSlip(params: {
   operational: Record<string, unknown>;
   pii: Record<string, unknown>;
   idempotencyKey?: string;
+  background?: boolean;
   providerOverride?: VerificationProvider;
   // One call per provider this service could be routed to. Only the branch
   // matching the resolved ServicePricing.provider is ever invoked - see
@@ -530,6 +549,17 @@ async function purchaseSlip(params: {
     const prior = await findPendingHubbuRequest(params.userId, params.transactionType, hubbuHash);
     if (prior) {
       const metadata = prior.metadata as Record<string, unknown> | null;
+      if (metadata?.slip_processing === 'running' || metadata?.slip_processing === 'unknown') {
+        return {
+          status: false,
+          pending: true,
+          processing: metadata.slip_processing === 'running',
+          message: 'A matching verification request is already being processed. Please do not submit it again.',
+          reference: prior.reference,
+          transactionId: prior.id,
+          balanceAfter: koboToNaira(prior.balanceAfterKobo)
+        };
+      }
       if (Date.now() - prior.createdAt.getTime() < VERIFICATION_REPLAY_GRACE_MS) {
         throw new ApiError(409, 'This verification request is still being submitted. Wait for its original response before retrying.', 'VERIFICATION_REQUEST_IN_PROGRESS');
       }
@@ -548,6 +578,7 @@ async function purchaseSlip(params: {
       service: params.service,
       ...params.operational,
       unit_price: price.unitPrice,
+      ...(params.background ? { slip_processing: 'running' } : {}),
       ...(hubbuHash ? { hubbu_request_hash: hubbuHash, hubbu_submission_state: 'queued' } : {}),
       pii: sealPII(params.pii)
     } as Prisma.InputJsonValue,
@@ -556,7 +587,7 @@ async function purchaseSlip(params: {
     // comment above) - fixed and known up front, no balance-delta correction
     // needed either way.
     costKobo: price.providerCostKobo,
-    provider: primaryProvider === 'hubbu' ? 'hubbu' : undefined
+    provider: params.background || primaryProvider === 'hubbu' ? primaryProvider : undefined
   });
 
   if (debit.reused && debit.transaction.status !== TransactionStatus.PENDING) {
@@ -579,6 +610,19 @@ async function purchaseSlip(params: {
   // the provider a second time.
   if (debit.reused) {
     const metadata = debit.transaction.metadata as Record<string, unknown> | null;
+    if (metadata?.slip_processing === 'running' || metadata?.slip_processing === 'unknown') {
+      return {
+        status: false,
+        pending: true,
+        processing: metadata.slip_processing === 'running',
+        message: metadata.slip_processing === 'running'
+          ? 'This verification is still processing. Please wait for the result.'
+          : 'This verification is being reconciled. Please do not submit it again.',
+        reference: debit.reference,
+        transactionId: debit.transaction.id,
+        balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo)
+      };
+    }
     if (Date.now() - debit.transaction.createdAt.getTime() < VERIFICATION_REPLAY_GRACE_MS) {
       throw new ApiError(409, 'This verification request is still being submitted. Wait for its original response before retrying.', 'VERIFICATION_REQUEST_IN_PROGRESS');
     }
@@ -587,12 +631,13 @@ async function purchaseSlip(params: {
     return { status: false, message, reference: debit.reference, transactionId: debit.transaction.id, balanceAfter: koboToNaira(balanceAfterKobo) };
   }
 
+  const settle = async (): Promise<SlipPurchaseResult> => {
   const hubbuReconciliationRef = `HUBBU-RECONCILE-${debit.reference}`;
   if (primaryProvider === 'hubbu') {
     const existingMetadata = debit.transaction.metadata as Record<string, unknown> | null;
     await prisma.transaction.update({ where: { id: debit.transaction.id }, data: {
       provider: 'hubbu', providerRef: hubbuReconciliationRef,
-      metadata: { service: params.service, ...params.operational, unit_price: price.unitPrice, hubbu_submission_state: 'submitting', ...(hubbuHash ? { hubbu_request_hash: hubbuHash } : {}), pii: existingMetadata?.pii ?? sealPII(params.pii) } as Prisma.InputJsonValue
+      metadata: { service: params.service, ...params.operational, unit_price: price.unitPrice, ...(params.background ? { slip_processing: 'running' } : {}), hubbu_submission_state: 'submitting', ...(hubbuHash ? { hubbu_request_hash: hubbuHash } : {}), pii: existingMetadata?.pii ?? sealPII(params.pii) } as Prisma.InputJsonValue
     } });
   }
 
@@ -604,6 +649,7 @@ async function purchaseSlip(params: {
       succeeded: (response) => typeof response === 'object' && response !== null && 'ok' in response && response.ok === true
     });
   } catch (error) {
+    if (params.background) throw error;
     const message = error instanceof Error ? error.message : 'The provider could not complete the request.';
     const previous = debit.transaction.metadata as Record<string, unknown> | null;
     const balanceAfterKobo = await failSlipAndRefund({ transactionId: debit.transaction.id, userId: params.userId, provider: primaryProvider, message, metadata: previous, raw: { error: message } });
@@ -611,7 +657,31 @@ async function purchaseSlip(params: {
   }
 
   if (result.pending) {
-    result = { ...result, ok: false, pending: false, message: result.message || 'The provider did not return a completed verification result. Your payment has been refunded.' };
+    const message = result.message || 'The provider accepted the request but has not confirmed the result yet.';
+    const metadata = (debit.transaction.metadata as Record<string, unknown> | null) ?? {};
+    await prisma.transaction.update({
+      where: { id: debit.transaction.id },
+      data: {
+        provider: actualProvider,
+        providerRef: result.providerRef ?? null,
+        metadata: { ...metadata, slip_processing: 'unknown', provider_outcome: 'unknown' } as Prisma.InputJsonValue
+      }
+    });
+    await flagPendingReconciliation({
+      transactionId: debit.transaction.id,
+      provider: actualProvider,
+      providerRef: result.providerRef,
+      providerMessage: message,
+      rawStatus: result.raw
+    });
+    return {
+      status: false,
+      pending: true,
+      message: 'The provider has not confirmed this request. It has been sent for review; please do not submit it again.',
+      reference: debit.reference,
+      transactionId: debit.transaction.id,
+      balanceAfter: debit.balanceAfter
+    };
   }
 
   const noRecord = !result.ok && /\b(?:no\s+record\s+found|record\s+not\s+found|no\s+match\s+found|data\s+not\s+found)\b/i.test(result.message);
@@ -653,6 +723,7 @@ async function purchaseSlip(params: {
       service: params.service,
       ...params.operational,
       unit_price: price.unitPrice,
+      ...(params.background ? { slip_processing: 'completed' } : {}),
       pii: mergeSealedPII(existingMetadata?.pii, {
         ...params.pii,
         user_data: result.userData,
@@ -750,6 +821,7 @@ async function purchaseSlip(params: {
         service: params.service,
         ...params.operational,
         unit_price: price.unitPrice,
+        ...(params.background ? { slip_processing: 'failed' } : {}),
         failure_reason: failureReason,
         pii: mergeSealedPII(existingMetadata?.pii, {
           ...params.pii,
@@ -769,6 +841,94 @@ async function purchaseSlip(params: {
     transactionId: debit.transaction.id,
     balanceAfter: koboToNaira(refunded.balanceAfterKobo)
   };
+  };
+
+  if (!params.background) return settle();
+  void settle().catch((error) => settleUnexpectedSlipFailure({
+    transactionId: debit.transaction.id,
+    userId: params.userId,
+    provider: primaryProvider,
+    reference: debit.reference,
+    error
+  }));
+  return {
+    status: false,
+    pending: true,
+    processing: true,
+    message: 'Verification is being processed. Please wait for the result.',
+    reference: debit.reference,
+    transactionId: debit.transaction.id,
+    balanceAfter: debit.balanceAfter
+  };
+}
+
+async function settleUnexpectedSlipFailure(params: { transactionId: string; userId: string; provider: VerificationProvider; reference: string; error: unknown }) {
+  console.error('[verification] background slip processing failed', params.reference, params.error);
+  try {
+    const transaction = await prisma.transaction.findUnique({ where: { id: params.transactionId } });
+    if (!transaction || transaction.status !== TransactionStatus.PENDING) return;
+    const metadata = (transaction.metadata as Record<string, unknown> | null) ?? {};
+    if (params.error instanceof ApiError && /NOT_CONFIGURED$/.test(params.error.code ?? '')) {
+      const message = 'The verification provider is not configured. Your payment has been refunded.';
+      await failSlipAndRefund({ transactionId: params.transactionId, userId: params.userId, provider: params.provider, message, metadata });
+      return;
+    }
+    const message = 'We could not confirm whether the provider completed this request. It needs manual reconciliation.';
+    await prisma.transaction.update({
+      where: { id: params.transactionId },
+      data: { provider: params.provider, metadata: { ...metadata, slip_processing: 'unknown', provider_outcome: 'unknown' } as Prisma.InputJsonValue }
+    });
+    await flagPendingReconciliation({ transactionId: params.transactionId, provider: params.provider, providerMessage: message });
+  } catch (error) {
+    console.error('[verification] could not record background slip failure', params.reference, error);
+  }
+}
+
+export type SlipStatusResult =
+  | { state: 'processing' }
+  | { state: 'review'; message: string }
+  | { state: 'success'; reference: string; transactionId: string; userData?: Record<string, unknown>; documentAvailable: boolean }
+  | { state: 'failed'; message: string };
+
+export async function getSlipStatus(params: { userId: string; reference: string }): Promise<SlipStatusResult> {
+  const transaction = await prisma.transaction.findFirst({
+    where: {
+      userId: params.userId,
+      reference: params.reference,
+      type: { in: [TransactionType.NIN_VERIFICATION, TransactionType.BVN_VERIFICATION] }
+    }
+  });
+  if (!transaction) throw new ApiError(404, 'Verification request not found.', 'TRANSACTION_NOT_FOUND');
+
+  const metadata = transaction.metadata as Record<string, unknown> | null;
+  if (transaction.status === TransactionStatus.PENDING) {
+    if (metadata?.slip_processing === 'unknown' || metadata?.reconciliation) {
+      return {
+        state: 'review',
+        message: 'We could not confirm the provider result yet. Our team has been alerted; please do not submit this request again.'
+      };
+    }
+    return { state: 'processing' };
+  }
+  if (transaction.status === TransactionStatus.SUCCESS) {
+    const pii = openPII<{ user_data?: Record<string, unknown>; pdf_base64?: string; pdf_url?: string; hubbu_download_token?: string }>(metadata?.pii);
+    return {
+      state: 'success',
+      reference: transaction.reference,
+      transactionId: transaction.id,
+      userData: pii?.user_data,
+      documentAvailable: Boolean(pii?.pdf_base64 || pii?.pdf_url || pii?.hubbu_download_token)
+    };
+  }
+  const fulfillment = metadata?.fulfillment && typeof metadata.fulfillment === 'object'
+    ? metadata.fulfillment as Record<string, unknown>
+    : null;
+  const message = typeof metadata?.failure_reason === 'string'
+    ? metadata.failure_reason
+    : typeof fulfillment?.message === 'string'
+      ? fulfillment.message
+      : 'The verification could not be completed. Your payment has been refunded.';
+  return { state: 'failed', message };
 }
 
 const NIN_SLIP_SERVICE_BY_TIER: Record<TechhubSlipTier, VerificationServiceKey> = {
@@ -826,7 +986,9 @@ const BVN_SLIP_SERVICE_BY_TIER: Record<TechhubBvnTier, VerificationServiceKey> =
   standard: 'BVN_SLIP_STANDARD'
 };
 
-export function purchaseNinByNin(params: { userId: string; nin: string; tier: NinSlipChoice; idempotencyKey?: string }) {
+type SlipRequestOptions = { idempotencyKey?: string; background?: boolean };
+
+export function purchaseNinByNin(params: { userId: string; nin: string; tier: NinSlipChoice } & SlipRequestOptions) {
   return purchaseSlip({
     userId: params.userId,
     service: params.tier === 'personal' ? 'NIN_PERSONAL_INFO_SLIP' : NIN_SLIP_SERVICE_BY_TIER[params.tier],
@@ -835,6 +997,7 @@ export function purchaseNinByNin(params: { userId: string; nin: string; tier: Ni
     operational: { mode: 'by_nin', tier: params.tier },
     pii: { nin: params.nin },
     idempotencyKey: params.idempotencyKey,
+    background: params.background,
     // FranceVerified's /nin/verify/nin has no premium/standard/regular/vnin
     // concept of its own - whichever tier's ServicePricing row is pointed at
     // franceverified calls the same underlying endpoint, and the tier picks
@@ -894,7 +1057,7 @@ const NIN_VERIFICATION_V4_SERVICE_BY_TIER: Record<NinSlipChoice, VerificationSer
   regular: 'NIN_VERIFICATION_V4_REGULAR', vnin: 'NIN_VERIFICATION_V4_VNIN', personal: 'NIN_VERIFICATION_V4_PERSONAL'
 };
 
-export function purchaseNinVerificationV1(params: { userId: string; nin: string; tier: NinSlipChoice; idempotencyKey?: string }) {
+export function purchaseNinVerificationV1(params: { userId: string; nin: string; tier: NinSlipChoice } & SlipRequestOptions) {
   return purchaseSlip({
     userId: params.userId,
     service: NIN_VERIFICATION_V1_SERVICE_BY_TIER[params.tier],
@@ -903,6 +1066,7 @@ export function purchaseNinVerificationV1(params: { userId: string; nin: string;
     operational: { mode: 'by_nin', tier: params.tier },
     pii: { nin: params.nin },
     idempotencyKey: params.idempotencyKey,
+    background: params.background,
     providerOverride: 'techhub',
     callByProvider: {
       techhub: () => params.tier === 'personal'
@@ -914,7 +1078,7 @@ export function purchaseNinVerificationV1(params: { userId: string; nin: string;
 }
 
 /** V2 uses AbjikTech; FranceVerified moved to V3. */
-export function purchaseNinVerificationV2(params: { userId: string; nin: string; tier: NinSlipChoice; idempotencyKey?: string }) {
+export function purchaseNinVerificationV2(params: { userId: string; nin: string; tier: NinSlipChoice } & SlipRequestOptions) {
   return purchaseSlip({
     userId: params.userId,
     service: NIN_VERIFICATION_V2_SERVICE_BY_TIER[params.tier],
@@ -923,6 +1087,7 @@ export function purchaseNinVerificationV2(params: { userId: string; nin: string;
     operational: { mode: 'by_nin', tier: params.tier },
     pii: { nin: params.nin },
     idempotencyKey: params.idempotencyKey,
+    background: params.background,
     providerOverride: 'abjiktech',
     callByProvider: {
       abjiktech: () => abjikTechService.ninByNin(params.nin, params.tier === 'personal' ? 'regular' : params.tier, params.tier === 'personal')
@@ -931,24 +1096,24 @@ export function purchaseNinVerificationV2(params: { userId: string; nin: string;
 }
 
 /** V3 retains FranceVerified tiers, including its smart/portrait layouts. */
-export function purchaseNinVerificationV3(params: { userId: string; nin: string; tier: NinV3SlipChoice; idempotencyKey?: string }) {
+export function purchaseNinVerificationV3(params: { userId: string; nin: string; tier: NinV3SlipChoice } & SlipRequestOptions) {
   return purchaseSlip({
     userId: params.userId, service: NIN_VERIFICATION_V3_SERVICE_BY_TIER[params.tier],
     transactionType: TransactionType.NIN_VERIFICATION,
     description: `NIN Verification (V3 - FranceVerified, ${params.tier})`,
-    operational: { mode: 'by_nin', tier: params.tier }, pii: { nin: params.nin }, idempotencyKey: params.idempotencyKey,
+    operational: { mode: 'by_nin', tier: params.tier }, pii: { nin: params.nin }, idempotencyKey: params.idempotencyKey, background: params.background,
     providerOverride: 'franceverified',
     callByProvider: { franceverified: () => franceverifiedSlipAdapter.ninByNin(params.nin, franceSlipTier(params.tier), params.tier === 'personal') }
   });
 }
 
 /** V4 routes synchronous NIN lookups to Hubbu. */
-export function purchaseNinVerificationV4(params: { userId: string; nin: string; tier: NinSlipChoice; idempotencyKey?: string }) {
+export function purchaseNinVerificationV4(params: { userId: string; nin: string; tier: NinSlipChoice } & SlipRequestOptions) {
   return purchaseSlip({
     userId: params.userId, service: NIN_VERIFICATION_V4_SERVICE_BY_TIER[params.tier],
     transactionType: TransactionType.NIN_VERIFICATION,
     description: `NIN Verification (V4 - Hubbu, ${params.tier})`,
-    operational: { mode: 'by_nin', tier: params.tier }, pii: { nin: params.nin }, idempotencyKey: params.idempotencyKey,
+    operational: { mode: 'by_nin', tier: params.tier }, pii: { nin: params.nin }, idempotencyKey: params.idempotencyKey, background: params.background,
     providerOverride: 'hubbu',
     callByProvider: { hubbu: () => hubbuService.verifyNin({ method: 'nin', nin: params.nin, slip_type: params.tier === 'personal' ? 'standard' : params.tier }) }
   });
@@ -958,8 +1123,7 @@ export function purchaseNinByPhone(params: {
   userId: string;
   phone: string;
   tier: NinPhoneSlipChoice;
-  idempotencyKey?: string;
-}) {
+} & SlipRequestOptions) {
   return purchaseSlip({
     userId: params.userId,
     service: params.tier === 'personal' ? 'NIN_PHONE_PERSONAL_INFO_SLIP' : NIN_PHONE_SLIP_SERVICE_BY_TIER[params.tier],
@@ -968,6 +1132,7 @@ export function purchaseNinByPhone(params: {
     operational: { mode: 'by_phone', tier: params.tier },
     pii: { phone: params.phone },
     idempotencyKey: params.idempotencyKey,
+    background: params.background,
     callByProvider: {
       techhub: () => params.tier === 'personal' ? techhubService.ninPersonalInfoByPhone(params.phone) : techhubService.ninByPhone(params.phone, params.tier),
       abjiktech: () => abjikTechService.ninByPhone(params.phone, params.tier === 'personal' ? 'regular' : params.tier, params.tier === 'personal'),
@@ -985,7 +1150,7 @@ export function purchaseNinByPhone(params: {
  * whichever provider the admin last configured for the generic
  * NIN_PHONE_SLIP_* service above.
  */
-export function purchaseNinByPhoneV1(params: { userId: string; phone: string; tier: NinPhoneSlipChoice; idempotencyKey?: string }) {
+export function purchaseNinByPhoneV1(params: { userId: string; phone: string; tier: NinPhoneSlipChoice } & SlipRequestOptions) {
   return purchaseSlip({
     userId: params.userId,
     service: NIN_PHONE_SLIP_V1_SERVICE_BY_TIER[params.tier],
@@ -994,6 +1159,7 @@ export function purchaseNinByPhoneV1(params: { userId: string; phone: string; ti
     operational: { mode: 'by_phone', tier: params.tier },
     pii: { phone: params.phone },
     idempotencyKey: params.idempotencyKey,
+    background: params.background,
     providerOverride: 'techhub',
     callByProvider: {
       techhub: () => params.tier === 'personal' ? techhubService.ninPersonalInfoByPhone(params.phone) : techhubService.ninByPhone(params.phone, params.tier),
@@ -1002,7 +1168,7 @@ export function purchaseNinByPhoneV1(params: { userId: string; phone: string; ti
   });
 }
 
-export function purchaseNinByPhoneV2(params: { userId: string; phone: string; tier: NinPhoneSlipChoice; idempotencyKey?: string }) {
+export function purchaseNinByPhoneV2(params: { userId: string; phone: string; tier: NinPhoneSlipChoice } & SlipRequestOptions) {
   return purchaseSlip({
     userId: params.userId,
     service: NIN_PHONE_SLIP_V2_SERVICE_BY_TIER[params.tier],
@@ -1011,6 +1177,7 @@ export function purchaseNinByPhoneV2(params: { userId: string; phone: string; ti
     operational: { mode: 'by_phone', tier: params.tier },
     pii: { phone: params.phone },
     idempotencyKey: params.idempotencyKey,
+    background: params.background,
     providerOverride: 'abjiktech',
     callByProvider: {
       abjiktech: () => abjikTechService.ninByPhone(params.phone, params.tier === 'personal' ? 'regular' : params.tier, params.tier === 'personal')
@@ -1018,20 +1185,20 @@ export function purchaseNinByPhoneV2(params: { userId: string; phone: string; ti
   });
 }
 
-export function purchaseNinByPhoneV3(params: { userId: string; phone: string; tier: NinPhoneSlipChoice; idempotencyKey?: string }) {
+export function purchaseNinByPhoneV3(params: { userId: string; phone: string; tier: NinPhoneSlipChoice } & SlipRequestOptions) {
   return purchaseSlip({
     userId: params.userId, service: NIN_PHONE_SLIP_V3_SERVICE_BY_TIER[params.tier], transactionType: TransactionType.NIN_VERIFICATION,
     description: `NIN slip (V3 - FranceVerified, ${params.tier}) by Phone`, operational: { mode: 'by_phone', tier: params.tier },
-    pii: { phone: params.phone }, idempotencyKey: params.idempotencyKey, providerOverride: 'franceverified',
+    pii: { phone: params.phone }, idempotencyKey: params.idempotencyKey, background: params.background, providerOverride: 'franceverified',
     callByProvider: { franceverified: () => franceverifiedSlipAdapter.ninByPhone(params.phone, franceSlipTier(params.tier), params.tier === 'personal') }
   });
 }
 
-export function purchaseNinByPhoneV4(params: { userId: string; phone: string; tier: NinPhoneSlipChoice; idempotencyKey?: string }) {
+export function purchaseNinByPhoneV4(params: { userId: string; phone: string; tier: NinPhoneSlipChoice } & SlipRequestOptions) {
   return purchaseSlip({
     userId: params.userId, service: NIN_PHONE_SLIP_V4_SERVICE_BY_TIER[params.tier], transactionType: TransactionType.NIN_VERIFICATION,
     description: `NIN slip (V4 - Hubbu, ${params.tier}) by Phone`, operational: { mode: 'by_phone', tier: params.tier },
-    pii: { phone: params.phone }, idempotencyKey: params.idempotencyKey, providerOverride: 'hubbu',
+    pii: { phone: params.phone }, idempotencyKey: params.idempotencyKey, background: params.background, providerOverride: 'hubbu',
     callByProvider: { hubbu: () => hubbuService.verifyNin({ method: 'phone', phone: params.phone, slip_type: params.tier === 'personal' ? 'standard' : params.tier }) }
   });
 }
@@ -1042,8 +1209,7 @@ export function purchaseNinByDemographic(params: {
   lastname: string;
   dob: string;
   gender?: string;
-  idempotencyKey?: string;
-}) {
+} & SlipRequestOptions) {
   return purchaseSlip({
     userId: params.userId,
     service: 'NIN_DEMOGRAPHIC',
@@ -1057,6 +1223,7 @@ export function purchaseNinByDemographic(params: {
       gender: params.gender
     },
     idempotencyKey: params.idempotencyKey,
+    background: params.background,
     callByProvider: {
       techhub: () =>
         techhubService.ninByDemographic({
@@ -1079,7 +1246,7 @@ export function purchaseNinByDemographic(params: {
 }
 
 /** "NIN by Demographic V1"/"V2" - same user-picked-provider pattern as above. */
-export function purchaseNinByDemographicV1(params: { userId: string; firstname: string; lastname: string; dob: string; gender?: string; idempotencyKey?: string }) {
+export function purchaseNinByDemographicV1(params: { userId: string; firstname: string; lastname: string; dob: string; gender?: string } & SlipRequestOptions) {
   return purchaseSlip({
     userId: params.userId,
     service: 'NIN_DEMOGRAPHIC_V1',
@@ -1088,6 +1255,7 @@ export function purchaseNinByDemographicV1(params: { userId: string; firstname: 
     operational: { mode: 'by_demographic' },
     pii: { firstname: params.firstname, lastname: params.lastname, dob: params.dob, gender: params.gender },
     idempotencyKey: params.idempotencyKey,
+    background: params.background,
     providerOverride: 'techhub',
     callByProvider: {
       techhub: () =>
@@ -1101,7 +1269,7 @@ export function purchaseNinByDemographicV1(params: { userId: string; firstname: 
   });
 }
 
-export function purchaseNinByDemographicV2(params: { userId: string; firstname: string; lastname: string; dob: string; gender?: string; idempotencyKey?: string }) {
+export function purchaseNinByDemographicV2(params: { userId: string; firstname: string; lastname: string; dob: string; gender?: string } & SlipRequestOptions) {
   return purchaseSlip({
     userId: params.userId,
     service: 'NIN_DEMOGRAPHIC_V2',
@@ -1110,6 +1278,7 @@ export function purchaseNinByDemographicV2(params: { userId: string; firstname: 
     operational: { mode: 'by_demographic' },
     pii: { firstname: params.firstname, lastname: params.lastname, dob: params.dob, gender: params.gender },
     idempotencyKey: params.idempotencyKey,
+    background: params.background,
     providerOverride: 'abjiktech',
     callByProvider: {
       abjiktech: () => abjikTechService.ninByDemographic({ firstname: params.firstname, lastname: params.lastname, dob: params.dob, gender: params.gender })
@@ -1117,27 +1286,27 @@ export function purchaseNinByDemographicV2(params: { userId: string; firstname: 
   });
 }
 
-export function purchaseNinByDemographicV3(params: { userId: string; firstname: string; lastname: string; dob: string; gender?: string; idempotencyKey?: string }) {
+export function purchaseNinByDemographicV3(params: { userId: string; firstname: string; lastname: string; dob: string; gender?: string } & SlipRequestOptions) {
   return purchaseSlip({
     userId: params.userId, service: 'NIN_DEMOGRAPHIC_V3', transactionType: TransactionType.NIN_VERIFICATION,
     description: 'NIN slip by demographic details (V3 - FranceVerified)', operational: { mode: 'by_demographic' },
-    pii: { firstname: params.firstname, lastname: params.lastname, dob: params.dob, gender: params.gender }, idempotencyKey: params.idempotencyKey,
+    pii: { firstname: params.firstname, lastname: params.lastname, dob: params.dob, gender: params.gender }, idempotencyKey: params.idempotencyKey, background: params.background,
     providerOverride: 'franceverified',
     callByProvider: { franceverified: () => franceverifiedSlipAdapter.ninByDemographic({ firstname: params.firstname, lastname: params.lastname, dob: params.dob, gender: params.gender }) }
   });
 }
 
-export function purchaseNinByDemographicV4(params: { userId: string; firstname: string; lastname: string; dob: string; gender?: string; idempotencyKey?: string }) {
+export function purchaseNinByDemographicV4(params: { userId: string; firstname: string; lastname: string; dob: string; gender?: string } & SlipRequestOptions) {
   return purchaseSlip({
     userId: params.userId, service: 'NIN_DEMOGRAPHIC_V4', transactionType: TransactionType.NIN_VERIFICATION,
     description: 'NIN slip by demographic details (V4 - Hubbu)', operational: { mode: 'by_demographic' },
-    pii: { firstname: params.firstname, lastname: params.lastname, dob: params.dob, gender: params.gender }, idempotencyKey: params.idempotencyKey,
+    pii: { firstname: params.firstname, lastname: params.lastname, dob: params.dob, gender: params.gender }, idempotencyKey: params.idempotencyKey, background: params.background,
     providerOverride: 'hubbu',
     callByProvider: { hubbu: () => hubbuService.verifyNin({ method: 'demo', first_name: params.firstname, last_name: params.lastname, dob: params.dob, gender: params.gender }) }
   });
 }
 
-export function purchaseBvnSlip(params: { userId: string; bvn: string; tier: TechhubBvnTier; idempotencyKey?: string }) {
+export function purchaseBvnSlip(params: { userId: string; bvn: string; tier: TechhubBvnTier } & SlipRequestOptions) {
   return purchaseSlip({
     userId: params.userId,
     service: BVN_SLIP_SERVICE_BY_TIER[params.tier],
@@ -1146,6 +1315,7 @@ export function purchaseBvnSlip(params: { userId: string; bvn: string; tier: Tec
     operational: { tier: params.tier },
     pii: { bvn: params.bvn },
     idempotencyKey: params.idempotencyKey,
+    background: params.background,
     callByProvider: {
       techhub: () => techhubService.bvnSlip(params.bvn, params.tier),
       abjiktech: () => abjikTechService.bvnSlip(params.bvn, params.tier),
