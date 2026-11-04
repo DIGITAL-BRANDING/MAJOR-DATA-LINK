@@ -13,8 +13,8 @@ import { enqueuePartnerRequestUpdateWebhook, deliverDuePartnerWebhooks } from '.
  * excluded on purpose - that has its own dedicated review flow with
  * different semantics (crediting money in, not delivering a service).
  * IDENTITY_SERVICE_REQUEST/NIN_VERIFICATION/BVN_VERIFICATION are also
- * excluded from this list because only the ones explicitly routed to the
- * manual provider are actionable by an admin (see
+ * excluded from this list because only manual requests and explicitly
+ * manual-dispatched identity tickets are actionable by an admin (see
  * isAdminManageablePartnerRequest below).
  */
 export const MANUAL_SERVICE_TRANSACTION_TYPES: TransactionType[] = [
@@ -34,10 +34,15 @@ const MANUAL_VERIFICATION_TYPES: TransactionType[] = [
   TransactionType.BVN_VERIFICATION
 ];
 
-/** Requests which can be fulfilled by an admin, including a provider that was deliberately routed to manual. */
-export function isAdminManageablePartnerRequest(transaction: { type: TransactionType; provider?: string | null }) {
-  return MANUAL_SERVICE_TRANSACTION_TYPES.includes(transaction.type) ||
-    (MANUAL_VERIFICATION_TYPES.includes(transaction.type) && transaction.provider === 'manual');
+/** Requests an admin may complete directly, including explicitly dispatched manual tickets. */
+export function isAdminManageablePartnerRequest(transaction: { type: TransactionType; provider?: string | null; metadata?: unknown }) {
+  if (MANUAL_SERVICE_TRANSACTION_TYPES.includes(transaction.type)) return true;
+  if (MANUAL_VERIFICATION_TYPES.includes(transaction.type) && transaction.provider === 'manual') return true;
+  if (transaction.type !== TransactionType.IDENTITY_SERVICE_REQUEST || !['techhub', 'abjiktech', 'franceverified'].includes(transaction.provider ?? '')) return false;
+
+  const metadata = transaction.metadata as Record<string, unknown> | null | undefined;
+  const dispatch = metadata?.manual_dispatch as Record<string, unknown> | undefined;
+  return dispatch?.status === 'submitted';
 }
 
 export function decryptPartnerManualPII(transaction: { metadata: unknown }) {
