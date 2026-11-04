@@ -17,7 +17,7 @@ import {
   type TechhubAsyncStatusResult
 } from './techhub.service.js';
 import { franceverifiedSlipAdapter } from './franceverified-slip-adapter.service.js';
-import { abjikTechService } from './abjiktech.service.js';
+import { abjikTechService, abjikTicketService } from './abjiktech.service.js';
 import type { IdentitySlipTier } from '../lib/render-identity-slip-pdf.js';
 import { submitNinValidationFV, checkNinValidationFV } from './franceverified-nin-validation-adapter.service.js';
 import { checkIpeClearanceFV, submitIpeClearanceFV } from './franceverified-ipe-adapter.service.js';
@@ -1668,6 +1668,7 @@ export function checkNinValidationStatus(params: { userId: string; ticketId: str
     ticketId: params.ticketId,
     callByProvider: {
       techhub: (id) => techhubService.checkNinValidation(id),
+      abjiktech: (id) => abjikTicketService.checkNinValidation(id),
       franceverified: (id) => checkNinValidationFV(id)
     }
   });
@@ -1691,7 +1692,7 @@ export function checkPersonalizationStatus(params: { userId: string; ticketId: s
   return checkAsyncServiceStatus({
     userId: params.userId,
     ticketId: params.ticketId,
-    callByProvider: { techhub: (id) => techhubService.checkPersonalization(id), hubbu: hubbuPendingStatus }
+    callByProvider: { techhub: (id) => techhubService.checkPersonalization(id), abjiktech: (id) => abjikTicketService.checkPersonalization(id), hubbu: hubbuPendingStatus }
   });
 }
 
@@ -1752,7 +1753,7 @@ export function checkIpeClearanceStatus(params: { userId: string; ticketId: stri
   return checkAsyncServiceStatus({
     userId: params.userId,
     ticketId: params.ticketId,
-    callByProvider: { techhub: (id) => techhubService.checkIpeClearance(id), franceverified: (id) => checkIpeClearanceFV(id), hubbu: hubbuPendingStatus }
+    callByProvider: { techhub: (id) => techhubService.checkIpeClearance(id), abjiktech: (id) => abjikTicketService.checkIpeClearance(id), franceverified: (id) => checkIpeClearanceFV(id), hubbu: hubbuPendingStatus }
   });
 }
 

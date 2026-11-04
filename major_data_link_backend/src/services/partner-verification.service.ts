@@ -4,7 +4,7 @@ import { mergeSealedPII, openPII, sealPII } from '../lib/pii.js';
 import { getVerificationPrice, type IpeClearanceType, type VerificationServiceKey, type VerificationProvider } from './verification.service.js';
 import { techhubService, type TechhubBvnTier, type TechhubSlipTier } from './techhub.service.js';
 import { franceverifiedSlipAdapter } from './franceverified-slip-adapter.service.js';
-import { abjikTechService } from './abjiktech.service.js';
+import { abjikTechService, abjikTicketService } from './abjiktech.service.js';
 import { submitNinValidationFV, checkNinValidationFV } from './franceverified-nin-validation-adapter.service.js';
 import { checkIpeClearanceFV, submitIpeClearanceFV } from './franceverified-ipe-adapter.service.js';
 import { completePartnerPurchase, debitPartnerWallet, reversePartnerPurchase } from './partner-wallet.service.js';
@@ -224,13 +224,14 @@ export async function reconcilePendingPartnerVerificationTickets(limit = 5) {
   const transactions = await prisma.partnerTransaction.findMany({
     where: {
       status: TransactionStatus.PENDING,
-      provider: { in: ['techhub', 'franceverified'] },
+      provider: { in: ['techhub', 'abjiktech', 'franceverified'] },
       type: TransactionType.IDENTITY_SERVICE_REQUEST,
       providerRef: { not: null },
       NOT: { metadata: { path: ['provider_outcome'], equals: 'unconfirmed' } },
       OR: [
         { provider: 'franceverified', updatedAt: { lte: new Date(now - FRANCEVERIFIED_STATUS_POLL_INTERVAL_MS) } },
-        { provider: 'techhub', updatedAt: { lte: new Date(now - TECHHUB_STATUS_POLL_INTERVAL_MS) } }
+        { provider: 'techhub', updatedAt: { lte: new Date(now - TECHHUB_STATUS_POLL_INTERVAL_MS) } },
+        { provider: 'abjiktech', updatedAt: { lte: new Date(now - TECHHUB_STATUS_POLL_INTERVAL_MS) } }
       ]
     },
     orderBy: { updatedAt: 'asc' }, take: limit
@@ -240,11 +241,11 @@ export async function reconcilePendingPartnerVerificationTickets(limit = 5) {
     const service = metadata?.service;
     const ticketId = transaction.providerRef!;
     if (service === 'NIN_PERSONALIZATION') {
-      await checkPartnerAsync({ partnerId: transaction.partnerId, ticketId, callByProvider: { techhub: (id: string) => techhubService.checkPersonalization(id) } });
+      await checkPartnerAsync({ partnerId: transaction.partnerId, ticketId, callByProvider: { techhub: (id: string) => techhubService.checkPersonalization(id), abjiktech: (id: string) => abjikTicketService.checkPersonalization(id) } });
     } else if (service === 'IPE_CLEARANCE') {
-      await checkPartnerAsync({ partnerId: transaction.partnerId, ticketId, callByProvider: { techhub: (id: string) => techhubService.checkIpeClearance(id), franceverified: (id: string) => checkIpeClearanceFV(id) } });
+      await checkPartnerAsync({ partnerId: transaction.partnerId, ticketId, callByProvider: { techhub: (id: string) => techhubService.checkIpeClearance(id), abjiktech: (id: string) => abjikTicketService.checkIpeClearance(id), franceverified: (id: string) => checkIpeClearanceFV(id) } });
     } else if (typeof service === 'string' && service.startsWith('NIN_VALIDATION_')) {
-      await checkPartnerAsync({ partnerId: transaction.partnerId, ticketId, callByProvider: { techhub: (id: string) => techhubService.checkNinValidation(id), franceverified: (id: string) => checkNinValidationFV(id) } });
+      await checkPartnerAsync({ partnerId: transaction.partnerId, ticketId, callByProvider: { techhub: (id: string) => techhubService.checkNinValidation(id), abjiktech: (id: string) => abjikTicketService.checkNinValidation(id), franceverified: (id: string) => checkNinValidationFV(id) } });
     }
   }));
 }
@@ -309,8 +310,7 @@ export async function purchasePartnerSlip(params: {
     partnerId: params.partnerId, amount: price.unitPrice, type: params.type,
     description: params.description, idempotencyKey: params.idempotencyKey,
     costKobo: price.providerCostKobo,
-    metadata: { service: params.service, ...params.operational, unit_price: price.unitPrice, ...(params.background ? { slip_processing: 'running' } : {}), pii: sealPII(params.pii) } as Prisma.InputJsonValue,
-    provider: params.background ? primaryProvider : undefined
+    metadata: { service: params.service, ...params.operational, unit_price: price.unitPrice, ...(params.background ? { slip_processing: 'running' } : {}), pii: sealPII(params.pii) } as Prisma.InputJsonValue
   });
   if (debit.reused && debit.transaction.status === TransactionStatus.PENDING) {
     const metadata = debit.transaction.metadata as Record<string, unknown> | null;
@@ -333,6 +333,7 @@ export async function purchasePartnerSlip(params: {
       balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo), userData: pii?.user_data, pdfBase64: pii?.pdf_base64, pdfUrl: pii?.pdf_url };
   }
   if (params.background) {
+    await prisma.partnerTransaction.update({ where: { id: debit.transaction.id }, data: { provider: primaryProvider } });
     void settlePartnerSlip({ params, debit, price, fallbackPrice, primaryProvider, fallbackProvider });
     return { status: 'pending', processing: true, message: 'Request submitted. Check its status using the returned reference.', reference: debit.transaction.reference, balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo) };
   }
@@ -567,7 +568,7 @@ export const partnerVerification = {
     const type = validationType ?? 'nin_validation';
     return submitPartnerAsync({ partnerId, service: services[type] ?? 'NIN_VALIDATION_GENERAL', description: `NIN validation (${type})`, operational: { validation_type: type }, pii: { nin }, idempotencyKey, callByProvider: { techhub: () => techhubService.submitNinValidation(nin, validationType), franceverified: () => submitNinValidationFV(nin, validationType) } });
   },
-  checkNinValidation: (partnerId: string, ticketId: string) => checkPartnerAsync({ partnerId, ticketId, callByProvider: { techhub: (id) => techhubService.checkNinValidation(id), franceverified: (id) => checkNinValidationFV(id) } }),
+  checkNinValidation: (partnerId: string, ticketId: string) => checkPartnerAsync({ partnerId, ticketId, callByProvider: { techhub: (id) => techhubService.checkNinValidation(id), abjiktech: (id) => abjikTicketService.checkNinValidation(id), franceverified: (id) => checkNinValidationFV(id) } }),
   submitIpeClearance: (partnerId: string, trackingId: string, ipeType: IpeClearanceType, idempotencyKey: string, clientReference?: string) => submitPartnerAsync({
     partnerId,
     service: 'IPE_CLEARANCE',
@@ -578,7 +579,7 @@ export const partnerVerification = {
     partnerIpeType: ipeType,
     callByProvider: { techhub: () => techhubService.submitIpeClearance(trackingId, ipeType), franceverified: () => submitIpeClearanceFV(trackingId, ipeType) }
   }),
-  checkIpeClearance: (partnerId: string, ticketId: string) => checkPartnerAsync({ partnerId, ticketId, callByProvider: { techhub: (id) => techhubService.checkIpeClearance(id), franceverified: (id) => checkIpeClearanceFV(id) } }),
+  checkIpeClearance: (partnerId: string, ticketId: string) => checkPartnerAsync({ partnerId, ticketId, callByProvider: { techhub: (id) => techhubService.checkIpeClearance(id), abjiktech: (id) => abjikTicketService.checkIpeClearance(id), franceverified: (id) => checkIpeClearanceFV(id) } }),
   submitPersonalization: (partnerId: string, trackingId: string, idempotencyKey: string) => submitPartnerAsync({ partnerId, service: 'NIN_PERSONALIZATION', description: 'NIN personalization request', operational: {}, pii: { tracking_id: trackingId }, idempotencyKey, callByProvider: { techhub: () => techhubService.submitPersonalization(trackingId) } }),
-  checkPersonalization: (partnerId: string, ticketId: string) => checkPartnerAsync({ partnerId, ticketId, callByProvider: { techhub: (id) => techhubService.checkPersonalization(id) } })
+  checkPersonalization: (partnerId: string, ticketId: string) => checkPartnerAsync({ partnerId, ticketId, callByProvider: { techhub: (id) => techhubService.checkPersonalization(id), abjiktech: (id) => abjikTicketService.checkPersonalization(id) } })
 };

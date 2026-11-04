@@ -4,37 +4,42 @@ import { prisma } from '../lib/prisma.js';
 import { ApiError } from '../middleware/error.js';
 import { env } from '../config/env.js';
 import { techhubService } from './techhub.service.js';
+import { abjikTicketService } from './abjiktech.service.js';
 import { getVerificationPrice, type IpeClearanceType, type VerificationServiceKey } from './verification.service.js';
 import { submitNinValidationFV } from './franceverified-nin-validation-adapter.service.js';
 import { submitIpeClearanceFV } from './franceverified-ipe-adapter.service.js';
 
-export type ManualDispatchProvider = 'techhub' | 'franceverified';
+export type ManualDispatchProvider = 'techhub' | 'abjiktech' | 'franceverified';
 type Capabilities = Partial<Record<ManualDispatchProvider, true>>;
 
 const SERVICE_PROVIDERS: Record<string, Capabilities> = {
   NIN_DELINKING: { techhub: true },
   NIN_VALIDATION_GENERAL: { techhub: true, franceverified: true },
-  NIN_VALIDATION_NO_RECORD: { techhub: true, franceverified: true },
-  NIN_VALIDATION_BANK: { techhub: true, franceverified: true },
-  NIN_VALIDATION_MODIFICATION: { techhub: true, franceverified: true },
-  NIN_VALIDATION_PHOTO_ERROR: { techhub: true, franceverified: true },
+  NIN_VALIDATION_NO_RECORD: { techhub: true, abjiktech: true, franceverified: true },
+  NIN_VALIDATION_BANK: { techhub: true, abjiktech: true, franceverified: true },
+  NIN_VALIDATION_MODIFICATION: { techhub: true, abjiktech: true, franceverified: true },
+  NIN_VALIDATION_PHOTO_ERROR: { techhub: true, abjiktech: true, franceverified: true },
   NIN_VALIDATION_VNIN: { techhub: true, franceverified: true },
   NIN_VALIDATION_SIM: { techhub: true },
   NIN_VALIDATION_UPDATE_RECORDS: { techhub: true },
-  NIN_PERSONALIZATION: { techhub: true },
+  NIN_PERSONALIZATION: { techhub: true, abjiktech: true },
   BVN_RETRIEVAL: { techhub: true },
-  IPE_CLEARANCE: { techhub: true, franceverified: true }
+  IPE_CLEARANCE: { techhub: true, abjiktech: true, franceverified: true }
 };
 
 export function manualDispatchProviders(service: string): ManualDispatchProvider[] {
   const supported = SERVICE_PROVIDERS[service];
-  if (!supported) return [];
-  return (['techhub', 'franceverified'] as const).filter((provider) => supported[provider]);
+  const providers: ManualDispatchProvider[] = [];
+  if (supported?.techhub) providers.push('techhub');
+  if (supported?.abjiktech) providers.push('abjiktech');
+  if (supported?.franceverified) providers.push('franceverified');
+  return providers;
 }
 
 export function manualDispatchProviderConfigured(service: string, provider: ManualDispatchProvider): boolean {
   if (!manualDispatchProviders(service).includes(provider)) return false;
   if (provider === 'franceverified') return Boolean(env.FRANCEVERIFIED_API_KEY);
+  if (provider === 'abjiktech') return Boolean(env.ABJIKTECH_API_KEY);
   const serviceNeedsBvn = service.startsWith('BVN_');
   return Boolean(serviceNeedsBvn
     ? env.TECHHUB_BVN_API_KEY || env.TECHHUB_API_KEY
@@ -55,23 +60,32 @@ function requiredString(pii: Record<string, unknown>, key: string) {
 
 async function submitToProvider(service: string, provider: ManualDispatchProvider, metadata: Record<string, unknown>, pii: Record<string, unknown>) {
   const { validationType, ipeType } = serviceAndOperational(metadata);
-  if (!manualDispatchProviderConfigured(service, provider)) throw new ApiError(422, `${provider === 'techhub' ? 'Techhub' : 'FranceVerified'} is not configured or does not support this service.`, 'MANUAL_PROVIDER_UNAVAILABLE');
+  if (!manualDispatchProviderConfigured(service, provider)) throw new ApiError(422, `${provider === 'techhub' ? 'Techhub' : provider === 'abjiktech' ? 'AbjikTech' : 'FranceVerified'} is not configured or does not support this service.`, 'MANUAL_PROVIDER_UNAVAILABLE');
   switch (service) {
     case 'NIN_DELINKING':
       return techhubService.submitDelinking(requiredString(pii, 'nin'), requiredString(pii, 'email'));
-    case 'NIN_VALIDATION_GENERAL':
     case 'NIN_VALIDATION_NO_RECORD':
-    case 'NIN_VALIDATION_SIM':
     case 'NIN_VALIDATION_BANK':
-    case 'NIN_VALIDATION_UPDATE_RECORDS':
     case 'NIN_VALIDATION_MODIFICATION':
     case 'NIN_VALIDATION_PHOTO_ERROR':
+      if (provider === 'abjiktech') {
+        const errorType = service === 'NIN_VALIDATION_NO_RECORD' ? 'no_record'
+          : service === 'NIN_VALIDATION_BANK' ? 'simbank_validation'
+            : service === 'NIN_VALIDATION_MODIFICATION' ? 'modification' : 'photo_error';
+        return abjikTicketService.submitNinValidation(requiredString(pii, 'nin'), errorType);
+      }
+      return provider === 'franceverified'
+        ? submitNinValidationFV(requiredString(pii, 'nin'), validationType)
+        : techhubService.submitNinValidation(requiredString(pii, 'nin'), validationType);
+    case 'NIN_VALIDATION_GENERAL':
+    case 'NIN_VALIDATION_SIM':
+    case 'NIN_VALIDATION_UPDATE_RECORDS':
     case 'NIN_VALIDATION_VNIN':
       return provider === 'franceverified'
         ? submitNinValidationFV(requiredString(pii, 'nin'), validationType)
         : techhubService.submitNinValidation(requiredString(pii, 'nin'), validationType);
     case 'NIN_PERSONALIZATION':
-      return techhubService.submitPersonalization(requiredString(pii, 'tracking_id'));
+      return provider === 'abjiktech' ? abjikTicketService.submitPersonalization(requiredString(pii, 'tracking_id')) : techhubService.submitPersonalization(requiredString(pii, 'tracking_id'));
     case 'BVN_RETRIEVAL':
       return techhubService.submitBvnRetrieval({
         first_name: requiredString(pii, 'first_name'),
@@ -79,7 +93,9 @@ async function submitToProvider(service: string, provider: ManualDispatchProvide
         phone_number: requiredString(pii, 'phone_number')
       });
     case 'IPE_CLEARANCE':
-      return provider === 'franceverified'
+      return provider === 'abjiktech'
+        ? abjikTicketService.submitIpeClearance(requiredString(pii, 'tracking_id'))
+        : provider === 'franceverified'
         ? submitIpeClearanceFV(requiredString(pii, 'tracking_id'), ipeType)
         : techhubService.submitIpeClearance(requiredString(pii, 'tracking_id'), ipeType);
     default:
@@ -118,6 +134,7 @@ async function claimManualDispatch(params: { source: 'customer' | 'partner'; id:
     const result = await submitToProvider(service, params.provider, metadata, pii);
     accepted = result.ok || result.accepted === true;
     if (!result.ok || !result.ticketId) throw new ApiError(502, result.message || 'The provider did not accept this request.', 'MANUAL_PROVIDER_SUBMIT_FAILED');
+    const abjikTransactionId = 'transactionId' in result && typeof result.transactionId === 'string' ? result.transactionId : undefined;
     const history = Array.isArray(metadata.manual_dispatch_history) ? metadata.manual_dispatch_history : [];
     const updatedMetadata = {
       ...metadata,
@@ -125,7 +142,7 @@ async function claimManualDispatch(params: { source: 'customer' | 'partner'; id:
       manual_processing: false,
       manual_dispatch: { provider: params.provider, status: 'submitted', started_at: startedAt, submitted_at: new Date().toISOString() },
       manual_dispatch_history: [...history, { provider: params.provider, status: 'submitted', ticket_id: result.ticketId, started_at: startedAt, submitted_at: new Date().toISOString() }],
-      pii: mergeSealedPII(metadata.pii, { submit_raw: result.raw })
+      pii: mergeSealedPII(metadata.pii, { submit_raw: result.raw, ...(abjikTransactionId ? { abjik_transaction_id: abjikTransactionId } : {}) })
     } as Prisma.InputJsonValue;
     if (isPartner) {
       await prisma.partnerTransaction.update({ where: { id: params.id }, data: { provider: params.provider, providerRef: result.ticketId, costKobo: price.providerCostKobo, metadata: updatedMetadata } });

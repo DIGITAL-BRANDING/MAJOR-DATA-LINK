@@ -1,7 +1,7 @@
 import { env } from '../config/env.js';
 import { renderIdentitySlipPdf, renderPersonalInformationSlipPdf, type IdentitySlipField } from '../lib/render-identity-slip-pdf.js';
 import { ApiError } from '../middleware/error.js';
-import type { TechhubBvnTier, TechhubSlipResult, TechhubSlipTier } from './techhub.service.js';
+import type { TechhubAsyncStatusResult, TechhubAsyncSubmitResult, TechhubBvnTier, TechhubSlipResult, TechhubSlipTier } from './techhub.service.js';
 
 type AbjikResponse = Record<string, unknown>;
 
@@ -123,6 +123,83 @@ async function lookup(path: string, payload: Record<string, string>, options: {
   }
   return { ok: true, message: responseMessage(envelope, 'Verification completed successfully.'), userData: publicFields, pdfBase64: renderedPdf?.replace(/^data:application\/pdf;base64,/i, ''), pdfUrl, raw };
 }
+
+async function ticketRequest(path: string, payload: Record<string, string>) {
+  if (!env.ABJIKTECH_API_KEY) throw new ApiError(503, 'AbjikTech verification provider is not configured.', 'PROVIDER_NOT_CONFIGURED');
+  const base = env.ABJIKTECH_BASE_URL.endsWith('/') ? env.ABJIKTECH_BASE_URL : `${env.ABJIKTECH_BASE_URL}/`;
+  const startedAt = Date.now();
+  let response: Response;
+  try {
+    response = await fetch(new URL(path, base), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ api_key: env.ABJIKTECH_API_KEY, ...payload }),
+      signal: AbortSignal.timeout(90_000)
+    });
+  } catch (error) {
+    console.warn('[abjiktech] ticket request failed before response', JSON.stringify({ endpoint: path, duration_ms: Date.now() - startedAt, outcome: 'error' }));
+    throw new ApiError(502, error instanceof Error && error.name === 'TimeoutError' ? 'AbjikTech request timed out.' : 'Could not reach AbjikTech.', 'ABJIKTECH_CONNECTION_FAILED');
+  }
+  const raw: unknown = await response.json().catch(() => null);
+  const envelope = record(raw) ?? {};
+  const nested = record(envelope.data) ?? {};
+  const success = envelope.success === true || nested.success === true || findText(envelope, 'status')?.toLowerCase() === 'success';
+  const ticketId = findText(envelope, 'ticket_id') ?? findText(nested, 'ticket_id');
+  const transactionId = findText(envelope, 'transaction_id') ?? findText(nested, 'transaction_id');
+  console.info('[abjiktech] ticket submit', JSON.stringify({ endpoint: path, http_status: response.status, duration_ms: Date.now() - startedAt, outcome: response.ok && success ? 'accepted' : 'rejected' }));
+  const result: TechhubAsyncSubmitResult & { transactionId?: string } = {
+    ok: response.ok && success,
+    accepted: response.ok && success,
+    ...(ticketId || transactionId ? { ticketId: ticketId ?? transactionId } : {}),
+    ...(transactionId ? { transactionId } : {}),
+    message: responseMessage(envelope, success ? 'Request submitted and is pending processing.' : 'AbjikTech did not accept the request.'),
+    raw
+  };
+  return result;
+}
+
+async function ticketStatus(path: string, payload: Record<string, string>, id: string): Promise<TechhubAsyncStatusResult> {
+  if (!env.ABJIKTECH_API_KEY) throw new ApiError(503, 'AbjikTech verification provider is not configured.', 'PROVIDER_NOT_CONFIGURED');
+  const base = env.ABJIKTECH_BASE_URL.endsWith('/') ? env.ABJIKTECH_BASE_URL : `${env.ABJIKTECH_BASE_URL}/`;
+  const startedAt = Date.now();
+  const response = await fetch(new URL(path, base), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ api_key: env.ABJIKTECH_API_KEY, ...payload }),
+    signal: AbortSignal.timeout(90_000)
+  });
+  const raw: unknown = await response.json().catch(() => null);
+  const envelope = record(raw) ?? {};
+  const data = record(envelope.data) ?? {};
+  const statusText = (findText(envelope, 'status', 'state') ?? findText(data, 'status', 'state') ?? '').toLowerCase();
+  const status: TechhubAsyncStatusResult['status'] = ['completed', 'complete', 'success', 'successful', 'approved'].includes(statusText)
+    ? 'success'
+    : ['failed', 'failure', 'rejected', 'error'].includes(statusText) ? 'failed' : 'pending';
+  const responseData = record(envelope.response) ?? record(data.response) ?? data;
+  console.info('[abjiktech] ticket status', JSON.stringify({ endpoint: path, http_status: response.status, duration_ms: Date.now() - startedAt, outcome: response.ok ? status : 'unconfirmed' }));
+  return { ticketId: findText(envelope, 'ticket_id') ?? findText(data, 'ticket_id') ?? id, status: response.ok ? status : 'pending', response: responseData, raw };
+}
+
+export const abjikTicketService = {
+  submitNinValidation(nin: string, errorType: 'no_record' | 'simbank_validation' | 'modification' | 'photo_error') {
+    return ticketRequest('validation.php', { nin, error_type: errorType });
+  },
+  checkNinValidation(ticketId: string, transactionId?: string) {
+    return ticketStatus('validation_status.php', { ticket_id: transactionId ?? ticketId }, ticketId);
+  },
+  submitIpeClearance(trackingId: string) {
+    return ticketRequest('ipe_clearance.php', { trackingID: trackingId }).then((result) => ({ ...result, ticketId: trackingId }));
+  },
+  checkIpeClearance(trackingId: string) {
+    return ticketStatus('get_status.php', { trackingID: trackingId }, trackingId);
+  },
+  submitPersonalization(trackingId: string) {
+    return ticketRequest('personalization.php', { tracking_id: trackingId }).then((result) => ({ ...result, ticketId: trackingId }));
+  },
+  checkPersonalization(trackingId: string) {
+    return ticketStatus('personalization_status.php', { tracking_id: trackingId }, trackingId);
+  }
+};
 
 export const abjikTechService = {
   ninByNin(nin: string, tier: TechhubSlipTier, personalInfo = false) {
