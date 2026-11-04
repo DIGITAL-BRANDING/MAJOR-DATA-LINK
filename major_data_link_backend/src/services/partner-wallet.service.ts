@@ -98,7 +98,8 @@ export async function completePartnerPurchase(
    * of each caller needing to remember to do it separately. */
   costKobo?: bigint,
   fulfillment?: Record<string, unknown>,
-  statusMetadata?: Record<string, unknown>
+  statusMetadata?: Record<string, unknown>,
+  allowProcessing = false
 ) {
   // The provider has already completed this lookup. Persist that fact with one
   // conditional UPDATE instead of opening an interactive transaction, which
@@ -106,6 +107,9 @@ export async function completePartnerPurchase(
   let transaction: Awaited<ReturnType<typeof prisma.partnerTransaction.findUniqueOrThrow>> | undefined;
   let changed = false;
   let lastError: unknown;
+  const completableStatuses = allowProcessing
+    ? [TransactionStatus.PENDING, TransactionStatus.PROCESSING]
+    : [TransactionStatus.PENDING];
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
       const current = await prisma.partnerTransaction.findUniqueOrThrow({ where: { id: transactionId } });
@@ -113,12 +117,12 @@ export async function completePartnerPurchase(
         transaction = current;
         break;
       }
-      if (current.status !== TransactionStatus.PENDING) {
+      if (!completableStatuses.includes(current.status)) {
         throw new ApiError(409, 'This transaction has already been reversed and cannot be completed.', 'TRANSACTION_ALREADY_FINALIZED');
       }
       const existingMetadata = (current.metadata as Record<string, unknown> | null) ?? {};
       const claim = await prisma.partnerTransaction.updateMany({
-        where: { id: transactionId, status: TransactionStatus.PENDING },
+        where: { id: transactionId, status: { in: completableStatuses } },
         data: {
           status: TransactionStatus.SUCCESS,
           provider,
@@ -139,7 +143,7 @@ export async function completePartnerPurchase(
         transaction = latest;
         break;
       }
-      if (latest.status !== TransactionStatus.PENDING) {
+      if (!completableStatuses.includes(latest.status)) {
         throw new ApiError(409, 'This transaction has already been reversed and cannot be completed.', 'TRANSACTION_ALREADY_FINALIZED');
       }
     } catch (error) {

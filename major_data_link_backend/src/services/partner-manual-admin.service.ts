@@ -94,7 +94,7 @@ export async function completePartnerManualRequest(params: {
   // recorded once, here.
   // Retain the MANUAL-* ticket issued at submission so the partner's
   // completion webhook and subsequent status checks can identify this row.
-  await completePartnerPurchase(transaction.id, 'manual', transaction.providerRef ?? undefined, transaction.costKobo ?? undefined, undefined, completionMetadata);
+  await completePartnerPurchase(transaction.id, 'manual', transaction.providerRef ?? undefined, transaction.costKobo ?? undefined, undefined, completionMetadata, true);
   notifyPartnerSafely({
     partnerId: transaction.partnerId,
     type: 'TRANSACTION',
@@ -114,10 +114,14 @@ export async function markPartnerManualRequestProcessing(params: { transactionId
   if (transaction.status !== TransactionStatus.PENDING && transaction.status !== TransactionStatus.PROCESSING) {
     throw new ApiError(422, 'Only an active request can be marked processing', 'INVALID_STATUS');
   }
-  const updated = await prisma.partnerTransaction.update({
-    where: { id: transaction.id },
+  const claim = await prisma.partnerTransaction.updateMany({
+    where: { id: transaction.id, status: transaction.status },
     data: { status: TransactionStatus.PROCESSING }
   });
+  if (claim.count === 0) {
+    throw new ApiError(409, 'This request changed while you were updating it. Refresh and try again.', 'MANUAL_REQUEST_STATUS_CHANGED');
+  }
+  const updated = await prisma.partnerTransaction.findUniqueOrThrow({ where: { id: transaction.id } });
   const message = params.note?.trim() || 'Your request is now being processed.';
   const update = await prisma.partnerRequestUpdate.create({
     data: { partnerId: updated.partnerId, partnerTransactionId: updated.id, message }
