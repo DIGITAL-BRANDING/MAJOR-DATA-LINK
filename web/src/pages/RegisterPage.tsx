@@ -1,9 +1,35 @@
-import { useState, type FormEvent } from 'react';
+import { useState, type FormEvent, type ReactNode } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import {
+  ArrowLeft,
+  ArrowRight,
+  Check,
+  Eye,
+  EyeOff,
+  Fingerprint,
+  LockKeyhole,
+  Mail,
+  Phone,
+  ShieldCheck,
+  Smartphone,
+  Sparkles,
+  UserRound,
+  Wallet,
+  Wifi,
+} from 'lucide-react';
 import Logo from '../components/Logo';
 import { useAuth } from '../lib/auth';
 import { ApiError } from '../lib/api';
+import { CONTACT } from '../lib/contact';
 import { Spinner } from './LoginPage';
+import './LoginPage.css';
+import './RegisterPage.css';
+
+const REGISTER_FEATURES = [
+  { label: 'Identity services in one place', icon: Fingerprint },
+  { label: 'Wallet for everyday payments', icon: Wallet },
+  { label: 'A simpler way to manage essentials', icon: Wifi },
+];
 
 export default function RegisterPage() {
   const { register } = useAuth();
@@ -14,11 +40,12 @@ export default function RegisterPage() {
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
+  async function handleSubmit(event: FormEvent) {
+    event.preventDefault();
     setError(null);
 
     if (password.length < 8) {
@@ -44,96 +71,189 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-cream px-5 py-12">
-      <div className="w-full max-w-sm">
-        <Link to="/" className="mb-8 flex justify-center">
-          <Logo />
-        </Link>
+    <main className="login-page register-page">
+      <section className="login-story" aria-label="About K-Tech Solutions">
+        <div className="login-story-glow login-story-glow-one" />
+        <div className="login-story-glow login-story-glow-two" />
+        <div className="login-story-grid" />
 
-        <div className="rounded-2xl border border-parchment-line bg-parchment p-7">
-          <h1 className="font-display text-xl font-bold text-ink">Open your wallet</h1>
-          <p className="mt-1 font-body text-sm text-ink-600">
-            Takes under a minute — no paperwork.
-          </p>
+        <div className="login-story-content">
+          <Link to="/" className="login-brand" aria-label="K-Tech Solutions home">
+            <Logo dark />
+          </Link>
 
-          <form onSubmit={handleSubmit} className="mt-6 space-y-4">
-            <Field label="Full name" value={fullName} onChange={setFullName} autoFocus />
-            <Field label="Email address" value={email} onChange={setEmail} type="email" />
-            <Field label="Phone number" value={phone} onChange={setPhone} type="tel" />
-            <Field
-              label="Password (min. 8 characters)"
+          <div className="login-story-copy">
+            <span className="login-eyebrow"><Sparkles size={15} /> YOUR EVERYDAY SERVICES, SIMPLIFIED</span>
+            <h1>Make room for simpler everyday services.</h1>
+            <p>
+              Create your account to manage your wallet, request identity services, and take care of essential payments in one place.
+            </p>
+          </div>
+
+          <div className="login-feature-list">
+            {REGISTER_FEATURES.map(({ label, icon: Icon }) => (
+              <div className="login-feature" key={label}>
+                <span className="login-feature-icon"><Icon size={18} /></span>
+                <span>{label}</span>
+                <Check size={16} className="login-feature-check" />
+              </div>
+            ))}
+          </div>
+
+          <div className="login-trust-card">
+            <div className="login-trust-icon"><ShieldCheck size={22} /></div>
+            <div>
+              <strong>Your details stay protected</strong>
+              <span>Your account information is handled securely.</span>
+            </div>
+            <div className="login-trust-dots" aria-hidden="true"><i /><i /><i /></div>
+          </div>
+        </div>
+
+        <footer className="login-story-footer">
+          <span>© {new Date().getFullYear()} K-Tech Solutions</span>
+          <a href={`mailto:${CONTACT.email}`}>Need help?</a>
+        </footer>
+      </section>
+
+      <section className="login-form-side register-form-side">
+        <div className="login-mobile-brand">
+          <Link to="/" aria-label="K-Tech Solutions home"><Logo /></Link>
+          <span className="login-mobile-secure"><ShieldCheck size={14} /> Secure registration</span>
+        </div>
+
+        <div className="login-form-wrap register-form-wrap">
+          <Link to="/" className="login-back-link"><ArrowLeft size={16} /> Back to home</Link>
+
+          <div className="login-heading">
+            <span className="login-form-eyebrow">GET STARTED</span>
+            <h2>Create your account</h2>
+            <p>Set up your K-Tech account. It only takes a moment.</p>
+          </div>
+
+          <form onSubmit={handleSubmit} className="login-form register-form">
+            <RegisterField
+              label="Full name"
+              value={fullName}
+              onChange={setFullName}
+              icon={UserRound}
+              autoComplete="name"
+              autoFocus
+            />
+            <RegisterField
+              label="Email address"
+              value={email}
+              onChange={setEmail}
+              icon={Mail}
+              type="email"
+              autoComplete="email"
+            />
+            <RegisterField
+              label="Phone number"
+              value={phone}
+              onChange={setPhone}
+              icon={Phone}
+              type="tel"
+              autoComplete="tel"
+              inputMode="tel"
+            />
+            <RegisterField
+              label="Password"
               value={password}
               onChange={setPassword}
-              type="password"
+              icon={LockKeyhole}
+              type={showPassword ? 'text' : 'password'}
+              autoComplete="new-password"
+              hint="Use at least 8 characters."
+              trailing={(
+                <button
+                  type="button"
+                  className="login-input-action"
+                  onClick={() => setShowPassword((visible) => !visible)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  aria-pressed={showPassword}
+                >
+                  {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
+                </button>
+              )}
             />
 
-            {error && (
-              <p className="rounded-lg bg-ember-500/10 px-3 py-2 font-body text-sm text-ember-600">
-                {error}
-              </p>
+            {params.get('ref') && (
+              <div className="register-referral-note">
+                <Check size={15} /> Referral code applied to your signup.
+              </div>
             )}
+
+            {error && <p className="login-error" role="alert">{error}</p>}
 
             <button
               type="submit"
-              disabled={isLoading || !fullName || !email || !phone || !password}
-              className="flex w-full items-center justify-center rounded-lg bg-gold-500 py-3 font-display text-sm font-semibold text-ink transition hover:bg-gold-400 disabled:opacity-50"
+              className="login-submit"
+              disabled={isLoading || !fullName.trim() || !email.trim() || !phone.trim() || !password}
             >
-              {isLoading ? <Spinner /> : 'Create my wallet'}
+              {isLoading ? <Spinner /> : <>Create account <ArrowRight size={17} /></>}
             </button>
           </form>
+
+          <div className="login-divider"><span>your account, one place</span></div>
+          <div className="login-security-note"><LockKeyhole size={15} /> Your information is encrypted and securely handled.</div>
+
+          <p className="login-signup-prompt register-login-prompt">
+            Already have an account? <Link to="/login">Sign in <ArrowRight size={14} /></Link>
+          </p>
         </div>
 
-        <p className="mt-6 text-center font-body text-sm text-ink-600">
-          Already have an account?{' '}
-          <Link to="/login" className="font-semibold text-gold-600 hover:text-gold-700">
-            Sign in
-          </Link>
-        </p>
-      </div>
-    </div>
+        <footer className="login-mobile-footer">
+          <a href={`mailto:${CONTACT.email}`}><Mail size={14} /> Support</a>
+          <a href={`https://wa.me/${CONTACT.whatsapp.replace(/\D/g, '')}`} target="_blank" rel="noreferrer"><Smartphone size={14} /> WhatsApp</a>
+        </footer>
+      </section>
+    </main>
   );
 }
 
-function Field({
+function RegisterField({
   label,
   value,
   onChange,
+  icon: Icon,
   type = 'text',
   autoFocus,
+  autoComplete,
+  inputMode,
+  hint,
+  trailing,
 }: {
   label: string;
   value: string;
-  onChange: (v: string) => void;
+  onChange: (value: string) => void;
+  icon: typeof UserRound;
   type?: string;
   autoFocus?: boolean;
+  autoComplete?: string;
+  inputMode?: 'tel' | 'email' | 'text';
+  hint?: string;
+  trailing?: ReactNode;
 }) {
-  const [isVisible, setIsVisible] = useState(false);
-  const isSecretField = type === 'password';
-
   return (
-    <label className="block">
-      <span className="mb-1.5 block font-body text-xs font-medium text-ink-600">{label}</span>
-      <div className="relative">
+    <label className="login-field">
+      <span className="login-field-label">{label}</span>
+      <span className="login-input-wrap">
+        <Icon size={17} className="login-input-icon" aria-hidden="true" />
         <input
-          type={isSecretField && isVisible ? 'text' : type}
+          type={type}
           value={value}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={(event) => onChange(event.target.value)}
           autoFocus={autoFocus}
+          autoComplete={autoComplete}
+          inputMode={inputMode}
           required
-          className={`w-full rounded-lg border border-parchment-line bg-cream px-3.5 py-2.5 font-body text-sm text-ink outline-none focus:border-gold-500${isSecretField ? ' pr-11' : ''}`}
+          aria-label={label}
+          minLength={type === 'password' ? 8 : undefined}
         />
-        {isSecretField && (
-          <button
-            type="button"
-            onClick={() => setIsVisible((visible) => !visible)}
-            aria-label={isVisible ? 'Hide password' : 'Show password'}
-            aria-pressed={isVisible}
-            className="absolute inset-y-0 right-0 flex w-11 items-center justify-center text-xs font-medium text-ink-600 transition hover:text-ink focus:outline-none focus:ring-2 focus:ring-gold-500"
-          >
-            {isVisible ? 'Hide' : 'Show'}
-          </button>
-        )}
-      </div>
+        {trailing}
+      </span>
+      {hint && <span className="register-field-hint">{hint}</span>}
     </label>
   );
 }
