@@ -233,8 +233,16 @@ export async function debitWallet(params: {
     };
   });
   if (!result.reused && isManualRequestSubmission({ type: result.transaction.type, provider: result.transaction.provider, metadata: result.transaction.metadata })) {
-    void emailAdminsForManualRequest({ source: 'Customer', reference: result.transaction.reference, type: result.transaction.type,
-      description: result.transaction.description, createdAt: result.transaction.createdAt });
+    const transaction = result.transaction;
+    void notifyUser({
+      userId: transaction.userId,
+      type: 'TRANSACTION',
+      title: 'Manual request received',
+      body: `We received your ${transaction.description} request. Reference: ${transaction.reference}. Our team will review it and update you.`,
+      data: { transactionId: transaction.id, reference: transaction.reference, status: 'pending' }
+    }).catch((error) => console.error('[manual-request-notification] could not notify customer', error));
+    void emailAdminsForManualRequest({ source: 'Customer', requesterId: transaction.userId, reference: transaction.reference, type: transaction.type,
+      description: transaction.description, createdAt: transaction.createdAt, amountKobo: transaction.amountKobo, metadata: transaction.metadata });
   }
   return result;
 }

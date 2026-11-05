@@ -5,6 +5,7 @@ import { prisma } from '../lib/prisma.js';
 import { ApiError } from '../middleware/error.js';
 import { resolvePartnerServicePrice } from './partner-service-pricing.service.js';
 import { emailAdminsForManualRequest, isManualRequestSubmission } from './manual-request-admin-email.service.js';
+import { notifyPartnerSafely } from './notification.service.js';
 
 export async function debitPartnerWallet(input: {
   partnerId: string;
@@ -81,8 +82,16 @@ export async function debitPartnerWallet(input: {
     timeout: 15_000
   });
   if (!result.reused && isManualRequestSubmission({ type: result.transaction.type, provider: result.transaction.provider, metadata: result.transaction.metadata })) {
-    void emailAdminsForManualRequest({ source: 'Partner', reference: result.transaction.reference, type: result.transaction.type,
-      description: result.transaction.description, createdAt: result.transaction.createdAt });
+    const transaction = result.transaction;
+    void notifyPartnerSafely({
+      partnerId: transaction.partnerId,
+      type: 'TRANSACTION',
+      title: 'Manual request received',
+      body: `We received your ${transaction.description} request. Reference: ${transaction.reference}. Our team will review it and update you.`,
+      data: { transactionId: transaction.id, reference: transaction.reference, status: 'pending' }
+    });
+    void emailAdminsForManualRequest({ source: 'Partner', requesterId: transaction.partnerId, reference: transaction.reference, type: transaction.type,
+      description: transaction.description, createdAt: transaction.createdAt, amountKobo: transaction.amountKobo, metadata: transaction.metadata });
   }
   return result;
 }
