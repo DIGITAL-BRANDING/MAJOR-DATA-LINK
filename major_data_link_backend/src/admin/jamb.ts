@@ -6,6 +6,7 @@ import { openPII } from '../lib/pii.js';
 import { JAMB_SERVICES } from '../routes/jamb.routes.js';
 import { createUserDelivery } from '../services/user-delivery.service.js';
 import { notifyUser } from '../services/notification.service.js';
+import { emailManualRequestStatus } from '../services/manual-request-status-email.service.js';
 import { logAdminAction } from './audit.js';
 import type { AdminSessionUser } from './auth.js';
 
@@ -166,6 +167,7 @@ export function registerJambRoutes(router: Router) {
         body: `Your ${serviceLabel} has been delivered. Open Deliveries to download it. Reference: ${transaction.reference}`,
         data: { transactionId: transaction.id, reference: transaction.reference, deliveryId: delivery.id }
       });
+      await emailManualRequestStatus({ source: 'user', requesterId: transaction.userId, reference: transaction.reference, description: transaction.description, status: 'SUCCESS', note: `Your ${serviceLabel} has been delivered. Open Deliveries to download it.` });
 
       await logAdminAction({
         adminId: admin.id,

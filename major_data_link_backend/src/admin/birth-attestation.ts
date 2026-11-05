@@ -9,6 +9,7 @@ import {
 } from '../services/birth-attestation.service.js';
 import { createUserDelivery } from '../services/user-delivery.service.js';
 import { notifyUser } from '../services/notification.service.js';
+import { emailManualRequestStatus } from '../services/manual-request-status-email.service.js';
 import { logAdminAction } from './audit.js';
 import type { AdminSessionUser } from './auth.js';
 
@@ -213,10 +214,12 @@ export function registerBirthAttestationRoutes(router: Router) {
     const transaction = await loadTransaction(req);
     if (!transaction) return res.status(404).type('html').send('<p>Birth Attestation request not found.</p>');
 
+    const progressNote = formField(req, 'progress_notes').slice(0, 2000);
     await updateBirthAttestationProgressNotes({
       transactionId: transaction.id,
-      notes: formField(req, 'progress_notes').slice(0, 2000)
+      notes: progressNote
     });
+    await emailManualRequestStatus({ source: 'user', requesterId: transaction.userId, reference: transaction.reference, description: transaction.description, status: transaction.status, note: progressNote });
     await logAdminAction({
       adminId: admin.id,
       action: 'UPDATE_BIRTH_ATTESTATION_PROGRESS',
@@ -276,6 +279,7 @@ export function registerBirthAttestationRoutes(router: Router) {
         body: `Your Birth Attestation has been delivered. Open Deliveries to download it. Reference: ${transaction.reference}`,
         data: { transactionId: transaction.id, reference: transaction.reference, deliveryId: delivery.id }
       });
+      await emailManualRequestStatus({ source: 'user', requesterId: transaction.userId, reference: transaction.reference, description: transaction.description, status: 'SUCCESS', note: 'Your Birth Attestation has been delivered. Open Deliveries to download it.' });
 
       await logAdminAction({
         adminId: admin.id,

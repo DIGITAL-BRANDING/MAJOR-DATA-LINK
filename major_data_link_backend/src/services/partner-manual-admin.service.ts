@@ -5,6 +5,7 @@ import { openPII, mergeSealedPII } from '../lib/pii.js';
 import { ApiError } from '../middleware/error.js';
 import { completePartnerPurchase, reversePartnerPurchase } from './partner-wallet.service.js';
 import { enqueuePartnerRequestUpdateWebhook, deliverDuePartnerWebhooks } from './partner-webhook.service.js';
+import { emailManualRequestStatus } from './manual-request-status-email.service.js';
 
 /**
  * Every manual/non-instant service a partner can submit (see
@@ -102,6 +103,7 @@ export async function completePartnerManualRequest(params: {
     body: `${transaction.description} (${transaction.reference}) is complete. Open your portal to view the result.`,
     data: { reference: transaction.reference }
   });
+  await emailManualRequestStatus({ source: 'partner', requesterId: transaction.partnerId, reference: transaction.reference, description: transaction.description, status: 'SUCCESS', note: params.note });
   return prisma.partnerTransaction.findUniqueOrThrow({ where: { id: transaction.id } });
 }
 
@@ -141,6 +143,7 @@ export async function markPartnerManualRequestProcessing(params: { transactionId
     body: `${updated.description} (${updated.reference}) is now being processed.`,
     data: { reference: updated.reference, status: 'processing' }
   });
+  await emailManualRequestStatus({ source: 'partner', requesterId: updated.partnerId, reference: updated.reference, description: updated.description, status: 'PROCESSING', note: message });
   return updated;
 }
 
@@ -161,5 +164,6 @@ export async function declinePartnerManualRequest(params: { transactionId: strin
     body: `${transaction.description} (${transaction.reference}) was declined: ${params.reason}. The amount has been refunded to your wallet.`,
     data: { reference: transaction.reference }
   });
+  await emailManualRequestStatus({ source: 'partner', requesterId: transaction.partnerId, reference: transaction.reference, description: transaction.description, status: 'REVERSED', note: params.reason });
   return prisma.partnerTransaction.findUniqueOrThrow({ where: { id: transaction.id } });
 }

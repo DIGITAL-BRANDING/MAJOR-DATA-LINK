@@ -10,6 +10,7 @@ import { openPII } from '../../lib/pii.js';
 import { TransactionStatus, TransactionType } from '@prisma/client';
 import { refundWallet } from '../../services/wallet.service.js';
 import { logAdminAction } from '../audit.js';
+import { emailUserManualTransactionStatus } from '../../services/manual-request-status-email.service.js';
 import type { AdminSessionUser } from '../auth.js';
 
 export const transactionResource: ResourceWithOptions = {
@@ -86,6 +87,10 @@ export const transactionResource: ResourceWithOptions = {
               initiatedByAdminId: admin.id
             });
 
+            if (['NIN_MODIFICATION', 'BVN_MODIFICATION', 'BVN_CRM', 'BVN_LICENSE_ONBOARDING', 'NEWSPAPER_PUBLICATION', 'BIRTH_ATTESTATION', 'CAC_SERVICE_REQUEST', 'JAMB_SERVICE_REQUEST', 'IDENTITY_SERVICE_REQUEST', 'NIN_VERIFICATION', 'BVN_VERIFICATION'].includes(record.params.type as string)) {
+              await emailUserManualTransactionStatus(record.params.id as string, 'REVERSED', 'Your request was declined and the payment was refunded to your wallet.');
+            }
+
             await logAdminAction({
               adminId: admin.id,
               action: 'REVERSE_TRANSACTION',
@@ -121,6 +126,7 @@ export const transactionResource: ResourceWithOptions = {
           const admin = currentAdmin as unknown as AdminSessionUser | undefined;
           if (!record || !admin) throw new Error('Missing record or admin context');
           await prisma.transaction.update({ where: { id: record.params.id as string }, data: { status: TransactionStatus.SUCCESS } });
+          await emailUserManualTransactionStatus(record.params.id as string, 'SUCCESS');
           await logAdminAction({ adminId: admin.id, action: 'COMPLETE_MANUAL_VERIFICATION', targetType: 'Transaction', targetId: record.params.id as string, metadata: { reference: record.params.reference } });
           return { record: record.toJSON(currentAdmin), notice: { message: 'Manual verification request marked as completed.', type: 'success' } };
         }
@@ -227,6 +233,7 @@ export const transactionResource: ResourceWithOptions = {
 
           try {
             await completeModification({ transactionId: record.params.id as string });
+            await emailUserManualTransactionStatus(record.params.id as string, 'SUCCESS');
 
             await logAdminAction({
               adminId: admin.id,
@@ -261,6 +268,7 @@ export const transactionResource: ResourceWithOptions = {
           const { record, currentAdmin } = context; const admin = currentAdmin as unknown as AdminSessionUser;
           if (!record || !admin) throw new Error('Missing record or admin context');
           await completeBvnCrm({ transactionId: record.params.id as string });
+          await emailUserManualTransactionStatus(record.params.id as string, 'SUCCESS');
           await logAdminAction({ adminId: admin.id, action: 'COMPLETE_BVN_CRM', targetType: 'Transaction', targetId: record.params.id as string, metadata: { reference: record.params.reference } });
           return { record: record.toJSON(currentAdmin), notice: { message: 'BVN CRM request marked as completed.', type: 'success' } };
         }
@@ -279,6 +287,7 @@ export const transactionResource: ResourceWithOptions = {
           const { record, currentAdmin } = context; const admin = currentAdmin as unknown as AdminSessionUser;
           if (!record || !admin) throw new Error('Missing record or admin context');
           await completeBvnModification({ transactionId: record.params.id as string });
+          await emailUserManualTransactionStatus(record.params.id as string, 'SUCCESS');
           await logAdminAction({ adminId: admin.id, action: 'COMPLETE_BVN_MODIFICATION', targetType: 'Transaction', targetId: record.params.id as string, metadata: { reference: record.params.reference } });
           return { record: record.toJSON(currentAdmin), notice: { message: 'BVN Modification request marked as completed.', type: 'success' } };
         }
@@ -335,6 +344,7 @@ export const transactionResource: ResourceWithOptions = {
           const { record, currentAdmin } = context; const admin = currentAdmin as unknown as AdminSessionUser;
           if (!record || !admin) throw new Error('Missing record or admin context');
           await prisma.transaction.update({ where: { id: record.params.id as string }, data: { status: TransactionStatus.SUCCESS } });
+          await emailUserManualTransactionStatus(record.params.id as string, 'SUCCESS');
           await logAdminAction({ adminId: admin.id, action: 'COMPLETE_BVN_LICENSE', targetType: 'Transaction', targetId: record.params.id as string, metadata: { reference: record.params.reference } });
           return { record: record.toJSON(currentAdmin), notice: { message: 'BVN License request marked as completed.', type: 'success' } };
         }

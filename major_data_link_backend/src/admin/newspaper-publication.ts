@@ -9,6 +9,7 @@ import {
 } from '../services/newspaper-publication.service.js';
 import { createUserDelivery } from '../services/user-delivery.service.js';
 import { notifyUser } from '../services/notification.service.js';
+import { emailManualRequestStatus } from '../services/manual-request-status-email.service.js';
 import { logAdminAction } from './audit.js';
 import type { AdminSessionUser } from './auth.js';
 
@@ -206,10 +207,12 @@ export function registerNewspaperPublicationRoutes(router: Router) {
     const transaction = await loadTransaction(req);
     if (!transaction) return res.status(404).type('html').send('<p>Newspaper Publication request not found.</p>');
 
+    const progressNote = formField(req, 'progress_notes').slice(0, 2000);
     await updateNewspaperPublicationProgressNotes({
       transactionId: transaction.id,
-      notes: formField(req, 'progress_notes').slice(0, 2000)
+      notes: progressNote
     });
+    await emailManualRequestStatus({ source: 'user', requesterId: transaction.userId, reference: transaction.reference, description: transaction.description, status: transaction.status, note: progressNote });
     await logAdminAction({
       adminId: admin.id,
       action: 'UPDATE_NEWSPAPER_PUBLICATION_PROGRESS',
@@ -271,6 +274,7 @@ export function registerNewspaperPublicationRoutes(router: Router) {
         body: `Your Newspaper Publication cutting has been delivered. Open Deliveries to download it. Reference: ${transaction.reference}`,
         data: { transactionId: transaction.id, reference: transaction.reference, deliveryId: delivery.id }
       });
+      await emailManualRequestStatus({ source: 'user', requesterId: transaction.userId, reference: transaction.reference, description: transaction.description, status: 'SUCCESS', note: 'Your Newspaper Publication cutting is ready. Open Deliveries to download it.' });
 
       await logAdminAction({
         adminId: admin.id,

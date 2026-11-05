@@ -9,6 +9,7 @@ import { nanoid } from 'nanoid';
 import { enqueueUserNotificationDelivery } from '../services/notification-delivery.service.js';
 import { logAdminAction } from './audit.js';
 import type { AdminSessionUser } from './auth.js';
+import { emailManualRequestStatus } from '../services/manual-request-status-email.service.js';
 
 type Upload = { filepath?: string; path?: string; originalFilename?: string; name?: string; mimetype?: string; type?: string };
 type ManualTransaction = Awaited<ReturnType<typeof prisma.transaction.findUniqueOrThrow>>;
@@ -33,6 +34,7 @@ function requestIdentifier(pii: Record<string, unknown> | null) { if (!pii) retu
 async function sendUpdate(transaction: ManualTransaction, admin: AdminSessionUser, note: string) {
   if (!note) throw new Error('Write an update before sending.');
   await notifyUser({ userId: transaction.userId, type: 'TRANSACTION', title: 'Service request update', body: note, data: { transactionId: transaction.id, reference: transaction.reference } });
+  await emailManualRequestStatus({ source: 'user', requesterId: transaction.userId, reference: transaction.reference, description: transaction.description, status: transaction.status, note });
   await logAdminAction({ adminId: admin.id, action: 'UPDATE_MANUAL_VERIFICATION', targetType: 'Transaction', targetId: transaction.id, metadata: { reference: transaction.reference } });
 }
 
@@ -54,6 +56,7 @@ async function completeRequest(transaction: ManualTransaction, admin: AdminSessi
     }, update: {} });
     await enqueueUserNotificationDelivery(tx, notification.id);
   });
+  await emailManualRequestStatus({ source: 'user', requesterId: transaction.userId, reference: transaction.reference, description: transaction.description, status: 'SUCCESS', note: note || (deliveryId ? 'Your result is ready. Open Deliveries to download it.' : undefined) });
   await logAdminAction({ adminId: admin.id, action: 'COMPLETE_MANUAL_VERIFICATION_WITH_DELIVERY', targetType: 'Transaction', targetId: transaction.id, metadata: { reference: transaction.reference, deliveryId: deliveryId ?? null } });
 }
 
@@ -93,7 +96,7 @@ export function registerManualVerificationRoutes(router: Router) {
     if (!admin) return res.redirect('/admin/login'); if (admin.role === 'SUPPORT') return res.status(403).type('html').send('<p>Finance or Super Admin access is required.</p>');
     const actions = Object.entries(fields(req)).filter(([name, value]) => name.startsWith('action_') && (value === 'update' || value === 'processing' || value === 'complete')) as Array<[string, 'update' | 'processing' | 'complete']>;
     let completed = 0; let updated = 0; let failures = 0;
-    for (const [name, action] of actions) { const id = name.slice('action_'.length); try { const transaction = await prisma.transaction.findUnique({ where: { id } }); if (!transaction || !isManualVerification(transaction) || (transaction.status !== TransactionStatus.PENDING && transaction.status !== TransactionStatus.PROCESSING) || groupFor(transaction) !== group) throw new Error('Unavailable'); const note = field(req, `note_${id}`); if (action === 'update') { await sendUpdate(transaction, admin, note); updated += 1; } else if (action === 'processing') { await prisma.transaction.update({ where: { id }, data: { status: TransactionStatus.PROCESSING } }); await notifyUser({ userId: transaction.userId, type: 'TRANSACTION', title: 'Request is processing', body: note || `${transaction.description} is now being processed.`, data: { transactionId: transaction.id, reference: transaction.reference, status: 'processing' }, dedupeKey: `verification:${transaction.id}:processing:${Date.now()}` }); updated += 1; } else { await completeRequest(transaction, admin, note, uploadedFile(req, `file_${id}`)); completed += 1; } } catch { failures += 1; } }
+    for (const [name, action] of actions) { const id = name.slice('action_'.length); try { const transaction = await prisma.transaction.findUnique({ where: { id } }); if (!transaction || !isManualVerification(transaction) || (transaction.status !== TransactionStatus.PENDING && transaction.status !== TransactionStatus.PROCESSING) || groupFor(transaction) !== group) throw new Error('Unavailable'); const note = field(req, `note_${id}`); if (action === 'update') { await sendUpdate(transaction, admin, note); updated += 1; } else if (action === 'processing') { await prisma.transaction.update({ where: { id }, data: { status: TransactionStatus.PROCESSING } }); await notifyUser({ userId: transaction.userId, type: 'TRANSACTION', title: 'Request is processing', body: note || `${transaction.description} is now being processed.`, data: { transactionId: transaction.id, reference: transaction.reference, status: 'processing' }, dedupeKey: `verification:${transaction.id}:processing:${Date.now()}` }); await emailManualRequestStatus({ source: 'user', requesterId: transaction.userId, reference: transaction.reference, description: transaction.description, status: 'PROCESSING', note }); updated += 1; } else { await completeRequest(transaction, admin, note, uploadedFile(req, `file_${id}`)); completed += 1; } } catch { failures += 1; } }
     const summary = actions.length ? `${updated} update(s) sent; ${completed} request(s) completed.${failures ? ` ${failures} row(s) could not be processed.` : ''}` : 'Choose at least one action before applying changes.';
     res.redirect(`/admin/manual-verifications?group=${group}&flash=${encodeURIComponent(summary)}`);
   });
@@ -113,6 +116,7 @@ export function registerManualVerificationRoutes(router: Router) {
         const note = field(req, 'note');
         const updated = await prisma.transaction.update({ where: { id: transaction.id }, data: { status: TransactionStatus.PROCESSING, metadata: { ...metadata, processing_note: note || null, processing_updated_at: new Date().toISOString() } as Prisma.InputJsonValue } });
         await notifyUser({ userId: transaction.userId, type: 'TRANSACTION', title: 'Request is processing', body: note || `${transaction.description} is now being processed.`, data: { transactionId: transaction.id, reference: transaction.reference, status: 'processing' }, dedupeKey: `verification:${transaction.id}:processing:${updated.updatedAt.toISOString()}` });
+        await emailManualRequestStatus({ source: 'user', requesterId: transaction.userId, reference: transaction.reference, description: transaction.description, status: 'PROCESSING', note });
         return redirectBack('Request marked as processing.');
       }
       await completeRequest(transaction, admin, field(req, 'note'), uploadedFile(req));

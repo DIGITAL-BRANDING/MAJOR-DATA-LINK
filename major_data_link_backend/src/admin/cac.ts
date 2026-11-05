@@ -5,6 +5,7 @@ import { prisma } from '../lib/prisma.js';
 import { completeCacRequest, decryptCacPII, updateCacProgressNotes } from '../services/cac.service.js';
 import { logAdminAction } from './audit.js';
 import type { AdminSessionUser } from './auth.js';
+import { emailManualRequestStatus } from '../services/manual-request-status-email.service.js';
 
 declare module 'express-session' {
   interface SessionData {
@@ -278,7 +279,9 @@ export function registerCacRoutes(router: Router) {
     const transaction = await loadTransaction(req);
     if (!transaction) return res.status(404).type('html').send('<p>CAC request not found.</p>');
 
-    await updateCacProgressNotes({ transactionId: transaction.id, notes: formField(req, 'progress_notes').slice(0, 2000) });
+    const progressNote = formField(req, 'progress_notes').slice(0, 2000);
+    await updateCacProgressNotes({ transactionId: transaction.id, notes: progressNote });
+    await emailManualRequestStatus({ source: 'user', requesterId: transaction.userId, reference: transaction.reference, description: transaction.description, status: transaction.status, note: progressNote });
     await logAdminAction({
       adminId: admin.id,
       action: 'UPDATE_CAC_PROGRESS',
@@ -316,6 +319,7 @@ export function registerCacRoutes(router: Router) {
     try {
       const bytes = await readFile(filePath);
       await completeCacRequest({ transactionId: transaction.id, certificatePdfBase64: bytes.toString('base64') });
+      await emailManualRequestStatus({ source: 'user', requesterId: transaction.userId, reference: transaction.reference, description: transaction.description, status: 'SUCCESS', note: 'Your CAC certificate is ready. Open your CAC request to download it.' });
 
       await logAdminAction({
         adminId: admin.id,
