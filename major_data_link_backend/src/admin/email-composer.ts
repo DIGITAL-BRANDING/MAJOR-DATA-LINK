@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma.js';
 import { sendAdminEmail, type BulkSendResult, type DeliveryResult } from '../lib/email.js';
 import { logAdminAction } from './audit.js';
 import type { AdminSessionUser } from './auth.js';
+import { replayPendingResendEmailEvents } from '../services/resend-email-delivery.service.js';
 
 declare module 'express-session' { interface SessionData { adminUser?: AdminSessionUser } }
 
@@ -124,6 +125,7 @@ async function recordDeliveries(broadcastId: string | null, results: DeliveryRes
     for (let i = 0; i < rows.length; i += 1000) {
       await prisma.emailDelivery.createMany({ data: rows.slice(i, i + 1000) });
     }
+    await replayPendingResendEmailEvents(rows.flatMap((row) => row.resendEmailId ? [row.resendEmailId] : []));
   } catch (error) {
     console.error('[email-composer] could not record recipient deliveries', error);
   }

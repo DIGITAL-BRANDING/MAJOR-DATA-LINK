@@ -1164,6 +1164,20 @@ model EmailDelivery {
   @@index([broadcastId, status])
 }
 
+/// Resend can deliver a status webhook before the admin composer has persisted
+/// the corresponding EmailDelivery row. Keep those verified events until that
+/// row exists, then replay them instead of acknowledging and losing the event.
+model ResendEmailDeliveryEvent {
+  id             String   @id // Resend/Svix webhook event ID; also deduplicates retries.
+  resendEmailId  String
+  eventType      String
+  occurredAt     DateTime
+  errorMessage   String?
+  createdAt      DateTime @default(now())
+
+  @@index([resendEmailId, occurredAt])
+}
+
 model AdminUser {
   id           String          @id @default(uuid())
   email        String          @unique

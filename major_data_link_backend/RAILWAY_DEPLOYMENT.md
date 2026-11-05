@@ -41,3 +41,22 @@ Railway serves the backend API, AdminJS, and frontend at `k-tech.com.ng`.
 Cloudflare Pages serves the frontend at `www.k-tech.com.ng`; set
 `WEB_ALLOWED_ORIGINS` to include both apex and `www` domains so its API and
 Socket.IO requests are accepted.
+
+## Dynamic wallet funding through KatPay
+
+One-time, exact-amount Dynamic Account transfers for both users and partners
+use `DYNAMIC_FUNDING_PROVIDER`, independently of the permanent virtual-account
+provider in `PAYMENT_PROVIDER`. Dynamic funding defaults to KatPay. Set these
+Railway variables for the KatPay transfer and callback flow:
+
+```text
+DYNAMIC_FUNDING_PROVIDER=katpay
+KATPAY_SECRET_KEY=<KatPay secret key>
+KATPAY_PUBLIC_KEY=<KatPay public key>
+KATPAY_CALLBACK_URL=https://k-tech.com.ng/api/webhooks/katpay
+```
+
+The webhook signature uses `KATPAY_WEBHOOK_SECRET` when set, otherwise it uses
+`KATPAY_SECRET_KEY`. The transfer flow does not require `KATPAY_MERCHANT_ID`;
+that key is used when provisioning KatPay permanent virtual accounts. Card
+wallet top-ups at `/api/wallet/fund` continue to use Paystack.

@@ -6,23 +6,13 @@ import { paystackService } from './paystack.service.js';
 import { tryProvisionInstantVirtualAccount as provisionPaystackVirtualAccount } from './kyc.service.js';
 
 /**
- * Single switch point for "which payment gateway is live right now". All of
- * PAYSTACK_*, KATPAY_*, and ZENITHPAY_* credentials can sit in .env at the
- * same time - only PAYMENT_PROVIDER decides which one actually gets called
- * for new/permanent account provisioning. Every route/service outside this
- * file should go through the functions below rather than importing
- * paystackService/katpayService/zenithpayService directly, so flipping the
- * env var is enough to fail over from one gateway to another with no code
- * changes.
+ * Payment provider routing. PAYMENT_PROVIDER controls permanent virtual
+ * account provisioning; DYNAMIC_FUNDING_PROVIDER independently controls
+ * one-time, amount-locked account transfers. Keeping these switches separate
+ * lets Dynamic Account move to KatPay without changing existing DVA behavior.
  *
- * ZenithPay is the one exception to "PAYMENT_PROVIDER picks one gateway for
- * everything": its documented API only covers permanent, BVN-gated Dedicated
- * Accounts (see kyc.service.ts) - it has nothing equivalent to Paystack's
- * amount-locked one-time "Pay with Transfer" account. So when
- * PAYMENT_PROVIDER=zenithpay, createDynamicFundingAccount below deliberately
- * routes that one flow through Paystack instead, while permanent-account
- * provisioning still goes through ZenithPay. This is intentional, not a
- * fallback bug - see the comment in that function.
+ * Payment service functions below normalize gateway response shapes so routes
+ * can remain provider agnostic.
  */
 
 async function provisionKatpayVirtualAccount(userId: string) {
@@ -88,41 +78,17 @@ export type DynamicFundingAccount = {
 
 /**
  * "Dynamic Account" — a one-time, amount-locked funding account (matches the
- * "Dynamic Account" tab in the Fund Wallet menu). Returns a shape unified across
- * both gateways so wallet.routes.ts doesn't need to branch on the provider itself.
+ * "Dynamic Account" tab in the Fund Wallet menu). Routes via
+ * DYNAMIC_FUNDING_PROVIDER, independently of permanent account provisioning.
  */
 export async function createDynamicFundingAccount(params: {
   email: string;
   fullName: string;
   amount: number;
 }): Promise<DynamicFundingAccount> {
-  if (env.PAYMENT_PROVIDER === 'zenithpay') {
-    // ZenithPay's only documented API is BVN-gated dedicated-account
-    // assignment (see zenithpay.service.ts) - it has no amount-locked
-    // temporary-account or transaction-verification endpoint, so a one-time
-    // "Dynamic Account" / Pay-with-Transfer request can never be routed
-    // through it. Wire that specific flow through Paystack instead: this
-    // returns `provider: 'paystack'`, so createPendingFunding tags the
-    // Transaction row accordingly and the existing provider-agnostic
-    // /webhooks/paystack handler (charge.success -> creditWalletByReference)
-    // and verifyDynamicFunding's paystack fallback below both already credit
-    // it correctly with zero further changes - ZenithPay stays the provider
-    // for permanent Dedicated Accounts (KYC/BVN flow) only.
-    const charge = await paystackService.createTemporaryTransferAccount({
-      email: params.email,
-      amountKobo: BigInt(Math.round(params.amount * 100))
-    });
-
-    return {
-      provider: 'paystack',
-      reference: charge.reference,
-      accountNumber: charge.account_number,
-      accountName: charge.account_name,
-      bankName: charge.bank?.name,
-      expiresAt: charge.account_expires_at
-    };
-  }
-  if (env.PAYMENT_PROVIDER === 'katpay') {
+  // The nullish fallback preserves compatibility with callers/tests that build
+  // a partial env object; the parsed production env always has this setting.
+  if ((env.DYNAMIC_FUNDING_PROVIDER ?? env.PAYMENT_PROVIDER) === 'katpay') {
     // Unlike Paystack (which generates its own charge reference for us), KatPay's
     // transfer-payments endpoint takes OUR reference as merchant_reference - so we
     // mint it up front and use it as the Transaction.reference throughout.
@@ -166,7 +132,7 @@ export async function createDynamicFundingAccount(params: {
  * principle Paystack's own verifyTransaction follows). Branches on the
  * transaction's own `provider` column, so it works regardless of which gateway is
  * currently active in env - a transaction started under one provider is still
- * verifiable even after PAYMENT_PROVIDER is later flipped to the other.
+ * verifiable even after the active funding provider is later changed.
  */
 export async function verifyDynamicFunding(transaction: {
   provider: string | null;

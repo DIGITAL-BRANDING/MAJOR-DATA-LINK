@@ -179,18 +179,25 @@ const EnvSchema = z.object({
     .default('true')
     .transform((value) => value.toLowerCase() !== 'false' && value !== '0'),
 
-  // Which payment gateway is currently "live" for virtual-account provisioning and
-  // dynamic (pay-with-transfer) funding. Both providers' credentials can stay set in
-  // .env at the same time - only this flag decides which one actually gets called.
-  // Flip it to 'katpay' (or back to 'paystack') and redeploy if one provider starts
-  // giving trouble; no code changes needed. ZenithPay provisions accounts only
-  // after BVN/KYC because its documented endpoint requires a BVN.
+  // Which gateway provisions permanent virtual accounts and supplies the KYC
+  // bank list. Dynamic transfer funding has its own DYNAMIC_FUNDING_PROVIDER
+  // switch below. ZenithPay provisions accounts only after BVN/KYC because its
+  // documented endpoint requires a BVN.
   // See src/services/payment-provider.service.ts.
   PAYMENT_PROVIDER: z
     .string()
     .default('paystack')
     .transform((value) => value.toLowerCase())
     .pipe(z.enum(['paystack', 'katpay', 'zenithpay'])),
+
+  // Dedicated provider for one-time, amount-locked Dynamic Account transfers.
+  // Kept separate from PAYMENT_PROVIDER so moving these transfers to KatPay
+  // does not silently change permanent virtual-account provisioning.
+  DYNAMIC_FUNDING_PROVIDER: z
+    .string()
+    .default('katpay')
+    .transform((value) => value.toLowerCase())
+    .pipe(z.enum(['paystack', 'katpay'])),
 
   // --- ZenithPay - dedicated virtual accounts. Its API key is a bearer token
   // and must remain server-side. The current gateway documentation specifies

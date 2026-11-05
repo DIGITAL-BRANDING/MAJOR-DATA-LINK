@@ -11,8 +11,8 @@ import { notifyUser } from '../services/notification.service.js';
 import { lookupWalletTransferRecipient, transferWalletToUser } from '../services/user-wallet-transfer.service.js';
 import { paystackService } from '../services/paystack.service.js';
 import { createPendingFunding, creditWalletByReference, redeemCoupon } from '../services/wallet.service.js';
-// Provider-agnostic - picks Paystack or KatPay based on PAYMENT_PROVIDER in env.
-// See payment-provider.service.ts for how to fail over from one to the other.
+// Dynamic transfers use DYNAMIC_FUNDING_PROVIDER; permanent virtual accounts
+// continue to use PAYMENT_PROVIDER. See payment-provider.service.ts.
 import {
   createDynamicFundingAccount,
   provisionInstantVirtualAccount,
@@ -133,8 +133,8 @@ walletRoutes.post('/fund/verify', async (req, res) => {
 /**
  * "Dynamic Account" — a one-time account number tied to this exact amount,
  * matching the Alrahuz "Dynamic Account" tab (temporary, dies after use/expiry).
- * Routes through whichever gateway PAYMENT_PROVIDER points at (Paystack's Pay with
- * Transfer, or KatPay's Pay with Transfer) — see payment-provider.service.ts.
+ * Routes through DYNAMIC_FUNDING_PROVIDER (Paystack's or KatPay's Pay with
+ * Transfer) — see payment-provider.service.ts.
  */
 walletRoutes.post('/fund/dynamic', async (req, res) => {
   const body = z.object({ amount: z.number().positive() }).parse(req.body);

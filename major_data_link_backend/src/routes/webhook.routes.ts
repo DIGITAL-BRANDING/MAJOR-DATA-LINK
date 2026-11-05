@@ -16,6 +16,7 @@ import { creditPartnerDirectDeposit, creditPartnerFundingByReference } from '../
 import { advanceSession } from '../services/whatsapp-session.service.js';
 import { partnerVerification } from '../services/partner-verification.service.js';
 import { checkIpeClearanceStatus, checkNinValidationStatus } from '../services/verification.service.js';
+import { applyResendEmailDeliveryEvent } from '../services/resend-email-delivery.service.js';
 
 function normalizeKatpayStatus(value: unknown): string | undefined {
   if (typeof value === 'string' || typeof value === 'number') return String(value).trim().toUpperCase();
@@ -586,57 +587,6 @@ webhookRoutes.post('/katpay', async (req, res) => {
  * the rest are acknowledged and ignored.
  */
 
-/**
- * Email events we track, mapped to the EmailDelivery.status they set. `rank`
- * stops a late or out-of-order event from moving a status backwards: e.g. a
- * "delivered" that arrives after a "delivery_delayed" wins, but a stray
- * "sent" arriving after "delivered" does not.
- */
-const EMAIL_EVENT_STATUS: Partial<Record<WebhookEventPayload['type'], { status: string; rank: number }>> = {
-  'email.sent': { status: 'sent', rank: 1 },
-  'email.delivery_delayed': { status: 'delivery_delayed', rank: 2 },
-  'email.delivered': { status: 'delivered', rank: 3 },
-  'email.bounced': { status: 'bounced', rank: 4 },
-  'email.complained': { status: 'complained', rank: 4 },
-  'email.failed': { status: 'failed', rank: 4 },
-  'email.suppressed': { status: 'suppressed', rank: 4 }
-};
-
-function emailEventDetail(event: WebhookEventPayload): string | null {
-  switch (event.type) {
-    case 'email.bounced':
-      return event.data.bounce.message;
-    case 'email.failed':
-      return event.data.failed.reason;
-    case 'email.suppressed':
-      return event.data.suppressed.message;
-    default:
-      return null;
-  }
-}
-
-async function applyEmailDeliveryEvent(event: WebhookEventPayload): Promise<void> {
-  const mapping = EMAIL_EVENT_STATUS[event.type];
-  if (!mapping || !('email_id' in event.data)) return;
-  const emailId = event.data.email_id;
-  if (!emailId) return;
-
-  const detail = emailEventDetail(event);
-  const occurredAt = new Date(event.created_at);
-  const allowedFrom = Object.values(EMAIL_EVENT_STATUS)
-    .filter((m) => m && m.rank <= mapping.rank)
-    .map((m) => m!.status);
-
-  await prisma.emailDelivery.updateMany({
-    where: { resendEmailId: emailId, status: { in: allowedFrom } },
-    data: {
-      status: mapping.status,
-      lastEventAt: Number.isNaN(occurredAt.getTime()) ? new Date() : occurredAt,
-      ...(detail ? { errorMessage: detail } : {})
-    }
-  });
-}
-
 webhookRoutes.post('/resend', async (req, res) => {
   if (!env.RESEND_API_KEY || !env.RESEND_WEBHOOK_SECRET) {
     return res.status(400).json({ status: false, message: 'Resend webhook is not configured' });
@@ -660,9 +610,8 @@ webhookRoutes.post('/resend', async (req, res) => {
   }
 
   if (event.type.startsWith('email.')) {
-    if (!EMAIL_EVENT_STATUS[event.type]) return res.sendStatus(200);
     try {
-      await applyEmailDeliveryEvent(event);
+      await applyResendEmailDeliveryEvent(event, id);
     } catch (error) {
       console.error('[resend-webhook] failed to record delivery event', event.type, error);
       return res.status(500).json({ error: 'Webhook processing failed' });
