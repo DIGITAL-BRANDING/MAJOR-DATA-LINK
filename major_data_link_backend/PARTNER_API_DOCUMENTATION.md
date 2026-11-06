@@ -385,6 +385,57 @@ IPE Clearance ko Personalization body:
 { "tracking_id": "your-tracking-id" }
 ```
 
+### 5c. TIN generation (manual processing)
+
+TIN generation requests are charged from the partner wallet and queued for
+admin processing. The request remains `pending` until an administrator
+completes it or declines it. Configure a partner-specific price in Admin →
+Partner Pricing; otherwise the service uses the existing retail price. The
+result is delivered through the configured completion webhook and can also be
+retrieved from `GET /identity/requests/{reference}`.
+
+| Operation | Endpoint |
+| --- | --- |
+| Partner prices | `GET /identity/tin-generation/prices` |
+| Submit TIN request | `POST /identity/tin-generation` |
+
+Use the same `Idempotency-Key` on retries. For a company request, include:
+
+```json
+{
+  "tin_type": "company",
+  "business_type": "Limited Liability Company",
+  "business_reg_no": "RC123456",
+  "cac_status_report": {
+    "name": "cac-status-report.pdf",
+    "mime_type": "application/pdf",
+    "base64": "BASE64_FILE_CONTENT"
+  }
+}
+```
+
+`cac_status_report` is optional. Accepted file types are PDF, JPEG, and PNG;
+maximum decoded size is 4 MB. For an individual request:
+
+```json
+{
+  "tin_type": "individual",
+  "nin": "12345678901",
+  "first_name": "Amina",
+  "middle_name": "Bello",
+  "last_name": "Usman",
+  "date_of_birth": "1996-05-18"
+}
+```
+
+The accepted response contains the MDL `reference`, `balance_after`, and
+`status: "pending"`. Applicant details and uploaded files are stored encrypted
+and are shown only to authorized admins. There is currently no TIN-specific
+automated provider adapter: admins review and process these orders from the
+Manual Provider Dispatch/Partner Request Queue workflow, then attach the result
+when completing the request. Partners receive the result via status lookup and
+completion webhook.
+
 ### 6. Cable TV *(planned)*
 
 **Plans:** `GET /cable/plans/{provider}`

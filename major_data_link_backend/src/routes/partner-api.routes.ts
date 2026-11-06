@@ -33,7 +33,8 @@ import {
   submitPartnerBirthAttestation,
   submitPartnerBvnCrm,
   submitPartnerBvnLicense,
-  submitPartnerJamb
+  submitPartnerJamb,
+  submitPartnerTinRequest
 } from '../services/partner-manual-services.service.js';
 import { decryptPartnerManualPII, isAdminManageablePartnerRequest } from '../services/partner-manual-admin.service.js';
 import { MODIFICATION_TYPES } from '../services/nin-modification.service.js';
@@ -41,6 +42,7 @@ import { BVN_MODIFICATION_TYPES } from '../services/bvn-modification.service.js'
 import { CAC_TYPES, type CacApplicantDetails } from '../services/cac.service.js';
 import { GEO_POLITICAL_ZONES } from '../services/bvn-license-onboarding.service.js';
 import { JAMB_SERVICES } from './jamb.routes.js';
+import { getTinPrice, TIN_DOCUMENT_MAX_BASE64_LENGTH, type TinSubmission } from '../services/tin.service.js';
 
 export const partnerApiRoutes = Router();
 
@@ -521,6 +523,65 @@ partnerApiRoutes.get('/transactions/:reference/updates', async (req, res) => {
 // /airtime: these go well beyond basic NIN/BVN verification, so the
 // ₦5,000-minimum NIN_BVN tier does not unlock them.
 partnerApiRoutes.use('/identity', requirePartnerApiTier('FULL_API'));
+
+partnerApiRoutes.post('/identity/tin-generation', async (req, res) => {
+  const body = z.discriminatedUnion('tin_type', [
+    z.object({
+      tin_type: z.literal('company'),
+      business_type: z.string().trim().min(2).max(200),
+      business_reg_no: z.string().trim().min(3).max(40),
+      cac_status_report: z.object({
+        name: z.string().trim().min(1).max(200),
+        mime_type: z.enum(['application/pdf', 'image/jpeg', 'image/png']),
+        base64: z.string().min(20).max(TIN_DOCUMENT_MAX_BASE64_LENGTH)
+      }).optional()
+    }),
+    z.object({
+      tin_type: z.literal('individual'),
+      nin: z.string().trim().regex(/^\d{11}$/, 'NIN must be 11 digits'),
+      first_name: z.string().trim().min(2).max(100),
+      last_name: z.string().trim().min(2).max(100),
+      middle_name: z.string().trim().max(100).optional(),
+      date_of_birth: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date of birth must be YYYY-MM-DD')
+    })
+  ]).parse(req.body);
+  const submission: TinSubmission = body.tin_type === 'company'
+    ? {
+        type: 'company',
+        businessType: body.business_type,
+        businessRegNo: body.business_reg_no,
+        cacStatusReport: body.cac_status_report
+          ? { name: body.cac_status_report.name, mimeType: body.cac_status_report.mime_type, base64: body.cac_status_report.base64 }
+          : undefined
+      }
+    : {
+        type: 'individual',
+        nin: body.nin,
+        firstName: body.first_name,
+        lastName: body.last_name,
+        middleName: body.middle_name || undefined,
+        dateOfBirth: body.date_of_birth
+      };
+  const result = await submitPartnerTinRequest({
+    partnerId: req.partner!.id,
+    submission,
+    idempotencyKey: idempotencyKeyFrom(req)
+  });
+  res.status(201).json({
+    status: true,
+    message: 'TIN generation request received and queued for manual processing.',
+    data: { ...result, status: 'pending' }
+  });
+});
+
+partnerApiRoutes.get('/identity/tin-generation/prices', async (req, res) => {
+  const types = ['company', 'individual'] as const;
+  const prices = await Promise.all(types.map(async (type) => {
+    const price = await getTinPrice(type, { forPartner: true });
+    return { tin_type: type, label: price.label, amount: price.unitPrice };
+  }));
+  res.json({ status: true, data: prices });
+});
 
 partnerApiRoutes.post('/identity/nin-modification', async (req, res) => {
   const body = z.object({ type: z.enum(MODIFICATION_TYPES), values: z.record(z.string(), z.unknown()) }).parse(req.body);

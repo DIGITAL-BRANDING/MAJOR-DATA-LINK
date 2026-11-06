@@ -26,7 +26,8 @@ export const MANUAL_SERVICE_TRANSACTION_TYPES: TransactionType[] = [
   TransactionType.NEWSPAPER_PUBLICATION,
   TransactionType.BIRTH_ATTESTATION,
   TransactionType.CAC_SERVICE_REQUEST,
-  TransactionType.JAMB_SERVICE_REQUEST
+  TransactionType.JAMB_SERVICE_REQUEST,
+  TransactionType.TIN_SERVICE_REQUEST
 ];
 
 const MANUAL_VERIFICATION_TYPES: TransactionType[] = [

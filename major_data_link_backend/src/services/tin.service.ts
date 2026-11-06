@@ -46,12 +46,14 @@ async function getOrCreatePricingRow(type: TinType) {
   }
 }
 
-export async function getTinPrice(type: TinType) {
+export async function getTinPrice(type: TinType, opts: { forPartner?: boolean } = {}) {
   const row = await getOrCreatePricingRow(type);
   if (!row.isActive) {
     throw new ApiError(422, `${row.label} is currently unavailable`, 'SERVICE_INACTIVE');
   }
-  const unitKobo = row.sellingPriceKobo ?? row.providerCostKobo;
+  const unitKobo = opts.forPartner
+    ? (row.partnerSellingPriceKobo ?? row.sellingPriceKobo ?? row.providerCostKobo)
+    : (row.sellingPriceKobo ?? row.providerCostKobo);
   if (unitKobo <= 0n) {
     throw new ApiError(422, `${row.label} is not priced yet`, 'SERVICE_UNPRICED');
   }
@@ -77,7 +79,7 @@ export async function listTinPricesForAdmin() {
     provider: row.provider,
     provider_cost: koboToNaira(row.providerCostKobo),
     selling_price: row.sellingPriceKobo ? koboToNaira(row.sellingPriceKobo) : null,
-    partner_selling_price: null,
+    partner_selling_price: row.partnerSellingPriceKobo ? koboToNaira(row.partnerSellingPriceKobo) : null,
     is_active: row.isActive
   }));
 }

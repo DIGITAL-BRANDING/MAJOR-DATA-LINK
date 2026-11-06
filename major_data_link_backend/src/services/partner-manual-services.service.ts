@@ -22,8 +22,47 @@ import { getBirthAttestationPrice, renderBirthAttestationPdf } from './birth-att
 import { getBvnCrmPrice } from './bvn-crm.service.js';
 import { getBvnLicensePrice } from './bvn-license-onboarding.service.js';
 import { getJambServicePrice, type JambServiceId } from './jamb-pricing.service.js';
+import { getTinPrice, TIN_CONFIG, type TinSubmission } from './tin.service.js';
 
 export type PartnerManualSubmitResult = { reference: string; balanceAfter: number };
+
+export async function submitPartnerTinRequest(params: {
+  partnerId: string; submission: TinSubmission; idempotencyKey: string;
+}): Promise<PartnerManualSubmitResult> {
+  const price = await getTinPrice(params.submission.type, { forPartner: true });
+  const details = params.submission.type === 'company'
+    ? {
+        business_type: params.submission.businessType,
+        business_reg_no: params.submission.businessRegNo,
+        cac_status_report: params.submission.cacStatusReport ?? null
+      }
+    : {
+        nin: params.submission.nin,
+        first_name: params.submission.firstName,
+        last_name: params.submission.lastName,
+        middle_name: params.submission.middleName ?? null,
+        date_of_birth: params.submission.dateOfBirth
+      };
+  const debit = await debitPartnerWallet({
+    partnerId: params.partnerId,
+    amount: price.unitPrice,
+    type: TransactionType.TIN_SERVICE_REQUEST,
+    description: `TIN Certificate — ${TIN_CONFIG[params.submission.type].title}`,
+    idempotencyKey: params.idempotencyKey,
+    costKobo: price.providerCostKobo,
+    metadata: {
+      service: `TIN_${params.submission.type.toUpperCase()}`,
+      tin_type: params.submission.type,
+      unit_price: price.unitPrice,
+      progress_notes: null,
+      pii: sealPII(details)
+    } as Prisma.InputJsonValue
+  });
+  return {
+    reference: debit.transaction.reference,
+    balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo)
+  };
+}
 
 /** Same NIN_MODIFICATION_<TYPE> / BVN_MODIFICATION_<TYPE> / CAC_<TYPE> convention as each retail service's own private serviceKeyFor() - duplicated here (a one-line string template, not worth exporting three near-identical private helpers just to reuse it). */
 function ninModServiceKey(type: ModificationType) { return `NIN_MODIFICATION_${type.toUpperCase()}`; }
