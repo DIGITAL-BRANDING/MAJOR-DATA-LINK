@@ -399,7 +399,9 @@ retrieved from `GET /identity/requests/{reference}`.
 | Partner prices | `GET /identity/tin-generation/prices` |
 | Submit TIN request | `POST /identity/tin-generation` |
 
-Use the same `Idempotency-Key` on retries. For a company request, include:
+Include an `Idempotency-Key` header (8–128 characters) on every submission and
+reuse the same key on retries. The endpoint requires a `FULL_API` partner tier.
+For a company request, include:
 
 ```json
 {
@@ -428,7 +430,7 @@ maximum decoded size is 4 MB. For an individual request:
 }
 ```
 
-The accepted response contains the MDL `reference`, `balance_after`, and
+The HTTP 201 response contains the MDL `reference`, `balanceAfter`, and
 `status: "pending"`. Applicant details and uploaded files are stored encrypted
 and are shown only to authorized admins. There is currently no TIN-specific
 automated provider adapter: admins review and process these orders from the

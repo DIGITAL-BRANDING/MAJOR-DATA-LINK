@@ -274,6 +274,62 @@ export default function PartnerApiDocsPage() {
             <Link to="/partner-dashboard" className="font-semibold underline">webhook</Link> to be notified the moment an admin
             completes or declines it - a decline automatically refunds your wallet.
           </p>
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            TIN requests require the <code>FULL_API</code> partner tier and remain pending for manual admin processing. Send an
+            <code> Idempotency-Key</code> header (8–128 characters) and reuse the same key if retrying. The accepted request is
+            charged at the partner-specific TIN price; check its result through the request-status endpoint or your completion webhook.
+          </div>
+          <EndpointCard method="GET" path="/identity/tin-generation/prices" title="TIN Generation Prices" icon={Banknote}>
+            <p className="text-sm text-slate-600">Returns the current prices assigned to this partner for company and individual TIN requests. Amounts are in naira.</p>
+            <ResponseExample json={`{
+  "status": true,
+  "data": [
+    { "tin_type": "company", "label": "TIN Certificate — Company", "amount": 2500 },
+    { "tin_type": "individual", "label": "TIN Certificate — Individual", "amount": 1500 }
+  ]
+}`} />
+          </EndpointCard>
+          <EndpointCard method="POST" path="/identity/tin-generation" title="Submit TIN Generation Request" icon={FileText}>
+            <p className="text-sm text-slate-600">Choose one request body by setting <code>tin_type</code> to <code>company</code> or <code>individual</code>. A company CAC status report is optional; if supplied, it must be a base64-encoded PDF, JPEG, or PNG up to 4 MB.</p>
+            <ParamsTable rows={[
+              { name: 'tin_type', type: 'string', required: true, desc: 'company or individual; determines the required fields below' },
+              { name: 'business_type', type: 'string', required: false, desc: 'Company request: business type (2–200 characters)' },
+              { name: 'business_reg_no', type: 'string', required: false, desc: 'Company request: CAC registration number (3–40 characters)' },
+              { name: 'cac_status_report', type: 'object', required: false, desc: 'Company request only: { name, mime_type, base64 }; PDF, JPEG, or PNG, max 4 MB' },
+              { name: 'nin', type: 'string', required: false, desc: 'Individual request: exactly 11 digits' },
+              { name: 'first_name', type: 'string', required: false, desc: 'Individual request: first name' },
+              { name: 'middle_name', type: 'string', required: false, desc: 'Individual request: optional middle name' },
+              { name: 'last_name', type: 'string', required: false, desc: 'Individual request: last name' },
+              { name: 'date_of_birth', type: 'string', required: false, desc: 'Individual request: YYYY-MM-DD' }
+            ]} />
+            <ResponseExample title="Company request body" json={`{
+  "tin_type": "company",
+  "business_type": "Limited Liability Company",
+  "business_reg_no": "RC123456",
+  "cac_status_report": {
+    "name": "cac-status-report.pdf",
+    "mime_type": "application/pdf",
+    "base64": "BASE64_FILE_CONTENT"
+  }
+}`} />
+            <ResponseExample title="Individual request body" json={`{
+  "tin_type": "individual",
+  "nin": "12345678901",
+  "first_name": "Amina",
+  "middle_name": "Bello",
+  "last_name": "Usman",
+  "date_of_birth": "1996-05-18"
+}`} />
+            <ResponseExample title="Accepted response (HTTP 201)" json={`{
+  "status": true,
+  "message": "TIN generation request received and queued for manual processing.",
+  "data": {
+    "reference": "MDL-...",
+    "balanceAfter": 45250,
+    "status": "pending"
+  }
+}`} />
+          </EndpointCard>
           <EndpointCard method="POST" path="/identity/nin-modification" title="NIN Modification" icon={FileText}>
             <ParamsTable rows={[
               { name: 'type', type: 'string', required: true, desc: 'One of the NIN modification types (see the website for the current list)' },

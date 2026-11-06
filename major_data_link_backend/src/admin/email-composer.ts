@@ -1,6 +1,8 @@
+import { readFile, stat } from 'node:fs/promises';
+import { basename, extname } from 'node:path';
 import type { Request, Router } from 'express';
 import { prisma } from '../lib/prisma.js';
-import { sendAdminEmail, type BulkSendResult, type DeliveryResult } from '../lib/email.js';
+import { sendAdminEmail, type BulkSendResult, type DeliveryResult, type EmailAttachment } from '../lib/email.js';
 import { logAdminAction } from './audit.js';
 import type { AdminSessionUser } from './auth.js';
 import { replayPendingResendEmailEvents } from '../services/resend-email-delivery.service.js';
@@ -14,6 +16,39 @@ function esc(v: string) {
 function field(req: Request, name: string) {
   const v = (req as unknown as { fields?: Record<string, string | string[] | undefined> }).fields?.[name];
   return typeof v === 'string' ? v.trim() : '';
+}
+
+type AdminUpload = { filepath?: string; path?: string; originalFilename?: string; name?: string; mimetype?: string; type?: string };
+const MAX_EMAIL_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+const upload = (req: Request, name: string): AdminUpload | undefined => {
+  const files = (req as unknown as { files?: Record<string, AdminUpload | AdminUpload[]> }).files;
+  const item = files?.[name];
+  return Array.isArray(item) ? item[0] : item;
+};
+
+async function readEmailAttachment(req: Request): Promise<EmailAttachment | undefined> {
+  const file = upload(req, 'attachment');
+  const filePath = file?.filepath ?? file?.path;
+  if (!file || !filePath) return undefined;
+  const fileInfo = await stat(filePath);
+  if (fileInfo.size <= 0 || fileInfo.size > MAX_EMAIL_ATTACHMENT_BYTES) {
+    throw new Error('Attachment must be a non-empty PDF or image no larger than 10 MB.');
+  }
+  const content = await readFile(filePath);
+  const contentType = content.subarray(0, 5).toString('ascii') === '%PDF-'
+    ? 'application/pdf'
+    : content.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+      ? 'image/png'
+      : content[0] === 0xff && content[1] === 0xd8 && content[2] === 0xff
+        ? 'image/jpeg'
+        : null;
+  if (!contentType) throw new Error('Only genuine PDF, PNG, and JPEG files can be attached.');
+  const originalFilename = file.originalFilename ?? file.name ?? 'attachment';
+  const filename = basename(originalFilename.replace(/\\/g, '/')).replace(/[\u0000-\u001f\u007f"']/g, '_').slice(0, 180);
+  const extension = extname(filename).toLowerCase();
+  const allowedExtensions = contentType === 'application/pdf' ? ['.pdf'] : contentType === 'image/png' ? ['.png'] : ['.jpg', '.jpeg'];
+  if (!allowedExtensions.includes(extension)) throw new Error('The attachment filename extension does not match its file type.');
+  return { filename, content, contentType };
 }
 
 /**
@@ -175,7 +210,7 @@ function broadcastsSection(broadcasts: RecentBroadcast[]) {
 function page(users: Array<{ id: string; fullName: string; email: string }>, partners: Array<{ id: string; businessName: string; email: string }>, broadcasts: RecentBroadcast[], flash = '') {
   const userOptions = users.map((x) => `<option value="${esc(x.id)}">${esc(x.fullName)} — ${esc(x.email)}</option>`).join('');
   const partnerOptions = partners.map((x) => `<option value="${esc(x.id)}">${esc(x.businessName)} — ${esc(x.email)}</option>`).join('');
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Send email</title><style>body{font:15px Arial,sans-serif;background:#f4f6fa;color:#18212f;max-width:850px;margin:30px auto;padding:0 18px}a{color:#0756b8;text-decoration:none}.card{background:#fff;border-radius:14px;padding:24px;box-shadow:0 2px 12px #0001;margin-top:20px}label{display:block;font-weight:bold;margin:16px 0 6px}input,select,textarea{box-sizing:border-box;width:100%;padding:11px;border:1px solid #cbd5e1;border-radius:8px;font:inherit}textarea{min-height:180px;resize:vertical}.row{display:grid;grid-template-columns:1fr 1fr;gap:16px}button{margin-top:18px;border:0;border-radius:8px;padding:12px 18px;background:#0b2f73;color:#fff;font-weight:bold;cursor:pointer}.flash{padding:12px;background:#e6f4ea;border-radius:8px;color:#155724}.hint{color:#64748b;font-size:13px}h2{margin-top:36px}h3{margin:0 0 6px;font-size:16px}table{width:100%;border-collapse:collapse;font-size:13px;margin-top:12px}td,th{text-align:left;padding:7px;border-bottom:1px solid #e2e8f0;word-break:break-all}.chip{display:inline-block;margin:6px 6px 0 0;padding:4px 10px;border-radius:999px;background:#eef2f8;font-size:12px}.chip.bad{background:#fde8e6;color:#b42318}@media(max-width:600px){.row{grid-template-columns:1fr}}</style></head><body><p><a href="/admin">← Admin dashboard</a></p><h1>Send an email</h1><p class="hint">Email one customer or partner, or send an announcement to the full selected audience. Messages are sent using Resend and recorded in the admin audit log.</p>${flash ? `<p class="flash">${esc(flash)}</p>` : ''}<form class="card" method="post" action="/admin/email-composer"><div class="row"><div><label>Audience</label><select id="audience" name="audience"><option value="CUSTOMERS">Customers</option><option value="PARTNERS">Partners</option></select></div><div><label>Recipients</label><select name="recipient_mode" id="mode"><option value="ALL">Everyone in this audience</option><option value="ONE">One person</option></select></div></div><label>Choose a recipient when sending to one person</label><select id="recipient" name="recipient_id"><option value="">Select a customer</option><optgroup label="Customers">${userOptions}</optgroup><optgroup label="Partners">${partnerOptions}</optgroup></select><label>Subject</label><input name="subject" required minlength="3" maxlength="200"><label>Message</label><textarea name="message" required minlength="2" maxlength="10000" placeholder="Write your message..."></textarea><button>Send email</button></form>${broadcastsSection(broadcasts)}<script>const a=document.querySelector('#audience'),m=document.querySelector('#mode'),r=document.querySelector('#recipient');function sync(){r.required=m.value==='ONE';for(const g of r.querySelectorAll('optgroup'))g.hidden=(a.value==='CUSTOMERS')!==(g.label==='Customers')}a.addEventListener('change',sync);m.addEventListener('change',sync);sync()</script></body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Send email</title><style>body{font:15px Arial,sans-serif;background:#f4f6fa;color:#18212f;max-width:850px;margin:30px auto;padding:0 18px}a{color:#0756b8;text-decoration:none}.card{background:#fff;border-radius:14px;padding:24px;box-shadow:0 2px 12px #0001;margin-top:20px}label{display:block;font-weight:bold;margin:16px 0 6px}input,select,textarea{box-sizing:border-box;width:100%;padding:11px;border:1px solid #cbd5e1;border-radius:8px;font:inherit}textarea{min-height:180px;resize:vertical}.row{display:grid;grid-template-columns:1fr 1fr;gap:16px}button{margin-top:18px;border:0;border-radius:8px;padding:12px 18px;background:#0b2f73;color:#fff;font-weight:bold;cursor:pointer}.flash{padding:12px;background:#e6f4ea;border-radius:8px;color:#155724}.hint{color:#64748b;font-size:13px}h2{margin-top:36px}h3{margin:0 0 6px;font-size:16px}table{width:100%;border-collapse:collapse;font-size:13px;margin-top:12px}td,th{text-align:left;padding:7px;border-bottom:1px solid #e2e8f0;word-break:break-all}.chip{display:inline-block;margin:6px 6px 0 0;padding:4px 10px;border-radius:999px;background:#eef2f8;font-size:12px}.chip.bad{background:#fde8e6;color:#b42318}@media(max-width:600px){.row{grid-template-columns:1fr}}</style></head><body><p><a href="/admin">← Admin dashboard</a></p><h1>Send an email</h1><p class="hint">Email one customer or partner, or send an announcement to the full selected audience. Every email includes the official K-Tech Solutions header, admin signature, and stamp.</p>${flash ? `<p class="flash">${esc(flash)}</p>` : ''}<form class="card" method="post" action="/admin/email-composer" enctype="multipart/form-data"><div class="row"><div><label>Audience</label><select id="audience" name="audience"><option value="CUSTOMERS">Customers</option><option value="PARTNERS">Partners</option></select></div><div><label>Recipients</label><select name="recipient_mode" id="mode"><option value="ALL">Everyone in this audience</option><option value="ONE">One person</option></select></div></div><label>Choose a recipient when sending to one person</label><select id="recipient" name="recipient_id"><option value="">Select a customer</option><optgroup label="Customers">${userOptions}</optgroup><optgroup label="Partners">${partnerOptions}</optgroup></select><label>Subject</label><input name="subject" required minlength="3" maxlength="200"><label>Message</label><textarea name="message" required minlength="2" maxlength="10000" placeholder="Write your message..."></textarea><label>Optional attachment</label><input type="file" name="attachment" accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg"><p class="hint">PDF, PNG, or JPEG up to 10 MB. Bulk emails with an attachment are limited to 500 recipients.</p><button>Send email</button></form>${broadcastsSection(broadcasts)}<script>const a=document.querySelector('#audience'),m=document.querySelector('#mode'),r=document.querySelector('#recipient');function sync(){r.required=m.value==='ONE';for(const g of r.querySelectorAll('optgroup'))g.hidden=(a.value==='CUSTOMERS')!==(g.label==='Customers')}a.addEventListener('change',sync);m.addEventListener('change',sync);sync()</script></body></html>`;
 }
 
 export function registerEmailComposerRoutes(router: Router) {
@@ -203,6 +238,7 @@ export function registerEmailComposerRoutes(router: Router) {
       const id = field(req, 'recipient_id');
       const subject = field(req, 'subject');
       const message = field(req, 'message');
+      const attachment = await readEmailAttachment(req);
       if (!['CUSTOMERS', 'PARTNERS'].includes(audience) || !['ALL', 'ONE'].includes(mode) || subject.length < 3 || subject.length > 200 || message.length < 2 || message.length > 10000 || (mode === 'ONE' && !id)) {
         throw new Error('Check the audience, recipient, subject and message.');
       }
@@ -214,10 +250,11 @@ export function registerEmailComposerRoutes(router: Router) {
         ? await prisma.user.findMany({ where: { accountStatus: 'ACTIVE', ...bulk, ...(mode === 'ONE' ? { id } : {}) }, select: { email: true }, take: mode === 'ONE' ? 1 : 10000 })
         : await prisma.partner.findMany({ where: { ...bulk, ...(mode === 'ONE' ? { id } : {}) }, select: { email: true }, take: mode === 'ONE' ? 1 : 10000 });
       if (!rows.length) throw new Error('No recipients were found.');
+      if (attachment && rows.length > 500) throw new Error('Bulk email with an attachment is limited to 500 recipients per send.');
 
       const broadcastId = await startBroadcast({ adminId: admin.id, audience, recipientMode: mode, subject, recipientCount: rows.length });
       const result = await sendAdminEmail(
-        { recipients: rows.map((x) => x.email), subject, message },
+        { recipients: rows.map((x) => x.email), subject, message, attachments: attachment ? [attachment] : undefined },
         { onChunk: (results) => recordDeliveries(broadcastId, results) }
       );
       await finishBroadcast(broadcastId, result);
@@ -226,7 +263,7 @@ export function registerEmailComposerRoutes(router: Router) {
         adminId: admin.id,
         action: 'SEND_ADMIN_EMAIL',
         targetType: audience,
-        metadata: { audience, recipientMode: mode, recipientCount: rows.length, delivered: result.delivered, failed: result.failed, subject, sent: result.sent, broadcastId }
+        metadata: { audience, recipientMode: mode, recipientCount: rows.length, delivered: result.delivered, failed: result.failed, subject, sent: result.sent, broadcastId, attachment: attachment ? { fileName: attachment.filename, bytes: attachment.content.length, contentType: attachment.contentType } : null }
       });
       if (!result.sent) throw new Error(result.error ?? 'Email delivery failed.');
 

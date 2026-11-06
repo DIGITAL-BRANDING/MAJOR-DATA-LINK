@@ -9,7 +9,8 @@ import { env } from '../config/env.js';
  */
 
 export type SendResult = { sent: boolean; error?: string; delivered?: number; failed?: number };
-export type EmailMessage = { subject: string; text: string; html: string };
+export type EmailAttachment = { filename: string; content: Buffer; contentType: string };
+export type EmailMessage = { subject: string; text: string; html: string; attachments?: EmailAttachment[] };
 
 const BRAND = 'K-TECH SOLUTIONS';
 const BATCH_SIZE = 100; // Resend's per-call maximum for batch.send
@@ -32,19 +33,26 @@ export function escapeHtml(value: string): string {
 const pause = (ms: number) => (ms > 0 ? new Promise<void>((resolve) => setTimeout(resolve, ms)) : Promise.resolve());
 
 /** One message to one person: `{ from, to: [address], subject, html, text }`. */
-async function sendEmail(to: string, message: EmailMessage): Promise<SendResult> {
+async function sendEmail(to: string, message: EmailMessage): Promise<SendResult & { resendId?: string }> {
   const resend = getClient();
   if (!resend) {
     console.error('[email] RESEND_API_KEY is not set - cannot send email');
     return { sent: false, error: 'RESEND_API_KEY is not configured' };
   }
   try {
-    const { error } = await resend.emails.send({ from: env.RESEND_FROM_EMAIL, to: [to], subject: message.subject, html: message.html, text: message.text });
+    const { data, error } = await resend.emails.send({
+      from: env.RESEND_FROM_EMAIL,
+      to: [to],
+      subject: message.subject,
+      html: message.html,
+      text: message.text,
+      ...(message.attachments?.length ? { attachments: message.attachments } : {})
+    });
     if (error) {
       console.error('[email] Resend rejected email', error);
       return { sent: false, error: error.message ?? 'Resend rejected the email' };
     }
-    return { sent: true };
+    return { sent: true, resendId: data?.id };
   } catch (error) {
     console.error('[email] Failed to send email', error);
     return { sent: false, error: 'Email delivery failed' };
@@ -85,6 +93,33 @@ export async function sendBulkEmail(recipients: string[], message: EmailMessage,
   }
   const pauseMs = options.pauseMs ?? BULK_PAUSE_MS;
   const unique = [...new Map(recipients.map((address) => [address.trim().toLowerCase(), address.trim()])).values()].filter(Boolean);
+
+  if (message.attachments?.length) {
+    if (unique.length > 500) {
+      return { sent: false, error: 'Bulk email with an attachment is limited to 500 recipients per send.', results: [] };
+    }
+    const results: DeliveryResult[] = [];
+    let flushedCount = 0;
+    for (let index = 0; index < unique.length; index += 1) {
+      if (index > 0) await pause(options.pauseMs ?? BULK_PAUSE_MS);
+      const address = unique[index];
+      const sent = await sendEmail(address, message);
+      results.push(sent.sent
+        ? { email: address, resendId: sent.resendId }
+        : { email: address, error: sent.error ?? 'Email delivery failed' });
+      if (options.onChunk && (results.length % BATCH_SIZE === 0 || index === unique.length - 1)) {
+        try {
+          await options.onChunk(results.slice(flushedCount));
+          flushedCount = results.length;
+        } catch (error) {
+          console.error('[email] onChunk handler failed', error);
+        }
+      }
+    }
+    const delivered = results.filter((result) => !result.error).length;
+    const failed = results.length - delivered;
+    return { sent: delivered > 0, delivered, failed, results, ...(delivered > 0 ? {} : { error: results[0]?.error ?? 'Email delivery failed' }) };
+  }
 
   let delivered = 0;
   let failed = 0;
@@ -236,13 +271,17 @@ export async function sendWelcomeEmail(params: { email: string; fullName: string
 
 // ── Admin announcements & password reset ─────────────────────────────────
 
-export async function sendAdminEmail(params: { recipients: string[]; subject: string; message: string }, options: Pick<BulkSendOptions, 'onChunk'> = {}): Promise<BulkSendResult> {
+export async function sendAdminEmail(params: { recipients: string[]; subject: string; message: string; attachments?: EmailAttachment[] }, options: Pick<BulkSendOptions, 'onChunk'> = {}): Promise<BulkSendResult> {
   const message = params.message.trim();
-  const safeMessage = escapeHtml(message).replace(/\r?\n/g, '<br>');
+  const subject = params.subject.trim();
+  const safeMessage = escapeHtml(message).split(/\r?\n\s*\r?\n/).map((paragraph) => `<p style="margin:0 0 16px;line-height:1.7">${paragraph.replace(/\r?\n/g, '<br>')}</p>`).join('');
+  const text = `${BRAND}\nOFFICIAL COMMUNICATION\n\n${subject}\n\n${message}\n\nK-Tech Solutions\nAdministration\nOfficial Admin Office\n[OFFICIAL STAMP: K-TECH SOLUTIONS ADMIN OFFICE]`;
+  const stamp = `<table role="presentation" cellspacing="0" cellpadding="0" style="margin:24px 0 0"><tr><td style="width:92px;height:92px;border:3px double #0b2f73;border-radius:50%;text-align:center;vertical-align:middle;color:#0b2f73;font-family:Arial,sans-serif"><span style="font-size:9px;font-weight:bold;letter-spacing:1px">K-TECH</span><br><span style="font-size:12px;font-weight:bold">OFFICIAL</span><br><span style="font-size:8px;letter-spacing:1px">ADMIN OFFICE</span></td></tr></table>`;
   return sendBulkEmail(params.recipients, {
-    subject: params.subject.trim(),
-    text: message,
-    html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:28px;color:#201708;line-height:1.6"><h2 style="color:#0b2f73">${BRAND}</h2><div>${safeMessage}</div><p style="margin-top:28px;color:#666">${BRAND} Team</p></div>`
+    subject,
+    text,
+    html: `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f3f5f8;padding:24px 10px;font-family:Arial,Helvetica,sans-serif;color:#201708"><tr><td align="center"><table role="presentation" width="620" cellspacing="0" cellpadding="0" style="max-width:620px;width:100%;background:#fff;border:1px solid #e1e7ef;border-radius:12px;overflow:hidden"><tr><td style="background:#0b2f73;padding:22px 28px;border-bottom:4px solid #d4af37"><div style="font-size:20px;font-weight:700;letter-spacing:1px;color:#fff">${BRAND}</div><div style="margin-top:5px;font-size:10px;font-weight:700;letter-spacing:2px;color:#f6d36b">OFFICIAL COMMUNICATION</div></td></tr><tr><td style="padding:28px"><h1 style="margin:0 0 20px;font-size:20px;line-height:1.35;color:#0b2f73">${escapeHtml(subject)}</h1><div style="font-size:15px;color:#201708">${safeMessage}</div><table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:26px;border-top:1px solid #e2e8f0"><tr><td style="padding-top:18px;vertical-align:bottom"><div style="font-family:'Segoe Script','Bradley Hand',cursive;font-size:23px;font-style:italic;font-weight:700;color:#0b2f73">K-Tech Solutions</div><div style="margin-top:4px;font-size:13px;font-weight:bold;color:#334155">Administration</div><div style="font-size:12px;color:#64748b">Official Admin Office</div></td><td align="right" style="width:110px;vertical-align:bottom">${stamp}</td></tr></table></td></tr><tr><td style="padding:12px 28px;background:#f8fafc;border-top:1px solid #e2e8f0;font-size:11px;color:#64748b">This official communication was issued by ${BRAND} Administration. Please reply to this email for assistance.</td></tr></table></td></tr></table>`,
+    attachments: params.attachments
   }, options);
 }
 
