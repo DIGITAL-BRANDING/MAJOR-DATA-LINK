@@ -181,7 +181,8 @@ export default function PartnerApiDocsPage() {
             tiers={['premium', 'standard', 'regular']}
             rows={[
               { name: 'phone', type: 'string', required: true, desc: 'Phone number registered to the NIN' },
-              { name: 'tier', type: 'string', required: true, desc: 'premium, standard, or regular' }
+              { name: 'tier', type: 'string', required: true, desc: 'premium, standard, or regular' },
+              { name: 'version', type: 'string', required: false, desc: 'v1 (Techhub then AbjikTech on confirmed failure), v2 (AbjikTech directly), v3 (FranceVerified), or v4 (Hubbu directly). Omit to use configured provider routing. Each version has its own price.' }
             ]}
           />
           <EndpointCard method="POST" path="/verification/nin/personal-info" title="NIN Personal Information Slip" icon={FileText}>

@@ -31,7 +31,10 @@ export function isManualRequestSubmission(params: {
   if (MANUAL_REQUEST_TYPES.has(params.type)) return true;
   if (!MANUAL_VERIFICATION_TYPES.has(params.type)) return false;
   const metadata = params.metadata as Record<string, unknown> | null | undefined;
-  return params.provider === 'manual' || params.provider === 'hubbu' || metadata?.manual_processing === true;
+  const ticket = metadata?.ticket_id;
+  const hasPartnerProcessingTicket = params.type === TransactionType.IDENTITY_SERVICE_REQUEST
+    && typeof ticket === 'string' && ticket.trim().length > 0 && !/^(?:RECONCILE|HUBBU-RECONCILE)-/i.test(ticket.trim());
+  return params.provider === 'manual' || metadata?.manual_processing === true || hasPartnerProcessingTicket;
 }
 
 function requestFields(metadata: unknown) {

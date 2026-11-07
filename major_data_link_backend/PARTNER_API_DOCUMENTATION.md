@@ -289,8 +289,16 @@ Pricing.
 **NIN Slip by phone:** `POST /verification/nin/by-phone`
 
 ```json
-{ "phone": "08012345678", "tier": "standard" }
+{ "phone": "08012345678", "tier": "standard", "version": "v1" }
 ```
+
+`version` is optional. `v1` tries Techhub first and automatically retries
+AbjikTech if Techhub returns a confirmed failure; `v2` calls AbjikTech directly,
+`v3` calls FranceVerified, and `v4` calls Hubbu directly. Each version uses its
+own partner price. If omitted, the provider configured for the generic phone-slip
+service is used. An uncertain provider outcome is kept pending for reconciliation
+and is not sent to the manual-request queue as a new manual order. Use the
+returned reference with `GET /verification/slip/{reference}` to check status.
 
 **NIN Personal Information Slip:** `POST /verification/nin/personal-info`
 

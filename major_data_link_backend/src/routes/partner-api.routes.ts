@@ -353,8 +353,8 @@ partnerApiRoutes.post('/verification/nin/by-nin', async (req, res) => {
 });
 
 partnerApiRoutes.post('/verification/nin/by-phone', async (req, res) => {
-  const body = z.object({ phone: z.string().trim().length(11), tier: z.enum(['premium', 'standard', 'regular']) }).parse(req.body);
-  const result = await partnerVerification.ninByPhone(req.partner!.id, body.phone, body.tier, idempotencyKeyFrom(req), partnerSlipAsync(req));
+  const body = z.object({ phone: z.string().trim().length(11), tier: z.enum(['premium', 'standard', 'regular']), version: z.enum(['v1', 'v2', 'v3', 'v4']).optional() }).parse(req.body);
+  const result = await partnerVerification.ninByPhone(req.partner!.id, body.phone, body.tier, idempotencyKeyFrom(req), partnerSlipAsync(req), body.version);
   res.set('Cache-Control', 'no-store');
   res.status(partnerSlipAsync(req) && result.status === 'pending' ? 202 : 200).json(verificationResponse(result));
 });

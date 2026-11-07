@@ -20,12 +20,17 @@ function uploadedFile(req: Request, name = 'file') { const value = files(req)[na
 function fields(req: Request) { return (req as unknown as { fields?: Record<string, string | string[] | undefined> }).fields ?? {}; }
 function field(req: Request, name: string) { const value = fields(req)[name]; return typeof value === 'string' ? value.trim() : ''; }
 function escapeHtml(value: string) { return value.replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]!); }
+function isMarkedForManualProcessing(metadata: unknown) {
+  return typeof metadata === 'object' && metadata !== null && (metadata as Record<string, unknown>).manual_processing === true;
+}
 function hasProviderTicket(metadata: unknown) {
   const ticket = typeof metadata === 'object' && metadata !== null ? (metadata as Record<string, unknown>).ticket_id : undefined;
   return typeof ticket === 'string' && ticket.trim().length > 0 && !/^(?:RECONCILE|HUBBU-RECONCILE)-/i.test(ticket.trim());
 }
 function isManualVerification(transaction: { type: TransactionType; provider: string | null; metadata?: unknown }) {
-  return (transaction.provider === 'manual' || (transaction.provider !== null && hasProviderTicket(transaction.metadata))) && verificationTypes.includes(transaction.type);
+  return (transaction.provider === 'manual' || isMarkedForManualProcessing(transaction.metadata)
+    || (transaction.type === TransactionType.IDENTITY_SERVICE_REQUEST && hasProviderTicket(transaction.metadata)))
+    && verificationTypes.includes(transaction.type);
 }
 function serviceLabel(metadata: unknown, fallback: string) { const service = typeof metadata === 'object' && metadata !== null ? (metadata as Record<string, unknown>).service : undefined; return typeof service === 'string' ? service.replace(/_/g, ' ') : fallback.replace(/_/g, ' '); }
 function groupFor(transaction: { type: TransactionType; metadata: unknown }) { const service = typeof transaction.metadata === 'object' && transaction.metadata !== null ? (transaction.metadata as Record<string, unknown>).service : undefined; return transaction.type === TransactionType.BVN_VERIFICATION || (typeof service === 'string' && service.startsWith('BVN_')) ? 'BVN' : 'NIN'; }

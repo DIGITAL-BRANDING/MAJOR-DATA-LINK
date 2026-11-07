@@ -34,15 +34,42 @@ function findText(source: AbjikResponse, ...keys: string[]) {
   return undefined;
 }
 
+function responseLayers(envelope: AbjikResponse): AbjikResponse[] {
+  const layers: AbjikResponse[] = [];
+  const visited = new Set<object>();
+  const visit = (value: unknown, depth: number) => {
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item, depth + 1);
+      return;
+    }
+    const current = record(value);
+    if (!current || visited.has(current) || depth > 5) return;
+    visited.add(current);
+    layers.push(current);
+    for (const key of ['data', 'result', 'response', 'payload', 'user_data']) visit(current[key], depth + 1);
+  };
+  visit(envelope, 0);
+  return layers;
+}
+
 function identityRecord(envelope: AbjikResponse): AbjikResponse | undefined {
-  const userData = record(envelope.user_data) ?? record(record(envelope.data)?.user_data) ?? record(envelope.data);
+  const layers = responseLayers(envelope);
+  const userData = layers.find((layer) => ['firstName', 'first_name', 'firstname', 'nin', 'idNumber', 'id_number', 'bvn'].some((key) => findText(layer, key)));
   if (!userData) return undefined;
   const nestedResponse = userData.response;
   return (Array.isArray(nestedResponse) ? record(nestedResponse[0]) : record(nestedResponse)) ?? userData;
 }
 
 function responseMessage(envelope: AbjikResponse, fallback: string) {
-  return findText(envelope, 'message', 'error', 'description') ?? fallback;
+  for (const layer of responseLayers(envelope)) {
+    const message = findText(layer, 'message', 'error', 'description');
+    if (message) return message;
+  }
+  return fallback;
+}
+
+function successFlag(value: unknown) {
+  return value === true || value === 1 || (typeof value === 'string' && ['true', '1', 'success', 'successful', 'completed'].includes(value.trim().toLowerCase()));
 }
 
 async function lookup(path: string, payload: Record<string, string>, options: {
@@ -75,12 +102,13 @@ async function lookup(path: string, payload: Record<string, string>, options: {
 
   const raw: unknown = await response.json().catch(() => null);
   const envelope = record(raw) ?? {};
-  const status = findText(envelope, 'status')?.toLowerCase();
-  const responseCode = findText(envelope, 'response_code');
+  const layers = responseLayers(envelope);
+  const status = layers.map((layer) => findText(layer, 'status', 'state')).find(Boolean)?.toLowerCase();
+  const responseCode = layers.map((layer) => findText(layer, 'response_code', 'responseCode')).find(Boolean);
   const userData = identityRecord(envelope);
-  const successful = response.ok && (status === 'success' || responseCode === '00' || envelope.success === true);
-  const pdfBase64 = findText(envelope, 'pdf_base64') ?? findText(record(envelope.data) ?? {}, 'pdf_base64');
-  const pdfUrl = findText(envelope, 'pdf_url', 'slip_url', 'download_url') ?? findText(record(envelope.data) ?? {}, 'pdf_url', 'slip_url', 'download_url');
+  const successful = response.ok && (layers.some((layer) => successFlag(layer.status) || successFlag(layer.state) || successFlag(layer.success)) || responseCode === '00' || responseCode === '0');
+  const pdfBase64 = layers.map((layer) => findText(layer, 'pdf_base64', 'pdfBase64')).find(Boolean);
+  const pdfUrl = layers.map((layer) => findText(layer, 'pdf_url', 'slip_url', 'download_url', 'pdfUrl', 'downloadUrl')).find(Boolean);
   console.info('[abjiktech] slip response', JSON.stringify({ endpoint: path, http_status: response.status, duration_ms: Date.now() - startedAt, provider_status: status, response_code: responseCode, outcome: successful ? 'success' : 'failed' }));
   if (!successful || (!userData && !pdfBase64 && !pdfUrl)) {
     return { ok: false, message: responseMessage(envelope, 'AbjikTech could not find a matching verification record.'), raw };

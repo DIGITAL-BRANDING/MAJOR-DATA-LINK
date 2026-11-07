@@ -83,7 +83,7 @@ function successState(raw: HubbuResponse): 'success' | 'failure' | 'pending' | '
   const layers = responseLayers(raw);
   const status = firstValue(layers, ['status', 'state', 'outcome']);
   const normalized = typeof status === 'string' ? status.trim().toLowerCase() : '';
-  if (['success', 'successful', 'completed', 'complete', 'verified', 'ok'].includes(normalized)) return 'success';
+  if (status === true || status === 1 || ['true', '1', 'success', 'successful', 'completed', 'complete', 'verified', 'ok'].includes(normalized)) return 'success';
   if (['pending', 'queued', 'processing', 'in_progress', 'in progress', 'accepted'].includes(normalized)) return 'pending';
   if (['failed', 'failure', 'error', 'rejected', 'declined'].includes(normalized)) return 'failure';
   if (firstValue(layers, ['success']) === true) return 'success';

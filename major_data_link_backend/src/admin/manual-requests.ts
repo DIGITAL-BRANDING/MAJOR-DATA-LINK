@@ -50,6 +50,10 @@ export function groupFor(type: TransactionType, metadata: unknown): QueueGroup {
   return 'TIN_OTHER';
 }
 
+function isMarkedForManualProcessing(metadata: unknown) {
+  return typeof metadata === 'object' && metadata !== null && (metadata as Record<string, unknown>).manual_processing === true;
+}
+
 function hasProviderTicket(metadata: unknown) {
   const ticket = typeof metadata === 'object' && metadata !== null ? (metadata as Record<string, unknown>).ticket_id : undefined;
   return typeof ticket === 'string' && ticket.trim().length > 0 && !/^(?:RECONCILE|HUBBU-RECONCILE)-/i.test(ticket.trim());
@@ -58,7 +62,8 @@ function hasProviderTicket(metadata: unknown) {
 export function isManualWorkItem(row: { type: TransactionType; provider: string | null; metadata?: unknown }) {
   return MANUAL_TRANSACTION_TYPES.includes(row.type)
     || (MANUAL_VERIFICATION_TRANSACTION_TYPES.includes(row.type)
-      && (row.provider === 'manual' || (row.provider !== null && hasProviderTicket(row.metadata))));
+      && (row.provider === 'manual' || isMarkedForManualProcessing(row.metadata)
+        || (row.type === TransactionType.IDENTITY_SERVICE_REQUEST && hasProviderTicket(row.metadata))));
 }
 
 function escapeHtml(value: string) {
@@ -76,7 +81,7 @@ export function registerManualRequestRoutes(router: Router) {
       prisma.partnerTransaction.findMany({ where: { status: TransactionStatus.PENDING }, select: { id: true, reference: true, type: true, provider: true, metadata: true, description: true, createdAt: true }, orderBy: { createdAt: 'asc' } })
     ]);
     const rows = [
-      ...customerRows.filter(isManualWorkItem).map((row) => ({ ...row, source: 'Customer', href: row.type === TransactionType.JAMB_SERVICE_REQUEST ? `/admin/jamb/${row.id}/fulfil` : row.provider !== null && (row.provider === 'manual' || hasProviderTicket(row.metadata)) && MANUAL_VERIFICATION_TRANSACTION_TYPES.includes(row.type) ? `/admin/manual-verifications?group=${groupFor(row.type, row.metadata)}` : `/admin/resources/Transaction/records/${row.id}/show`, group: groupFor(row.type, row.metadata) })),
+      ...customerRows.filter(isManualWorkItem).map((row) => ({ ...row, source: 'Customer', href: row.type === TransactionType.JAMB_SERVICE_REQUEST ? `/admin/jamb/${row.id}/fulfil` : MANUAL_VERIFICATION_TRANSACTION_TYPES.includes(row.type) ? `/admin/manual-verifications?group=${groupFor(row.type, row.metadata)}` : `/admin/resources/Transaction/records/${row.id}/show`, group: groupFor(row.type, row.metadata) })),
       // Partner work is deliberately opened in its batch queue: admins should
       // never be sent back to the old one-request-at-a-time screen.
       ...partnerRows.filter(isManualWorkItem).map((row) => ({ ...row, source: 'Partner API', href: '/admin/partner-manual-requests', group: groupFor(row.type, row.metadata) }))
