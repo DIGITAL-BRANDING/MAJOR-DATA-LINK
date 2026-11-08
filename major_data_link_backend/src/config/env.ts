@@ -132,6 +132,7 @@ const EnvSchema = z.object({
   // makes sends fail closed with a clear error rather than silently pretending
   // to send an email nobody gets.
   RESEND_API_KEY: z.string().optional(),
+  PARTNER_WALLET_LOW_BALANCE_THRESHOLD_NAIRA: z.coerce.number().positive().default(2000),
   // The sender must be on a domain verified in the Resend dashboard
   // (k-tech.com.ng). Resend's shared onboarding@resend.dev address only ever
   // delivers to the account owner, so it cannot be used for real customers.

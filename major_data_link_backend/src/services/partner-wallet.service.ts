@@ -6,6 +6,33 @@ import { ApiError } from '../middleware/error.js';
 import { resolvePartnerServicePrice } from './partner-service-pricing.service.js';
 import { emailAdminsForManualRequest, isManualRequestSubmission } from './manual-request-admin-email.service.js';
 import { notifyPartnerSafely } from './notification.service.js';
+import { sendPartnerLowBalanceEmail } from '../lib/email.js';
+import { env } from '../config/env.js';
+
+function queuePartnerLowBalanceAlert(params: { partnerId: string; balanceKobo: bigint; reference?: string }) {
+  const thresholdNaira = env.PARTNER_WALLET_LOW_BALANCE_THRESHOLD_NAIRA;
+  const thresholdKobo = nairaToKobo(thresholdNaira);
+  if (params.balanceKobo >= thresholdKobo) return;
+  const balanceNaira = koboToNaira(params.balanceKobo);
+  const dedupeKey = `partner-low-balance:${params.partnerId}:${new Date().toISOString().slice(0, 10)}`;
+  void (async () => {
+    const body = `Your balance is ₦${balanceNaira.toLocaleString('en-NG', { minimumFractionDigits: 2 })}, below the ₦${thresholdNaira.toLocaleString('en-NG')} alert threshold. Requests that cost more than your available balance will be rejected before processing; low balance does not affect result accuracy.`;
+    try {
+      await prisma.partnerNotification.create({ data: {
+        id: nanoid(), partnerId: params.partnerId, type: 'WALLET', title: 'Your API wallet balance is low', body, dedupeKey,
+        data: { ...(params.reference ? { reference: params.reference } : {}), balance: balanceNaira, threshold: thresholdNaira, action_url: '/partner-dashboard?view=wallet' }
+      } });
+    } catch (error) {
+      const existingAlert = await prisma.partnerNotification.findUnique({ where: { dedupeKey }, select: { id: true } });
+      if (existingAlert) return;
+      throw error;
+    }
+    const partner = await prisma.partner.findUnique({ where: { id: params.partnerId }, select: { email: true, businessName: true } });
+    if (!partner) return;
+    const emailResult = await sendPartnerLowBalanceEmail({ ...partner, balanceNaira, thresholdNaira });
+    if (!emailResult.sent) console.warn('[partner-wallet] low-balance email was not accepted', JSON.stringify({ partnerId: params.partnerId, error: emailResult.error }));
+  })().catch((error) => console.error('[partner-wallet] low-balance notification failed', params.partnerId, error));
+}
 
 export async function debitPartnerWallet(input: {
   partnerId: string;
@@ -46,41 +73,51 @@ export async function debitPartnerWallet(input: {
     ...(typeof metadata.unit_price === 'number' ? { unit_price: chargedAmount } : {}),
     ...(priceService ? { pricing_service: priceService } : {})
   } as Prisma.InputJsonValue;
-  const result = await prisma.$transaction(async (tx) => {
-    const replay = await tx.partnerTransaction.findUnique({
-      where: { partnerId_idempotencyKey: { partnerId: input.partnerId, idempotencyKey: input.idempotencyKey } }
-    });
-    if (replay) return { transaction: replay, reused: true };
+  let result: { transaction: Awaited<ReturnType<typeof prisma.partnerTransaction.findUniqueOrThrow>>; reused: boolean };
+  try {
+    result = await prisma.$transaction(async (tx) => {
+      const replay = await tx.partnerTransaction.findUnique({
+        where: { partnerId_idempotencyKey: { partnerId: input.partnerId, idempotencyKey: input.idempotencyKey } }
+      });
+      if (replay) return { transaction: replay, reused: true };
 
-    const partner = await tx.partner.findUnique({ where: { id: input.partnerId } });
-    if (!partner || partner.status !== 'ACTIVE') throw new ApiError(403, 'Partner account is not active', 'PARTNER_SUSPENDED');
-    if (partner.walletBalanceKobo < amountKobo) {
-      throw new ApiError(400, 'Insufficient partner wallet balance', 'INSUFFICIENT_BALANCE');
-    }
-    const balanceAfterKobo = partner.walletBalanceKobo - amountKobo;
-    await tx.partner.update({ where: { id: partner.id }, data: { walletBalanceKobo: balanceAfterKobo } });
-    const transaction = await tx.partnerTransaction.create({
-      data: {
-        partnerId: partner.id,
-        type: input.type,
-        amountKobo,
-        balanceBeforeKobo: partner.walletBalanceKobo,
-        balanceAfterKobo,
-        reference: `MDL-${Date.now()}-${nanoid(8).toUpperCase()}`,
-        idempotencyKey: input.idempotencyKey,
-        description: input.description,
-        metadata: transactionMetadata,
-        ...(input.costKobo !== undefined ? { costKobo: input.costKobo } : {})
+      const partner = await tx.partner.findUnique({ where: { id: input.partnerId } });
+      if (!partner || partner.status !== 'ACTIVE') throw new ApiError(403, 'Partner account is not active', 'PARTNER_SUSPENDED');
+      if (partner.walletBalanceKobo < amountKobo) {
+        throw new ApiError(400, 'Insufficient partner wallet balance', 'INSUFFICIENT_BALANCE');
       }
+      const balanceAfterKobo = partner.walletBalanceKobo - amountKobo;
+      await tx.partner.update({ where: { id: partner.id }, data: { walletBalanceKobo: balanceAfterKobo } });
+      const transaction = await tx.partnerTransaction.create({
+        data: {
+          partnerId: partner.id,
+          type: input.type,
+          amountKobo,
+          balanceBeforeKobo: partner.walletBalanceKobo,
+          balanceAfterKobo,
+          reference: `MDL-${Date.now()}-${nanoid(8).toUpperCase()}`,
+          idempotencyKey: input.idempotencyKey,
+          description: input.description,
+          metadata: transactionMetadata,
+          ...(input.costKobo !== undefined ? { costKobo: input.costKobo } : {})
+        }
+      });
+      return { transaction, reused: false };
+    }, {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      // Wallet operations are short, but should tolerate brief pool contention
+      // instead of failing immediately before the provider is called.
+      maxWait: 10_000,
+      timeout: 15_000
     });
-    return { transaction, reused: false };
-  }, {
-    isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-    // Wallet operations are short, but should tolerate brief pool contention
-    // instead of failing immediately before the provider is called.
-    maxWait: 10_000,
-    timeout: 15_000
-  });
+  } catch (error) {
+    if (error instanceof ApiError && error.code === 'INSUFFICIENT_BALANCE') {
+      void prisma.partner.findUnique({ where: { id: input.partnerId }, select: { walletBalanceKobo: true } }).then((partner) => {
+        if (partner) queuePartnerLowBalanceAlert({ partnerId: input.partnerId, balanceKobo: partner.walletBalanceKobo });
+      }).catch((lookupError) => console.error('[partner-wallet] could not check low balance after rejected request', input.partnerId, lookupError));
+    }
+    throw error;
+  }
   if (!result.reused && isManualRequestSubmission({ type: result.transaction.type, provider: result.transaction.provider, metadata: result.transaction.metadata })) {
     const transaction = result.transaction;
     void notifyPartnerSafely({
@@ -92,6 +129,10 @@ export async function debitPartnerWallet(input: {
     });
     void emailAdminsForManualRequest({ source: 'Partner', requesterId: transaction.partnerId, reference: transaction.reference, type: transaction.type,
       description: transaction.description, createdAt: transaction.createdAt, amountKobo: transaction.amountKobo, metadata: transaction.metadata });
+  }
+  const lowBalanceThresholdKobo = nairaToKobo(env.PARTNER_WALLET_LOW_BALANCE_THRESHOLD_NAIRA);
+  if (!result.reused && result.transaction.balanceAfterKobo < lowBalanceThresholdKobo) {
+    queuePartnerLowBalanceAlert({ partnerId: result.transaction.partnerId, balanceKobo: result.transaction.balanceAfterKobo, reference: result.transaction.reference });
   }
   return result;
 }

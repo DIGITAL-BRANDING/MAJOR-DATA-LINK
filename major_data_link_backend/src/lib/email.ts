@@ -269,6 +269,17 @@ export async function sendWelcomeEmail(params: { email: string; fullName: string
   return sendEmail(params.email, buildWelcomeEmail({ fullName: params.fullName, webUrl: env.PUBLIC_WEB_URL }));
 }
 
+export async function sendPartnerLowBalanceEmail(params: { email: string; businessName: string; balanceNaira: number; thresholdNaira: number }): Promise<SendResult> {
+  const businessName = params.businessName.trim() || 'API partner';
+  const balance = `₦${params.balanceNaira.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const threshold = `₦${params.thresholdNaira.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const dashboardUrl = `${env.PUBLIC_WEB_URL.replace(/\/$/, '')}/partner-dashboard?view=wallet`;
+  const subject = 'Your API wallet balance is low';
+  const text = `Hello ${businessName},\n\nYour API wallet balance is ${balance}, below the low-balance alert threshold of ${threshold}. Requests that cost more than your available balance will be rejected before processing. Please fund your wallet to avoid interruptions. A low wallet balance does not change the accuracy of verification results.\n\nOpen your wallet: ${dashboardUrl}\n\nK-TECH SOLUTIONS Partner Support`;
+  const html = `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f3f5f8;padding:24px 10px;font-family:Arial,Helvetica,sans-serif;color:#201708"><tr><td align="center"><table role="presentation" width="620" cellspacing="0" cellpadding="0" style="max-width:620px;width:100%;background:#fff;border:1px solid #e1e7ef;border-radius:12px;overflow:hidden"><tr><td style="background:#0b2f73;padding:22px 28px;border-bottom:4px solid #d4af37"><div style="font-size:20px;font-weight:700;letter-spacing:1px;color:#fff">${BRAND}</div><div style="margin-top:5px;font-size:10px;font-weight:700;letter-spacing:2px;color:#f6d36b">PARTNER WALLET NOTICE</div></td></tr><tr><td style="padding:28px"><h1 style="margin:0 0 18px;font-size:21px;line-height:1.35;color:#0b2f73">Your API wallet balance is low</h1><p style="font-size:15px;line-height:1.7">Hello ${escapeHtml(businessName)},</p><p style="font-size:15px;line-height:1.7">Your API wallet balance is <strong>${balance}</strong>, below the alert threshold of <strong>${threshold}</strong>.</p><p style="font-size:15px;line-height:1.7">Requests that cost more than your available balance will be rejected before processing. Please fund your wallet to avoid interruptions. A low wallet balance does not change the accuracy of verification results.</p><p style="margin:24px 0"><a href="${escapeHtml(dashboardUrl)}" style="display:inline-block;background:#0b2f73;color:#fff;font-weight:700;text-decoration:none;padding:13px 22px;border-radius:8px">Fund API wallet</a></p><p style="margin:22px 0 0;font-size:14px;color:#4a4438">Regards,<br><strong>${BRAND} Partner Support</strong></p></td></tr><tr><td style="padding:12px 28px;background:#f8fafc;border-top:1px solid #e2e8f0;font-size:11px;color:#64748b">This service notice was sent to the email address registered to your API partner account.</td></tr></table></td></tr></table>`;
+  return sendEmail(params.email, { subject, text, html });
+}
+
 // ── Admin announcements & password reset ─────────────────────────────────
 
 export async function sendAdminEmail(params: { recipients: string[]; subject: string; message: string; attachments?: EmailAttachment[] }, options: Pick<BulkSendOptions, 'onChunk'> = {}): Promise<BulkSendResult> {
