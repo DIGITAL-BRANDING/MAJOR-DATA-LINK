@@ -292,13 +292,14 @@ Pricing.
 { "phone": "08012345678", "tier": "standard", "version": "v1" }
 ```
 
-`version` is optional. `v1` tries Techhub first and automatically retries
-AbjikTech if Techhub returns a confirmed failure; `v2` calls AbjikTech directly,
-`v3` calls FranceVerified, and `v4` calls Hubbu directly. Each version uses its
-own partner price. If omitted, the provider configured for the generic phone-slip
-service is used. An uncertain provider outcome is kept pending for reconciliation
-and is not sent to the manual-request queue as a new manual order. Use the
-returned reference with `GET /verification/slip/{reference}` to check status.
+`version` is optional. `v1` uses the default managed route and may retry through
+an alternate route after a confirmed failure; `v2`, `v3`, and `v4` select separate
+managed routing profiles. Each version uses its own partner price. If omitted,
+the configured default route is used. Upstream routing is managed by K-Tech and
+may change; integrations should rely on this API contract rather than a specific
+upstream provider. An uncertain outcome is kept pending for reconciliation and
+is not sent to the manual-request queue as a new manual order. Use the returned
+reference with `GET /verification/slip/{reference}` to check status.
 
 **NIN Personal Information Slip:** `POST /verification/nin/personal-info`
 
@@ -342,8 +343,10 @@ that submitted it. Without `?async=1`, the existing synchronous response
 contract remains unchanged. Keep the same `Idempotency-Key` for a retry of the
 same submit, and never submit a second order while the result is pending.
 
-Partner V1 slips try Techhub first, then AbjikTech if Techhub does not return a
-successful result. V2 remains a direct AbjikTech request.
+Partner V1 slips use the default managed route with alternate-route fallback
+after a confirmed failure. V2 selects a separate managed route. The underlying
+provider selection is intentionally managed by K-Tech and is not part of the
+partner API contract.
 
 Kowane verification request yana buƙatar `Idempotency-Key`. Response na iya
 ƙunsar `user_data`, `pdf_base64`, ko `pdf_url`; waɗannan bayanai ne masu
@@ -606,8 +609,7 @@ Payload:
     "status": "success",
     "type": "data_purchase",
     "amount": 350,
-      "balance_after": 12150,
-      "provider": "techhub"
+      "balance_after": 12150
   }
 }
 ```
