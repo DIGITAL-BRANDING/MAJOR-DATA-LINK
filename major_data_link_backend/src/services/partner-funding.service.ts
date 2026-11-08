@@ -8,6 +8,7 @@ import { katpayService } from './katpay.service.js';
 import { paystackService } from './paystack.service.js';
 import { zenithpayService } from './zenithpay.service.js';
 import { notifyPartnerSafely } from './notification.service.js';
+import { emailPartnerFundingReceipt } from './wallet-funding-email.service.js';
 import { createDynamicFundingAccount, verifyDynamicFunding } from './payment-provider.service.js';
 
 function splitName(name: string) {
@@ -105,16 +106,29 @@ export async function createPartnerDynamicFunding(partnerId: string, amount: num
 
 /** Credits a partner's wallet exactly once after the payment gateway is verified. */
 export async function creditPartnerFundingByReference(reference: string) {
-  const transaction = await prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     const funding = await tx.partnerTransaction.findUnique({ where: { reference } });
     if (!funding || funding.type !== TransactionType.WALLET_FUNDING) throw new ApiError(404, 'Partner funding transaction not found', 'PARTNER_FUNDING_NOT_FOUND');
-    if (funding.status === TransactionStatus.SUCCESS) return funding;
+    if (funding.status === TransactionStatus.SUCCESS) return { transaction: funding, alreadyCredited: true };
     if (funding.status !== TransactionStatus.PENDING) {
       throw new ApiError(409, 'Only a pending partner funding transaction can be credited', 'PARTNER_FUNDING_NOT_PENDING');
     }
     const partner = await tx.partner.update({ where: { id: funding.partnerId }, data: { walletBalanceKobo: { increment: funding.amountKobo } } });
-    return tx.partnerTransaction.update({ where: { id: funding.id }, data: { status: TransactionStatus.SUCCESS, balanceAfterKobo: partner.walletBalanceKobo } });
+    const transaction = await tx.partnerTransaction.update({ where: { id: funding.id }, data: { status: TransactionStatus.SUCCESS, balanceAfterKobo: partner.walletBalanceKobo } });
+    return { transaction, alreadyCredited: false };
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  const transaction = result.transaction;
+  if (!result.alreadyCredited) {
+    await emailPartnerFundingReceipt({
+      partnerId: transaction.partnerId,
+      amountKobo: transaction.amountKobo,
+      balanceBeforeKobo: transaction.balanceBeforeKobo,
+      balanceAfterKobo: transaction.balanceAfterKobo,
+      reference: transaction.reference,
+      provider: transaction.provider,
+      createdAt: transaction.createdAt
+    });
+  }
   void import('./partner-webhook.service.js').then(({ enqueuePartnerTransactionWebhook, deliverDuePartnerWebhooks }) =>
     enqueuePartnerTransactionWebhook(transaction).then(() => deliverDuePartnerWebhooks(1)).catch((error) => console.error('[partner-webhooks] could not queue funding event', error))
   );
@@ -193,6 +207,15 @@ export async function creditPartnerDirectDeposit(params: { reference: string; am
     title: 'Wallet funded',
     body: `NGN${amountNaira} has been credited to your wallet.`,
     data: { reference: transaction.reference }
+  });
+  await emailPartnerFundingReceipt({
+    partnerId: params.partnerId,
+    amountKobo: transaction.amountKobo,
+    balanceBeforeKobo: transaction.balanceBeforeKobo,
+    balanceAfterKobo: transaction.balanceAfterKobo,
+    reference: transaction.reference,
+    provider: transaction.provider,
+    createdAt: transaction.createdAt
   });
   return transaction;
 }

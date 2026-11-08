@@ -9,6 +9,7 @@ import { clearLockout, isLocked, recordFailure } from '../lib/lockout.js';
 import { ledgerBalanceKobo } from './wallet-ledger.js';
 import { notifyUser } from './notification.service.js';
 import { emailAdminsForManualRequest, isManualRequestSubmission } from './manual-request-admin-email.service.js';
+import { emailUserFundingReceipt } from './wallet-funding-email.service.js';
 
 function formatNaira(kobo: bigint) {
   return `NGN${koboToNaira(kobo).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -361,6 +362,16 @@ export async function creditWalletByReference(reference: string) {
       body: `Your wallet was credited with ${formatNaira(result.transaction.amountKobo)}.${feeNote} New balance: ${formatNaira(result.finalBalanceKobo)}.`,
       data: { transactionId: result.transaction.id, reference: result.transaction.reference }
     });
+    await emailUserFundingReceipt({
+      userId: result.transaction.userId,
+      amountKobo: result.transaction.amountKobo,
+      balanceBeforeKobo: result.transaction.balanceBeforeKobo,
+      balanceAfterKobo: result.finalBalanceKobo,
+      feeKobo: result.transaction.balanceAfterKobo - result.finalBalanceKobo,
+      reference: result.transaction.reference,
+      provider: result.transaction.provider,
+      createdAt: result.transaction.createdAt
+    });
   }
 
   // Every caller (wallet.routes.ts's /fund/verify response, admin tooling,
@@ -510,6 +521,16 @@ export async function creditDirectDeposit(params: {
       body: `Your wallet was credited with ${formatNaira(transaction.amountKobo)} via bank transfer.${feeNote} New balance: ${formatNaira(finalBalanceKobo)}.`,
       data: { transactionId: transaction.id, reference: transaction.reference }
     });
+    await emailUserFundingReceipt({
+      userId: transaction.userId,
+      amountKobo: transaction.amountKobo,
+      balanceBeforeKobo: transaction.balanceBeforeKobo,
+      balanceAfterKobo: finalBalanceKobo,
+      feeKobo: transaction.balanceAfterKobo - finalBalanceKobo,
+      reference: transaction.reference,
+      provider: transaction.provider,
+      createdAt: transaction.createdAt
+    });
 
     return { ...transaction, balanceAfterKobo: finalBalanceKobo };
   } catch (error) {
@@ -612,6 +633,16 @@ export async function creditDirectDepositByAccountNumber(params: {
       title: 'Wallet funded',
       body: `Your wallet was credited with ${formatNaira(transaction.amountKobo)} via bank transfer.${feeNote} New balance: ${formatNaira(finalBalanceKobo)}.`,
       data: { transactionId: transaction.id, reference: transaction.reference }
+    });
+    await emailUserFundingReceipt({
+      userId: transaction.userId,
+      amountKobo: transaction.amountKobo,
+      balanceBeforeKobo: transaction.balanceBeforeKobo,
+      balanceAfterKobo: finalBalanceKobo,
+      feeKobo: transaction.balanceAfterKobo - finalBalanceKobo,
+      reference: transaction.reference,
+      provider: transaction.provider,
+      createdAt: transaction.createdAt
     });
 
     return { ...transaction, balanceAfterKobo: finalBalanceKobo };

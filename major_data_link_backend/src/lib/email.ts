@@ -19,6 +19,17 @@ const BULK_PAUSE_MS = 600;
 // Errors that will repeat for every recipient - no point trying the remaining batches.
 const FATAL_ERRORS = new Set(['missing_api_key', 'invalid_api_key', 'restricted_api_key', 'invalid_from_address', 'daily_quota_exceeded', 'monthly_quota_exceeded', 'security_error']);
 
+const OFFICIAL_EMAIL_FOOTER_HTML = `<table data-ktech-official-seal="true" role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:20px auto 0;max-width:620px;background:#fff;border-collapse:collapse;font-family:Arial,Helvetica,sans-serif"><tr><td style="padding:18px 24px;border-top:2px solid #d4af37"><table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr><td style="vertical-align:bottom"><div style="font-family:'Segoe Script','Bradley Hand',cursive;font-size:24px;font-style:italic;font-weight:700;color:#0b2f73">K-Tech Solutions</div><div style="margin-top:4px;font-size:13px;font-weight:bold;color:#334155">Administration</div><div style="font-size:12px;color:#64748b">Official Admin Office</div></td><td align="right" style="width:112px;vertical-align:bottom"><table role="presentation" cellspacing="0" cellpadding="0" style="width:92px;height:92px;border:3px double #0b2f73;border-radius:50%;color:#0b2f73;text-align:center"><tr><td style="vertical-align:middle"><span style="font-size:9px;font-weight:bold;letter-spacing:1px">K-TECH</span><br><span style="font-size:12px;font-weight:bold">OFFICIAL</span><br><span style="font-size:8px;letter-spacing:1px">ADMIN OFFICE</span></td></tr></table></td></tr></table></td></tr></table>`;
+
+function withOfficialEmailFooter(message: EmailMessage): EmailMessage {
+  if (message.html.includes('data-ktech-official-seal="true"')) return message;
+  return {
+    ...message,
+    text: `${message.text.trim()}\n\nK-Tech Solutions\nAdministration\nOfficial Admin Office\n[OFFICIAL STAMP: K-TECH SOLUTIONS ADMIN OFFICE]`,
+    html: `${message.html}${OFFICIAL_EMAIL_FOOTER_HTML}`
+  };
+}
+
 let client: Resend | null = null;
 function getClient(): Resend | null {
   if (!env.RESEND_API_KEY) return null;
@@ -39,14 +50,15 @@ async function sendEmail(to: string, message: EmailMessage): Promise<SendResult 
     console.error('[email] RESEND_API_KEY is not set - cannot send email');
     return { sent: false, error: 'RESEND_API_KEY is not configured' };
   }
+  const officialMessage = withOfficialEmailFooter(message);
   try {
     const { data, error } = await resend.emails.send({
       from: env.RESEND_FROM_EMAIL,
       to: [to],
-      subject: message.subject,
-      html: message.html,
-      text: message.text,
-      ...(message.attachments?.length ? { attachments: message.attachments } : {})
+      subject: officialMessage.subject,
+      html: officialMessage.html,
+      text: officialMessage.text,
+      ...(officialMessage.attachments?.length ? { attachments: officialMessage.attachments } : {})
     });
     if (error) {
       console.error('[email] Resend rejected email', error);
@@ -91,6 +103,7 @@ export async function sendBulkEmail(recipients: string[], message: EmailMessage,
     console.error('[email] RESEND_API_KEY is not set - cannot send email');
     return { sent: false, error: 'RESEND_API_KEY is not configured', results: [] };
   }
+  const officialMessage = withOfficialEmailFooter(message);
   const pauseMs = options.pauseMs ?? BULK_PAUSE_MS;
   const unique = [...new Map(recipients.map((address) => [address.trim().toLowerCase(), address.trim()])).values()].filter(Boolean);
 
@@ -103,7 +116,7 @@ export async function sendBulkEmail(recipients: string[], message: EmailMessage,
     for (let index = 0; index < unique.length; index += 1) {
       if (index > 0) await pause(options.pauseMs ?? BULK_PAUSE_MS);
       const address = unique[index];
-      const sent = await sendEmail(address, message);
+      const sent = await sendEmail(address, officialMessage);
       results.push(sent.sent
         ? { email: address, resendId: sent.resendId }
         : { email: address, error: sent.error ?? 'Email delivery failed' });
@@ -143,7 +156,7 @@ export async function sendBulkEmail(recipients: string[], message: EmailMessage,
     for (let attempt = 0; attempt < 3 && !chunkDone; attempt += 1) {
       try {
         const { data, error } = await resend.batch.send(
-          chunk.map((address) => ({ from: env.RESEND_FROM_EMAIL, to: [address], subject: message.subject, html: message.html, text: message.text })),
+          chunk.map((address) => ({ from: env.RESEND_FROM_EMAIL, to: [address], subject: officialMessage.subject, html: officialMessage.html, text: officialMessage.text })),
           { batchValidation: 'permissive' as const }
         );
         if (error) {
@@ -280,6 +293,25 @@ export async function sendPartnerLowBalanceEmail(params: { email: string; busine
   return sendEmail(params.email, { subject, text, html });
 }
 
+export async function sendWalletFundingReceiptEmail(params: {
+  email: string;
+  name: string;
+  amountKobo: bigint;
+  balanceAfterKobo: bigint;
+  reference: string;
+  accountType: 'User' | 'Partner';
+  attachment: EmailAttachment;
+}): Promise<SendResult> {
+  const name = escapeHtml(params.name.trim() || params.accountType);
+  const amount = `NGN ${(Number(params.amountKobo) / 100).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const balance = `NGN ${(Number(params.balanceAfterKobo) / 100).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const reference = escapeHtml(params.reference);
+  const subject = `Wallet funding confirmed - ${params.reference}`;
+  const text = `Hello ${params.name.trim() || params.accountType},\n\nWe have received your wallet funding of ${amount}. Your available balance is now ${balance}.\n\nReference: ${params.reference}\nStatus: Successful\n\nYour funding receipt is attached as a PDF.\n\nK-TECH SOLUTIONS Support`;
+  const html = `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f3f5f8;padding:24px 10px;font-family:Arial,Helvetica,sans-serif;color:#201708"><tr><td align="center"><table role="presentation" width="620" cellspacing="0" cellpadding="0" style="max-width:620px;width:100%;background:#fff;border:1px solid #e1e7ef;border-radius:12px;overflow:hidden"><tr><td style="background:#0b2f73;padding:22px 28px;border-bottom:4px solid #d4af37"><div style="font-size:20px;font-weight:700;letter-spacing:1px;color:#fff">${BRAND}</div><div style="margin-top:5px;font-size:10px;font-weight:700;letter-spacing:2px;color:#f6d36b">OFFICIAL FUNDING RECEIPT</div></td></tr><tr><td style="padding:28px"><h1 style="margin:0 0 18px;font-size:21px;line-height:1.35;color:#0b2f73">Wallet funding confirmed</h1><p style="font-size:15px;line-height:1.7">Hello ${name},</p><p style="font-size:15px;line-height:1.7">We have received your wallet funding of <strong>${amount}</strong>. Your available balance is now <strong>${balance}</strong>.</p><table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin:18px 0"><tr><td style="padding:10px;border-bottom:1px solid #e2e8f0;color:#64748b">Reference</td><td style="padding:10px;border-bottom:1px solid #e2e8f0;text-align:right;font-weight:bold">${reference}</td></tr><tr><td style="padding:10px;color:#64748b">Status</td><td style="padding:10px;text-align:right;font-weight:bold;color:#15803d">Successful</td></tr></table><p style="font-size:14px;line-height:1.7">Your official PDF funding receipt is attached to this email.</p><p style="margin:24px 0 0;font-size:14px;color:#4a4438">Regards,<br><strong>${BRAND} ${params.accountType === 'Partner' ? 'Partner' : 'Customer'} Support</strong></p></td></tr><tr><td style="padding:12px 28px;background:#f8fafc;border-top:1px solid #e2e8f0;font-size:11px;color:#64748b">This receipt was sent to the email registered to your ${params.accountType.toLowerCase()} account.</td></tr></table></td></tr></table>`;
+  return sendEmail(params.email, { subject, text, html, attachments: [params.attachment] });
+}
+
 // ── Admin announcements & password reset ─────────────────────────────────
 
 export async function sendAdminEmail(params: { recipients: string[]; subject: string; message: string; attachments?: EmailAttachment[] }, options: Pick<BulkSendOptions, 'onChunk'> = {}): Promise<BulkSendResult> {
@@ -287,7 +319,7 @@ export async function sendAdminEmail(params: { recipients: string[]; subject: st
   const subject = params.subject.trim();
   const safeMessage = escapeHtml(message).split(/\r?\n\s*\r?\n/).map((paragraph) => `<p style="margin:0 0 16px;line-height:1.7">${paragraph.replace(/\r?\n/g, '<br>')}</p>`).join('');
   const text = `${BRAND}\nOFFICIAL COMMUNICATION\n\n${subject}\n\n${message}\n\nK-Tech Solutions\nAdministration\nOfficial Admin Office\n[OFFICIAL STAMP: K-TECH SOLUTIONS ADMIN OFFICE]`;
-  const stamp = `<table role="presentation" cellspacing="0" cellpadding="0" style="margin:24px 0 0"><tr><td style="width:92px;height:92px;border:3px double #0b2f73;border-radius:50%;text-align:center;vertical-align:middle;color:#0b2f73;font-family:Arial,sans-serif"><span style="font-size:9px;font-weight:bold;letter-spacing:1px">K-TECH</span><br><span style="font-size:12px;font-weight:bold">OFFICIAL</span><br><span style="font-size:8px;letter-spacing:1px">ADMIN OFFICE</span></td></tr></table>`;
+  const stamp = `<table data-ktech-official-seal="true" role="presentation" cellspacing="0" cellpadding="0" style="margin:24px 0 0"><tr><td style="width:92px;height:92px;border:3px double #0b2f73;border-radius:50%;text-align:center;vertical-align:middle;color:#0b2f73;font-family:Arial,sans-serif"><span style="font-size:9px;font-weight:bold;letter-spacing:1px">K-TECH</span><br><span style="font-size:12px;font-weight:bold">OFFICIAL</span><br><span style="font-size:8px;letter-spacing:1px">ADMIN OFFICE</span></td></tr></table>`;
   return sendBulkEmail(params.recipients, {
     subject,
     text,
