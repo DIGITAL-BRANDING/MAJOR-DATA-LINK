@@ -605,7 +605,7 @@ export async function creditDirectDepositByAccountNumber(params: {
           balanceAfterKobo: after.walletBalanceKobo,
           provider,
           providerRef,
-          reference: `KATPAY-VA-${nanoid()}`,
+          reference: `FUND-VA-${nanoid(12).toUpperCase()}`,
           description: `Wallet funded via direct bank transfer (${params.channel})`,
           metadata: { channel: params.channel, accountNumber: params.accountNumber }
         }

@@ -20,6 +20,12 @@ function money(kobo: bigint) {
   return `NGN ${koboToNaira(kobo).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+function paymentProviderLabel(provider?: string | null) {
+  const value = provider?.trim();
+  if (!value) return 'Bank transfer';
+  return ({ katpay: 'KatPay', paystack: 'Paystack', zenithpay: 'ZenithPay' } as Record<string, string>)[value.toLowerCase()] ?? value;
+}
+
 async function createReceiptPdf(params: ReceiptParams) {
   const doc = new PDFDocument({ size: 'A4', margin: 52, info: { Title: `Wallet funding receipt ${params.reference}`, Author: 'K-Tech Solutions' } });
   const chunks: Buffer[] = [];
@@ -43,7 +49,7 @@ async function createReceiptPdf(params: ReceiptParams) {
     ['Transaction fee', money(params.feeKobo ?? 0n)],
     ['Balance before', money(params.balanceBeforeKobo)],
     ['Balance after', money(params.balanceAfterKobo)],
-    ['Payment channel', params.provider?.trim() || 'Wallet funding'],
+    ['Payment provider', paymentProviderLabel(params.provider)],
     ['Status', 'Successful'],
     ['Date and time', params.createdAt.toLocaleString('en-NG', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Africa/Lagos' })]
   ];
@@ -79,6 +85,7 @@ async function sendReceipt(params: ReceiptParams) {
       balanceAfterKobo: params.balanceAfterKobo,
       reference: params.reference,
       accountType: params.accountType,
+      provider: params.provider,
       attachment: { filename: `wallet-funding-${params.reference}.pdf`, content: pdf, contentType: 'application/pdf' }
     });
     if (!result.sent) console.warn('[wallet-funding-email] receipt email was not accepted', JSON.stringify({ reference: params.reference, error: result.error }));
