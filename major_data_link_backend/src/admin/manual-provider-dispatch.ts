@@ -136,7 +136,7 @@ export function registerManualProviderDispatchRoutes(router: Router) {
       if (source === 'partner') {
         const tx = await prisma.partnerTransaction.findUnique({ where: { id } });
         const service = serviceName(tx?.metadata);
-        if (!tx || ![TransactionStatus.PENDING, TransactionStatus.PROCESSING].includes(tx.status) || !['techhub', 'abjiktech', 'franceverified'].includes(tx.provider ?? '') || !['IPE_CLEARANCE', 'NIN_PERSONALIZATION'].includes(service) && !service.startsWith('NIN_VALIDATION_')) throw new Error('Request is not an active ticket-based provider request.');
+        if (!tx || (tx.status !== TransactionStatus.PENDING && tx.status !== TransactionStatus.PROCESSING) || !['techhub', 'abjiktech', 'franceverified'].includes(tx.provider ?? '') || !['IPE_CLEARANCE', 'NIN_PERSONALIZATION'].includes(service) && !service.startsWith('NIN_VALIDATION_')) throw new Error('Request is not an active ticket-based provider request.');
         const result = service === 'IPE_CLEARANCE' ? await partnerVerification.checkIpeClearance(tx.partnerId, tx.providerRef ?? '')
           : service === 'NIN_PERSONALIZATION' ? await partnerVerification.checkPersonalization(tx.partnerId, tx.providerRef ?? '')
             : await partnerVerification.checkNinValidation(tx.partnerId, tx.providerRef ?? '');
@@ -146,7 +146,7 @@ export function registerManualProviderDispatchRoutes(router: Router) {
       if (source === 'customer') {
         const tx = await prisma.transaction.findUnique({ where: { id } });
         const service = serviceName(tx?.metadata);
-        if (!tx || ![TransactionStatus.PENDING, TransactionStatus.PROCESSING].includes(tx.status) || !['techhub', 'abjiktech', 'franceverified'].includes(tx.provider ?? '') || !['IPE_CLEARANCE', 'NIN_PERSONALIZATION'].includes(service) && !service.startsWith('NIN_VALIDATION_')) throw new Error('Request is not an active ticket-based provider request.');
+        if (!tx || (tx.status !== TransactionStatus.PENDING && tx.status !== TransactionStatus.PROCESSING) || !['techhub', 'abjiktech', 'franceverified'].includes(tx.provider ?? '') || !['IPE_CLEARANCE', 'NIN_PERSONALIZATION'].includes(service) && !service.startsWith('NIN_VALIDATION_')) throw new Error('Request is not an active ticket-based provider request.');
         const result = service === 'IPE_CLEARANCE' ? await checkIpeClearanceStatus({ userId: tx.userId, ticketId: tx.providerRef ?? '' })
           : service === 'NIN_PERSONALIZATION' ? await checkPersonalizationStatus({ userId: tx.userId, ticketId: tx.providerRef ?? '' })
             : await checkNinValidationStatus({ userId: tx.userId, ticketId: tx.providerRef ?? '' });
