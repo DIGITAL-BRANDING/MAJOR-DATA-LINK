@@ -64,6 +64,13 @@ const HUBBU_SERVICES = new Set([
   'NIN_PERSONALIZATION', 'BVN_RETRIEVAL', 'IPE_CLEARANCE'
 ]);
 
+// Monnify's NIN verification endpoint accepts only an NIN number and returns
+// identity data (no photo), so it is exposed only on the five NIN by-NIN
+// products that can be rendered from that response.
+const MONNIFY_SERVICES = new Set([
+  'NIN_SLIP_PREMIUM', 'NIN_SLIP_STANDARD', 'NIN_SLIP_REGULAR', 'NIN_SLIP_VNIN', 'NIN_PERSONAL_INFO_SLIP'
+]);
+
 // Versioned customer options are pinned to their provider and cannot be
 // changed through the admin routing screen.
 const PINNED_PROVIDERS: Record<string, 'techhub' | 'abjiktech' | 'franceverified' | 'hubbu'> = {
@@ -142,6 +149,7 @@ export function registerNinBvnProviderRoutes(router: Router) {
       if (provider === 'abjiktech') return modification || !ABJIKTECH_SERVICES.has(service) || !env.ABJIKTECH_API_KEY;
       if (provider === 'franceverified') return modification || !FRANCEVERIFIED_SERVICES.has(service) || !env.FRANCEVERIFIED_API_KEY;
       if (provider === 'hubbu') return !HUBBU_SERVICES.has(service) || !env.HUBBU_API_KEY;
+      if (provider === 'monnify') return !MONNIFY_SERVICES.has(service) || !env.MONNIFY_API_KEY || !env.MONNIFY_SECRET_KEY;
       return true;
     });
     if (invalid) return res.redirect('/admin/nin-bvn-provider?flash=' + redirectMessage('error', 'Provider ɗin bai dace da service ɗin ba ko API key ɗinsa bai saita ba.'));
@@ -181,6 +189,8 @@ function renderPage(admin: AdminSessionUser, services: Awaited<ReturnType<typeof
     const franceAvailable = franceImplemented && Boolean(env.FRANCEVERIFIED_API_KEY);
     const hubbuImplemented = HUBBU_SERVICES.has(service.service);
     const hubbuAvailable = hubbuImplemented && Boolean(env.HUBBU_API_KEY);
+    const monnifyImplemented = MONNIFY_SERVICES.has(service.service);
+    const monnifyAvailable = monnifyImplemented && Boolean(env.MONNIFY_API_KEY && env.MONNIFY_SECRET_KEY);
     const modification = service.service.startsWith('NIN_MODIFICATION_') || service.service.startsWith('BVN_MODIFICATION_');
     if (pinnedProvider) {
       const providerName = { techhub: 'Techhub', abjiktech: 'AbjikTech', franceverified: 'FranceVerified', hubbu: 'Hubbu' }[pinnedProvider];
@@ -194,9 +204,10 @@ function renderPage(admin: AdminSessionUser, services: Awaited<ReturnType<typeof
       ...(abjiktechAvailable ? ['AbjikTech'] : []),
       ...(franceAvailable ? ['FranceVerified'] : []),
       ...(hubbuAvailable ? ['Hubbu'] : []),
+      ...(monnifyAvailable ? ['Monnify'] : []),
       'Manual'
     ].join(', ') + (hubbuAvailable && ['IPE_CLEARANCE', 'BVN_RETRIEVAL', 'NIN_PERSONALIZATION'].includes(service.service) ? '. Hubbu accepts these requests, but its published API has no status endpoint; requests stay pending for manual completion.' : '.');
-    return `<tr><td><b>${esc(service.label)}</b><div class="muted">${esc(service.service)}</div></td><td><select name="provider_${esc(service.service)}">${modification ? `<option value="techhub" ${service.provider === 'techhub' ? 'selected' : ''}>Techhub manual processing</option>` : `<option value="techhub" ${service.provider === 'techhub' ? 'selected' : ''}>Techhub</option><option value="abjiktech" ${service.provider === 'abjiktech' ? 'selected' : ''} ${abjiktechAvailable ? '' : 'disabled'}>AbjikTech${abjiktechAvailable ? '' : unavailableLabel}</option><option value="franceverified" ${service.provider === 'franceverified' ? 'selected' : ''} ${franceAvailable ? '' : 'disabled'}>FranceVerified${franceAvailable ? '' : unavailableLabel}</option>`}<option value="hubbu" ${service.provider === 'hubbu' ? 'selected' : ''} ${hubbuAvailable || (modification && Boolean(env.HUBBU_API_KEY)) ? '' : 'disabled'}>Hubbu${hubbuAvailable || (modification && env.HUBBU_API_KEY) ? '' : unavailableLabel}</option><option value="manual" ${service.provider === 'manual' ? 'selected' : ''}>Manual admin processing</option></select></td><td class="muted">${availability}</td></tr>`;
+    return `<tr><td><b>${esc(service.label)}</b><div class="muted">${esc(service.service)}</div></td><td><select name="provider_${esc(service.service)}">${modification ? `<option value="techhub" ${service.provider === 'techhub' ? 'selected' : ''}>Techhub manual processing</option>` : `<option value="techhub" ${service.provider === 'techhub' ? 'selected' : ''}>Techhub</option><option value="abjiktech" ${service.provider === 'abjiktech' ? 'selected' : ''} ${abjiktechAvailable ? '' : 'disabled'}>AbjikTech${abjiktechAvailable ? '' : unavailableLabel}</option><option value="franceverified" ${service.provider === 'franceverified' ? 'selected' : ''} ${franceAvailable ? '' : 'disabled'}>FranceVerified${franceAvailable ? '' : unavailableLabel}</option>`}<option value="hubbu" ${service.provider === 'hubbu' ? 'selected' : ''} ${hubbuAvailable || (modification && Boolean(env.HUBBU_API_KEY)) ? '' : 'disabled'}>Hubbu${hubbuAvailable || (modification && env.HUBBU_API_KEY) ? '' : unavailableLabel}</option><option value="monnify" ${service.provider === 'monnify' ? 'selected' : ''} ${monnifyAvailable ? '' : 'disabled'}>Monnify${monnifyAvailable ? '' : unavailableLabel}</option><option value="manual" ${service.provider === 'manual' ? 'selected' : ''}>Manual admin processing</option></select></td><td class="muted">${availability}</td></tr>`;
   }).join('');
   const alert = message ? `<div class="alert ${message.type}">${esc(message.message)}</div>` : '';
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>NIN/BVN Provider — K-Tech Solutions</title><style>:root{--gold:#d4af37;--goldDark:#9c7a17;--bg:#faf7ef;--card:#fff;--text:#1a1508;--muted:#6b6248;--border:#e9e1c8}*{box-sizing:border-box}body{margin:0;padding:24px;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}.wrap{max-width:950px;margin:auto}header{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px}h1{font-size:21px;margin:0}a{color:var(--goldDark);text-decoration:none}.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px 24px}.hint,.muted{color:var(--muted);font-size:13px}.hint{margin:0 0 18px}table{width:100%;border-collapse:collapse;font-size:14px}th{color:var(--muted);font-size:12px;text-align:left;padding:10px;border-bottom:1px solid var(--border)}td{padding:11px 10px;border-bottom:1px solid var(--border);vertical-align:middle}select{width:100%;min-width:190px;padding:9px 10px;border:1px solid var(--border);border-radius:7px;background:#fffdf5;font-size:14px}button{margin-top:18px;background:var(--gold);border:0;border-radius:8px;padding:11px 20px;font-weight:700;cursor:pointer}button:hover{background:var(--goldDark);color:white}.table{overflow:auto;border:1px solid var(--border);border-radius:8px}.alert{padding:12px 16px;border-radius:8px;margin-bottom:18px}.success{background:#eaf7ee;color:#1e7b34}.error{background:#fdecec;color:#b3261e}@media(max-width:650px){body{padding:14px}.card{padding:16px}header{align-items:flex-start;gap:12px}table{min-width:700px}}</style></head><body><div class="wrap"><header><h1>NIN/BVN Provider</h1><a href="/admin">← Back to admin panel</a></header>${alert}<div class="card"><p class="hint">Zaɓi provider na kowane NIN/BVN service ɗaya bayan ɗaya, sannan ka danna save. Za ka iya zaɓar <b>Manual admin processing</b> ga kowanne service — request zai kasance PENDING a Transaction ledger, sannan SUPER_ADMIN zai duba encrypted PII da “View PII” ya mark completed, ko Finance/SUPER_ADMIN ya reverse domin refund. FranceVerified yana samuwa ne kawai a services da aka haɗa da shi.</p><form method="post" action="/admin/nin-bvn-provider/save" onsubmit="return confirm('Save the provider selection for all NIN/BVN services?')"><div class="table"><table><thead><tr><th>Service</th><th>Provider</th><th>Availability</th></tr></thead><tbody>${rows}</tbody></table></div><button type="submit">Save provider selections</button></form></div><p class="muted">Signed in as ${esc(admin.fullName)} (${esc(admin.role)})</p></div></body></html>`;

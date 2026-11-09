@@ -108,10 +108,13 @@ async function claimManualDispatch(params: { source: 'customer' | 'partner'; id:
   const current = isPartner
     ? await prisma.partnerTransaction.findUnique({ where: { id: params.id } })
     : await prisma.transaction.findUnique({ where: { id: params.id } });
-  if (!current || current.type !== TransactionType.IDENTITY_SERVICE_REQUEST || current.status !== TransactionStatus.PENDING || current.provider !== 'manual') {
+  const metadata = (current?.metadata as Record<string, unknown> | null) ?? {};
+  const activeStatus = current?.status === TransactionStatus.PENDING || current?.status === TransactionStatus.PROCESSING;
+  const manualQueueProvider = current?.provider === 'manual'
+    || (current?.provider === null && metadata.manual_processing === true);
+  if (!current || current.type !== TransactionType.IDENTITY_SERVICE_REQUEST || !activeStatus || !manualQueueProvider) {
     throw new ApiError(409, 'This request is no longer waiting for manual provider dispatch.', 'MANUAL_REQUEST_NOT_PENDING');
   }
-  const metadata = (current.metadata as Record<string, unknown> | null) ?? {};
   const { service } = serviceAndOperational(metadata);
   if (!manualDispatchProviderConfigured(service, params.provider)) {
     throw new ApiError(422, 'The selected provider is not configured or has no endpoint for this service.', 'MANUAL_PROVIDER_UNAVAILABLE');
@@ -124,9 +127,10 @@ async function claimManualDispatch(params: { source: 'customer' | 'partner'; id:
   // pricing row cannot turn a successful upstream submission into an orphan.
   const price = await getVerificationPrice(service as VerificationServiceKey, { forPartner: isPartner, ...(service === 'IPE_CLEARANCE' ? { ipeType: typeof metadata.ipe_type === 'string' ? metadata.ipe_type as IpeClearanceType : 'inprocessing_error' } : {}) });
   const claimMetadata = { ...metadata, manual_dispatch: { provider: params.provider, status: 'sending', started_at: startedAt } } as Prisma.InputJsonValue;
+  const claimWhere = { id: params.id, status: { in: [TransactionStatus.PENDING, TransactionStatus.PROCESSING] }, provider: current.provider };
   const claimed = isPartner
-    ? await prisma.partnerTransaction.updateMany({ where: { id: params.id, status: TransactionStatus.PENDING, provider: 'manual' }, data: { provider: 'manual_dispatching', metadata: claimMetadata } })
-    : await prisma.transaction.updateMany({ where: { id: params.id, status: TransactionStatus.PENDING, provider: 'manual' }, data: { provider: 'manual_dispatching', metadata: claimMetadata } });
+    ? await prisma.partnerTransaction.updateMany({ where: claimWhere, data: { provider: 'manual_dispatching', metadata: claimMetadata } })
+    : await prisma.transaction.updateMany({ where: claimWhere, data: { provider: 'manual_dispatching', metadata: claimMetadata } });
   if (claimed.count !== 1) throw new ApiError(409, 'Another admin is already dispatching this request.', 'MANUAL_REQUEST_DISPATCHING');
 
   let accepted = false;

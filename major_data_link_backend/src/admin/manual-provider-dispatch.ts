@@ -51,12 +51,19 @@ export function registerManualProviderDispatchRoutes(router: Router) {
   router.get('/manual-provider-dispatch', async (req: Request, res) => {
     const admin = req.session?.adminUser as AdminSessionUser | undefined;
     if (!admin) return res.redirect('/admin/login');
-    const where = { status: TransactionStatus.PENDING, type: TransactionType.IDENTITY_SERVICE_REQUEST, provider: { in: ['manual', 'manual_dispatching'] } };
-    const partnerWhere = { status: TransactionStatus.PENDING, OR: [where, { type: TransactionType.TIN_SERVICE_REQUEST, provider: null }] };
+    const activeStatuses = [TransactionStatus.PENDING, TransactionStatus.PROCESSING];
+    const where = {
+      status: { in: activeStatuses }, type: TransactionType.IDENTITY_SERVICE_REQUEST,
+      OR: [
+        { provider: { in: ['manual', 'manual_dispatching'] } },
+        { provider: null, metadata: { path: ['manual_processing'], equals: true } }
+      ]
+    };
+    const partnerWhere = { status: { in: activeStatuses }, OR: [where, { type: TransactionType.TIN_SERVICE_REQUEST, provider: null }] };
     const recentWhere = { type: TransactionType.IDENTITY_SERVICE_REQUEST, provider: { in: ['techhub', 'abjiktech', 'franceverified'] }, createdAt: { gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } };
     const [customers, partners, recentCustomers, recentPartners] = await Promise.all([
-      prisma.transaction.findMany({ where, include: { user: { select: { fullName: true, email: true } } }, orderBy: { createdAt: 'desc' }, take: 50 }),
-      prisma.partnerTransaction.findMany({ where: partnerWhere, include: { partner: { select: { businessName: true, email: true } } }, orderBy: { createdAt: 'desc' }, take: 50 }),
+      prisma.transaction.findMany({ where, include: { user: { select: { fullName: true, email: true } } }, orderBy: { createdAt: 'desc' } }),
+      prisma.partnerTransaction.findMany({ where: partnerWhere, include: { partner: { select: { businessName: true, email: true } } }, orderBy: { createdAt: 'desc' } }),
       prisma.transaction.findMany({ where: recentWhere, include: { user: { select: { fullName: true, email: true } } }, orderBy: { createdAt: 'desc' }, take: 50 }),
       prisma.partnerTransaction.findMany({ where: recentWhere, include: { partner: { select: { businessName: true, email: true } }, requestUpdates: { orderBy: { createdAt: 'desc' }, take: 3 } }, orderBy: { createdAt: 'desc' }, take: 50 })
     ]);
@@ -74,8 +81,8 @@ export function registerManualProviderDispatchRoutes(router: Router) {
       const dispatch = metadata.manual_dispatch as Record<string, unknown> | undefined;
       const inRecovery = row.provider === 'manual_dispatching';
       const dispatched = row.provider === 'techhub' || row.provider === 'abjiktech' || row.provider === 'franceverified';
-      const pending = row.status === TransactionStatus.PENDING;
-      const checkable = pending && (service === 'IPE_CLEARANCE' || service === 'NIN_PERSONALIZATION' || service.startsWith('NIN_VALIDATION_'));
+      const active = row.status === TransactionStatus.PENDING || row.status === TransactionStatus.PROCESSING;
+      const checkable = active && dispatched && (service === 'IPE_CLEARANCE' || service === 'NIN_PERSONALIZATION' || service.startsWith('NIN_VALIDATION_'));
       const canRecover = row.kind === 'partner' && row.provider === 'franceverified' && row.status === TransactionStatus.REVERSED && (service.startsWith('NIN_VALIDATION_') || service === 'IPE_CLEARANCE');
       const dispatchError = typeof dispatch?.error === 'string' ? `<small class="recovery">Last dispatch failed: ${escapeHtml(dispatch.error)}</small>` : '';
       const lastUpdate = row.kind === 'partner' && 'requestUpdates' in row && Array.isArray(row.requestUpdates) && row.requestUpdates[0]
@@ -84,7 +91,7 @@ export function registerManualProviderDispatchRoutes(router: Router) {
       const form = isTin
         ? `<strong>TIN is a manual provider service</strong><small>No automated TIN provider endpoint is configured. Review the request details and process it from the partner request queue.</small><a href="/admin/partner-manual-requests">Open partner request queue</a>`
         : dispatched
-        ? `<strong>${escapeHtml(row.provider === 'franceverified' ? 'FranceVerified' : row.provider === 'abjiktech' ? 'AbjikTech' : 'Techhub')} · ${escapeHtml(row.status.toLowerCase())}</strong>${row.providerRef || metadata.ticket_id ? `<small>Ticket: ${escapeHtml(row.providerRef ?? String(metadata.ticket_id))}</small>` : ''}${lastUpdate}${canRecover ? `<form method="post" action="/admin/manual-provider-dispatch/recover/${encodeURIComponent(row.id)}" onsubmit="return confirm('This will debit ₦${koboToNaira(row.amountKobo).toLocaleString('en-NG')} again and resume polling the existing FranceVerified ticket. Continue?')"><button type="submit">Restore request · debit ₦${koboToNaira(row.amountKobo).toLocaleString('en-NG')}</button></form>` : ''}${checkable ? `<form method="post" action="/admin/manual-provider-dispatch/status/${row.kind}/${encodeURIComponent(row.id)}"><button type="submit">Check status</button></form>` : ''}${row.kind === 'partner' && pending ? `<form method="post" action="/admin/manual-provider-dispatch/update/${encodeURIComponent(row.id)}"><input name="message" required maxlength="1000" placeholder="Progress update for API partner"><button type="submit">Send update</button></form>` : ''}${row.kind === 'partner' && row.status === TransactionStatus.SUCCESS ? `<form method="post" action="/admin/manual-provider-dispatch/resend-completion/${encodeURIComponent(row.id)}"><button type="submit">Resend completion to partner</button></form>` : ''}${row.kind === 'partner' && !pending ? `<form method="post" action="/admin/manual-provider-dispatch/update/${encodeURIComponent(row.id)}"><input name="message" required maxlength="1000" placeholder="Completion/update note for API partner"><button type="submit">Send update</button></form>` : ''}`
+        ? `<strong>${escapeHtml(row.provider === 'franceverified' ? 'FranceVerified' : row.provider === 'abjiktech' ? 'AbjikTech' : 'Techhub')} · ${escapeHtml(row.status.toLowerCase())}</strong>${row.providerRef || metadata.ticket_id ? `<small>Ticket: ${escapeHtml(row.providerRef ?? String(metadata.ticket_id))}</small>` : ''}${lastUpdate}${canRecover ? `<form method="post" action="/admin/manual-provider-dispatch/recover/${encodeURIComponent(row.id)}" onsubmit="return confirm('This will debit ₦${koboToNaira(row.amountKobo).toLocaleString('en-NG')} again and resume polling the existing FranceVerified ticket. Continue?')"><button type="submit">Restore request · debit ₦${koboToNaira(row.amountKobo).toLocaleString('en-NG')}</button></form>` : ''}${checkable ? `<form method="post" action="/admin/manual-provider-dispatch/status/${row.kind}/${encodeURIComponent(row.id)}"><button type="submit">Check status</button></form>` : ''}${row.kind === 'partner' && active ? `<form method="post" action="/admin/manual-provider-dispatch/update/${encodeURIComponent(row.id)}"><input name="message" required maxlength="1000" placeholder="Progress update for API partner"><button type="submit">Send update</button></form>` : ''}${row.kind === 'partner' && row.status === TransactionStatus.SUCCESS ? `<form method="post" action="/admin/manual-provider-dispatch/resend-completion/${encodeURIComponent(row.id)}"><button type="submit">Resend completion to partner</button></form>` : ''}${row.kind === 'partner' && !active ? `<form method="post" action="/admin/manual-provider-dispatch/update/${encodeURIComponent(row.id)}"><input name="message" required maxlength="1000" placeholder="Completion/update note for API partner"><button type="submit">Send update</button></form>` : ''}`
         : inRecovery
         ? `<strong class="recovery">Provider may have accepted this request. Reconcile it manually; do not resubmit.</strong><small>State: ${escapeHtml(String(dispatch?.status ?? 'unknown'))}</small>${typeof dispatch?.error === 'string' ? `<small>${escapeHtml(dispatch.error)}</small>` : ''}`
         : `<form method="post" action="/admin/manual-provider-dispatch/${row.kind}/${encodeURIComponent(row.id)}"><select name="provider" required><option value="">Choose provider</option>${providerChoices}</select><button type="submit">Send request</button></form>${dispatchError}`;
@@ -129,7 +136,7 @@ export function registerManualProviderDispatchRoutes(router: Router) {
       if (source === 'partner') {
         const tx = await prisma.partnerTransaction.findUnique({ where: { id } });
         const service = serviceName(tx?.metadata);
-        if (!tx || tx.status !== TransactionStatus.PENDING || !['techhub', 'abjiktech', 'franceverified'].includes(tx.provider ?? '') || !['IPE_CLEARANCE', 'NIN_PERSONALIZATION'].includes(service) && !service.startsWith('NIN_VALIDATION_')) throw new Error('Request is not an active ticket-based provider request.');
+        if (!tx || ![TransactionStatus.PENDING, TransactionStatus.PROCESSING].includes(tx.status) || !['techhub', 'abjiktech', 'franceverified'].includes(tx.provider ?? '') || !['IPE_CLEARANCE', 'NIN_PERSONALIZATION'].includes(service) && !service.startsWith('NIN_VALIDATION_')) throw new Error('Request is not an active ticket-based provider request.');
         const result = service === 'IPE_CLEARANCE' ? await partnerVerification.checkIpeClearance(tx.partnerId, tx.providerRef ?? '')
           : service === 'NIN_PERSONALIZATION' ? await partnerVerification.checkPersonalization(tx.partnerId, tx.providerRef ?? '')
             : await partnerVerification.checkNinValidation(tx.partnerId, tx.providerRef ?? '');
@@ -139,7 +146,7 @@ export function registerManualProviderDispatchRoutes(router: Router) {
       if (source === 'customer') {
         const tx = await prisma.transaction.findUnique({ where: { id } });
         const service = serviceName(tx?.metadata);
-        if (!tx || tx.status !== TransactionStatus.PENDING || !['techhub', 'abjiktech', 'franceverified'].includes(tx.provider ?? '') || !['IPE_CLEARANCE', 'NIN_PERSONALIZATION'].includes(service) && !service.startsWith('NIN_VALIDATION_')) throw new Error('Request is not an active ticket-based provider request.');
+        if (!tx || ![TransactionStatus.PENDING, TransactionStatus.PROCESSING].includes(tx.status) || !['techhub', 'abjiktech', 'franceverified'].includes(tx.provider ?? '') || !['IPE_CLEARANCE', 'NIN_PERSONALIZATION'].includes(service) && !service.startsWith('NIN_VALIDATION_')) throw new Error('Request is not an active ticket-based provider request.');
         const result = service === 'IPE_CLEARANCE' ? await checkIpeClearanceStatus({ userId: tx.userId, ticketId: tx.providerRef ?? '' })
           : service === 'NIN_PERSONALIZATION' ? await checkPersonalizationStatus({ userId: tx.userId, ticketId: tx.providerRef ?? '' })
             : await checkNinValidationStatus({ userId: tx.userId, ticketId: tx.providerRef ?? '' });

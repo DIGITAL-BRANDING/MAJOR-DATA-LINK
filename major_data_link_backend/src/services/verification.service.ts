@@ -1,6 +1,7 @@
 import { Prisma, TransactionStatus, TransactionType } from '@prisma/client';
 import { nanoid } from 'nanoid';
-import { koboToNaira } from '../lib/money.js';
+import { koboToNaira, nairaToKobo } from '../lib/money.js';
+import { env } from '../config/env.js';
 import { mergeSealedPII, openPII, sealPII } from '../lib/pii.js';
 import { prisma } from '../lib/prisma.js';
 import { publicVerificationMessage } from '../lib/public-verification-message.js';
@@ -22,6 +23,7 @@ import type { IdentitySlipTier } from '../lib/render-identity-slip-pdf.js';
 import { submitNinValidationFV, checkNinValidationFV } from './franceverified-nin-validation-adapter.service.js';
 import { checkIpeClearanceFV, submitIpeClearanceFV } from './franceverified-ipe-adapter.service.js';
 import { hubbuService, hubbuIdempotencyKey, hubbuRequestHash } from './hubbu.service.js';
+import { monnifyVerificationService } from './monnify-verification.service.js';
 import { notifyUser } from './notification.service.js';
 import { enqueueUserNotificationDelivery } from './notification-delivery.service.js';
 
@@ -38,7 +40,7 @@ const STALE_VERIFICATION_LOOKUP_MS = 5 * 60_000;
  * franceverified-slip-adapter.service.ts).
  */
 /** `manual` keeps an accepted request in our encrypted queue for an admin. */
-export type VerificationProvider = 'techhub' | 'abjiktech' | 'franceverified' | 'hubbu' | 'manual';
+export type VerificationProvider = 'techhub' | 'abjiktech' | 'franceverified' | 'hubbu' | 'monnify' | 'manual';
 
 /**
  * Emits operational timing and the selected service provider: no user ID,
@@ -586,7 +588,9 @@ async function purchaseSlip(params: {
     // Both providers quote one flat rate per slip family (see the DEFAULTS
     // comment above) - fixed and known up front, no balance-delta correction
     // needed either way.
-    costKobo: price.providerCostKobo,
+    costKobo: primaryProvider === 'monnify'
+      ? nairaToKobo(env.MONNIFY_NIN_VERIFICATION_COST_NAIRA)
+      : price.providerCostKobo,
     provider: params.background || primaryProvider === 'hubbu' ? primaryProvider : undefined
   });
 
@@ -1007,6 +1011,9 @@ export function purchaseNinByNin(params: { userId: string; nin: string; tier: Ni
       techhub: () => params.tier === 'personal' ? techhubService.ninPersonalInfoByNin(params.nin) : techhubService.ninByNin(params.nin, params.tier),
       abjiktech: () => abjikTechService.ninByNin(params.nin, params.tier === 'personal' ? 'regular' : params.tier, params.tier === 'personal'),
       hubbu: () => hubbuService.verifyNin({ method: 'nin', nin: params.nin, slip_type: params.tier === 'personal' ? 'standard' : params.tier }),
+      monnify: () => params.tier === 'personal'
+        ? monnifyVerificationService.ninPersonalInfoByNin(params.nin)
+        : monnifyVerificationService.ninByNin(params.nin, params.tier),
       // Same data for every tier; only the rendered layout differs.
       franceverified: () => franceverifiedSlipAdapter.ninByNin(params.nin, franceSlipTier(params.tier), params.tier === 'personal')
     },

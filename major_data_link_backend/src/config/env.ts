@@ -103,6 +103,11 @@ const EnvSchema = z.object({
   // are rooted at HUBBU_BASE_URL and authenticated with X-API-KEY.
   HUBBU_BASE_URL: z.string().url().default('https://hubbu.com.ng'),
   HUBBU_API_KEY: z.string().optional(),
+  // Monnify live-only identity verification API. Keep credentials server-side.
+  MONNIFY_BASE_URL: z.string().url().default('https://api.monnify.com'),
+  MONNIFY_API_KEY: z.string().optional(),
+  MONNIFY_SECRET_KEY: z.string().optional(),
+  MONNIFY_NIN_VERIFICATION_COST_NAIRA: z.coerce.number().positive().default(60),
   // Shared bearer token placed in the FranceVerified webhook URL path.
   // Generate a long random value and use the same value in their dashboard.
   FRANCEVERIFIED_WEBHOOK_SECRET: z.preprocess((value) => value === '' ? undefined : value, z.string().min(32).optional()),

@@ -1,11 +1,13 @@
 import { Prisma, TransactionStatus, TransactionType } from '@prisma/client';
-import { koboToNaira } from '../lib/money.js';
+import { koboToNaira, nairaToKobo } from '../lib/money.js';
+import { env } from '../config/env.js';
 import { mergeSealedPII, openPII, sealPII } from '../lib/pii.js';
 import { getVerificationPrice, type IpeClearanceType, type VerificationServiceKey, type VerificationProvider } from './verification.service.js';
 import { techhubService, type TechhubBvnTier, type TechhubSlipTier } from './techhub.service.js';
 import { franceverifiedSlipAdapter } from './franceverified-slip-adapter.service.js';
 import { abjikTechService, abjikTicketService } from './abjiktech.service.js';
 import { hubbuService } from './hubbu.service.js';
+import { monnifyVerificationService } from './monnify-verification.service.js';
 import { submitNinValidationFV, checkNinValidationFV } from './franceverified-nin-validation-adapter.service.js';
 import { checkIpeClearanceFV, submitIpeClearanceFV } from './franceverified-ipe-adapter.service.js';
 import { completePartnerPurchase, debitPartnerWallet, reversePartnerPurchase } from './partner-wallet.service.js';
@@ -41,6 +43,10 @@ async function callPartnerSlipProvider<T>(service: string, provider: Verificatio
     console.warn('[partner-verification] provider timing', JSON.stringify({ service, provider, reference, duration_ms: Date.now() - startedAt, outcome: 'error' }));
     throw error;
   }
+}
+
+function slipProviderCost(provider: VerificationProvider, configuredCost: bigint | null | undefined) {
+  return provider === 'monnify' ? nairaToKobo(env.MONNIFY_NIN_VERIFICATION_COST_NAIRA) : configuredCost ?? undefined;
 }
 
 async function leavePartnerSlipForReconciliation(transactionId: string, provider: VerificationProvider, message: string, providerRef?: string) {
@@ -158,12 +164,12 @@ async function checkPartnerAsync(params: {
   // A ticket can have a later, audited recovery request after an erroneous
   // refund. Prefer its active pending ledger row, then return the newest
   // terminal row once no active recovery remains.
-  const transaction = await prisma.partnerTransaction.findFirst({ where: { partnerId: params.partnerId, providerRef: params.ticketId, status: TransactionStatus.PENDING }, orderBy: { createdAt: 'desc' } })
+  const transaction = await prisma.partnerTransaction.findFirst({ where: { partnerId: params.partnerId, providerRef: params.ticketId, status: { in: [TransactionStatus.PENDING, TransactionStatus.PROCESSING] } }, orderBy: { createdAt: 'desc' } })
     ?? await prisma.partnerTransaction.findFirst({ where: { partnerId: params.partnerId, providerRef: params.ticketId }, orderBy: { createdAt: 'desc' } });
   if (!transaction) throw new ApiError(404, 'Unknown ticket_id', 'TICKET_NOT_FOUND');
   const metadata = (transaction.metadata as Record<string, unknown> | null) ?? {};
   const stored = openPII<{ response?: Record<string, unknown> | null }>(metadata.pii);
-  if (transaction.status !== TransactionStatus.PENDING) {
+  if (transaction.status !== TransactionStatus.PENDING && transaction.status !== TransactionStatus.PROCESSING) {
     return { reference: transaction.reference, ticketId: params.ticketId,
       status: transaction.status === TransactionStatus.SUCCESS ? 'success' : 'failed', response: stored?.response ?? null };
   }
@@ -203,7 +209,7 @@ async function checkPartnerAsync(params: {
       // above (Techhub's actual cost, not the partner's unit_price) - reuse it
       // rather than re-deriving.
       await completePartnerPurchase(transaction.id, transaction.provider ?? 'techhub', transaction.providerRef ?? undefined, transaction.costKobo ?? undefined,
-        undefined, { pii: mergeSealedPII(metadata.pii, { response: result.response, check_raw: result.raw }), service: metadata.service, result: result.response, provider_raw_response: result.raw });
+        undefined, { pii: mergeSealedPII(metadata.pii, { response: result.response, check_raw: result.raw }), service: metadata.service, result: result.response, provider_raw_response: result.raw }, true);
       return { reference: transaction.reference, ticketId: result.ticketId, status: 'success', response: result.response };
     }
     await prisma.partnerTransaction.update({ where: { id: transaction.id }, data: { metadata: nextMetadata } });
@@ -224,7 +230,7 @@ export async function reconcilePendingPartnerVerificationTickets(limit = 5) {
   const now = Date.now();
   const transactions = await prisma.partnerTransaction.findMany({
     where: {
-      status: TransactionStatus.PENDING,
+      status: { in: [TransactionStatus.PENDING, TransactionStatus.PROCESSING] },
       provider: { in: ['techhub', 'abjiktech', 'franceverified'] },
       type: TransactionType.IDENTITY_SERVICE_REQUEST,
       providerRef: { not: null },
@@ -310,7 +316,7 @@ export async function purchasePartnerSlip(params: {
   const debit = await debitPartnerWallet({
     partnerId: params.partnerId, amount: price.unitPrice, type: params.type,
     description: params.description, idempotencyKey: params.idempotencyKey,
-    costKobo: price.providerCostKobo,
+    costKobo: slipProviderCost(primaryProvider, price.providerCostKobo),
     metadata: { service: params.service, ...params.operational, unit_price: price.unitPrice, ...(params.background ? { slip_processing: 'running' } : {}), pii: sealPII(params.pii) } as Prisma.InputJsonValue
   });
   if (debit.reused && debit.transaction.status === TransactionStatus.PENDING) {
@@ -373,7 +379,7 @@ export async function purchasePartnerSlip(params: {
     debit.transaction.id,
     actualProvider,
     provider.providerRef,
-    actualProvider === fallbackProvider ? fallbackPrice?.providerCostKobo : price.providerCostKobo,
+    slipProviderCost(actualProvider, actualProvider === fallbackProvider ? fallbackPrice?.providerCostKobo : price.providerCostKobo),
     undefined,
     completionMetadata
   );
@@ -420,7 +426,7 @@ async function settlePartnerSlip(input: {
         ...params.pii, user_data: provider.userData, pdf_base64: provider.pdfBase64, pdf_url: provider.pdfUrl, provider_raw_response: provider.raw
       }) };
     await completePartnerPurchase(debit.transaction.id, actualProvider, provider.providerRef,
-      actualProvider === fallbackProvider ? fallbackPrice?.providerCostKobo : price.providerCostKobo, undefined, metadata);
+      slipProviderCost(actualProvider, actualProvider === fallbackProvider ? fallbackPrice?.providerCostKobo : price.providerCostKobo), undefined, metadata);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Provider response could not be confirmed.';
     try {
@@ -489,7 +495,7 @@ export async function reconcileStalePartnerVerificationLookups(limit = 2) {
 }
 
 export const partnerVerification = {
-  ninByNin: (partnerId: string, nin: string, tier: TechhubSlipTier, idempotencyKey: string, version: 'v1' | 'v2' = 'v1', background = false) => {
+  ninByNin: (partnerId: string, nin: string, tier: TechhubSlipTier, idempotencyKey: string, version: 'v1' | 'v2' | 'managed' = 'v1', background = false) => {
     const v1Services: Record<TechhubSlipTier, VerificationServiceKey> = {
       premium: 'NIN_VERIFICATION_V1_PREMIUM', standard: 'NIN_VERIFICATION_V1_STANDARD',
       regular: 'NIN_VERIFICATION_V1_REGULAR', vnin: 'NIN_VERIFICATION_V1_VNIN'
@@ -498,17 +504,21 @@ export const partnerVerification = {
       premium: 'NIN_VERIFICATION_V2_PREMIUM', standard: 'NIN_VERIFICATION_V2_STANDARD',
       regular: 'NIN_VERIFICATION_V2_REGULAR', vnin: 'NIN_VERIFICATION_V2_VNIN'
     };
-    const service = version === 'v1' ? v1Services[tier] : v2Services[tier];
+    const managedServices: Record<TechhubSlipTier, VerificationServiceKey> = {
+      premium: 'NIN_SLIP_PREMIUM', standard: 'NIN_SLIP_STANDARD', regular: 'NIN_SLIP_REGULAR', vnin: 'NIN_SLIP_VNIN'
+    };
+    const service = version === 'v1' ? v1Services[tier] : version === 'v2' ? v2Services[tier] : managedServices[tier];
     return purchasePartnerSlip({
       partnerId, service, type: TransactionType.NIN_VERIFICATION,
-      description: `NIN Verification ${version.toUpperCase()} (${tier}) by NIN`,
+      description: `NIN Verification ${version === 'managed' ? 'managed ' : `${version.toUpperCase()} `}(${tier}) by NIN`,
       operational: { mode: 'by_nin', tier, version }, pii: { nin }, idempotencyKey,
       background,
-      providerOverride: version === 'v1' ? 'techhub' : 'abjiktech',
+      ...(version === 'managed' ? {} : { providerOverride: version === 'v1' ? 'techhub' as const : 'abjiktech' as const }),
       callByProvider: {
         techhub: () => techhubService.ninByNin(nin, tier),
         abjiktech: () => abjikTechService.ninByNin(nin, tier),
-        franceverified: () => franceverifiedSlipAdapter.ninByNin(nin, tier === 'premium' ? 'premium' : undefined)
+        franceverified: () => franceverifiedSlipAdapter.ninByNin(nin, tier === 'premium' ? 'premium' : undefined),
+        monnify: () => monnifyVerificationService.ninByNin(nin, tier)
       }
     });
   },
@@ -539,14 +549,15 @@ export const partnerVerification = {
   // Personal Information slip: same provider call as the retail "personal"
   // tier (see purchaseNinByNin / purchaseNinByPhone in verification.service.ts).
   // Techhub has no such product, so techhubService buys its cheapest (REGULAR)
-  // lookup and we draw our own slip from the identity fields + photograph;
-  // FranceVerified returns data only and we render the same report. The
+  // lookup and we draw our own report from the identity fields + photograph
+  // where the provider supplies one. Monnify returns no photo, so its report
+  // explicitly marks the photograph as unavailable. The
   // admin-selected provider on the NIN_PERSONAL_INFO_SLIP /
   // NIN_PHONE_PERSONAL_INFO_SLIP ServicePricing rows decides which one runs.
   ninPersonalInfo: (partnerId: string, nin: string, idempotencyKey: string, background = false) => purchasePartnerSlip({
     partnerId, service: 'NIN_PERSONAL_INFO_SLIP', type: TransactionType.NIN_VERIFICATION,
     description: 'NIN personal information slip by NIN', operational: { mode: 'by_nin', tier: 'personal' }, pii: { nin }, idempotencyKey, background,
-    callByProvider: { techhub: () => techhubService.ninPersonalInfoByNin(nin), abjiktech: () => abjikTechService.ninByNin(nin, 'regular', true), franceverified: () => franceverifiedSlipAdapter.ninByNin(nin, undefined, true) }
+    callByProvider: { techhub: () => techhubService.ninPersonalInfoByNin(nin), abjiktech: () => abjikTechService.ninByNin(nin, 'regular', true), franceverified: () => franceverifiedSlipAdapter.ninByNin(nin, undefined, true), monnify: () => monnifyVerificationService.ninPersonalInfoByNin(nin) }
   }),
   ninPersonalInfoByPhone: (partnerId: string, phone: string, idempotencyKey: string, background = false) => purchasePartnerSlip({
     partnerId, service: 'NIN_PHONE_PERSONAL_INFO_SLIP', type: TransactionType.NIN_VERIFICATION,

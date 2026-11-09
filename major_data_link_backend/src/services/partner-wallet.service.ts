@@ -236,9 +236,9 @@ export async function completePartnerPurchase(
 export async function reversePartnerPurchase(transactionId: string, message: string) {
   const transaction = await prisma.$transaction(async (tx) => {
     const original = await tx.partnerTransaction.findUniqueOrThrow({ where: { id: transactionId } });
-    if (original.status !== TransactionStatus.PENDING) return original;
+    if (original.status !== TransactionStatus.PENDING && original.status !== TransactionStatus.PROCESSING) return original;
     const existingMetadata = (original.metadata as Record<string, unknown> | null) ?? {};
-    const claim = await tx.partnerTransaction.updateMany({ where: { id: original.id, status: TransactionStatus.PENDING }, data: {
+    const claim = await tx.partnerTransaction.updateMany({ where: { id: original.id, status: { in: [TransactionStatus.PENDING, TransactionStatus.PROCESSING] } }, data: {
       status: TransactionStatus.REVERSED,
       metadata: { ...existingMetadata, failure_reason: message, failed_at: new Date().toISOString() } as Prisma.InputJsonValue
     } });
