@@ -575,7 +575,7 @@ export const partnerVerification = {
       partnerId, service, type: TransactionType.NIN_VERIFICATION,
       description: 'NIN slip by phone (' + (version ?? 'managed') + ', ' + tier + ')',
       operational: { mode: 'by_phone', tier, ...(version ? { version } : {}) }, pii: { phone }, idempotencyKey, background,
-      ...(version ? { providerOverride: providerByVersion[version] } : { preferAbjiktech: true }),
+      ...(version ? { providerOverride: env.ABJIKTECH_API_KEY ? 'abjiktech' as const : 'techhub' as const } : { preferAbjiktech: true }),
       fallbackProviders: ['techhub', 'franceverified', 'hubbu'],
       ...(fallbackService ? { fallbackService } : {}),
       callByProvider: {
