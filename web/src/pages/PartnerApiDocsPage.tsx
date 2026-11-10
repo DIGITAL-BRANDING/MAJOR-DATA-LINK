@@ -159,7 +159,7 @@ export default function PartnerApiDocsPage() {
 
         <Section id="nin" icon={Fingerprint} title={t('partnerPortal.docs.sections.nin')}>
           <p className="text-slate-600">{t('partnerPortal.docs.nin.intro')}</p>
-          <p className="mt-2 text-sm text-slate-600"><strong>Managed routing:</strong> Omit <code>version</code> to preserve the V1 route. Set <code>version</code> to <code>managed</code> to use the provider and fallback configured by K-Tech. V1 and V2 select their respective fixed routes. Upstream routing is managed by K-Tech and may change; integrations should rely on this API contract rather than a specific upstream provider.</p>
+          <p className="mt-2 text-sm text-slate-600"><strong>Managed routing:</strong> NIN and BVN lookups follow K-Tech provider routing. If a provider confirms no record, the request may continue to the next configured route. Temporary errors and unconfirmed results are not retried. Upstream routing is managed by K-Tech and may change; integrations should rely on this API contract rather than a specific upstream provider.</p>
           <Callout>
             For a faster submit response, append <code>?async=1</code> to any NIN/BVN slip submit endpoint. It returns <code>202 Accepted</code> with a reference; poll <code>GET /verification/slip/:reference</code> until its state is <code>success</code>, <code>failed</code>, or <code>review</code>. The legacy synchronous response remains available when this query is omitted. Keep using the same <code>Idempotency-Key</code> for retries and do not resubmit a pending request.
           </Callout>
@@ -171,7 +171,7 @@ export default function PartnerApiDocsPage() {
             rows={[
               { name: 'nin', type: 'string', required: true, desc: '11-digit NIN' },
               { name: 'tier', type: 'string', required: true, desc: 'premium, standard, regular, or vnin' },
-              { name: 'version', type: 'string', required: false, desc: 'v1 (default) or v2 selects a fixed route; managed uses the provider and fallback configured by K-Tech. Each version uses its own partner price; managed uses the standard tier price.' }
+              { name: 'version', type: 'string', required: false, desc: 'v1 (default), v2, or managed. Version selects the matching partner price; provider routing follows K-Tech configured order and can continue after confirmed no record.' }
             ]}
           />
           <TieredEndpointCard
@@ -182,7 +182,7 @@ export default function PartnerApiDocsPage() {
             rows={[
               { name: 'phone', type: 'string', required: true, desc: 'Phone number registered to the NIN' },
               { name: 'tier', type: 'string', required: true, desc: 'premium, standard, or regular' },
-              { name: 'version', type: 'string', required: false, desc: 'v1 (default managed route with alternate-route fallback after confirmed failure), v2, v3, or v4 (separate managed routes). Omit to use configured routing. Each version has its own price.' }
+              { name: 'version', type: 'string', required: false, desc: 'v1 (default), v2, v3, or v4. Version selects the matching partner price; every version follows K-Tech configured order and can continue after confirmed no record.' }
             ]}
           />
           <EndpointCard method="POST" path="/verification/nin/personal-info" title="NIN Personal Information Slip" icon={FileText}>

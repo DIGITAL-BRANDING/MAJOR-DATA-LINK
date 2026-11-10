@@ -24,6 +24,11 @@ type PartnerSlipResult = {
 export type PartnerAsyncSubmitResult = { reference: string; ticketId: string; balanceAfter: number; status: 'pending' };
 export type PartnerAsyncStatusResult = { reference: string; ticketId: string; status: 'pending' | 'success' | 'failed'; response: Record<string, unknown> | null };
 
+function isConfirmedNoRecord(result: { ok?: boolean; pending?: boolean; message?: string }) {
+  return result.ok !== true && result.pending !== true
+    && /\b(?:no\s+(?:record|data|match)\s+(?:was\s+)?found|no\s+matching\s+(?:verification\s+)?record|(?:record|data)\s+not\s+found|could\s+not\s+find\s+(?:a\s+)?(?:matching\s+)?(?:verification\s+)?record|unable\s+to\s+find\s+(?:a\s+)?(?:matching\s+)?(?:verification\s+)?record)\b/i.test(result.message ?? '');
+}
+
 const FRANCEVERIFIED_STATUS_POLL_INTERVAL_MS = 5 * 60_000;
 const TECHHUB_STATUS_POLL_INTERVAL_MS = 60_000;
 const franceVerifiedChecksInFlight = new Set<string>();
@@ -263,7 +268,9 @@ export async function purchasePartnerSlip(params: {
   idempotencyKey: string;
   background?: boolean;
   providerOverride?: VerificationProvider;
+  preferAbjiktech?: boolean;
   fallbackProvider?: Exclude<VerificationProvider, 'manual'>;
+  fallbackProviders?: readonly Exclude<VerificationProvider, 'manual'>[];
   fallbackService?: VerificationServiceKey;
   // One call per provider this service could be routed to - same dispatch
   // shape as purchaseSlip() in verification.service.ts. Previously this
@@ -274,7 +281,10 @@ export async function purchasePartnerSlip(params: {
   callByProvider: Partial<Record<VerificationProvider, () => ReturnType<typeof techhubService.ninByNin>>>;
 }): Promise<PartnerSlipResult> {
   const price = await getVerificationPrice(params.service, { forPartner: true });
-  const primaryProvider = params.providerOverride ?? price.provider;
+  const configuredProvider = price.provider;
+  const preferAbjiktech = params.preferAbjiktech === true && configuredProvider !== 'manual';
+  const preferredProvider = preferAbjiktech ? (env.ABJIKTECH_API_KEY ? 'abjiktech' : 'techhub') : configuredProvider;
+  const primaryProvider = configuredProvider === 'manual' ? 'manual' : params.providerOverride ?? preferredProvider;
   const abjikFallbackServices: Partial<Record<VerificationServiceKey, VerificationServiceKey>> = {
     NIN_VERIFICATION_V1_PREMIUM: 'NIN_VERIFICATION_V2_PREMIUM',
     NIN_VERIFICATION_V1_STANDARD: 'NIN_VERIFICATION_V2_STANDARD',
@@ -289,9 +299,32 @@ export async function purchasePartnerSlip(params: {
     BVN_SLIP_PREMIUM: 'BVN_SLIP_PREMIUM',
     BVN_SLIP_STANDARD: 'BVN_SLIP_STANDARD'
   };
-  const fallbackProvider = params.fallbackProvider ?? (primaryProvider === 'techhub' ? 'abjiktech' : undefined);
-  const fallbackService = params.fallbackService ?? (fallbackProvider === 'abjiktech' ? abjikFallbackServices[params.service] ?? params.service : undefined);
-  const fallbackPrice = fallbackService ? await getVerificationPrice(fallbackService, { forPartner: true }) : undefined;
+  const techhubFallbackServices: Partial<Record<VerificationServiceKey, VerificationServiceKey>> = {
+    NIN_VERIFICATION_V2_PREMIUM: 'NIN_VERIFICATION_V1_PREMIUM',
+    NIN_VERIFICATION_V2_STANDARD: 'NIN_VERIFICATION_V1_STANDARD',
+    NIN_VERIFICATION_V2_REGULAR: 'NIN_VERIFICATION_V1_REGULAR',
+    NIN_VERIFICATION_V2_VNIN: 'NIN_VERIFICATION_V1_VNIN',
+    NIN_PHONE_SLIP_V2_PREMIUM: 'NIN_PHONE_SLIP_V1_PREMIUM',
+    NIN_PHONE_SLIP_V2_STANDARD: 'NIN_PHONE_SLIP_V1_STANDARD',
+    NIN_PHONE_SLIP_V2_REGULAR: 'NIN_PHONE_SLIP_V1_REGULAR',
+    NIN_VERIFICATION_V2_PERSONAL: 'NIN_VERIFICATION_V1_PERSONAL',
+    NIN_PHONE_SLIP_V2_PERSONAL: 'NIN_PHONE_SLIP_V1_PERSONAL',
+    NIN_DEMOGRAPHIC_V2: 'NIN_DEMOGRAPHIC_V1'
+  };
+  const fallbackProviders: Exclude<VerificationProvider, 'manual'>[] = [...new Set<Exclude<VerificationProvider, 'manual'>>(params.fallbackProviders ?? (params.fallbackProvider ? [params.fallbackProvider] : preferAbjiktech ? (primaryProvider === 'abjiktech' ? ['techhub' as const, 'franceverified' as const] : ['franceverified' as const]) : []))]
+    .filter((provider) => provider !== primaryProvider && Boolean(params.callByProvider[provider]) && (provider !== 'franceverified' || Boolean(env.FRANCEVERIFIED_API_KEY)) && (provider !== 'hubbu' || Boolean(env.HUBBU_API_KEY)));
+  const fallbackServiceFor = (provider: Exclude<VerificationProvider, 'manual'>) =>
+    provider === 'techhub'
+      ? params.fallbackService ?? techhubFallbackServices[params.service] ?? params.service
+      : provider === 'abjiktech' ? abjikFallbackServices[params.service] ?? params.service : params.service;
+  const fallbackPrices = new Map<Exclude<VerificationProvider, 'manual'>, Awaited<ReturnType<typeof getVerificationPrice>>>();
+  for (const provider of fallbackProviders) {
+    try { fallbackPrices.set(provider, await getVerificationPrice(fallbackServiceFor(provider), { forPartner: true })); }
+    catch (error) { console.warn('[partner-verification] could not load fallback provider cost', provider, error); }
+  }
+  const providerCost = (provider: VerificationProvider) => provider === primaryProvider
+    ? price.providerCostKobo
+    : fallbackPrices.get(provider as Exclude<VerificationProvider, 'manual'>)?.providerCostKobo ?? price.providerCostKobo;
   if (primaryProvider === 'manual') {
     const debit = await debitPartnerWallet({
       partnerId: params.partnerId, amount: price.unitPrice, type: params.type, description: params.description,
@@ -341,24 +374,26 @@ export async function purchasePartnerSlip(params: {
   }
   if (params.background) {
     await prisma.partnerTransaction.update({ where: { id: debit.transaction.id }, data: { provider: primaryProvider } });
-    void settlePartnerSlip({ params, debit, price, fallbackPrice, primaryProvider, fallbackProvider });
+    void settlePartnerSlip({ params, debit, primaryProvider, fallbackProviders, providerCost });
     return { status: 'pending', processing: true, message: 'Request submitted. Check its status using the returned reference.', reference: debit.transaction.reference, balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo) };
   }
   let provider: Awaited<ReturnType<typeof call>>;
   let actualProvider = primaryProvider;
-  const fallbackCall = fallbackProvider ? params.callByProvider[fallbackProvider] : undefined;
   try { provider = await callPartnerSlipProvider(params.service, primaryProvider, debit.transaction.reference, call); }
   catch (error) {
     const message = error instanceof Error ? error.message : 'The verification provider outcome could not be confirmed.';
     await leavePartnerSlipForReconciliation(debit.transaction.id, primaryProvider, message);
     return { status: 'pending', message: 'We could not confirm the provider result. Your request is being checked; please do not submit it again.', reference: debit.transaction.reference, balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo) };
   }
-  if (!provider.ok && !provider.pending && fallbackCall && fallbackPrice && fallbackProvider && actualProvider === primaryProvider) {
+  for (const fallbackProvider of fallbackProviders) {
+    if (!isConfirmedNoRecord(provider)) break;
+    const fallbackCall = params.callByProvider[fallbackProvider];
+    if (!fallbackCall) continue;
+    actualProvider = fallbackProvider;
     try {
       provider = await callPartnerSlipProvider(params.service, fallbackProvider, debit.transaction.reference, fallbackCall);
-      actualProvider = fallbackProvider;
     } catch (fallbackError) {
-      const message = fallbackError instanceof Error ? fallbackError.message : 'The fallback provider could not complete the NIN lookup.';
+      const message = fallbackError instanceof Error ? fallbackError.message : 'The fallback provider could not complete the lookup.';
       await leavePartnerSlipForReconciliation(debit.transaction.id, fallbackProvider, message);
       return { status: 'pending', message: 'We could not confirm the provider result. Your request is being checked; please do not submit it again.', reference: debit.transaction.reference, balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo) };
     }
@@ -379,7 +414,7 @@ export async function purchasePartnerSlip(params: {
     debit.transaction.id,
     actualProvider,
     provider.providerRef,
-    slipProviderCost(actualProvider, actualProvider === fallbackProvider ? fallbackPrice?.providerCostKobo : price.providerCostKobo),
+    slipProviderCost(actualProvider, providerCost(actualProvider)),
     undefined,
     completionMetadata
   );
@@ -390,21 +425,22 @@ export async function purchasePartnerSlip(params: {
 async function settlePartnerSlip(input: {
   params: Parameters<typeof purchasePartnerSlip>[0];
   debit: Awaited<ReturnType<typeof debitPartnerWallet>>;
-  price: Awaited<ReturnType<typeof getVerificationPrice>>;
-  fallbackPrice?: Awaited<ReturnType<typeof getVerificationPrice>>;
+  providerCost: (provider: VerificationProvider) => bigint | null | undefined;
   primaryProvider: VerificationProvider;
-  fallbackProvider?: Exclude<VerificationProvider, 'manual'>;
+  fallbackProviders: Exclude<VerificationProvider, 'manual'>[];
 }) {
-  const { params, debit, price, fallbackPrice, primaryProvider, fallbackProvider } = input;
+  const { params, debit, primaryProvider, fallbackProviders, providerCost } = input;
   const primaryCall = params.callByProvider[primaryProvider];
-  const fallbackCall = fallbackProvider ? params.callByProvider[fallbackProvider] : undefined;
   if (!primaryCall) return;
   let actualProvider = primaryProvider;
   try {
     let provider: Awaited<ReturnType<typeof primaryCall>> = await callPartnerSlipProvider(params.service, primaryProvider, debit.transaction.reference, primaryCall);
-    if (!provider.ok && !provider.pending && fallbackCall && fallbackPrice && fallbackProvider && actualProvider === primaryProvider) {
-      provider = await callPartnerSlipProvider(params.service, fallbackProvider, debit.transaction.reference, fallbackCall);
+    for (const fallbackProvider of fallbackProviders) {
+      if (!isConfirmedNoRecord(provider)) break;
+      const fallbackCall = params.callByProvider[fallbackProvider];
+      if (!fallbackCall) continue;
       actualProvider = fallbackProvider;
+      provider = await callPartnerSlipProvider(params.service, fallbackProvider, debit.transaction.reference, fallbackCall);
     }
     if (!provider.ok) {
       if (provider.pending) {
@@ -426,7 +462,7 @@ async function settlePartnerSlip(input: {
         ...params.pii, user_data: provider.userData, pdf_base64: provider.pdfBase64, pdf_url: provider.pdfUrl, provider_raw_response: provider.raw
       }) };
     await completePartnerPurchase(debit.transaction.id, actualProvider, provider.providerRef,
-      slipProviderCost(actualProvider, actualProvider === fallbackProvider ? fallbackPrice?.providerCostKobo : price.providerCostKobo), undefined, metadata);
+      slipProviderCost(actualProvider, providerCost(actualProvider)), undefined, metadata);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Provider response could not be confirmed.';
     try {
@@ -513,7 +549,11 @@ export const partnerVerification = {
       description: `NIN Verification ${version === 'managed' ? 'managed ' : `${version.toUpperCase()} `}(${tier}) by NIN`,
       operational: { mode: 'by_nin', tier, version }, pii: { nin }, idempotencyKey,
       background,
-      ...(version === 'managed' ? {} : { providerOverride: version === 'v1' ? 'techhub' as const : 'abjiktech' as const }),
+      ...(version === 'managed' ? { preferAbjiktech: true } : {
+        providerOverride: env.ABJIKTECH_API_KEY ? 'abjiktech' as const : 'techhub' as const,
+        fallbackProviders: ['techhub', 'franceverified'] as const,
+        ...(version === 'v2' ? { fallbackService: v1Services[tier] } : {})
+      }),
       callByProvider: {
         techhub: () => techhubService.ninByNin(nin, tier),
         abjiktech: () => abjikTechService.ninByNin(nin, tier),
@@ -529,15 +569,15 @@ export const partnerVerification = {
       v3: { premium: 'NIN_PHONE_SLIP_V3_PREMIUM', standard: 'NIN_PHONE_SLIP_V3_STANDARD', regular: 'NIN_PHONE_SLIP_V3_REGULAR' },
       v4: { premium: 'NIN_PHONE_SLIP_V4_PREMIUM', standard: 'NIN_PHONE_SLIP_V4_STANDARD', regular: 'NIN_PHONE_SLIP_V4_REGULAR' }
     } as const;
-    const fallbackService = version === 'v1' ? services.v2[tier] : undefined;
-    const providerByVersion = { v1: 'techhub', v2: 'abjiktech', v3: 'franceverified', v4: 'hubbu' } as const;
+    const fallbackService = version === 'v2' ? services.v1[tier] : undefined;
     const service = version ? services[version][tier] : ({ premium: 'NIN_PHONE_SLIP_PREMIUM', standard: 'NIN_PHONE_SLIP_STANDARD', regular: 'NIN_PHONE_SLIP_REGULAR' } as const)[tier];
     return purchasePartnerSlip({
       partnerId, service, type: TransactionType.NIN_VERIFICATION,
-      description: `NIN slip (${version ? `${version.toUpperCase()} - ${providerByVersion[version]}, ` : ''}${tier}) by phone`,
+      description: 'NIN slip by phone (' + (version ?? 'managed') + ', ' + tier + ')',
       operational: { mode: 'by_phone', tier, ...(version ? { version } : {}) }, pii: { phone }, idempotencyKey, background,
-      ...(version ? { providerOverride: providerByVersion[version] } : {}),
-      ...(version === 'v1' ? { fallbackProvider: 'abjiktech' as const, fallbackService } : {}),
+      ...(version ? { providerOverride: providerByVersion[version] } : { preferAbjiktech: true }),
+      fallbackProviders: ['techhub', 'franceverified', 'hubbu'],
+      ...(fallbackService ? { fallbackService } : {}),
       callByProvider: {
         techhub: () => techhubService.ninByPhone(phone, tier),
         abjiktech: () => abjikTechService.ninByPhone(phone, tier),
@@ -557,21 +597,25 @@ export const partnerVerification = {
   ninPersonalInfo: (partnerId: string, nin: string, idempotencyKey: string, background = false) => purchasePartnerSlip({
     partnerId, service: 'NIN_PERSONAL_INFO_SLIP', type: TransactionType.NIN_VERIFICATION,
     description: 'NIN personal information slip by NIN', operational: { mode: 'by_nin', tier: 'personal' }, pii: { nin }, idempotencyKey, background,
+    preferAbjiktech: true, fallbackProviders: ['techhub', 'franceverified', 'hubbu'],
     callByProvider: { techhub: () => techhubService.ninPersonalInfoByNin(nin), abjiktech: () => abjikTechService.ninByNin(nin, 'regular', true), franceverified: () => franceverifiedSlipAdapter.ninByNin(nin, undefined, true), monnify: () => monnifyVerificationService.ninPersonalInfoByNin(nin) }
   }),
   ninPersonalInfoByPhone: (partnerId: string, phone: string, idempotencyKey: string, background = false) => purchasePartnerSlip({
     partnerId, service: 'NIN_PHONE_PERSONAL_INFO_SLIP', type: TransactionType.NIN_VERIFICATION,
     description: 'NIN personal information slip by phone', operational: { mode: 'by_phone', tier: 'personal' }, pii: { phone }, idempotencyKey, background,
+    preferAbjiktech: true, fallbackProviders: ['techhub', 'franceverified', 'hubbu'],
     callByProvider: { techhub: () => techhubService.ninPersonalInfoByPhone(phone), abjiktech: () => abjikTechService.ninByPhone(phone, 'regular', true), franceverified: () => franceverifiedSlipAdapter.ninByPhone(phone, undefined, true), hubbu: () => hubbuService.verifyNin({ method: 'phone', phone, slip_type: 'standard' }) }
   }),
   ninByDemographic: (partnerId: string, values: { firstname: string; lastname: string; dob: string; gender?: string }, idempotencyKey: string, background = false) => purchasePartnerSlip({
     partnerId, service: 'NIN_DEMOGRAPHIC', type: TransactionType.NIN_VERIFICATION,
     description: 'NIN slip by demographic details', operational: { mode: 'by_demographic' }, pii: values, idempotencyKey, background,
+    preferAbjiktech: true, fallbackProviders: ['techhub', 'franceverified', 'hubbu'],
     callByProvider: { techhub: () => techhubService.ninByDemographic(values), abjiktech: () => abjikTechService.ninByDemographic(values), franceverified: () => franceverifiedSlipAdapter.ninByDemographic(values) }
   }),
   bvnSlip: (partnerId: string, bvn: string, tier: TechhubBvnTier, idempotencyKey: string, background = false) => purchasePartnerSlip({
     partnerId, service: ({ premium: 'BVN_SLIP_PREMIUM', standard: 'BVN_SLIP_STANDARD' } as const)[tier], type: TransactionType.BVN_VERIFICATION,
     description: `BVN slip (${tier})`, operational: { tier }, pii: { bvn }, idempotencyKey, background,
+    preferAbjiktech: true, fallbackProviders: ['techhub', 'franceverified', 'hubbu'],
     callByProvider: { techhub: () => techhubService.bvnSlip(bvn, tier), abjiktech: () => abjikTechService.bvnSlip(bvn, tier), franceverified: () => franceverifiedSlipAdapter.bvnSlip(bvn, tier) }
   }),
   submitNinValidation: (partnerId: string, nin: string, validationType: string | undefined, idempotencyKey: string) => {

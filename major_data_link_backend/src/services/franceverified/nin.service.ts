@@ -8,14 +8,14 @@ export function verifyNin(nin: string) {
 }
 
 export function verifyNinByPhone(phone: string) {
-  return franceVerifiedPost('/nin/verify/phone', { phone });
+  return franceVerifiedPost('/nin/verify/phone', { phone, provider: 'v2' });
 }
 
 // Path confirmed against https://www.franceverified.com/api-docs/nin -
 // it's "/nin/verify/demo", not "/nin/verify/demographic" (the previous value
 // here 404s against the live API).
 export function verifyNinByDemographic(params: { firstname: string; lastname: string; dob: string; gender?: string }) {
-  return franceVerifiedPost('/nin/verify/demo', params);
+  return franceVerifiedPost('/nin/verify/demo', { ...params, provider: 'v2' });
 }
 
 /** IPE (Identity Profile Entry) Clearance. `type` per the docs, e.g. "get-old-tracking-id". */
