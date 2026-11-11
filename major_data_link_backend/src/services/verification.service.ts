@@ -509,7 +509,7 @@ async function purchaseSlip(params: {
   background?: boolean;
   providerOverride?: VerificationProvider;
   /** Optional lookup priority; later providers are tried on no-record results. */
-  providerOrder?: VerificationProvider[];
+  providerOrder?: Exclude<VerificationProvider, 'manual'>[];
   // One call per provider this service could be routed to. Only the branch
   // matching the resolved ServicePricing.provider is ever invoked - see
   // slipCallFor() usage at each call site below for which providers a given
