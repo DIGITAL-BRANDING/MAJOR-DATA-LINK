@@ -508,6 +508,8 @@ async function purchaseSlip(params: {
   idempotencyKey?: string;
   background?: boolean;
   providerOverride?: VerificationProvider;
+  /** Optional lookup priority; later providers are tried on no-record results. */
+  providerOrder?: VerificationProvider[];
   // One call per provider this service could be routed to. Only the branch
   // matching the resolved ServicePricing.provider is ever invoked - see
   // slipCallFor() usage at each call site below for which providers a given
@@ -518,7 +520,7 @@ async function purchaseSlip(params: {
   retryNoRecordWith?: Partial<Record<VerificationProvider, () => Promise<TechhubSlipResult>>>;
 }): Promise<SlipPurchaseResult> {
   const price = await getVerificationPrice(params.service);
-  const primaryProvider = params.providerOverride ?? price.provider;
+  const primaryProvider = params.providerOrder?.[0] ?? params.providerOverride ?? price.provider;
   if (primaryProvider === 'manual') {
     const debit = await debitWallet({
       userId: params.userId, amount: price.unitPrice, type: params.transactionType, description: params.description,
@@ -660,6 +662,28 @@ async function purchaseSlip(params: {
     return { status: false, message: 'The verification provider could not complete the request; your payment has been refunded.', reference: debit.reference, transactionId: debit.transaction.id, balanceAfter: koboToNaira(balanceAfterKobo) };
   }
 
+  const noRecordPattern = /\b(?:no\s+record\s+found|record\s+not\s+found|no\s+match\s+found|data\s+not\s+found)\b/i;
+  let canTryFallback = !result.ok && noRecordPattern.test(result.message);
+  const fallbackProviders = params.providerOrder?.filter((provider) => provider !== primaryProvider)
+    ?? [primaryProvider === 'techhub' ? 'franceverified' : 'techhub'];
+  for (const fallbackProvider of fallbackProviders) {
+    if (!canTryFallback) break;
+    const fallbackCall = params.retryNoRecordWith?.[fallbackProvider];
+    if (!fallbackCall) continue;
+    console.info('[verification] ' + params.service + ' returned no record from ' + actualProvider + '; retrying ' + fallbackProvider);
+    actualProvider = fallbackProvider;
+    try {
+      result = await timedVerificationCall(params.service, 'lookup', fallbackCall, {
+        provider: fallbackProvider,
+        succeeded: (response) => typeof response === 'object' && response !== null && 'ok' in response && response.ok === true
+      });
+    } catch (error) {
+      result = { ok: false, message: error instanceof Error ? error.message : 'The provider could not complete the request.', raw: { error: error instanceof Error ? error.message : 'Unknown provider error' } };
+    }
+    if (result.ok || result.pending) break;
+    canTryFallback = noRecordPattern.test(result.message);
+  }
+
   if (result.pending) {
     const message = result.message || 'The provider accepted the request but has not confirmed the result yet.';
     const metadata = (debit.transaction.metadata as Record<string, unknown> | null) ?? {};
@@ -686,22 +710,6 @@ async function purchaseSlip(params: {
       transactionId: debit.transaction.id,
       balanceAfter: debit.balanceAfter
     };
-  }
-
-  const noRecord = !result.ok && /\b(?:no\s+record\s+found|record\s+not\s+found|no\s+match\s+found|data\s+not\s+found)\b/i.test(result.message);
-  const fallbackProvider: VerificationProvider = primaryProvider === 'techhub' ? 'franceverified' : 'techhub';
-  const fallbackCall = noRecord ? params.retryNoRecordWith?.[fallbackProvider] : undefined;
-  if (fallbackCall) {
-    console.info(`[verification] ${params.service} returned no record from ${primaryProvider}; retrying ${fallbackProvider}`);
-    actualProvider = fallbackProvider;
-    try {
-      result = await timedVerificationCall(params.service, 'lookup', fallbackCall, {
-        provider: fallbackProvider,
-        succeeded: (response) => typeof response === 'object' && response !== null && 'ok' in response && response.ok === true
-      });
-    } catch (error) {
-      result = { ok: false, message: error instanceof Error ? error.message : 'The verification provider could not complete the request.', raw: { error: error instanceof Error ? error.message : 'Unknown provider error' } };
-    }
   }
 
   if (result.ok) {
@@ -1323,10 +1331,17 @@ export function purchaseBvnSlip(params: { userId: string; bvn: string; tier: Tec
     pii: { bvn: params.bvn },
     idempotencyKey: params.idempotencyKey,
     background: params.background,
+    // Prefer Techhub for BVN, then check AbjikTech and FranceVerified if no record is found.
+    providerOrder: ['techhub', 'abjiktech', 'franceverified'],
     callByProvider: {
       techhub: () => techhubService.bvnSlip(params.bvn, params.tier),
       abjiktech: () => abjikTechService.bvnSlip(params.bvn, params.tier),
       hubbu: () => hubbuService.verifyBvn(params.bvn, params.tier),
+      franceverified: () => franceverifiedSlipAdapter.bvnSlip(params.bvn, params.tier)
+    },
+    retryNoRecordWith: {
+      techhub: () => techhubService.bvnSlip(params.bvn, params.tier),
+      abjiktech: () => abjikTechService.bvnSlip(params.bvn, params.tier),
       franceverified: () => franceverifiedSlipAdapter.bvnSlip(params.bvn, params.tier)
     }
   });

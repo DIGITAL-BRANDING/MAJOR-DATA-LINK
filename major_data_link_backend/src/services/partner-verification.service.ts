@@ -615,7 +615,7 @@ export const partnerVerification = {
   bvnSlip: (partnerId: string, bvn: string, tier: TechhubBvnTier, idempotencyKey: string, background = false) => purchasePartnerSlip({
     partnerId, service: ({ premium: 'BVN_SLIP_PREMIUM', standard: 'BVN_SLIP_STANDARD' } as const)[tier], type: TransactionType.BVN_VERIFICATION,
     description: `BVN slip (${tier})`, operational: { tier }, pii: { bvn }, idempotencyKey, background,
-    preferAbjiktech: true, fallbackProviders: ['techhub', 'franceverified', 'hubbu'],
+    providerOverride: 'techhub', fallbackProviders: ['abjiktech', 'franceverified'],
     callByProvider: { techhub: () => techhubService.bvnSlip(bvn, tier), abjiktech: () => abjikTechService.bvnSlip(bvn, tier), franceverified: () => franceverifiedSlipAdapter.bvnSlip(bvn, tier) }
   }),
   submitNinValidation: (partnerId: string, nin: string, validationType: string | undefined, idempotencyKey: string) => {
