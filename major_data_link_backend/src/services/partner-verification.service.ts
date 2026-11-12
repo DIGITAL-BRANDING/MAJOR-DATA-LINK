@@ -26,7 +26,7 @@ export type PartnerAsyncStatusResult = { reference: string; ticketId: string; st
 
 function isConfirmedNoRecord(result: { ok?: boolean; pending?: boolean; message?: string }) {
   return result.ok !== true && result.pending !== true
-    && /\b(?:no\s+(?:record|data|match)\s+(?:was\s+)?found|no\s+matching\s+(?:verification\s+)?record|(?:record|data)\s+not\s+found|could\s+not\s+find\s+(?:a\s+)?(?:matching\s+)?(?:verification\s+)?record|unable\s+to\s+find\s+(?:a\s+)?(?:matching\s+)?(?:verification\s+)?record)\b/i.test(result.message ?? '');
+    && /\b(?:no\s+(?:record|data|match)\s+(?:was\s+)?found|no\s+matching\s+(?:verification\s+)?record|(?:nin|bvn|record|data)\s+(?:was\s+)?not\s+found|(?:nin|bvn|record|data)\s+(?:does\s+not\s+exist|not\s+available)|could\s+not\s+find\s+(?:a\s+)?(?:matching\s+)?(?:verification\s+)?record|unable\s+to\s+find\s+(?:a\s+)?(?:matching\s+)?(?:verification\s+)?record)\b/i.test(result.message ?? '');
 }
 
 const FRANCEVERIFIED_STATUS_POLL_INTERVAL_MS = 5 * 60_000;
@@ -312,7 +312,10 @@ export async function purchasePartnerSlip(params: {
     NIN_DEMOGRAPHIC_V2: 'NIN_DEMOGRAPHIC_V1'
   };
   const fallbackProviders: Exclude<VerificationProvider, 'manual'>[] = [...new Set<Exclude<VerificationProvider, 'manual'>>(params.fallbackProviders ?? (params.fallbackProvider ? [params.fallbackProvider] : preferAbjiktech ? (primaryProvider === 'abjiktech' ? ['techhub' as const, 'franceverified' as const] : ['franceverified' as const]) : []))]
-    .filter((provider) => provider !== primaryProvider && Boolean(params.callByProvider[provider]) && (provider !== 'franceverified' || Boolean(env.FRANCEVERIFIED_API_KEY)) && (provider !== 'hubbu' || Boolean(env.HUBBU_API_KEY)));
+    .filter((provider) => provider !== primaryProvider && Boolean(params.callByProvider[provider])
+      && (provider !== 'abjiktech' || Boolean(env.ABJIKTECH_API_KEY))
+      && (provider !== 'franceverified' || Boolean(env.FRANCEVERIFIED_API_KEY))
+      && (provider !== 'hubbu' || Boolean(env.HUBBU_API_KEY)));
   const fallbackServiceFor = (provider: Exclude<VerificationProvider, 'manual'>) =>
     provider === 'techhub'
       ? params.fallbackService ?? techhubFallbackServices[params.service] ?? params.service
@@ -389,6 +392,7 @@ export async function purchasePartnerSlip(params: {
     if (!isConfirmedNoRecord(provider)) break;
     const fallbackCall = params.callByProvider[fallbackProvider];
     if (!fallbackCall) continue;
+    console.info('[partner-verification] confirmed no-record fallback', JSON.stringify({ reference: debit.transaction.reference, from: actualProvider, to: fallbackProvider }));
     actualProvider = fallbackProvider;
     try {
       provider = await callPartnerSlipProvider(params.service, fallbackProvider, debit.transaction.reference, fallbackCall);
@@ -439,6 +443,7 @@ async function settlePartnerSlip(input: {
       if (!isConfirmedNoRecord(provider)) break;
       const fallbackCall = params.callByProvider[fallbackProvider];
       if (!fallbackCall) continue;
+      console.info('[partner-verification] confirmed no-record fallback', JSON.stringify({ reference: debit.transaction.reference, from: actualProvider, to: fallbackProvider }));
       actualProvider = fallbackProvider;
       provider = await callPartnerSlipProvider(params.service, fallbackProvider, debit.transaction.reference, fallbackCall);
     }
@@ -549,11 +554,9 @@ export const partnerVerification = {
       description: `NIN Verification ${version === 'managed' ? 'managed ' : `${version.toUpperCase()} `}(${tier}) by NIN`,
       operational: { mode: 'by_nin', tier, version }, pii: { nin }, idempotencyKey,
       background,
-      ...(version === 'managed' ? { preferAbjiktech: true } : {
-        providerOverride: env.ABJIKTECH_API_KEY ? 'abjiktech' as const : 'techhub' as const,
-        fallbackProviders: ['techhub', 'franceverified'] as const,
-        ...(version === 'v2' ? { fallbackService: v1Services[tier] } : {})
-      }),
+      providerOverride: 'techhub',
+      fallbackProviders: ['abjiktech', 'franceverified'] as const,
+      ...(version === 'v2' ? { fallbackService: v1Services[tier] } : {}),
       callByProvider: {
         techhub: () => techhubService.ninByNin(nin, tier),
         abjiktech: () => abjikTechService.ninByNin(nin, tier),
@@ -575,8 +578,8 @@ export const partnerVerification = {
       partnerId, service, type: TransactionType.NIN_VERIFICATION,
       description: 'NIN slip by phone (' + (version ?? 'managed') + ', ' + tier + ')',
       operational: { mode: 'by_phone', tier, ...(version ? { version } : {}) }, pii: { phone }, idempotencyKey, background,
-      ...(version ? { providerOverride: env.ABJIKTECH_API_KEY ? 'abjiktech' as const : 'techhub' as const } : { preferAbjiktech: true }),
-      fallbackProviders: ['techhub', 'franceverified', 'hubbu'],
+      providerOverride: 'techhub',
+      fallbackProviders: ['abjiktech', 'franceverified', 'hubbu'],
       ...(fallbackService ? { fallbackService } : {}),
       callByProvider: {
         techhub: () => techhubService.ninByPhone(phone, tier),
@@ -597,19 +600,19 @@ export const partnerVerification = {
   ninPersonalInfo: (partnerId: string, nin: string, idempotencyKey: string, background = false) => purchasePartnerSlip({
     partnerId, service: 'NIN_PERSONAL_INFO_SLIP', type: TransactionType.NIN_VERIFICATION,
     description: 'NIN personal information slip by NIN', operational: { mode: 'by_nin', tier: 'personal' }, pii: { nin }, idempotencyKey, background,
-    preferAbjiktech: true, fallbackProviders: ['techhub', 'franceverified', 'hubbu'],
+    providerOverride: 'techhub', fallbackProviders: ['abjiktech', 'franceverified'],
     callByProvider: { techhub: () => techhubService.ninPersonalInfoByNin(nin), abjiktech: () => abjikTechService.ninByNin(nin, 'regular', true), franceverified: () => franceverifiedSlipAdapter.ninByNin(nin, undefined, true), monnify: () => monnifyVerificationService.ninPersonalInfoByNin(nin) }
   }),
   ninPersonalInfoByPhone: (partnerId: string, phone: string, idempotencyKey: string, background = false) => purchasePartnerSlip({
     partnerId, service: 'NIN_PHONE_PERSONAL_INFO_SLIP', type: TransactionType.NIN_VERIFICATION,
     description: 'NIN personal information slip by phone', operational: { mode: 'by_phone', tier: 'personal' }, pii: { phone }, idempotencyKey, background,
-    preferAbjiktech: true, fallbackProviders: ['techhub', 'franceverified', 'hubbu'],
+    providerOverride: 'techhub', fallbackProviders: ['abjiktech', 'franceverified', 'hubbu'],
     callByProvider: { techhub: () => techhubService.ninPersonalInfoByPhone(phone), abjiktech: () => abjikTechService.ninByPhone(phone, 'regular', true), franceverified: () => franceverifiedSlipAdapter.ninByPhone(phone, undefined, true), hubbu: () => hubbuService.verifyNin({ method: 'phone', phone, slip_type: 'standard' }) }
   }),
   ninByDemographic: (partnerId: string, values: { firstname: string; lastname: string; dob: string; gender?: string }, idempotencyKey: string, background = false) => purchasePartnerSlip({
     partnerId, service: 'NIN_DEMOGRAPHIC', type: TransactionType.NIN_VERIFICATION,
     description: 'NIN slip by demographic details', operational: { mode: 'by_demographic' }, pii: values, idempotencyKey, background,
-    preferAbjiktech: true, fallbackProviders: ['techhub', 'franceverified', 'hubbu'],
+    providerOverride: 'techhub', fallbackProviders: ['abjiktech', 'franceverified'],
     callByProvider: { techhub: () => techhubService.ninByDemographic(values), abjiktech: () => abjikTechService.ninByDemographic(values), franceverified: () => franceverifiedSlipAdapter.ninByDemographic(values) }
   }),
   bvnSlip: (partnerId: string, bvn: string, tier: TechhubBvnTier, idempotencyKey: string, background = false) => purchasePartnerSlip({

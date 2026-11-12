@@ -107,11 +107,22 @@ async function lookup(path: string, payload: Record<string, string>, options: {
   const responseCode = layers.map((layer) => findText(layer, 'response_code', 'responseCode')).find(Boolean);
   const userData = identityRecord(envelope);
   const successful = response.ok && (layers.some((layer) => successFlag(layer.status) || successFlag(layer.state) || successFlag(layer.success)) || responseCode === '00' || responseCode === '0');
+  const noRecordPattern = /\b(?:no\s+(?:record|data|match)\s+(?:was\s+)?found|(?:nin|bvn|record|data)\s+(?:was\s+)?not\s+found|(?:record|data)\s+(?:does\s+not\s+exist|not\s+available))\b/i;
+  const noRecordMessage = layers
+    .flatMap((layer) => ['message', 'error', 'description'].map((key) => findText(layer, key)))
+    .find((value) => value && noRecordPattern.test(value));
+  const message = responseMessage(envelope, 'AbjikTech could not find a matching verification record.');
+  // Some AbjikTech responses echo the submitted NIN and mark the envelope as
+  // successful even when the lookup itself says no record was found. Treat
+  // that explicit lookup result as a miss before accepting echoed fields.
+  if (noRecordMessage) {
+    return { ok: false, message: noRecordMessage, raw };
+  }
   const pdfBase64 = layers.map((layer) => findText(layer, 'pdf_base64', 'pdfBase64')).find(Boolean);
   const pdfUrl = layers.map((layer) => findText(layer, 'pdf_url', 'slip_url', 'download_url', 'pdfUrl', 'downloadUrl')).find(Boolean);
   console.info('[abjiktech] slip response', JSON.stringify({ endpoint: path, http_status: response.status, duration_ms: Date.now() - startedAt, provider_status: status, response_code: responseCode, outcome: successful ? 'success' : 'failed' }));
   if (!successful || (!userData && !pdfBase64 && !pdfUrl)) {
-    return { ok: false, message: responseMessage(envelope, 'AbjikTech could not find a matching verification record.'), raw };
+    return { ok: false, message, raw };
   }
   const identity = userData ?? {};
   const genderRaw = findText(identity, 'gender');
@@ -149,7 +160,7 @@ async function lookup(path: string, payload: Record<string, string>, options: {
       ? await renderPersonalInformationSlipPdf({ title: options.title, subtitle: options.subtitle, fields, photo: photo ? { base64: photo, format: 'jpeg' } : undefined, issuedAt: new Date(), tier: options.tier })
       : await renderIdentitySlipPdf({ title: options.title, subtitle: options.subtitle, reference: findText(identity, 'trackingId', 'tracking_id') ?? options.reference, fields, photo: photo ? { base64: photo, format: 'jpeg' } : undefined, issuedAt: new Date(), tier: options.tier });
   }
-  return { ok: true, message: responseMessage(envelope, 'Verification completed successfully.'), userData: publicFields, pdfBase64: renderedPdf?.replace(/^data:application\/pdf;base64,/i, ''), pdfUrl, raw };
+  return { ok: true, message, userData: publicFields, pdfBase64: renderedPdf?.replace(/^data:application\/pdf;base64,/i, ''), pdfUrl, raw };
 }
 
 async function ticketRequest(path: string, payload: Record<string, string>) {
