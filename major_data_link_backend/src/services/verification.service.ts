@@ -508,15 +508,14 @@ async function purchaseSlip(params: {
   idempotencyKey?: string;
   background?: boolean;
   providerOverride?: VerificationProvider;
-  /** Optional lookup priority; later providers are tried on no-record results. */
+  /** Optional lookup priority; later providers are tried after definitive non-success responses. */
   providerOrder?: Exclude<VerificationProvider, 'manual'>[];
   // One call per provider this service could be routed to. Only the branch
   // matching the resolved ServicePricing.provider is ever invoked - see
   // slipCallFor() usage at each call site below for which providers a given
   // slip flow actually supports today.
   callByProvider: Partial<Record<VerificationProvider, () => Promise<TechhubSlipResult>>>;
-  /** The admin-routed by-NIN service can recover from a provider-specific
-   * no-record response by checking the same NIN with the other provider. */
+  /** Retry the same lookup with another provider after a definitive failure. */
   retryNoRecordWith?: Partial<Record<VerificationProvider, () => Promise<TechhubSlipResult>>>;
 }): Promise<SlipPurchaseResult> {
   const price = await getVerificationPrice(params.service);
@@ -662,9 +661,10 @@ async function purchaseSlip(params: {
     return { status: false, message: 'The verification provider could not complete the request; your payment has been refunded.', reference: debit.reference, transactionId: debit.transaction.id, balanceAfter: koboToNaira(balanceAfterKobo) };
   }
 
-  const noRecordPattern = /\b(?:no\s+record\s+found|record\s+not\s+found|no\s+match\s+found|data\s+not\s+found)\b/i;
-  const providerRejectedBeforeProcessing = /\binsufficient\s+(?:wallet\s+)?balance\b|\blow\s+balance\b|\bnot\s+enough\s+(?:wallet\s+)?balance\b|\bdatabase\s+connection\s+failed\b|\bno\s+such\s+file\s+or\s+directory\b|\bservice\s+(?:is\s+)?temporarily\s+unavailable\b/i;
-  const canFallback = (response: { ok?: boolean; pending?: boolean; message: string }) => response.ok !== true && response.pending !== true && (noRecordPattern.test(response.message) || providerRejectedBeforeProcessing.test(response.message));
+  // A provider's explicit failure is a definitive response, so try the next
+  // configured provider regardless of the failure message. A pending result
+  // is different: the upstream may still complete it, so never duplicate it.
+  const canFallback = (response: { ok?: boolean; pending?: boolean }) => response.ok !== true && response.pending !== true;
   let canTryFallback = canFallback(result);
   const fallbackProviders = params.providerOrder?.filter((provider) => provider !== primaryProvider)
     ?? [primaryProvider === 'techhub' ? 'franceverified' : 'techhub'];
@@ -672,7 +672,7 @@ async function purchaseSlip(params: {
     if (!canTryFallback) break;
     const fallbackCall = params.retryNoRecordWith?.[fallbackProvider];
     if (!fallbackCall) continue;
-    console.info('[verification] ' + params.service + ' returned no record from ' + actualProvider + '; retrying ' + fallbackProvider);
+    console.info('[verification] ' + params.service + ' returned a definitive failure from ' + actualProvider + '; retrying ' + fallbackProvider);
     actualProvider = fallbackProvider;
     try {
       result = await timedVerificationCall(params.service, 'lookup', fallbackCall, {
@@ -680,7 +680,9 @@ async function purchaseSlip(params: {
         succeeded: (response) => typeof response === 'object' && response !== null && 'ok' in response && response.ok === true
       });
     } catch (error) {
-      result = { ok: false, message: error instanceof Error ? error.message : 'The provider could not complete the request.', raw: { error: error instanceof Error ? error.message : 'Unknown provider error' } };
+      // A thrown/timeout outcome is ambiguous: the provider may have accepted
+      // the request. Mark it pending so we do not submit a duplicate elsewhere.
+      result = { ok: false, pending: true, message: error instanceof Error ? error.message : 'The provider outcome is unknown.', raw: { error: error instanceof Error ? error.message : 'Unknown provider error' } };
     }
     if (result.ok || result.pending) break;
     canTryFallback = canFallback(result);
@@ -1150,11 +1152,18 @@ export function purchaseNinByPhone(params: {
     pii: { phone: params.phone },
     idempotencyKey: params.idempotencyKey,
     background: params.background,
+    providerOrder: ['techhub', 'abjiktech', 'franceverified', 'hubbu'],
     callByProvider: {
       techhub: () => params.tier === 'personal' ? techhubService.ninPersonalInfoByPhone(params.phone) : techhubService.ninByPhone(params.phone, params.tier),
       abjiktech: () => abjikTechService.ninByPhone(params.phone, params.tier === 'personal' ? 'regular' : params.tier, params.tier === 'personal'),
       hubbu: () => hubbuService.verifyNin({ method: 'phone', phone: params.phone, slip_type: params.tier === 'personal' ? 'standard' : params.tier }),
       franceverified: () => franceverifiedSlipAdapter.ninByPhone(params.phone, franceSlipTier(params.tier), params.tier === 'personal')
+    },
+    retryNoRecordWith: {
+      techhub: () => params.tier === 'personal' ? techhubService.ninPersonalInfoByPhone(params.phone) : techhubService.ninByPhone(params.phone, params.tier),
+      abjiktech: () => abjikTechService.ninByPhone(params.phone, params.tier === 'personal' ? 'regular' : params.tier, params.tier === 'personal'),
+      franceverified: () => franceverifiedSlipAdapter.ninByPhone(params.phone, franceSlipTier(params.tier), params.tier === 'personal'),
+      hubbu: () => hubbuService.verifyNin({ method: 'phone', phone: params.phone, slip_type: params.tier === 'personal' ? 'standard' : params.tier })
     }
   });
 }
@@ -1178,8 +1187,17 @@ export function purchaseNinByPhoneV1(params: { userId: string; phone: string; ti
     idempotencyKey: params.idempotencyKey,
     background: params.background,
     providerOverride: 'techhub',
+    providerOrder: ['techhub', 'abjiktech', 'franceverified', 'hubbu'],
     callByProvider: {
       techhub: () => params.tier === 'personal' ? techhubService.ninPersonalInfoByPhone(params.phone) : techhubService.ninByPhone(params.phone, params.tier),
+      abjiktech: () => abjikTechService.ninByPhone(params.phone, params.tier === 'personal' ? 'regular' : params.tier, params.tier === 'personal'),
+      franceverified: () => franceverifiedSlipAdapter.ninByPhone(params.phone, franceSlipTier(params.tier), params.tier === 'personal'),
+      hubbu: () => hubbuService.verifyNin({ method: 'phone', phone: params.phone, slip_type: params.tier === 'personal' ? 'standard' : params.tier })
+    },
+    retryNoRecordWith: {
+      techhub: () => params.tier === 'personal' ? techhubService.ninPersonalInfoByPhone(params.phone) : techhubService.ninByPhone(params.phone, params.tier),
+      abjiktech: () => abjikTechService.ninByPhone(params.phone, params.tier === 'personal' ? 'regular' : params.tier, params.tier === 'personal'),
+      franceverified: () => franceverifiedSlipAdapter.ninByPhone(params.phone, franceSlipTier(params.tier), params.tier === 'personal'),
       hubbu: () => hubbuService.verifyNin({ method: 'phone', phone: params.phone, slip_type: params.tier === 'personal' ? 'standard' : params.tier })
     }
   });
@@ -1196,8 +1214,18 @@ export function purchaseNinByPhoneV2(params: { userId: string; phone: string; ti
     idempotencyKey: params.idempotencyKey,
     background: params.background,
     providerOverride: 'abjiktech',
+    providerOrder: ['techhub', 'abjiktech', 'franceverified', 'hubbu'],
     callByProvider: {
-      abjiktech: () => abjikTechService.ninByPhone(params.phone, params.tier === 'personal' ? 'regular' : params.tier, params.tier === 'personal')
+      techhub: () => params.tier === 'personal' ? techhubService.ninPersonalInfoByPhone(params.phone) : techhubService.ninByPhone(params.phone, params.tier),
+      abjiktech: () => abjikTechService.ninByPhone(params.phone, params.tier === 'personal' ? 'regular' : params.tier, params.tier === 'personal'),
+      franceverified: () => franceverifiedSlipAdapter.ninByPhone(params.phone, franceSlipTier(params.tier), params.tier === 'personal'),
+      hubbu: () => hubbuService.verifyNin({ method: 'phone', phone: params.phone, slip_type: params.tier === 'personal' ? 'standard' : params.tier })
+    },
+    retryNoRecordWith: {
+      techhub: () => params.tier === 'personal' ? techhubService.ninPersonalInfoByPhone(params.phone) : techhubService.ninByPhone(params.phone, params.tier),
+      abjiktech: () => abjikTechService.ninByPhone(params.phone, params.tier === 'personal' ? 'regular' : params.tier, params.tier === 'personal'),
+      franceverified: () => franceverifiedSlipAdapter.ninByPhone(params.phone, franceSlipTier(params.tier), params.tier === 'personal'),
+      hubbu: () => hubbuService.verifyNin({ method: 'phone', phone: params.phone, slip_type: params.tier === 'personal' ? 'standard' : params.tier })
     }
   });
 }
@@ -1207,7 +1235,19 @@ export function purchaseNinByPhoneV3(params: { userId: string; phone: string; ti
     userId: params.userId, service: NIN_PHONE_SLIP_V3_SERVICE_BY_TIER[params.tier], transactionType: TransactionType.NIN_VERIFICATION,
     description: `NIN slip (V3 - FranceVerified, ${params.tier}) by Phone`, operational: { mode: 'by_phone', tier: params.tier },
     pii: { phone: params.phone }, idempotencyKey: params.idempotencyKey, background: params.background, providerOverride: 'franceverified',
-    callByProvider: { franceverified: () => franceverifiedSlipAdapter.ninByPhone(params.phone, franceSlipTier(params.tier), params.tier === 'personal') }
+    providerOrder: ['techhub', 'abjiktech', 'franceverified', 'hubbu'],
+    callByProvider: {
+      techhub: () => params.tier === 'personal' ? techhubService.ninPersonalInfoByPhone(params.phone) : techhubService.ninByPhone(params.phone, params.tier),
+      abjiktech: () => abjikTechService.ninByPhone(params.phone, params.tier === 'personal' ? 'regular' : params.tier, params.tier === 'personal'),
+      franceverified: () => franceverifiedSlipAdapter.ninByPhone(params.phone, franceSlipTier(params.tier), params.tier === 'personal'),
+      hubbu: () => hubbuService.verifyNin({ method: 'phone', phone: params.phone, slip_type: params.tier === 'personal' ? 'standard' : params.tier })
+    },
+    retryNoRecordWith: {
+      techhub: () => params.tier === 'personal' ? techhubService.ninPersonalInfoByPhone(params.phone) : techhubService.ninByPhone(params.phone, params.tier),
+      abjiktech: () => abjikTechService.ninByPhone(params.phone, params.tier === 'personal' ? 'regular' : params.tier, params.tier === 'personal'),
+      franceverified: () => franceverifiedSlipAdapter.ninByPhone(params.phone, franceSlipTier(params.tier), params.tier === 'personal'),
+      hubbu: () => hubbuService.verifyNin({ method: 'phone', phone: params.phone, slip_type: params.tier === 'personal' ? 'standard' : params.tier })
+    }
   });
 }
 
@@ -1216,7 +1256,19 @@ export function purchaseNinByPhoneV4(params: { userId: string; phone: string; ti
     userId: params.userId, service: NIN_PHONE_SLIP_V4_SERVICE_BY_TIER[params.tier], transactionType: TransactionType.NIN_VERIFICATION,
     description: `NIN slip (V4 - Hubbu, ${params.tier}) by Phone`, operational: { mode: 'by_phone', tier: params.tier },
     pii: { phone: params.phone }, idempotencyKey: params.idempotencyKey, background: params.background, providerOverride: 'hubbu',
-    callByProvider: { hubbu: () => hubbuService.verifyNin({ method: 'phone', phone: params.phone, slip_type: params.tier === 'personal' ? 'standard' : params.tier }) }
+    providerOrder: ['techhub', 'abjiktech', 'franceverified', 'hubbu'],
+    callByProvider: {
+      techhub: () => params.tier === 'personal' ? techhubService.ninPersonalInfoByPhone(params.phone) : techhubService.ninByPhone(params.phone, params.tier),
+      abjiktech: () => abjikTechService.ninByPhone(params.phone, params.tier === 'personal' ? 'regular' : params.tier, params.tier === 'personal'),
+      franceverified: () => franceverifiedSlipAdapter.ninByPhone(params.phone, franceSlipTier(params.tier), params.tier === 'personal'),
+      hubbu: () => hubbuService.verifyNin({ method: 'phone', phone: params.phone, slip_type: params.tier === 'personal' ? 'standard' : params.tier })
+    },
+    retryNoRecordWith: {
+      techhub: () => params.tier === 'personal' ? techhubService.ninPersonalInfoByPhone(params.phone) : techhubService.ninByPhone(params.phone, params.tier),
+      abjiktech: () => abjikTechService.ninByPhone(params.phone, params.tier === 'personal' ? 'regular' : params.tier, params.tier === 'personal'),
+      franceverified: () => franceverifiedSlipAdapter.ninByPhone(params.phone, franceSlipTier(params.tier), params.tier === 'personal'),
+      hubbu: () => hubbuService.verifyNin({ method: 'phone', phone: params.phone, slip_type: params.tier === 'personal' ? 'standard' : params.tier })
+    }
   });
 }
 

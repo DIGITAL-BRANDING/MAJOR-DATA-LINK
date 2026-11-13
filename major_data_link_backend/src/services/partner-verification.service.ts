@@ -25,11 +25,10 @@ export type PartnerAsyncSubmitResult = { reference: string; ticketId: string; ba
 export type PartnerAsyncStatusResult = { reference: string; ticketId: string; status: 'pending' | 'success' | 'failed'; response: Record<string, unknown> | null };
 
 function canTryNextVerificationProvider(result: { ok?: boolean; pending?: boolean; message?: string }) {
-  if (result.ok === true || result.pending === true) return false;
-  const message = result.message ?? '';
-  const confirmedNoRecord = /\b(?:no\s+(?:record|data|match)\s+(?:was\s+)?found|no\s+matching\s+(?:verification\s+)?record|(?:nin|bvn|record|data)\s+(?:was\s+)?not\s+found|(?:nin|bvn|record|data)\s+(?:does\s+not\s+exist|not\s+available)|could\s+not\s+find\s+(?:a\s+)?(?:matching\s+)?(?:verification\s+)?record|unable\s+to\s+find\s+(?:a\s+)?(?:matching\s+)?(?:verification\s+)?record)\b/i.test(message);
-  const providerRejectedBeforeProcessing = /\binsufficient\s+(?:wallet\s+)?balance\b|\blow\s+balance\b|\bnot\s+enough\s+(?:wallet\s+)?balance\b|\bdatabase\s+connection\s+failed\b|\bno\s+such\s+file\s+or\s+directory\b|\bservice\s+(?:is\s+)?temporarily\s+unavailable\b/i.test(message);
-  return confirmedNoRecord || providerRejectedBeforeProcessing;
+  // Any definitive rejection/error response may proceed to the next provider.
+  // Pending results and thrown/unknown outcomes are handled separately to
+  // avoid duplicate submissions while a provider may still be processing.
+  return result.ok !== true && result.pending !== true;
 }
 
 const FRANCEVERIFIED_STATUS_POLL_INTERVAL_MS = 5 * 60_000;
@@ -395,7 +394,7 @@ export async function purchasePartnerSlip(params: {
     if (!canTryNextVerificationProvider(provider)) break;
     const fallbackCall = params.callByProvider[fallbackProvider];
     if (!fallbackCall) continue;
-    console.info('[partner-verification] confirmed no-record fallback', JSON.stringify({ reference: debit.transaction.reference, from: actualProvider, to: fallbackProvider }));
+    console.info('[partner-verification] definitive-failure fallback', JSON.stringify({ reference: debit.transaction.reference, from: actualProvider, to: fallbackProvider }));
     actualProvider = fallbackProvider;
     try {
       provider = await callPartnerSlipProvider(params.service, fallbackProvider, debit.transaction.reference, fallbackCall);
@@ -446,7 +445,7 @@ async function settlePartnerSlip(input: {
       if (!canTryNextVerificationProvider(provider)) break;
       const fallbackCall = params.callByProvider[fallbackProvider];
       if (!fallbackCall) continue;
-      console.info('[partner-verification] confirmed no-record fallback', JSON.stringify({ reference: debit.transaction.reference, from: actualProvider, to: fallbackProvider }));
+      console.info('[partner-verification] definitive-failure fallback', JSON.stringify({ reference: debit.transaction.reference, from: actualProvider, to: fallbackProvider }));
       actualProvider = fallbackProvider;
       provider = await callPartnerSlipProvider(params.service, fallbackProvider, debit.transaction.reference, fallbackCall);
     }
