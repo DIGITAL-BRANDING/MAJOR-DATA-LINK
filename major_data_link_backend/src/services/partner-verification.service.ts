@@ -24,9 +24,12 @@ type PartnerSlipResult = {
 export type PartnerAsyncSubmitResult = { reference: string; ticketId: string; balanceAfter: number; status: 'pending' };
 export type PartnerAsyncStatusResult = { reference: string; ticketId: string; status: 'pending' | 'success' | 'failed'; response: Record<string, unknown> | null };
 
-function isConfirmedNoRecord(result: { ok?: boolean; pending?: boolean; message?: string }) {
-  return result.ok !== true && result.pending !== true
-    && /\b(?:no\s+(?:record|data|match)\s+(?:was\s+)?found|no\s+matching\s+(?:verification\s+)?record|(?:nin|bvn|record|data)\s+(?:was\s+)?not\s+found|(?:nin|bvn|record|data)\s+(?:does\s+not\s+exist|not\s+available)|could\s+not\s+find\s+(?:a\s+)?(?:matching\s+)?(?:verification\s+)?record|unable\s+to\s+find\s+(?:a\s+)?(?:matching\s+)?(?:verification\s+)?record)\b/i.test(result.message ?? '');
+function canTryNextVerificationProvider(result: { ok?: boolean; pending?: boolean; message?: string }) {
+  if (result.ok === true || result.pending === true) return false;
+  const message = result.message ?? '';
+  const confirmedNoRecord = /\b(?:no\s+(?:record|data|match)\s+(?:was\s+)?found|no\s+matching\s+(?:verification\s+)?record|(?:nin|bvn|record|data)\s+(?:was\s+)?not\s+found|(?:nin|bvn|record|data)\s+(?:does\s+not\s+exist|not\s+available)|could\s+not\s+find\s+(?:a\s+)?(?:matching\s+)?(?:verification\s+)?record|unable\s+to\s+find\s+(?:a\s+)?(?:matching\s+)?(?:verification\s+)?record)\b/i.test(message);
+  const providerRejectedBeforeProcessing = /\binsufficient\s+(?:wallet\s+)?balance\b|\blow\s+balance\b|\bnot\s+enough\s+(?:wallet\s+)?balance\b|\bdatabase\s+connection\s+failed\b|\bno\s+such\s+file\s+or\s+directory\b|\bservice\s+(?:is\s+)?temporarily\s+unavailable\b/i.test(message);
+  return confirmedNoRecord || providerRejectedBeforeProcessing;
 }
 
 const FRANCEVERIFIED_STATUS_POLL_INTERVAL_MS = 5 * 60_000;
@@ -389,7 +392,7 @@ export async function purchasePartnerSlip(params: {
     return { status: 'pending', message: 'We could not confirm the provider result. Your request is being checked; please do not submit it again.', reference: debit.transaction.reference, balanceAfter: koboToNaira(debit.transaction.balanceAfterKobo) };
   }
   for (const fallbackProvider of fallbackProviders) {
-    if (!isConfirmedNoRecord(provider)) break;
+    if (!canTryNextVerificationProvider(provider)) break;
     const fallbackCall = params.callByProvider[fallbackProvider];
     if (!fallbackCall) continue;
     console.info('[partner-verification] confirmed no-record fallback', JSON.stringify({ reference: debit.transaction.reference, from: actualProvider, to: fallbackProvider }));
@@ -440,7 +443,7 @@ async function settlePartnerSlip(input: {
   try {
     let provider: Awaited<ReturnType<typeof primaryCall>> = await callPartnerSlipProvider(params.service, primaryProvider, debit.transaction.reference, primaryCall);
     for (const fallbackProvider of fallbackProviders) {
-      if (!isConfirmedNoRecord(provider)) break;
+      if (!canTryNextVerificationProvider(provider)) break;
       const fallbackCall = params.callByProvider[fallbackProvider];
       if (!fallbackCall) continue;
       console.info('[partner-verification] confirmed no-record fallback', JSON.stringify({ reference: debit.transaction.reference, from: actualProvider, to: fallbackProvider }));

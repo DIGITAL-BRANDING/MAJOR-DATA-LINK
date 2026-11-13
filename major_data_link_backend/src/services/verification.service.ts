@@ -663,7 +663,9 @@ async function purchaseSlip(params: {
   }
 
   const noRecordPattern = /\b(?:no\s+record\s+found|record\s+not\s+found|no\s+match\s+found|data\s+not\s+found)\b/i;
-  let canTryFallback = !result.ok && noRecordPattern.test(result.message);
+  const providerRejectedBeforeProcessing = /\binsufficient\s+(?:wallet\s+)?balance\b|\blow\s+balance\b|\bnot\s+enough\s+(?:wallet\s+)?balance\b|\bdatabase\s+connection\s+failed\b|\bno\s+such\s+file\s+or\s+directory\b|\bservice\s+(?:is\s+)?temporarily\s+unavailable\b/i;
+  const canFallback = (response: { ok?: boolean; pending?: boolean; message: string }) => response.ok !== true && response.pending !== true && (noRecordPattern.test(response.message) || providerRejectedBeforeProcessing.test(response.message));
+  let canTryFallback = canFallback(result);
   const fallbackProviders = params.providerOrder?.filter((provider) => provider !== primaryProvider)
     ?? [primaryProvider === 'techhub' ? 'franceverified' : 'techhub'];
   for (const fallbackProvider of fallbackProviders) {
@@ -681,7 +683,7 @@ async function purchaseSlip(params: {
       result = { ok: false, message: error instanceof Error ? error.message : 'The provider could not complete the request.', raw: { error: error instanceof Error ? error.message : 'Unknown provider error' } };
     }
     if (result.ok || result.pending) break;
-    canTryFallback = noRecordPattern.test(result.message);
+    canTryFallback = canFallback(result);
   }
 
   if (result.pending) {
