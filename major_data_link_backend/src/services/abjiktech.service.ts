@@ -237,6 +237,12 @@ export const abjikTicketService = {
   },
   checkPersonalization(trackingId: string) {
     return ticketStatus('personalization_status.php', { tracking_id: trackingId }, trackingId);
+  },
+  submitBvnRetrieval(params: { first_name: string; last_name: string; phone_number: string }) {
+    return ticketRequest('bvn_retrieval.php', params);
+  },
+  checkBvnRetrieval(ticketId: string) {
+    return ticketStatus('bvn_retrieval_status.php', { ticket_id: ticketId }, ticketId);
   }
 };
 

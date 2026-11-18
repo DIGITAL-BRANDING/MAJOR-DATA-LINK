@@ -76,11 +76,12 @@ async function leavePartnerSlipForReconciliation(transactionId: string, provider
 async function submitPartnerAsync(params: {
   partnerId: string; service: VerificationServiceKey; description: string;
   operational: Record<string, unknown>; pii: Record<string, unknown>; idempotencyKey: string;
+  forceManual?: boolean;
   partnerIpeType?: IpeClearanceType;
   callByProvider: Partial<Record<VerificationProvider, () => ReturnType<typeof techhubService.submitNinValidation>>>;
 }): Promise<PartnerAsyncSubmitResult> {
   const price = await getVerificationPrice(params.service, { forPartner: true, ...(params.partnerIpeType ? { ipeType: params.partnerIpeType } : {}) });
-  if (price.provider === 'manual') {
+  if (params.forceManual || price.provider === 'manual') {
     const debit = await debitPartnerWallet({
       partnerId: params.partnerId, amount: price.unitPrice, type: TransactionType.IDENTITY_SERVICE_REQUEST,
       description: params.description, idempotencyKey: params.idempotencyKey,
@@ -171,8 +172,10 @@ async function checkPartnerAsync(params: {
   // A ticket can have a later, audited recovery request after an erroneous
   // refund. Prefer its active pending ledger row, then return the newest
   // terminal row once no active recovery remains.
-  const transaction = await prisma.partnerTransaction.findFirst({ where: { partnerId: params.partnerId, providerRef: params.ticketId, status: { in: [TransactionStatus.PENDING, TransactionStatus.PROCESSING] } }, orderBy: { createdAt: 'desc' } })
-    ?? await prisma.partnerTransaction.findFirst({ where: { partnerId: params.partnerId, providerRef: params.ticketId }, orderBy: { createdAt: 'desc' } });
+  const manualReference = params.ticketId.startsWith('MANUAL-') ? params.ticketId.slice('MANUAL-'.length) : undefined;
+  const ticketMatch = { OR: [{ providerRef: params.ticketId }, ...(manualReference ? [{ reference: manualReference }] : [])] };
+  const transaction = await prisma.partnerTransaction.findFirst({ where: { partnerId: params.partnerId, ...ticketMatch, status: { in: [TransactionStatus.PENDING, TransactionStatus.PROCESSING] } }, orderBy: { createdAt: 'desc' } })
+    ?? await prisma.partnerTransaction.findFirst({ where: { partnerId: params.partnerId, ...ticketMatch }, orderBy: { createdAt: 'desc' } });
   if (!transaction) throw new ApiError(404, 'Unknown ticket_id', 'TICKET_NOT_FOUND');
   const metadata = (transaction.metadata as Record<string, unknown> | null) ?? {};
   const stored = openPII<{ response?: Record<string, unknown> | null }>(metadata.pii);
@@ -206,7 +209,8 @@ async function checkPartnerAsync(params: {
       data: { metadata: checkedMetadata as Prisma.InputJsonValue }
     });
 
-    const result = await call(params.ticketId);
+    const providerTicketId = transaction.providerRef && transaction.provider !== 'manual' ? transaction.providerRef : params.ticketId;
+    const result = await call(providerTicketId);
     if (result.status === 'pending') {
       return { reference: transaction.reference, ticketId: result.ticketId, status: 'pending', response: null };
     }
@@ -641,5 +645,12 @@ export const partnerVerification = {
   }),
   checkIpeClearance: (partnerId: string, ticketId: string) => checkPartnerAsync({ partnerId, ticketId, callByProvider: { techhub: (id) => techhubService.checkIpeClearance(id), abjiktech: (id) => abjikTicketService.checkIpeClearance(id), franceverified: (id) => checkIpeClearanceFV(id) } }),
   submitPersonalization: (partnerId: string, trackingId: string, idempotencyKey: string) => submitPartnerAsync({ partnerId, service: 'NIN_PERSONALIZATION', description: 'NIN personalization request', operational: {}, pii: { tracking_id: trackingId }, idempotencyKey, callByProvider: { techhub: () => techhubService.submitPersonalization(trackingId) } }),
-  checkPersonalization: (partnerId: string, ticketId: string) => checkPartnerAsync({ partnerId, ticketId, callByProvider: { techhub: (id) => techhubService.checkPersonalization(id), abjiktech: (id) => abjikTicketService.checkPersonalization(id) } })
+  checkPersonalization: (partnerId: string, ticketId: string) => checkPartnerAsync({ partnerId, ticketId, callByProvider: { techhub: (id) => techhubService.checkPersonalization(id), abjiktech: (id) => abjikTicketService.checkPersonalization(id) } }),
+  submitBvnRetrieval: (partnerId: string, values: { first_name: string; last_name: string; phone_number: string }, idempotencyKey: string) => submitPartnerAsync({
+    partnerId, service: 'BVN_RETRIEVAL', description: 'BVN retrieval by phone number', operational: { retrieval_method: 'phone' }, pii: values,
+    idempotencyKey, forceManual: true, callByProvider: {}
+  }),
+  checkBvnRetrieval: (partnerId: string, ticketId: string) => checkPartnerAsync({ partnerId, ticketId, callByProvider: {
+    techhub: (id) => techhubService.checkBvnRetrieval(id), abjiktech: (id) => abjikTicketService.checkBvnRetrieval(id)
+  } })
 };

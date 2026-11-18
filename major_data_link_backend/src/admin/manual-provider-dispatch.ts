@@ -6,7 +6,7 @@ import { dispatchManualCustomerRequest, dispatchManualPartnerRequest, manualDisp
 import type { ManualDispatchProvider } from '../services/manual-provider-dispatch.service.js';
 import { logAdminAction } from './audit.js';
 import type { AdminSessionUser } from './auth.js';
-import { checkIpeClearanceStatus, checkNinValidationStatus, checkPersonalizationStatus } from '../services/verification.service.js';
+import { checkBvnRetrievalStatus, checkIpeClearanceStatus, checkNinValidationStatus, checkPersonalizationStatus } from '../services/verification.service.js';
 import { partnerVerification } from '../services/partner-verification.service.js';
 import { createPartnerRequestUpdate } from '../services/partner-request-update.service.js';
 import { recoverRefundedFranceVerification } from '../services/partner-verification-recovery.service.js';
@@ -82,7 +82,7 @@ export function registerManualProviderDispatchRoutes(router: Router) {
       const inRecovery = row.provider === 'manual_dispatching';
       const dispatched = row.provider === 'techhub' || row.provider === 'abjiktech' || row.provider === 'franceverified';
       const active = row.status === TransactionStatus.PENDING || row.status === TransactionStatus.PROCESSING;
-      const checkable = active && dispatched && (service === 'IPE_CLEARANCE' || service === 'NIN_PERSONALIZATION' || service.startsWith('NIN_VALIDATION_'));
+       const checkable = active && dispatched && (service === 'IPE_CLEARANCE' || service === 'NIN_PERSONALIZATION' || service === 'BVN_RETRIEVAL' || service.startsWith('NIN_VALIDATION_'));
       const canRecover = row.kind === 'partner' && row.provider === 'franceverified' && row.status === TransactionStatus.REVERSED && (service.startsWith('NIN_VALIDATION_') || service === 'IPE_CLEARANCE');
       const dispatchError = typeof dispatch?.error === 'string' ? `<small class="recovery">Last dispatch failed: ${escapeHtml(dispatch.error)}</small>` : '';
       const lastUpdate = row.kind === 'partner' && 'requestUpdates' in row && Array.isArray(row.requestUpdates) && row.requestUpdates[0]
@@ -136,20 +136,22 @@ export function registerManualProviderDispatchRoutes(router: Router) {
       if (source === 'partner') {
         const tx = await prisma.partnerTransaction.findUnique({ where: { id } });
         const service = serviceName(tx?.metadata);
-        if (!tx || (tx.status !== TransactionStatus.PENDING && tx.status !== TransactionStatus.PROCESSING) || !['techhub', 'abjiktech', 'franceverified'].includes(tx.provider ?? '') || !['IPE_CLEARANCE', 'NIN_PERSONALIZATION'].includes(service) && !service.startsWith('NIN_VALIDATION_')) throw new Error('Request is not an active ticket-based provider request.');
+         if (!tx || (tx.status !== TransactionStatus.PENDING && tx.status !== TransactionStatus.PROCESSING) || !['techhub', 'abjiktech', 'franceverified'].includes(tx.provider ?? '') || !['IPE_CLEARANCE', 'NIN_PERSONALIZATION', 'BVN_RETRIEVAL'].includes(service) && !service.startsWith('NIN_VALIDATION_')) throw new Error('Request is not an active ticket-based provider request.');
         const result = service === 'IPE_CLEARANCE' ? await partnerVerification.checkIpeClearance(tx.partnerId, tx.providerRef ?? '')
           : service === 'NIN_PERSONALIZATION' ? await partnerVerification.checkPersonalization(tx.partnerId, tx.providerRef ?? '')
-            : await partnerVerification.checkNinValidation(tx.partnerId, tx.providerRef ?? '');
+             : service === 'BVN_RETRIEVAL' ? await partnerVerification.checkBvnRetrieval(tx.partnerId, tx.providerRef ?? '')
+               : await partnerVerification.checkNinValidation(tx.partnerId, tx.providerRef ?? '');
         await logAdminAction({ adminId: admin.id, action: 'CHECK_MANUAL_PROVIDER_STATUS', targetType: 'PartnerTransaction', targetId: id, metadata: { provider: tx.provider, status: result.status } });
         return res.redirect(`/admin/manual-provider-dispatch?flash=${encodeURIComponent(`Provider status for ${tx.reference}: ${result.status}`)}`);
       }
       if (source === 'customer') {
         const tx = await prisma.transaction.findUnique({ where: { id } });
         const service = serviceName(tx?.metadata);
-        if (!tx || (tx.status !== TransactionStatus.PENDING && tx.status !== TransactionStatus.PROCESSING) || !['techhub', 'abjiktech', 'franceverified'].includes(tx.provider ?? '') || !['IPE_CLEARANCE', 'NIN_PERSONALIZATION'].includes(service) && !service.startsWith('NIN_VALIDATION_')) throw new Error('Request is not an active ticket-based provider request.');
+         if (!tx || (tx.status !== TransactionStatus.PENDING && tx.status !== TransactionStatus.PROCESSING) || !['techhub', 'abjiktech', 'franceverified'].includes(tx.provider ?? '') || !['IPE_CLEARANCE', 'NIN_PERSONALIZATION', 'BVN_RETRIEVAL'].includes(service) && !service.startsWith('NIN_VALIDATION_')) throw new Error('Request is not an active ticket-based provider request.');
         const result = service === 'IPE_CLEARANCE' ? await checkIpeClearanceStatus({ userId: tx.userId, ticketId: tx.providerRef ?? '' })
           : service === 'NIN_PERSONALIZATION' ? await checkPersonalizationStatus({ userId: tx.userId, ticketId: tx.providerRef ?? '' })
-            : await checkNinValidationStatus({ userId: tx.userId, ticketId: tx.providerRef ?? '' });
+             : service === 'BVN_RETRIEVAL' ? await checkBvnRetrievalStatus({ userId: tx.userId, ticketId: tx.providerRef ?? '' })
+               : await checkNinValidationStatus({ userId: tx.userId, ticketId: tx.providerRef ?? '' });
         await logAdminAction({ adminId: admin.id, action: 'CHECK_MANUAL_PROVIDER_STATUS', targetType: 'Transaction', targetId: id, metadata: { provider: tx.provider, status: result.status } });
         return res.redirect(`/admin/manual-provider-dispatch?flash=${encodeURIComponent(`Provider status for ${tx.reference}: ${result.status}`)}`);
       }

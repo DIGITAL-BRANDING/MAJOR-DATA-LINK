@@ -440,6 +440,23 @@ partnerApiRoutes.post('/verification/bvn/slip', async (req, res) => {
   res.status(partnerSlipAsync(req) && result.status === 'pending' ? 202 : 200).json(verificationResponse(result));
 });
 
+partnerApiRoutes.post('/verification/bvn/retrieval', async (req, res) => {
+  const body = z.object({
+    first_name: z.string().trim().min(1).max(100),
+    last_name: z.string().trim().min(1).max(100),
+    phone_number: z.string().trim().regex(/^\d{11}$/, 'phone_number must be exactly 11 digits')
+  }).parse(req.body);
+  const result = await partnerVerification.submitBvnRetrieval(req.partner!.id, body, idempotencyKeyFrom(req));
+  res.set('Cache-Control', 'no-store');
+  res.status(202).json(asyncVerificationResponse(result));
+});
+
+partnerApiRoutes.get('/verification/bvn/retrieval/:ticketId', async (req, res) => {
+  const result = await partnerVerification.checkBvnRetrieval(req.partner!.id, req.params.ticketId);
+  res.set('Cache-Control', 'no-store');
+  res.json(asyncVerificationResponse(result));
+});
+
 partnerApiRoutes.post('/data/purchase', purchaseLimiter, async (req, res) => {
   const body = z.object({ network: z.string().min(1), plan_id: z.string().min(1), phone: z.string().trim().min(6).max(20) }).parse(req.body);
   const provider = await activeDataAirtimeProvider();

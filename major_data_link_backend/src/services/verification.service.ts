@@ -1801,7 +1801,7 @@ export function checkBvnRetrievalStatus(params: { userId: string; ticketId: stri
   return checkAsyncServiceStatus({
     userId: params.userId,
     ticketId: params.ticketId,
-    callByProvider: { techhub: (id) => techhubService.checkBvnRetrieval(id), hubbu: hubbuPendingStatus }
+    callByProvider: { techhub: (id) => techhubService.checkBvnRetrieval(id), abjiktech: (id) => abjikTicketService.checkBvnRetrieval(id), hubbu: hubbuPendingStatus }
   });
 }
 

@@ -23,7 +23,7 @@ const SERVICE_PROVIDERS: Record<string, Capabilities> = {
   NIN_VALIDATION_SIM: { techhub: true },
   NIN_VALIDATION_UPDATE_RECORDS: { techhub: true },
   NIN_PERSONALIZATION: { techhub: true, abjiktech: true },
-  BVN_RETRIEVAL: { techhub: true },
+  BVN_RETRIEVAL: { techhub: true, abjiktech: true },
   IPE_CLEARANCE: { techhub: true, abjiktech: true, franceverified: true }
 };
 
@@ -87,11 +87,14 @@ async function submitToProvider(service: string, provider: ManualDispatchProvide
     case 'NIN_PERSONALIZATION':
       return provider === 'abjiktech' ? abjikTicketService.submitPersonalization(requiredString(pii, 'tracking_id')) : techhubService.submitPersonalization(requiredString(pii, 'tracking_id'));
     case 'BVN_RETRIEVAL':
-      return techhubService.submitBvnRetrieval({
+      const bvnRetrievalParams = {
         first_name: requiredString(pii, 'first_name'),
         last_name: requiredString(pii, 'last_name'),
         phone_number: requiredString(pii, 'phone_number')
-      });
+      };
+      return provider === 'abjiktech'
+        ? abjikTicketService.submitBvnRetrieval(bvnRetrievalParams)
+        : techhubService.submitBvnRetrieval(bvnRetrievalParams);
     case 'IPE_CLEARANCE':
       return provider === 'abjiktech'
         ? abjikTicketService.submitIpeClearance(requiredString(pii, 'tracking_id'))
