@@ -436,11 +436,8 @@ verificationRoutes.post('/nin/by-demographic', async (req, res) => {
   res.json(slipResponse(result));
 });
 
-// "NIN by Phone V1"/"V2" and "NIN by Demographic V1"/"V2" - same
-// user-picked-provider pattern as /nin/verification-v1 and -v2 above,
-// extended to the Phone and Demographic lookups. See the SERVICE_KEYS
-// comment for NIN_PHONE_SLIP_V1/V2 and NIN_DEMOGRAPHIC_V1/V2 in
-// verification.service.ts.
+// Versioned NIN Phone and Demographic endpoints retain separate pricing
+// keys. Phone lookups use the configured fallback chain in verification.service.ts.
 verificationRoutes.post('/nin/by-phone-v1', async (req, res) => {
   const body = z.object({ phone: z.string().trim().length(11), tier: ninPhoneSlipTier, ...pinField }).parse(req.body);
   await requirePinConfirmation(req.user!.id, body.pin);

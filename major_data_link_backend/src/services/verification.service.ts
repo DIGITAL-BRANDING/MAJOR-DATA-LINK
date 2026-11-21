@@ -647,19 +647,22 @@ async function purchaseSlip(params: {
   }
 
   let actualProvider = primaryProvider;
-  let result: TechhubSlipResult;
-  try {
-    result = await timedVerificationCall(params.service, 'lookup', call, {
-      provider: primaryProvider,
-      succeeded: (response) => typeof response === 'object' && response !== null && 'ok' in response && response.ok === true
-    });
-  } catch (error) {
-    if (params.background) throw error;
-    const message = error instanceof Error ? error.message : 'The provider could not complete the request.';
-    const previous = debit.transaction.metadata as Record<string, unknown> | null;
-    const balanceAfterKobo = await failSlipAndRefund({ transactionId: debit.transaction.id, userId: params.userId, provider: primaryProvider, message, metadata: previous, raw: { error: message } });
-    return { status: false, message: 'The verification provider could not complete the request; your payment has been refunded.', reference: debit.reference, transactionId: debit.transaction.id, balanceAfter: koboToNaira(balanceAfterKobo) };
-  }
+  const callProvider = async (provider: Exclude<VerificationProvider, 'manual'>, providerCall: () => Promise<TechhubSlipResult>): Promise<TechhubSlipResult> => {
+    try {
+      return await timedVerificationCall(params.service, 'lookup', providerCall, {
+        provider,
+        succeeded: (response) => typeof response === 'object' && response !== null && 'ok' in response && response.ok === true
+      });
+    } catch (error) {
+      // These are read-only identity lookups. A timeout or transport failure
+      // from one provider should not prevent trying the next provider in the
+      // configured lookup chain.
+      const message = error instanceof Error ? error.message : 'The provider could not complete the request.';
+      console.warn('[verification] ' + params.service + ' lookup failed at ' + provider + '; trying fallback when available:', message);
+      return { ok: false, pending: false, message, raw: { error: message } };
+    }
+  };
+  let result: TechhubSlipResult = await callProvider(primaryProvider, call);
 
   // A provider's explicit failure is a definitive response, so try the next
   // configured provider regardless of the failure message. A pending result
@@ -674,16 +677,7 @@ async function purchaseSlip(params: {
     if (!fallbackCall) continue;
     console.info('[verification] ' + params.service + ' returned a definitive failure from ' + actualProvider + '; retrying ' + fallbackProvider);
     actualProvider = fallbackProvider;
-    try {
-      result = await timedVerificationCall(params.service, 'lookup', fallbackCall, {
-        provider: fallbackProvider,
-        succeeded: (response) => typeof response === 'object' && response !== null && 'ok' in response && response.ok === true
-      });
-    } catch (error) {
-      // A thrown/timeout outcome is ambiguous: the provider may have accepted
-      // the request. Mark it pending so we do not submit a duplicate elsewhere.
-      result = { ok: false, pending: true, message: error instanceof Error ? error.message : 'The provider outcome is unknown.', raw: { error: error instanceof Error ? error.message : 'Unknown provider error' } };
-    }
+    result = await callProvider(fallbackProvider, fallbackCall);
     if (result.ok || result.pending) break;
     canTryFallback = canFallback(result);
   }
@@ -1152,7 +1146,7 @@ export function purchaseNinByPhone(params: {
     pii: { phone: params.phone },
     idempotencyKey: params.idempotencyKey,
     background: params.background,
-    providerOrder: ['techhub', 'abjiktech', 'franceverified', 'hubbu'],
+    providerOrder: ['techhub', 'abjiktech', 'hubbu'],
     callByProvider: {
       techhub: () => params.tier === 'personal' ? techhubService.ninPersonalInfoByPhone(params.phone) : techhubService.ninByPhone(params.phone, params.tier),
       abjiktech: () => abjikTechService.ninByPhone(params.phone, params.tier === 'personal' ? 'regular' : params.tier, params.tier === 'personal'),
@@ -1169,25 +1163,22 @@ export function purchaseNinByPhone(params: {
 }
 
 /**
- * "NIN by Phone V1"/"V2" - the same user-picked-provider pattern as
- * NIN_VERIFICATION_V1/V2 above, applied to the by-phone lookup. Lets a
- * customer route a by-phone request to another provider when Techhub's
- * by-phone endpoint is down, instead of being stuck on
- * whichever provider the admin last configured for the generic
- * NIN_PHONE_SLIP_* service above.
+ * Versioned customer pricing routes all use the same provider lookup order
+ * for phone searches: Techhub, AbjikTech, then Hubbu. The version only
+ * selects the corresponding configured customer price.
  */
 export function purchaseNinByPhoneV1(params: { userId: string; phone: string; tier: NinPhoneSlipChoice } & SlipRequestOptions) {
   return purchaseSlip({
     userId: params.userId,
     service: NIN_PHONE_SLIP_V1_SERVICE_BY_TIER[params.tier],
     transactionType: TransactionType.NIN_VERIFICATION,
-    description: `NIN slip (V1 - Techhub, ${params.tier}) by Phone`,
+    description: `NIN slip (V1, ${params.tier}) by Phone`,
     operational: { mode: 'by_phone', tier: params.tier },
     pii: { phone: params.phone },
     idempotencyKey: params.idempotencyKey,
     background: params.background,
     providerOverride: 'techhub',
-    providerOrder: ['techhub', 'abjiktech', 'franceverified', 'hubbu'],
+    providerOrder: ['techhub', 'abjiktech', 'hubbu'],
     callByProvider: {
       techhub: () => params.tier === 'personal' ? techhubService.ninPersonalInfoByPhone(params.phone) : techhubService.ninByPhone(params.phone, params.tier),
       abjiktech: () => abjikTechService.ninByPhone(params.phone, params.tier === 'personal' ? 'regular' : params.tier, params.tier === 'personal'),
@@ -1208,13 +1199,13 @@ export function purchaseNinByPhoneV2(params: { userId: string; phone: string; ti
     userId: params.userId,
     service: NIN_PHONE_SLIP_V2_SERVICE_BY_TIER[params.tier],
     transactionType: TransactionType.NIN_VERIFICATION,
-    description: `NIN slip (V2 - AbjikTech, ${params.tier}) by Phone`,
+    description: `NIN slip (V2, ${params.tier}) by Phone`,
     operational: { mode: 'by_phone', tier: params.tier },
     pii: { phone: params.phone },
     idempotencyKey: params.idempotencyKey,
     background: params.background,
     providerOverride: 'abjiktech',
-    providerOrder: ['techhub', 'abjiktech', 'franceverified', 'hubbu'],
+    providerOrder: ['techhub', 'abjiktech', 'hubbu'],
     callByProvider: {
       techhub: () => params.tier === 'personal' ? techhubService.ninPersonalInfoByPhone(params.phone) : techhubService.ninByPhone(params.phone, params.tier),
       abjiktech: () => abjikTechService.ninByPhone(params.phone, params.tier === 'personal' ? 'regular' : params.tier, params.tier === 'personal'),
@@ -1233,9 +1224,9 @@ export function purchaseNinByPhoneV2(params: { userId: string; phone: string; ti
 export function purchaseNinByPhoneV3(params: { userId: string; phone: string; tier: NinPhoneSlipChoice } & SlipRequestOptions) {
   return purchaseSlip({
     userId: params.userId, service: NIN_PHONE_SLIP_V3_SERVICE_BY_TIER[params.tier], transactionType: TransactionType.NIN_VERIFICATION,
-    description: `NIN slip (V3 - FranceVerified, ${params.tier}) by Phone`, operational: { mode: 'by_phone', tier: params.tier },
+    description: `NIN slip (V3, ${params.tier}) by Phone`, operational: { mode: 'by_phone', tier: params.tier },
     pii: { phone: params.phone }, idempotencyKey: params.idempotencyKey, background: params.background, providerOverride: 'franceverified',
-    providerOrder: ['techhub', 'abjiktech', 'franceverified', 'hubbu'],
+    providerOrder: ['techhub', 'abjiktech', 'hubbu'],
     callByProvider: {
       techhub: () => params.tier === 'personal' ? techhubService.ninPersonalInfoByPhone(params.phone) : techhubService.ninByPhone(params.phone, params.tier),
       abjiktech: () => abjikTechService.ninByPhone(params.phone, params.tier === 'personal' ? 'regular' : params.tier, params.tier === 'personal'),
@@ -1254,9 +1245,9 @@ export function purchaseNinByPhoneV3(params: { userId: string; phone: string; ti
 export function purchaseNinByPhoneV4(params: { userId: string; phone: string; tier: NinPhoneSlipChoice } & SlipRequestOptions) {
   return purchaseSlip({
     userId: params.userId, service: NIN_PHONE_SLIP_V4_SERVICE_BY_TIER[params.tier], transactionType: TransactionType.NIN_VERIFICATION,
-    description: `NIN slip (V4 - Hubbu, ${params.tier}) by Phone`, operational: { mode: 'by_phone', tier: params.tier },
+    description: `NIN slip (V4, ${params.tier}) by Phone`, operational: { mode: 'by_phone', tier: params.tier },
     pii: { phone: params.phone }, idempotencyKey: params.idempotencyKey, background: params.background, providerOverride: 'hubbu',
-    providerOrder: ['techhub', 'abjiktech', 'franceverified', 'hubbu'],
+    providerOrder: ['techhub', 'abjiktech', 'hubbu'],
     callByProvider: {
       techhub: () => params.tier === 'personal' ? techhubService.ninPersonalInfoByPhone(params.phone) : techhubService.ninByPhone(params.phone, params.tier),
       abjiktech: () => abjikTechService.ninByPhone(params.phone, params.tier === 'personal' ? 'regular' : params.tier, params.tier === 'personal'),

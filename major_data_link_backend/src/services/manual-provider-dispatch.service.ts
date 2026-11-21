@@ -86,7 +86,7 @@ async function submitToProvider(service: string, provider: ManualDispatchProvide
         : techhubService.submitNinValidation(requiredString(pii, 'nin'), validationType);
     case 'NIN_PERSONALIZATION':
       return provider === 'abjiktech' ? abjikTicketService.submitPersonalization(requiredString(pii, 'tracking_id')) : techhubService.submitPersonalization(requiredString(pii, 'tracking_id'));
-    case 'BVN_RETRIEVAL':
+    case 'BVN_RETRIEVAL': {
       const bvnRetrievalParams = {
         first_name: requiredString(pii, 'first_name'),
         last_name: requiredString(pii, 'last_name'),
@@ -95,6 +95,7 @@ async function submitToProvider(service: string, provider: ManualDispatchProvide
       return provider === 'abjiktech'
         ? abjikTicketService.submitBvnRetrieval(bvnRetrievalParams)
         : techhubService.submitBvnRetrieval(bvnRetrievalParams);
+    }
     case 'IPE_CLEARANCE':
       return provider === 'abjiktech'
         ? abjikTicketService.submitIpeClearance(requiredString(pii, 'tracking_id'))

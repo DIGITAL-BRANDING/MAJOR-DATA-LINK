@@ -256,6 +256,17 @@ export default function PartnerApiDocsPage() {
             rows={[{ name: 'tracking_id', type: 'string', required: true, desc: 'NIMC tracking ID' }]}
           />
           <AsyncServiceCard
+            title="BVN Retrieval by Phone"
+            desc="Submit a BVN retrieval request with the account holder's name and registered phone number. The request enters the admin queue for provider dispatch; use the returned ticket ID to check its status."
+            submitPath="/verification/bvn/retrieval"
+            checkPath="/verification/bvn/retrieval/:ticketId"
+            rows={[
+              { name: 'first_name', type: 'string', required: true, desc: 'BVN holder first name' },
+              { name: 'last_name', type: 'string', required: true, desc: 'BVN holder last name' },
+              { name: 'phone_number', type: 'string', required: true, desc: '11-digit phone number linked to the BVN' }
+            ]}
+          />
+          <AsyncServiceCard
             title="IPE Clearance"
             desc="Submit an IPE clearance request by tracking ID and the selected IPE issue type."
             submitPath="/verification/nin/ipe-clearance"

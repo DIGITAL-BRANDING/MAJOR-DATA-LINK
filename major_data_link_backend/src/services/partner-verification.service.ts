@@ -183,7 +183,7 @@ async function checkPartnerAsync(params: {
     return { reference: transaction.reference, ticketId: params.ticketId,
       status: transaction.status === TransactionStatus.SUCCESS ? 'success' : 'failed', response: stored?.response ?? null };
   }
-  if (transaction.provider === 'manual') return { reference: transaction.reference, ticketId: params.ticketId, status: 'pending', response: null };
+  if (transaction.provider === 'manual' || transaction.provider === 'manual_dispatching') return { reference: transaction.reference, ticketId: params.ticketId, status: 'pending', response: null };
   if (metadata.provider_outcome === 'unconfirmed') return { reference: transaction.reference, ticketId: params.ticketId, status: 'pending', response: null };
   const call = params.callByProvider[transaction.provider as VerificationProvider];
   if (!call) throw new ApiError(500, `No status-check implementation for provider "${transaction.provider}"`, 'PROVIDER_NOT_IMPLEMENTED');
